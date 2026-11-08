@@ -1808,8 +1808,8 @@ mod tests {
     }
     #[test]
     fn custom_plugin_and_wide_character_lengths_are_explicit() {
-        assert_eq!(packet_length(0x006D), Some(157));
-        assert_eq!(packet_length(0x0A37), Some(69));
+        assert_eq!(packet_length(0x0B6F), Some(177));
+        assert_eq!(packet_length(0x0B41), Some(85));
         assert_eq!(packet_length(0x0EF5), Some(-1));
     }
 }

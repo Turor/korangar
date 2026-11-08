@@ -158,7 +158,7 @@ pub struct UseSkillOnGroundPacket {
 }
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x008C)]
+#[header(0x00F3)]
 #[variable_length]
 pub struct GlobalMessagePacket {
     #[length_remaining_off_by_one]
@@ -338,7 +338,7 @@ mod codec_tests {
         GlobalMessagePacket::new("Tester : hello".into())
             .packet_to_bytes(&mut writer)
             .unwrap();
-        assert_eq!(&writer.as_slice()[..2], &[0x8C, 0x00]);
+        assert_eq!(&writer.as_slice()[..2], &[0xF3, 0x00]);
         assert_eq!(writer.as_slice().last(), Some(&0));
     }
 }
