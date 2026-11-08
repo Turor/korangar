@@ -352,9 +352,12 @@ where
                     }
                     while consumed < pending.len() {
                         let available = &pending[consumed..];
-                        let framed = matches!(packet_version, SupportedPacketVersion::_20190530);
+                        let framed = matches!(packet_version, SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716);
                         let frame_size = if framed {
-                            match packet_versions::framing_20190530::frame_length(available) {
+                            match match packet_version {
+                                SupportedPacketVersion::_20250716 => packet_versions::framing_20250716::frame_length(available).map_err(|_|()),
+                                _ => packet_versions::framing_20190530::frame_length(available).map_err(|_|()),
+                            } {
                                 Ok(Some(size)) => size,
                                 Ok(None) => break,
                                 Err(_) => return Err(NetworkTaskError::ConnectionClosed),
@@ -430,8 +433,10 @@ where
             .expect("network thread dropped");
 
         let mut login_packet = LoginServerLoginPacket::new(username.into(), password.into());
-        if matches!(packet_version, SupportedPacketVersion::_20190530) {
-            login_packet.version = 20190530u32.to_le_bytes();
+        match packet_version {
+            SupportedPacketVersion::_20190530 => login_packet.version = 20190530u32.to_le_bytes(),
+            SupportedPacketVersion::_20250716 => login_packet.version = 20250716u32.to_le_bytes(),
+            _ => {}
         }
 
         // Authentication/session material is intentionally excluded from packet
@@ -523,7 +528,7 @@ where
 
         let mut byte_writer = ByteWriter::with_encoding(UTF_8);
         match packet_version {
-            SupportedPacketVersion::_20220406 => MapServerLoginPacket::new(
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20250716 => MapServerLoginPacket::new(
                 login_server_login_data.account_id,
                 character_server_login_data.character_id,
                 login_server_login_data.login_id1,
@@ -627,6 +632,7 @@ where
 
         match packet_version {
             SupportedPacketVersion::_20220406 => packet_versions::version_20220406::register_login_server_packets(&mut packet_handler)?,
+            SupportedPacketVersion::_20250716 => packet_versions::version_20250716::register_login_server_packets(&mut packet_handler)?,
             SupportedPacketVersion::_20190530 => packet_versions::version_20190530::register_login_server_packets(&mut packet_handler)?,
         }
 
@@ -641,6 +647,7 @@ where
 
         match packet_version {
             SupportedPacketVersion::_20220406 => packet_versions::version_20220406::register_character_server_packets(&mut packet_handler)?,
+            SupportedPacketVersion::_20250716 => packet_versions::version_20250716::register_character_server_packets(&mut packet_handler)?,
             SupportedPacketVersion::_20190530 => packet_versions::version_20190530::register_character_server_packets(&mut packet_handler)?,
         }
 
@@ -655,6 +662,7 @@ where
 
         match packet_version {
             SupportedPacketVersion::_20220406 => packet_versions::version_20220406::register_map_server_packets(&mut packet_handler)?,
+            SupportedPacketVersion::_20250716 => packet_versions::version_20250716::register_map_server_packets(&mut packet_handler)?,
             SupportedPacketVersion::_20190530 => packet_versions::version_20190530::register_map_server_packets(&mut packet_handler)?,
         }
 
@@ -663,7 +671,7 @@ where
 
     pub fn request_character_list(&mut self) -> Result<(), NotConnectedError> {
         match self.character_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_character_server_packet(RequestCharacterListPacket::default())
             }
         }
@@ -671,7 +679,7 @@ where
 
     pub fn select_character(&mut self, character_slot: usize) -> Result<(), NotConnectedError> {
         match self.character_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_character_server_packet(SelectCharacterPacket::new(character_slot as u8))
             }
         }
@@ -684,9 +692,15 @@ where
         let sex = Sex::Male;
 
         match self.character_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => self.send_character_server_packet(
-                CreateCharacterPacket::new(name, slot as u8, hair_color, hair_style, start_job_id, sex),
-            ),
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_character_server_packet(CreateCharacterPacket::new(
+                    name,
+                    slot as u8,
+                    hair_color,
+                    hair_style,
+                    start_job_id,
+                    sex,
+                )),
         }
     }
 
@@ -694,7 +708,7 @@ where
         let email = "a@a.com".to_string();
 
         match self.character_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_character_server_packet(DeleteCharacterPacket::new(character_id, email))
             }
         }
@@ -702,7 +716,7 @@ where
 
     pub fn switch_character_slot(&mut self, origin_slot: usize, destination_slot: usize) -> Result<(), NotConnectedError> {
         match self.character_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_character_server_packet(SwitchCharacterSlotPacket::new(origin_slot as u16, destination_slot as u16))
             }
         }
@@ -710,7 +724,7 @@ where
 
     pub fn map_loaded(&mut self) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(MapLoadedPacket::default())
             }
         }
@@ -724,7 +738,7 @@ where
             .unwrap_or(100);
 
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(RequestServerTickPacket::new(ClientTick(client_tick)))
             }
         }
@@ -732,7 +746,7 @@ where
 
     pub fn respawn(&mut self) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(RestartPacket::new(RestartType::Respawn))
             }
         }
@@ -740,7 +754,7 @@ where
 
     pub fn log_out(&mut self) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(RestartPacket::new(RestartType::Disconnect))
             }
         }
@@ -749,7 +763,7 @@ where
     pub fn player_move(&mut self, position: WorldPosition) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(RequestPlayerMovePacket::new(position)),
-            SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(ragnarok_packets::version_20190530::RequestPlayerMovePacket::new(position))
             }
         }
@@ -757,7 +771,7 @@ where
 
     pub fn warp_to_map(&mut self, map_name: String, position: TilePosition) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(RequestWarpToMapPacket::new(map_name, position))
             }
         }
@@ -765,7 +779,7 @@ where
 
     pub fn entity_details(&mut self, entity_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(RequestDetailsPacket::new(entity_id))
             }
         }
@@ -773,7 +787,7 @@ where
 
     pub fn player_attack(&mut self, entity_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(RequestActionPacket::new(entity_id, Action::Attack))
             }
         }
@@ -781,6 +795,9 @@ where
 
     pub fn send_emotion(&mut self, emotion: u8) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(ragnarok_packets::version_20250716::RequestEmotionPacket::new(emotion as u16))
+            }
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
                 self.send_map_server_packet(RequestEmotionPacket::new(emotion))
             }
@@ -789,7 +806,7 @@ where
 
     pub fn pick_up_item(&mut self, entity_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(ItemPickupRequestPacket::new(entity_id))
             }
         }
@@ -800,7 +817,7 @@ where
 
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(GlobalMessagePacket::new(message)),
-            SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(ragnarok_packets::version_20190530::GlobalMessagePacket::new(message))
             }
         }
@@ -808,7 +825,7 @@ where
 
     pub fn start_dialog(&mut self, npc_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(StartDialogPacket::new(npc_id))
             }
         }
@@ -816,7 +833,7 @@ where
 
     pub fn next_dialog(&mut self, npc_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(NextDialogPacket::new(npc_id))
             }
         }
@@ -824,7 +841,7 @@ where
 
     pub fn close_dialog(&mut self, npc_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(CloseDialogPacket::new(npc_id))
             }
         }
@@ -832,7 +849,7 @@ where
 
     pub fn choose_dialog_option(&mut self, npc_id: EntityId, option: i8) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(ChooseDialogOptionPacket::new(npc_id, option))
             }
         }
@@ -840,7 +857,7 @@ where
 
     pub fn request_item_equip(&mut self, item_index: InventoryIndex, equip_position: EquipPosition) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(RequestEquipItemPacket::new(item_index, equip_position))
             }
         }
@@ -848,7 +865,7 @@ where
 
     pub fn request_item_unequip(&mut self, item_index: InventoryIndex) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(RequestUnequipItemPacket::new(item_index))
             }
         }
@@ -856,7 +873,7 @@ where
 
     pub fn cast_skill(&mut self, skill_id: SkillId, skill_level: SkillLevel, entity_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(UseSkillAtIdPacket::new(skill_level, skill_id, entity_id))
             }
         }
@@ -869,7 +886,7 @@ where
         target_position: TilePosition,
     ) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(UseSkillOnGroundPacket::new(skill_level, skill_id, target_position))
             }
             SupportedPacketVersion::_20190530 => self.send_map_server_packet(
@@ -885,7 +902,7 @@ where
         entity_id: EntityId,
     ) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(StartUseSkillPacket::new(skill_id, skill_level, entity_id))
             }
         }
@@ -893,7 +910,7 @@ where
 
     pub fn stop_channeling_skill(&mut self, skill_id: SkillId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(EndUseSkillPacket::new(skill_id))
             }
         }
@@ -901,7 +918,7 @@ where
 
     pub fn add_friend(&mut self, name: String) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(AddFriendPacket::new(name))
             }
         }
@@ -909,7 +926,7 @@ where
 
     pub fn remove_friend(&mut self, account_id: AccountId, character_id: CharacterId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(RemoveFriendPacket::new(account_id, character_id))
             }
         }
@@ -917,23 +934,29 @@ where
 
     pub fn reject_friend_request(&mut self, account_id: AccountId, character_id: CharacterId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => self.send_map_server_packet(
-                FriendRequestResponsePacket::new(account_id, character_id, FriendRequestResponse::Reject),
-            ),
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(FriendRequestResponsePacket::new(
+                    account_id,
+                    character_id,
+                    FriendRequestResponse::Reject,
+                )),
         }
     }
 
     pub fn accept_friend_request(&mut self, account_id: AccountId, character_id: CharacterId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => self.send_map_server_packet(
-                FriendRequestResponsePacket::new(account_id, character_id, FriendRequestResponse::Accept),
-            ),
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(FriendRequestResponsePacket::new(
+                    account_id,
+                    character_id,
+                    FriendRequestResponse::Accept,
+                )),
         }
     }
 
     pub fn set_hotkey_data(&mut self, tab: HotbarTab, index: HotbarSlot, hotkey_data: HotkeyData) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(SetHotkeyData2Packet::new(tab, index, hotkey_data))
             }
         }
@@ -941,7 +964,7 @@ where
 
     pub fn select_buy_or_sell(&mut self, shop_id: ShopId, buy_or_sell: BuyOrSellOption) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(SelectBuyOrSellPacket::new(shop_id, buy_or_sell))
             }
         }
@@ -957,7 +980,7 @@ where
             .collect();
 
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(BuyShopItemsPacket::new(item_information))
             }
         }
@@ -965,19 +988,23 @@ where
 
     pub fn close_shop(&mut self) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => self.send_map_server_packet(CloseShopPacket::new()),
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(CloseShopPacket::new())
+            }
         }
     }
 
     pub fn sell_items(&mut self, items: Vec<SoldItemInformation>) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => self.send_map_server_packet(SellItemsPacket { items }),
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(SellItemsPacket { items })
+            }
         }
     }
 
     pub fn request_stat_up(&mut self, stat_type: StatUpType) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(RequestStatUpPacket::new(stat_type))
             }
         }
@@ -985,7 +1012,7 @@ where
 
     pub fn level_up_skill(&mut self, skill_id: SkillId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(LevelUpSkillPacket::new(skill_id))
             }
         }
@@ -996,9 +1023,9 @@ where
 mod packet_handlers {
     use ragnarok_bytes::{ByteReader, ByteWriter};
     use ragnarok_packets::handler::{HandlerResult, NoPacketCallback};
-    use ragnarok_packets::{DisplayEmotionPacket, EntityId, LoginFailedPacket2, LoginFailedReason2, PacketExt, RequestEmotionPacket};
+    use ragnarok_packets::{DisplayEmotionPacket, EntityId, PacketExt, RequestEmotionPacket};
 
-    use crate::{NetworkEvent, NetworkingSystem, SupportedPacketVersion, UnifiedLoginFailedReason};
+    use crate::{NetworkEvent, NetworkingSystem, SupportedPacketVersion};
 
     #[test]
     fn login_server() {
@@ -1100,5 +1127,9 @@ mod transport_tests {
     #[test]
     fn profile_20220406_retains_fragmented_large_handled_frames() {
         exercise(SupportedPacketVersion::_20220406);
+    }
+    #[test]
+    fn profile_20250716_retains_fragments_and_exact_plugin_boundaries() {
+        exercise(SupportedPacketVersion::_20250716);
     }
 }

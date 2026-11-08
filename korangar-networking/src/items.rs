@@ -17,7 +17,8 @@ pub enum InventoryItemDetails {
         w_item_sprite_number: u16,
         option_count: u8,
         option_data: [ItemOptions; 5], // fix count
-        /// Turoran 20190530 custom forge options; absent for stock 20220406.
+        /// Turoran custom forge options (20190530 RE and live 20250716 MAIN);
+        /// absent for stock 20220406.
         forge_data: Option<[ItemOptions; 3]>,
         refinement_level: u8,
         enchantment_level: u8,
