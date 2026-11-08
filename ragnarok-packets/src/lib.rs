@@ -2,8 +2,8 @@
 #![cfg_attr(feature = "interface", feature(impl_trait_in_assoc_type))]
 
 pub mod handler;
-pub mod version_20190530;
 mod position;
+pub mod version_20190530;
 
 use std::net::Ipv4Addr;
 
@@ -210,7 +210,10 @@ pub struct InventoryIndex(pub u16);
 
 impl FromBytes for InventoryIndex {
     fn from_bytes(byte_reader: &mut ByteReader) -> ConversionResult<Self> {
-        u16::from_bytes(byte_reader).map(|raw| Self(raw - 2))
+        let raw = u16::from_bytes(byte_reader)?;
+        raw.checked_sub(2)
+            .map(Self)
+            .ok_or_else(|| ConversionError::from_message("invalid inventory index"))
     }
 }
 

@@ -300,6 +300,7 @@ impl ServerType {
 #[derive(Debug, Clone, Copy, Deserialize, StateElement)]
 pub enum PacketVersion {
     _20220406,
+    _20190530,
     Unsupported(u64),
 }
 
@@ -311,6 +312,7 @@ where
 
     match version {
         20220406 => Ok(Some(PacketVersion::_20220406)),
+        20190530 => Ok(Some(PacketVersion::_20190530)),
         _ => Ok(Some(PacketVersion::Unsupported(version))),
     }
 }
