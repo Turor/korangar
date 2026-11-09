@@ -5,8 +5,9 @@ use std::time::Instant;
 
 use ragnarok_packets::handler::{DuplicateHandlerError, PacketCallback, PacketHandler};
 use ragnarok_packets::version_20250716::{
-    AddSkillPacket, DisplayExpandedEmotionPacket, EquippableItemListPacket, ItemPickupPacket, TradeAddItemPacket, TradeAddItemResultPacket,
-    TradeCancelPacket, TradeCompletePacket, TradeConfirmPacket, TradeRequestPacket, TradeStartPacket, TradeUnlockPacket, AddItemToCartPacket,
+    AddItemToCartPacket, AddSkillPacket, DisplayExpandedEmotionPacket, EquippableItemListPacket, ItemPickupPacket, TradeAddItemPacket,
+    TradeAddItemResultPacket, TradeCancelPacket, TradeCompletePacket, TradeConfirmPacket, TradeRequestPacket, TradeStartPacket,
+    TradeUnlockPacket,
 };
 use ragnarok_packets::*;
 
@@ -1005,6 +1006,7 @@ where
     packet_handler.register_noop::<ClanOnlineCountPacket>()?;
     packet_handler.register_noop::<ChangeMapCellPacket>()?;
     packet_handler.register(open_market_event)?;
+    crate::packet_versions::enchant::register_enchant_packets(packet_handler)?;
     crate::packet_versions::economy::register_player_shop_packets(packet_handler)?;
     packet_handler.register(|packet: BuyOrSellPacket| NetworkEvent::AskBuyOrSell { shop_id: packet.shop_id })?;
     packet_handler.register(|packet: ShopItemListPacket| {

@@ -339,7 +339,8 @@ pub enum NetworkEvent {
         amount: u16,
         result: u8,
     },
-    /// Buying store could not open (`0x0812`). `result` is the server reason code.
+    /// Buying store could not open (`0x0812`). `result` is the server reason
+    /// code.
     BuyingStoreOpenFailed {
         result: u16,
         total_weight: u32,
@@ -547,6 +548,17 @@ pub enum NetworkEvent {
     PlayerHealEffect {
         heal_type: HealType,
         heal_amount: u32,
+    },
+    /// Enchant UI opened (`ZC_UI_OPEN2` / `0x0B9A`, type
+    /// [`ragnarok_packets::ENCHANT_UI_TYPE`]). `enchant_group` is the full
+    /// 64-bit id from the server.
+    OpenEnchant {
+        enchant_group: i64,
+    },
+    /// Enchant attempt result (`ZC_RESPONSE_ENCHANT`, `0x0B9F`).
+    EnchantResult {
+        message_id: i32,
+        item_id: ItemId,
     },
     /// Base or job experience (`DisplayGainedExperiencePacket`, 0x0ACC).
     GainedExperience {

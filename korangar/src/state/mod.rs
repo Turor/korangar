@@ -177,6 +177,8 @@ pub struct ClientState {
     friend_list_window: FriendListWindowState,
     /// Internal state of the dialog window.
     dialog_window: DialogWindowState,
+    /// Internal state of the enchant window.
+    enchant_window: crate::interface::windows::EnchantWindowState,
     /// Internal state of the skill tree window.
     skill_tree_window: SkillTreeWindowState,
 
@@ -236,7 +238,7 @@ pub struct ClientState {
     storage: Inventory,
     /// Alternate equipment set. This does not change what is currently worn.
     equip_switch: EquipSwitch,
-/// Player cart. Separate from the bag and from NPC buy/sell drafts.
+    /// Player cart. Separate from the bag and from NPC buy/sell drafts.
     cart: Inventory,
     /// Player skill tree.
     skill_tree: SkillTree,
@@ -394,6 +396,7 @@ impl ClientState {
 
         time_phase!("create player resources", {
             let dialog_window = DialogWindowState::default();
+            let enchant_window = crate::interface::windows::EnchantWindowState::default();
 
             let shop_items = Vec::default();
             let buy_cart = Vec::default();
@@ -473,6 +476,7 @@ impl ClientState {
             chat_window,
             friend_list_window,
             dialog_window,
+            enchant_window,
             skill_tree_window,
             entities: Vec::new(),
             dead_entities: Vec::new(),

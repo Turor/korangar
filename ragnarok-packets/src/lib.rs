@@ -3916,6 +3916,73 @@ pub struct MoveItemFromStoragePacket {
 #[header(0x0193)]
 pub struct CloseStoragePacket {}
 
+/// `out_ui_type::OUT_UI_ENCHANT` on `ZC_UI_OPEN2` / `ZC_UI_OPEN_V3` (`0x0B9A`).
+pub const ENCHANT_UI_TYPE: u8 = 10;
+
+/// `ZC_UI_OPEN2` (`0x0B9A`, 11 bytes): `u8` UI type and `i64` payload.
+/// Enchant uses type [`ENCHANT_UI_TYPE`] and the full 64-bit enchant group.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B9A)]
+pub struct UiOpenV3Packet {
+    pub ui_type: u8,
+    pub data: i64,
+}
+
+/// `CZ_REQUEST_RANDOM_ENCHANT` (`0x0B9B`, 12 bytes).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B9B)]
+pub struct RequestRandomEnchantPacket {
+    pub enchant_group: i64,
+    pub inventory_index: i16,
+}
+
+/// `CZ_REQUEST_PERFECT_ENCHANT` (`0x0B9C`, 16 bytes).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B9C)]
+pub struct RequestPerfectEnchantPacket {
+    pub enchant_group: i64,
+    pub inventory_index: i16,
+    pub item_id: ItemId,
+}
+
+/// `CZ_REQUEST_UPGRADE_ENCHANT` (`0x0B9D`, 14 bytes).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B9D)]
+pub struct RequestUpgradeEnchantPacket {
+    pub enchant_group: i64,
+    pub inventory_index: i16,
+    pub slot: i16,
+}
+
+/// `CZ_REQUEST_RESET_ENCHANT` (`0x0B9E`, 12 bytes).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B9E)]
+pub struct RequestResetEnchantPacket {
+    pub enchant_group: i64,
+    pub inventory_index: i16,
+}
+
+/// `ZC_RESPONSE_ENCHANT` (`0x0B9F`, 10 bytes).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B9F)]
+pub struct EnchantResponsePacket {
+    pub message_id: i32,
+    pub item_id: ItemId,
+}
+
+/// `CZ_CLOSE_UI_ENCHANT` (`0x0BA0`, 2 bytes). The server unfreezes the player
+/// only after this packet.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0BA0)]
+pub struct CloseUiEnchantPacket {}
+
 #[derive(Debug, Clone, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub enum RequestUnequipItemStatus {
@@ -4642,7 +4709,8 @@ pub struct OwnBuyingStoreListPacket {
 }
 
 /// Opening a buying store was rejected (`ZC_FAILED_OPEN_BUYING_STORE_TO_BUYER`,
-/// 0x0812). `result` is the reason; `total_weight` is the buyer's current weight.
+/// 0x0812). `result` is the reason; `total_weight` is the buyer's current
+/// weight.
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0812)]

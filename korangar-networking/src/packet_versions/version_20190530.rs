@@ -856,6 +856,7 @@ where
     packet_handler.register_noop::<ClanOnlineCountPacket>()?;
     packet_handler.register_noop::<ChangeMapCellPacket>()?;
     packet_handler.register(open_market_event)?;
+    crate::packet_versions::enchant::register_enchant_packets(packet_handler)?;
     packet_handler.register(|packet: BuyOrSellPacket| NetworkEvent::AskBuyOrSell { shop_id: packet.shop_id })?;
     packet_handler.register(|packet: ShopItemListPacket| {
         let items = packet

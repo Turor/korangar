@@ -38,6 +38,7 @@ pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
 pub use self::message::MessageColor;
 pub use self::packet_versions::SupportedPacketVersion;
+pub use self::packet_versions::enchant::{format_enchant_result, parse_enchant_index, parse_enchant_item_id, parse_enchant_slot};
 pub use self::server::{
     CharacterServerLoginData, LoginServerLoginData, NotConnectedError, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
 };
@@ -900,7 +901,59 @@ where
         }
     }
 
-pub fn request_equip_switch(&mut self) -> Result<(), NotConnectedError> {
+    /// `CZ_CLOSE_UI_ENCHANT` (`0x0BA0`). Required so the map server unfreezes
+    /// movement.
+    pub fn close_ui_enchant(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(CloseUiEnchantPacket::new())
+            }
+        }
+    }
+
+    pub fn request_random_enchant(&mut self, enchant_group: i64, inventory_index: i16) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(RequestRandomEnchantPacket {
+                    enchant_group,
+                    inventory_index,
+                }),
+        }
+    }
+
+    pub fn request_perfect_enchant(&mut self, enchant_group: i64, inventory_index: i16, item_id: ItemId) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(RequestPerfectEnchantPacket {
+                    enchant_group,
+                    inventory_index,
+                    item_id,
+                }),
+        }
+    }
+
+    pub fn request_upgrade_enchant(&mut self, enchant_group: i64, inventory_index: i16, slot: i16) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(RequestUpgradeEnchantPacket {
+                    enchant_group,
+                    inventory_index,
+                    slot,
+                }),
+        }
+    }
+
+    pub fn request_reset_enchant(&mut self, enchant_group: i64, inventory_index: i16) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(RequestResetEnchantPacket {
+                    enchant_group,
+                    inventory_index,
+                }),
+        }
+    }
+
+    pub fn request_equip_switch(&mut self) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(RequestEquipSwitchPacket::new())
@@ -917,7 +970,7 @@ pub fn request_equip_switch(&mut self) -> Result<(), NotConnectedError> {
         }
     }
 
-pub fn move_item_to_cart(&mut self, item_index: InventoryIndex, amount: i32) -> Result<(), NotConnectedError> {
+    pub fn move_item_to_cart(&mut self, item_index: InventoryIndex, amount: i32) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(MoveItemFromBodyToCartPacket::new(item_index, amount))
@@ -925,7 +978,7 @@ pub fn move_item_to_cart(&mut self, item_index: InventoryIndex, amount: i32) -> 
         }
     }
 
-pub fn move_item_from_cart(&mut self, item_index: InventoryIndex, amount: i32) -> Result<(), NotConnectedError> {
+    pub fn move_item_from_cart(&mut self, item_index: InventoryIndex, amount: i32) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(MoveItemFromCartToBodyPacket::new(item_index, amount))
@@ -1951,6 +2004,95 @@ mod packet_handlers {
     }
 
     #[test]
+    fn enchant_ui_packets_round_trip_and_keep_the_group_id() {
+        use ragnarok_packets::{
+            CloseUiEnchantPacket, ENCHANT_UI_TYPE, EnchantResponsePacket, ItemId, RequestPerfectEnchantPacket, RequestRandomEnchantPacket,
+            RequestResetEnchantPacket, RequestUpgradeEnchantPacket, UiOpenV3Packet,
+        };
+
+        let group = i64::from(u32::MAX) + 9;
+
+        let open = UiOpenV3Packet {
+            ui_type: ENCHANT_UI_TYPE,
+            data: group,
+        };
+        let mut writer = ByteWriter::new();
+        open.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 11);
+
+        for version in [
+            SupportedPacketVersion::_20250716,
+            SupportedPacketVersion::_20220406,
+            SupportedPacketVersion::_20190530,
+        ] {
+            let events = process_one(version, writer.as_slice());
+            assert!(matches!(events.as_slice(), [NetworkEvent::OpenEnchant { enchant_group }] if *enchant_group == group));
+        }
+
+        let other_ui = UiOpenV3Packet { ui_type: 0, data: group };
+        let mut writer = ByteWriter::new();
+        other_ui.packet_to_bytes(&mut writer).unwrap();
+        assert!(process_one(SupportedPacketVersion::_20250716, writer.as_slice()).is_empty());
+
+        let result = EnchantResponsePacket {
+            message_id: 3857,
+            item_id: ItemId(4001),
+        };
+        let mut writer = ByteWriter::new();
+        result.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 10);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::EnchantResult {
+            message_id: 3857,
+            item_id: ItemId(4001)
+        }]));
+
+        let mut writer = ByteWriter::new();
+        CloseUiEnchantPacket::new().packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0xA0, 0x0B]);
+
+        let mut writer = ByteWriter::new();
+        RequestRandomEnchantPacket {
+            enchant_group: group,
+            inventory_index: 7,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 12);
+        assert_eq!(&writer.as_slice()[2..10], &group.to_le_bytes());
+
+        let mut writer = ByteWriter::new();
+        RequestPerfectEnchantPacket {
+            enchant_group: group,
+            inventory_index: 7,
+            item_id: ItemId(501),
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 16);
+
+        let mut writer = ByteWriter::new();
+        RequestUpgradeEnchantPacket {
+            enchant_group: group,
+            inventory_index: 7,
+            slot: 2,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 14);
+
+        let mut writer = ByteWriter::new();
+        RequestResetEnchantPacket {
+            enchant_group: group,
+            inventory_index: -1,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 12);
+        assert_eq!(&writer.as_slice()[10..12], &(-1i16).to_le_bytes());
+    }
+
+    #[test]
     fn market_open_is_a_shop_distinct_from_player_vending() {
         use ragnarok_packets::{MarketItemInformation, OpenMarketPacket, Price};
 
@@ -2208,7 +2350,8 @@ mod packet_handlers {
         assert_eq!(writer.as_slice().len(), 2 + 2 + 80 + 8);
 
         // 0x0812 is open rejection (result + weight, 8 bytes). 0x081A is a finished
-        // trade rejection (result only, 4 bytes). Building the structs would hide a swap.
+        // trade rejection (result only, 4 bytes). Building the structs would hide a
+        // swap.
         let open_failed = [0x12, 0x08, 0x02, 0x00, 0x40, 0x1F, 0x00, 0x00];
         let trade_failed = [0x1A, 0x08, 0x03, 0x00];
         for version in [SupportedPacketVersion::_20250716, SupportedPacketVersion::_20220406] {
@@ -2218,7 +2361,9 @@ mod packet_handlers {
                 total_weight: 8000,
             }]));
             let events = process_one(version, &trade_failed);
-            assert!(matches!(events.as_slice(), [NetworkEvent::BuyingStoreTradeFailed { result: 3 }]));
+            assert!(matches!(events.as_slice(), [NetworkEvent::BuyingStoreTradeFailed {
+                result: 3
+            }]));
         }
         assert!(matches!(
             map_handler(SupportedPacketVersion::_20190530).process_one(&mut ByteReader::without_metadata(&open_failed)),
