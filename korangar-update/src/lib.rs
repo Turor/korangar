@@ -146,6 +146,11 @@ fn apply_manifest(manifest: &ReleaseManifest, manifest_url: &str, request: &Star
         return Err(error);
     }
     let _ = fs::remove_dir_all(&staging);
+    for item in &swapped {
+        if let Some(aside) = &item.displaced_backup {
+            let _ = fs::remove_file(aside);
+        }
+    }
 
     let relaunched = if request.spawn_relaunch {
         match Command::new(request.current_exe).args(request.relaunch_args).spawn() {
@@ -165,6 +170,9 @@ fn apply_manifest(manifest: &ReleaseManifest, manifest_url: &str, request: &Star
 struct Swapped {
     dest: PathBuf,
     backup: Option<PathBuf>,
+    /// Previous `*.old`, moved aside until this swap is committed. Restored
+    /// if a later step in the same apply fails.
+    displaced_backup: Option<PathBuf>,
 }
 
 fn swap_into_place(root: &Path, staged: &[(PathBuf, PathBuf)], exe_rel: Option<&str>) -> Result<Vec<Swapped>, String> {
@@ -176,14 +184,24 @@ fn swap_into_place(root: &Path, staged: &[(PathBuf, PathBuf)], exe_rel: Option<&
             return Err(format!("refusing to write {}", dest.display()));
         }
         let backup_path = backup_path(&dest);
+        let mut displaced_backup = None;
         let backup = if dest.exists() {
             if backup_path.exists() {
-                fs::remove_file(&backup_path).map_err(|error| error.to_string())?;
+                let aside = aside_path(&dest);
+                if let Err(error) = fs::rename(&backup_path, &aside) {
+                    rollback(&done);
+                    return Err(format!(
+                        "could not move existing backup {} aside; earlier files restored: {error}",
+                        backup_path.display()
+                    ));
+                }
+                displaced_backup = Some(aside);
             }
-            fs::rename(&dest, &backup_path).map_err(|error| {
+            if let Err(error) = fs::rename(&dest, &backup_path) {
+                restore_displaced(&dest, displaced_backup.as_deref());
                 rollback(&done);
-                format!("backup {}: {error}", dest.display())
-            })?;
+                return Err(format!("backup {}: {error}", dest.display()));
+            }
             Some(backup_path)
         } else {
             None
@@ -191,16 +209,12 @@ fn swap_into_place(root: &Path, staged: &[(PathBuf, PathBuf)], exe_rel: Option<&
         if let Some(parent) = dest.parent()
             && let Err(error) = fs::create_dir_all(parent)
         {
-            if let Some(backup) = &backup {
-                let _ = fs::rename(backup, &dest);
-            }
+            undo_current(&dest, backup.as_deref(), displaced_backup.as_deref());
             rollback(&done);
             return Err(error.to_string());
         }
         if let Err(error) = fs::rename(source, &dest) {
-            if let Some(backup) = &backup {
-                let _ = fs::rename(backup, &dest);
-            }
+            undo_current(&dest, backup.as_deref(), displaced_backup.as_deref());
             rollback(&done);
             return Err(format!("install {}: {error}", dest.display()));
         }
@@ -208,15 +222,30 @@ fn swap_into_place(root: &Path, staged: &[(PathBuf, PathBuf)], exe_rel: Option<&
             && let Err(error) = make_executable(&dest)
         {
             let _ = fs::remove_file(&dest);
-            if let Some(backup) = &backup {
-                let _ = fs::rename(backup, &dest);
-            }
+            undo_current(&dest, backup.as_deref(), displaced_backup.as_deref());
             rollback(&done);
             return Err(error);
         }
-        done.push(Swapped { dest, backup });
+        done.push(Swapped {
+            dest,
+            backup,
+            displaced_backup,
+        });
     }
     Ok(done)
+}
+
+fn undo_current(dest: &Path, backup: Option<&Path>, displaced: Option<&Path>) {
+    if let Some(backup) = backup {
+        let _ = fs::rename(backup, dest);
+    }
+    restore_displaced(dest, displaced);
+}
+
+fn restore_displaced(dest: &Path, displaced: Option<&Path>) {
+    if let Some(aside) = displaced {
+        let _ = fs::rename(aside, backup_path(dest));
+    }
 }
 
 fn rollback(swapped: &[Swapped]) {
@@ -225,14 +254,22 @@ fn rollback(swapped: &[Swapped]) {
         if let Some(backup) = &item.backup {
             let _ = fs::rename(backup, &item.dest);
         }
+        restore_displaced(&item.dest, item.displaced_backup.as_deref());
     }
 }
 
 /// Running image → `name.old`, staged file → current name. On Windows the
 /// running `.exe` can be renamed; the new image then takes the original name.
+/// An existing `name.old` is renamed to `name.old.aside` first and put back if
+/// this file, or a later file in the same apply, fails.
 fn backup_path(dest: &Path) -> PathBuf {
     let name = dest.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
     dest.with_file_name(format!("{name}.old"))
+}
+
+fn aside_path(dest: &Path) -> PathBuf {
+    let name = dest.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+    dest.with_file_name(format!("{name}.old.aside"))
 }
 
 fn self_check(exe: &Path) -> Result<(), String> {

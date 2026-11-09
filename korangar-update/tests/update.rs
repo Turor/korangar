@@ -197,6 +197,63 @@ fn file_url_apply_swaps_exe_and_companion_and_rolls_back() {
 }
 
 #[test]
+fn existing_old_backup_is_kept_until_swap_commits_and_a_blocked_aside_rolls_back() {
+    let root = temp_dir();
+    let publish = root.join("publish");
+    let install = root.join("install");
+    fs::create_dir_all(&publish).unwrap();
+    fs::create_dir_all(&install).unwrap();
+    let new_exe = b"#!/bin/sh\nif [ \"$1\" = \"--update-self-check\" ]; then echo update-self-check-ok; exit 0; fi\nexit 0\n";
+    fs::write(publish.join("korangar.exe"), new_exe).unwrap();
+    let exe = install.join("korangar.exe");
+    write_script(&exe, true);
+    fs::write(install.join("korangar.exe.old"), b"ancient-exe").unwrap();
+    let manifest_path = publish.join("ok.krup");
+    fs::write(
+        &manifest_path,
+        manifest_for("8.0.0", vec![file_entry("korangar.exe", new_exe, "korangar.exe")]),
+    )
+    .unwrap();
+    let outcome = korangar_update::run_startup_update(&request(
+        &install,
+        &exe,
+        &format!("file://{}", manifest_path.display()),
+        "0.1.1",
+    ))
+    .unwrap();
+    assert_eq!(outcome, StartupOutcome::Applied { relaunched: false });
+    assert_eq!(fs::read(&exe).unwrap(), new_exe);
+    assert!(fs::read(install.join("korangar.exe.old")).unwrap().starts_with(b"#!/bin/sh"));
+    assert!(!install.join("korangar.exe.old.aside").exists());
+
+    fs::write(install.join("a.txt"), b"old-a").unwrap();
+    fs::write(install.join("b.txt"), b"old-b").unwrap();
+    fs::write(install.join("b.txt.old"), b"older-b").unwrap();
+    fs::create_dir(install.join("b.txt.old.aside")).unwrap();
+    fs::write(publish.join("a.txt"), b"new-a").unwrap();
+    fs::write(publish.join("b.txt"), b"new-b").unwrap();
+    let blocked = publish.join("blocked.krup");
+    fs::write(
+        &blocked,
+        manifest_for("8.0.1", vec![
+            file_entry("b.txt", b"new-b", "b.txt"),
+            file_entry("a.txt", b"new-a", "a.txt"),
+        ]),
+    )
+    .unwrap();
+    let error =
+        korangar_update::run_startup_update(&request(&install, &exe, &format!("file://{}", blocked.display()), "0.1.1")).unwrap_err();
+    assert!(error.contains("existing backup"), "{error}");
+    assert_eq!(fs::read(install.join("a.txt")).unwrap(), b"old-a");
+    assert!(!install.join("a.txt.old").exists());
+    assert_eq!(fs::read(install.join("b.txt")).unwrap(), b"old-b");
+    assert_eq!(fs::read(install.join("b.txt.old")).unwrap(), b"older-b");
+    assert!(install.join("b.txt.old.aside").is_dir());
+    assert_eq!(fs::read(&exe).unwrap(), new_exe);
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn hash_mismatch_does_not_touch_install() {
     let root = temp_dir();
     let publish = root.join("publish");
