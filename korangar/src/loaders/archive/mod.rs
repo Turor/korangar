@@ -43,6 +43,13 @@ pub trait Writable {
     fn finish(&mut self) -> Result<(), std::io::Error>;
 }
 
+/// GRF and folder keys are case-insensitive and use `\`. Hangul has no case
+/// fold, so `to_lowercase` keeps those syllables stable while ASCII matches
+/// both disk layouts and the CDN.
+pub fn normalize_archive_path(path: &str) -> String {
+    path.replace('/', "\\").to_lowercase()
+}
+
 /// Converts a RO internal path to the OS specific path.
 pub fn os_specific_path(path: &str) -> PathBuf {
     match cfg!(target_os = "windows") {

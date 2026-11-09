@@ -11,7 +11,7 @@ use flate2::bufread::{GzDecoder, GzEncoder};
 use korangar_debug::logging::print_debug;
 use walkdir::WalkDir;
 
-use super::{Archive, Compression, Writable, os_specific_path};
+use super::{Archive, Compression, Writable, normalize_archive_path, os_specific_path};
 
 pub struct FolderArchive {
     folder_path: PathBuf,
@@ -31,14 +31,7 @@ impl FolderArchive {
             .filter_map(|entry| entry.ok())
             .filter(|entry| entry.file_type().is_file())
             .map(|file| {
-                let mut asset_path = file
-                    .path()
-                    .strip_prefix(directory)
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-                    .replace('/', "\\")
-                    .to_lowercase();
+                let mut asset_path = normalize_archive_path(file.path().strip_prefix(directory).unwrap().to_str().unwrap());
 
                 if asset_path.ends_with(".gz") {
                     asset_path = asset_path.strip_suffix(".gz").unwrap().to_string();
@@ -71,11 +64,11 @@ impl Archive for FolderArchive {
     }
 
     fn file_exists(&self, asset_path: &str) -> bool {
-        self.file_mapping.contains_key(asset_path)
+        self.file_mapping.contains_key(&normalize_archive_path(asset_path))
     }
 
     fn get_file_by_path(&self, asset_path: &str) -> Option<Vec<u8>> {
-        self.file_mapping.get(asset_path).and_then(|file_path| {
+        self.file_mapping.get(&normalize_archive_path(asset_path)).and_then(|file_path| {
             fs::read(file_path)
                 .map(|file_data| {
                     if file_path.extension().unwrap_or_default() == "gz" {
@@ -141,7 +134,7 @@ impl Writable for FolderArchive {
 
         fs::write(&path, data).unwrap_or_else(|_| panic!("error writing to file {}", path.display()));
 
-        self.file_mapping.insert(file_path.to_string(), path);
+        self.file_mapping.insert(normalize_archive_path(file_path), path);
     }
 
     fn finish(&mut self) -> Result<(), Error> {

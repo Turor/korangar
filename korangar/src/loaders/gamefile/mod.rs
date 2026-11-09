@@ -19,7 +19,7 @@ pub use self::cache::{sync_cache_archive, texture_file_dds_name, video_file_ivf_
 use self::list::GameArchiveList;
 use super::archive::folder::FolderArchive;
 use super::archive::native::NativeArchive;
-use super::archive::{Archive, ArchiveType};
+use super::archive::{Archive, ArchiveType, normalize_archive_path};
 use crate::loaders::archive::seven_zip::SevenZipArchive;
 
 pub(crate) const CACHE_FILE_NAME: &str = "cache.7z";
@@ -52,25 +52,25 @@ pub struct GameFileLoader {
 
 impl FileLoader for GameFileLoader {
     fn get(&self, path: &str) -> Result<Vec<u8>, FileNotFoundError> {
-        let lowercase_path = path.to_lowercase();
+        let archive_path = normalize_archive_path(path);
         if let Some(bytes) = self
             .archives
             .read()
             .unwrap()
             .iter()
-            .find_map(|archive| archive.archive.get_file_by_path(&lowercase_path))
+            .find_map(|archive| archive.archive.get_file_by_path(&archive_path))
         {
             return Ok(bytes);
         }
-        // Existing local archives retain priority. The permanent verified cache
-        // is consulted next; the network is only used for missing/corrupt objects.
+        // Local archives win. A pinned manifest is next; paths missing from that
+        // snapshot fall through to a loose fetch under the same base URL.
         self.remote
             .read()
             .unwrap()
             .as_ref()
             .map(|remote| {
                 remote
-                    .get(&lowercase_path)
+                    .get(&archive_path)
                     .map_err(|error| FileNotFoundError::new(format!("{path}: verified remote retrieval failed: {error}")))
             })
             .unwrap_or_else(|| Err(FileNotFoundError::new(path.to_owned())))
@@ -79,12 +79,13 @@ impl FileLoader for GameFileLoader {
 
 impl GameFileLoader {
     pub fn file_exists(&self, path: &str) -> bool {
+        let archive_path = normalize_archive_path(path);
         self.archives
             .read()
             .unwrap()
             .iter()
-            .any(|archive| archive.archive.file_exists(path))
-            || self.remote.read().unwrap().as_ref().is_some_and(|r| r.contains(path))
+            .any(|archive| archive.archive.file_exists(&archive_path))
+            || self.remote.read().unwrap().as_ref().is_some_and(|r| r.contains(&archive_path))
     }
 
     fn add_archive(&self, archive: Box<dyn Archive>, is_game_archive: bool) {
@@ -279,5 +280,55 @@ mod prefetch_tests {
         let line = loader.prefetch_remote_status();
         assert!(line.contains("no remote cache"));
         assert!(!line.contains("http"));
+    }
+
+    #[test]
+    fn local_archive_is_used_before_remote_and_hangul_keys_match() {
+        use std::fs;
+        use std::sync::Arc;
+
+        use korangar_loaders::remote::{PersistentAssets, RemoteConfig};
+
+        let root = std::env::temp_dir().join(format!("korangar-local-before-remote-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let folder = root.join("archive");
+        let cache = root.join("cache");
+        let model = folder.join("data/model/내부소품");
+        fs::create_dir_all(&model).unwrap();
+        fs::create_dir_all(cache.join("objects")).unwrap();
+        fs::write(model.join("x.rsm"), b"local-bytes").unwrap();
+
+        let remote_bytes = b"remote-bytes";
+        let sha = "0fcb052055ffc840bf26ce7ad980f959da83ca69c8439369053cee468ae93463";
+        fs::write(cache.join("objects").join(sha), remote_bytes).unwrap();
+        // `revision` is the SHA-256 of this compact `files` array.
+        let manifest = r#"{"format_version":1,"revision":"c4b346315360558720621f85128c49258448611a1922b170071d148c390673ec","files":[{"path":"data/model/내부소품/x.rsm","size":12,"sha256":"0fcb052055ffc840bf26ce7ad980f959da83ca69c8439369053cee468ae93463"}]}"#;
+        fs::write(cache.join("manifest.json"), manifest).unwrap();
+
+        let assets = PersistentAssets::open(RemoteConfig {
+            base_url: "https://example.invalid/client/".into(),
+            cache_dir: cache,
+            allow_http: false,
+            offline: true,
+        })
+        .unwrap();
+
+        let loader = GameFileLoader::default();
+        loader.add_archive(Box::new(FolderArchive::from_path(&folder)), true);
+        *loader.remote.write().unwrap() = Some(Arc::new(assets));
+
+        let loaded = loader.get(r"DATA/Model/내부소품/x.rsm").unwrap();
+        assert_eq!(loaded, b"local-bytes");
+        assert!(loader.file_exists(r"data\model\내부소품\x.rsm"));
+
+        fs::remove_file(model.join("x.rsm")).unwrap();
+        let reloaded = GameFileLoader::default();
+        // Folder index was captured at open; build a fresh archive without the file.
+        let empty = root.join("empty");
+        fs::create_dir_all(empty.join("data")).unwrap();
+        reloaded.add_archive(Box::new(FolderArchive::from_path(&empty)), true);
+        *reloaded.remote.write().unwrap() = loader.remote.read().unwrap().clone();
+        assert_eq!(reloaded.get(r"data\model\내부소품\x.rsm").unwrap(), b"remote-bytes");
+        let _ = fs::remove_dir_all(&root);
     }
 }

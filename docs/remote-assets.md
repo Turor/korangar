@@ -1,9 +1,13 @@
 # Permanent remote assets (opt-in)
 
 This is an asset transport, not a game-server protocol or a claim of 20190530
-playability. It requires the separate remoteclient2 immutable-snapshot endpoint
-PR; the existing `/client/` loose-file route alone is not sufficient. Neither
-change is deployed automatically.
+playability. When `api/assets/v1/manifest` is present it still pins a verified
+snapshot. If that endpoint is missing (HTTP 404) or does not return a v1
+manifest, startup continues and missing files are fetched as loose objects
+under the same base URL (`data/model/...`, `data/sprite/...`,
+`data/texture/...`), percent-encoded as UTF-8. Those objects are cached by
+SHA-256 plus `loose-index.json` inside the private cache directory. A pinned
+manifest, when it exists, still wins over loose fetch for paths it lists.
 
 ## Operation
 
@@ -52,8 +56,9 @@ objects locally; filenames or an empty manifest never establish completion.
 Corruption invalidates completion. The manifest hashes detect corruption, not
 an untrusted origin; the configured HTTPS server remains the trust anchor.
 
-Requests outside the manifest, absolute paths, traversal, hidden components,
-percent escapes, drive prefixes and query/fragment characters are rejected.
+Absolute paths, traversal, hidden components, percent escapes, drive prefixes
+and query/fragment characters are rejected. Paths absent from a pinned manifest
+are fetched as loose files. Virtual paths are not used as cache filenames.
 Assets are written to digest-named object files, never user-controlled virtual
 paths. Cache roots must be private and trusted; this is not a sandbox against
 another process with write access to the same user's directories.
