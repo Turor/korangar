@@ -859,6 +859,7 @@ where
     crate::packet_versions::enchant::register_enchant_packets(packet_handler)?;
     crate::packet_versions::stable::register_stable_packets(packet_handler)?;
     crate::packet_versions::eden::register_eden_packets(packet_handler)?;
+    crate::packet_versions::warpra::register_warpra_packets(packet_handler)?;
     packet_handler.register(|packet: BuyOrSellPacket| NetworkEvent::AskBuyOrSell { shop_id: packet.shop_id })?;
     packet_handler.register(|packet: ShopItemListPacket| {
         let items = packet

@@ -55,6 +55,10 @@ impl CustomWindow<ClientState> for MenuWindow {
                     text: "Eden Group",
                     event: InputEvent::OpenEden,
                 },
+                button! {
+                    text: "Warpra",
+                    event: InputEvent::OpenWarpra,
+                },
                 #[cfg(feature = "debug")]
                 button! {
                     text: "Render options",

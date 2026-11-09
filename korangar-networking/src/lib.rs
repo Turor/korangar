@@ -46,6 +46,9 @@ pub use self::packet_versions::eden::{
 };
 pub use self::packet_versions::enchant::{format_enchant_result, parse_enchant_index, parse_enchant_item_id, parse_enchant_slot};
 pub use self::packet_versions::stable::{format_stable_result, parse_stable_action, parse_stable_id};
+pub use self::packet_versions::warpra::{
+    format_warpra_destinations, format_warpra_result, push_warpra_chunk, warpra_kind_name, warpra_level_requirement,
+};
 pub use self::server::{
     CharacterServerLoginData, LoginServerLoginData, NotConnectedError, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
 };
@@ -985,6 +988,16 @@ where
             }
         }
     }
+
+    /// `0x0EF4`. `action` is list (`0`), warp (`1`), or unlock (`2`).
+    pub fn request_warpra(&mut self, action: i16, kind: i16, location_id: i16) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(RequestWarpraPacket { action, kind, location_id })
+            }
+        }
+    }
+
 
     pub fn request_reset_enchant(&mut self, enchant_group: i64, inventory_index: i16) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
@@ -2651,6 +2664,78 @@ mod packet_handlers {
         assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0EFC);
         let events = process_one(SupportedPacketVersion::_20190530, writer.as_slice());
         assert!(matches!(events.as_slice(), [NetworkEvent::EdenResult { result: 9, quest_id: 44, summary }] if summary.contains("Merit")));
+    }
+
+    #[test]
+    fn warpra_packets_round_trip_chunked_and_legacy() {
+        use ragnarok_packets::{
+            RequestWarpraPacket, WARPRA_ACTION_LIST, WarpraDestinationEntry, WarpraDestinationListPacket, WarpraResultPacket,
+        };
+
+        let mut writer = ByteWriter::new();
+        RequestWarpraPacket {
+            action: WARPRA_ACTION_LIST,
+            kind: 0,
+            location_id: 0,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 8);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0EF4);
+
+        let entry = WarpraDestinationEntry {
+            kind: 2,
+            id: 7,
+            unlocked: 0,
+            x: 100,
+            y: 40,
+            group: 3,
+            map: "pay_dun00".to_owned(),
+            name: "Payon Dungeon (Lv 55+)".to_owned(),
+            group_name: "Payon".to_owned(),
+        };
+        let list = WarpraDestinationListPacket {
+            zeny: 12_000,
+            price: 50_000_000,
+            flags: 0,
+            total: 1,
+            destinations: vec![entry],
+        };
+        let mut writer = ByteWriter::new();
+        list.packet_to_bytes(&mut writer).unwrap();
+        // opcode + length + zeny + price + flags + total + count + 89-byte row.
+        assert_eq!(writer.as_slice().len(), 4 + 8 + 5 + 89);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(
+            matches!(events.as_slice(), [NetworkEvent::WarpraList { zeny: 12_000, price: 50_000_000, destinations, .. }] if destinations.len() == 1 && destinations[0].name.contains("Payon"))
+        );
+
+        let mut legacy = vec![0xFE, 0x0E, 0, 0];
+        legacy.extend_from_slice(&12_000i32.to_le_bytes());
+        legacy.extend_from_slice(&50_000_000i32.to_le_bytes());
+        legacy.extend_from_slice(&1i16.to_le_bytes());
+        let row_start = writer.as_slice().len() - 89;
+        legacy.extend_from_slice(&writer.as_slice()[row_start..]);
+        let packet_len = legacy.len() as u16;
+        legacy[2..4].copy_from_slice(&packet_len.to_le_bytes());
+        let events = process_one(SupportedPacketVersion::_20190530, &legacy);
+        assert!(
+            matches!(events.as_slice(), [NetworkEvent::WarpraList { flags: 0, total: 1, destinations, .. }] if destinations[0].id == 7 && destinations[0].map == "pay_dun00")
+        );
+
+        let mut writer = ByteWriter::new();
+        WarpraResultPacket {
+            result: 2,
+            kind: 2,
+            location_id: 7,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 8);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(
+            matches!(events.as_slice(), [NetworkEvent::WarpraResult { result: 2, location_id: 7, summary, .. }] if summary.contains("locked"))
+        );
     }
 
     #[test]

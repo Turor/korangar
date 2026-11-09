@@ -54,6 +54,7 @@ mod switch_equip;
 mod theme_inspector;
 mod trade;
 mod vendor;
+mod warpra;
 
 use serde::{Deserialize, Serialize};
 
@@ -114,6 +115,7 @@ pub use self::switch_equip::SwitchEquipWindow;
 pub use self::theme_inspector::{ThemeInspectorWindow, ThemeInspectorWindowState};
 pub use self::trade::{TradeRequestWindow, TradeWindow};
 pub use self::vendor::VendorWindow;
+pub use self::warpra::{WarpraWindow, WarpraWindowState};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WindowClass {
@@ -139,6 +141,7 @@ pub enum WindowClass {
     SwitchEquip,
     SkillTree,
     Stable,
+    Warpra,
     Stats,
     StatusEffects,
     QuestJournal,

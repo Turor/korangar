@@ -753,6 +753,21 @@ pub enum NetworkEvent {
         merit: i32,
         summary: String,
     },
+    /// Turoran Warpra destination chunk (`0x0EFE`).
+    WarpraList {
+        zeny: i32,
+        price: i32,
+        flags: u8,
+        total: u16,
+        destinations: Vec<ragnarok_packets::WarpraDestinationEntry>,
+    },
+    /// Turoran Warpra result (`0x0EFF`).
+    WarpraResult {
+        result: i16,
+        kind: i16,
+        location_id: i16,
+        summary: String,
+    },
     /// Base or job experience (`DisplayGainedExperiencePacket`, 0x0ACC).
     GainedExperience {
         account_id: AccountId,
