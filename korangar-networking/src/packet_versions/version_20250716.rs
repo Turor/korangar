@@ -536,7 +536,10 @@ where
         NetworkEvent::AddChoiceButtons { choices, npc_id }
     })?;
     packet_handler.register_noop::<DisplaySpecialEffectPacket>()?;
-    packet_handler.register_noop::<DisplaySkillCooldownPacket>()?;
+    packet_handler.register(|packet: DisplaySkillCooldownPacket| NetworkEvent::SkillCooldown {
+        skill_id: packet.skill_id,
+        until: packet.until,
+    })?;
     packet_handler.register_noop::<DisplaySkillEffectAndDamagePacket>()?;
     packet_handler.register(|packet: DisplaySkillEffectNoDamagePacket| NetworkEvent::HealEffect {
         entity_id: packet.destination_entity_id,
@@ -790,8 +793,22 @@ where
             color: MessageColor::Error,
         },
     })?;
-    packet_handler.register_noop::<UseSkillSuccessPacket>()?;
-    packet_handler.register_noop::<ToUseSkillSuccessPacket>()?;
+    packet_handler.register(|packet: UseSkillSuccessPacket| NetworkEvent::UseSkillSuccess {
+        source_entity_id: packet.source_entity,
+        destination_entity_id: packet.destination_entity,
+        position: packet.position,
+        skill_id: packet.skill_id,
+        element: packet.element,
+        delay_time: packet.delay_time,
+        disposable: packet.disposable,
+    })?;
+    packet_handler.register(|packet: ToUseSkillSuccessPacket| NetworkEvent::ToUseSkillSuccess {
+        skill_id: packet.skill_id,
+        btype: packet.btype,
+        item_id: packet.item_id,
+        flag: packet.flag,
+        cause: packet.cause,
+    })?;
     packet_handler.register(|packet: NotifySkillUnitPacket| {
         let NotifySkillUnitPacket {
             entity_id,
@@ -810,7 +827,13 @@ where
         let SkillUnitDisappearPacket { entity_id } = packet;
         NetworkEvent::RemoveSkillUnit { entity_id }
     })?;
-    packet_handler.register_noop::<NotifyGroundSkillPacket>()?;
+    packet_handler.register(|packet: NotifyGroundSkillPacket| NetworkEvent::NotifyGroundSkill {
+        skill_id: packet.skill_id,
+        entity_id: packet.entity_id,
+        level: packet.level,
+        position: packet.position,
+        start_time: packet.start_time,
+    })?;
     packet_handler.register(|packet: FriendListPacket| NetworkEvent::SetFriendList {
         friend_list: packet.friend_list,
     })?;
