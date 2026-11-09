@@ -1035,7 +1035,6 @@ where
         }
     }
 
-
     pub fn request_reset_enchant(&mut self, enchant_group: i64, inventory_index: i16) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
@@ -1654,6 +1653,97 @@ mod packet_handlers {
         assert!(matches!(events.0.as_slice(), [NetworkEvent::DisplayEmotion {
             entity_id: EntityId(0x1234_5678),
             emotion: 3,
+        }]));
+    }
+
+    #[test]
+    fn nav_marks_packets_become_typed_events_on_every_profile() {
+        use ragnarok_packets::{
+            ColorRGBA, EntityStopMovePacket, LargeTilePosition, MarkMinimapPositionPacket, MarkerType, NavigateToMonsterPacket,
+            TilePosition,
+        };
+
+        let navigate = NavigateToMonsterPacket {
+            target_type: 3,
+            flags: 0b101,
+            hide_window: 0,
+            map_name: "prontera.gat".to_string(),
+            target_position: TilePosition { x: 150, y: 180 },
+            target_monster_id: 1002,
+        };
+        let mark = MarkMinimapPositionPacket {
+            npc_id: EntityId(42),
+            marker_type: MarkerType::DisplayFor15Seconds,
+            position: LargeTilePosition { x: 20, y: 30 },
+            id: 1,
+            // Little-endian image of script color 0x00FF0000 (red).
+            color: ColorRGBA {
+                red: 0x00,
+                green: 0x00,
+                blue: 0xFF,
+                alpha: 0x00,
+            },
+        };
+
+        for version in [
+            SupportedPacketVersion::_20250716,
+            SupportedPacketVersion::_20220406,
+            SupportedPacketVersion::_20190530,
+        ] {
+            let events = handle_map_packet(version, navigate.clone());
+            assert!(matches!(events.0.as_slice(), [NetworkEvent::NavigateTo {
+                target_type: 3,
+                service_flags: 0b101,
+                show_window: true,
+                map_name,
+                x: 150,
+                y: 180,
+                monster_id: 1002,
+            }] if map_name == "prontera.gat"));
+
+            let events = handle_map_packet(version, mark.clone());
+            assert!(matches!(events.0.as_slice(), [NetworkEvent::MinimapMark {
+                npc_id: EntityId(42),
+                kind: 0,
+                x: 20,
+                y: 30,
+                slot: 1,
+                red: 255,
+                green: 0,
+                blue: 0,
+            }]));
+
+            let stop = EntityStopMovePacket {
+                entity_id: EntityId(7),
+                position: TilePosition { x: 11, y: 22 },
+            };
+            let events = handle_map_packet(version, stop);
+            assert!(matches!(events.0.as_slice(), [NetworkEvent::EntityStopMove {
+                entity_id: EntityId(7),
+                position: TilePosition { x: 11, y: 22 },
+            }]));
+        }
+
+        let hidden = NavigateToMonsterPacket {
+            hide_window: 1,
+            ..navigate
+        };
+        let events = handle_map_packet(SupportedPacketVersion::_20250716, hidden);
+        assert!(matches!(events.0.as_slice(), [NetworkEvent::NavigateTo {
+            show_window: false,
+            ..
+        }]));
+
+        let remove = MarkMinimapPositionPacket {
+            marker_type: MarkerType::RemoveMark,
+            id: 1,
+            ..mark
+        };
+        let events = handle_map_packet(SupportedPacketVersion::_20250716, remove);
+        assert!(matches!(events.0.as_slice(), [NetworkEvent::MinimapMark {
+            kind: 2,
+            slot: 1,
+            ..
         }]));
     }
 

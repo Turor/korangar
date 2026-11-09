@@ -165,6 +165,13 @@ pub enum NetworkEvent {
         destination: WorldPosition,
         starting_timestamp: ClientTick,
     },
+    /// An entity stopped walking (`ZC_STOPMOVE` / `0x0088`). The position is
+    /// the cell the server accepted, which can differ from the requested
+    /// destination when the step was rejected.
+    EntityStopMove {
+        entity_id: EntityId,
+        position: TilePosition,
+    },
     /// An Entity nearby is pathing to a new position.
     EntityMove {
         entity_id: EntityId,
@@ -686,6 +693,30 @@ pub enum NetworkEvent {
     QuestRemoved {
         quest_id: u32,
     },
+    /// Navigation destination (`ZC_NAVIGATION_ACTIVE`, `0x08E2`).
+    /// `show_window` is the inverse of the packet's hide flag.
+    NavigateTo {
+        target_type: u8,
+        service_flags: u8,
+        show_window: bool,
+        map_name: String,
+        x: u16,
+        y: u16,
+        monster_id: u16,
+    },
+    /// Minimap viewpoint (`ZC_MARK_POSITION`, `0x0144`).
+    /// `kind` matches [`ragnarok_packets::MarkerType`]: 0 for 15 seconds, 1
+    /// until the map changes, 2 removes `slot`. Color channels are script RGB.
+    MinimapMark {
+        npc_id: EntityId,
+        kind: u8,
+        x: u32,
+        y: u32,
+        slot: u8,
+        red: u8,
+        green: u8,
+        blue: u8,
+    },
     /// Entity effect (`DisplaySpecialEffectPacket`, 0x01F3).
     SpecialEffect {
         entity_id: EntityId,
@@ -954,5 +985,45 @@ impl DisconnectedEvent for CharacterServerDisconnectedEvent {
 impl DisconnectedEvent for MapServerDisconnectedEvent {
     fn create_event(reason: DisconnectReason) -> NetworkEvent {
         NetworkEvent::MapServerDisconnected { reason }
+    }
+}
+
+fn script_rgb(color: &ColorRGBA) -> (u8, u8, u8) {
+    let packed = u32::from_le_bytes([color.red, color.green, color.blue, color.alpha]);
+    (
+        ((packed >> 16) & 0xFF) as u8,
+        ((packed >> 8) & 0xFF) as u8,
+        (packed & 0xFF) as u8,
+    )
+}
+
+pub(crate) fn navigate_to_event(packet: NavigateToMonsterPacket) -> NetworkEvent {
+    NetworkEvent::NavigateTo {
+        target_type: packet.target_type,
+        service_flags: packet.flags,
+        show_window: packet.hide_window == 0,
+        map_name: packet.map_name,
+        x: packet.target_position.x,
+        y: packet.target_position.y,
+        monster_id: packet.target_monster_id,
+    }
+}
+
+pub(crate) fn minimap_mark_event(packet: MarkMinimapPositionPacket) -> NetworkEvent {
+    let kind = match packet.marker_type {
+        MarkerType::DisplayFor15Seconds => 0,
+        MarkerType::DisplayUntilLeave => 1,
+        MarkerType::RemoveMark => 2,
+    };
+    let (red, green, blue) = script_rgb(&packet.color);
+    NetworkEvent::MinimapMark {
+        npc_id: packet.npc_id,
+        kind,
+        x: packet.position.x,
+        y: packet.position.y,
+        slot: packet.id,
+        red,
+        green,
+        blue,
     }
 }

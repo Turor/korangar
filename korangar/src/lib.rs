@@ -1019,6 +1019,7 @@ impl Client {
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
     fn handle_network_events(&mut self, client_tick: ClientTick) {
         *self.client_state.follow_mut(client_state().client_tick()) = client_tick;
+        self.client_state.follow_mut(client_state().navigation()).expire(client_tick.0);
         self.networking_system.get_events(&mut self.network_event_buffer);
 
         for event in self.network_event_buffer.drain() {
@@ -1141,6 +1142,7 @@ impl Client {
                     self.client_state.follow_mut(client_state().status_effects()).clear();
                     self.client_state.follow_mut(client_state().skill_cooldowns()).clear();
                     self.client_state.follow_mut(client_state().quest_log()).clear();
+                    self.client_state.follow_mut(client_state().navigation()).clear();
                     self.client_state.follow_mut(client_state().guild()).clear();
                     self.client_state.follow_mut(client_state().guild_window()).clear();
                     self.client_state.follow_mut(client_state().warpra_window()).clear_catalog();
@@ -1231,6 +1233,7 @@ impl Client {
                         self.client_state.follow_mut(client_state().status_effects()).clear();
                         self.client_state.follow_mut(client_state().skill_cooldowns()).clear();
                         self.client_state.follow_mut(client_state().quest_log()).clear();
+                        self.client_state.follow_mut(client_state().navigation()).clear();
                         self.client_state.follow_mut(client_state().guild()).clear();
                         self.client_state.follow_mut(client_state().guild_window()).clear();
                         self.client_state.follow_mut(client_state().warpra_window()).clear_catalog();
@@ -1529,6 +1532,29 @@ impl Client {
                         #[cfg(feature = "debug")]
                         player.generate_pathing_mesh(&self.device, &self.queue, self.graphics_engine.bindless_support(), map);
                     }
+                    // The pin tracks the cell the walk starts from. Later frames
+                    // sample the entity tile, and a rejected step arrives as
+                    // `EntityStopMove` rather than the requested destination.
+                    let origin = origin.tile_position();
+                    self.client_state
+                        .follow_mut(client_state().navigation())
+                        .set_player_cell(origin.x, origin.y);
+                }
+                NetworkEvent::EntityStopMove { entity_id, position } => {
+                    let is_local_player = self
+                        .client_state
+                        .try_follow(this_entity())
+                        .is_some_and(|player| player.get_entity_id() == entity_id);
+                    if is_local_player {
+                        if let Some(map) = &self.map
+                            && let Some(player) = self.client_state.try_follow_mut(this_entity())
+                        {
+                            player.set_position(map, position, client_tick);
+                        }
+                        self.client_state
+                            .follow_mut(client_state().navigation())
+                            .set_player_cell(position.x, position.y);
+                    }
                 }
                 NetworkEvent::ChangeMap { map_name, position } => {
                     self.map = None;
@@ -1584,6 +1610,9 @@ impl Client {
                         self.interface.close_window_with_class(WindowClass::LaphineUpgrade);
                     }
 
+                    self.client_state
+                        .follow_mut(client_state().navigation())
+                        .on_map_change(&map_name, position.x, position.y);
                     self.async_loader.request_map_load(map_name, Some(position));
                 }
                 NetworkEvent::UpdateClientTick { client_tick, received_at } => {
@@ -3092,6 +3121,54 @@ impl Client {
                 NetworkEvent::QuestRemoved { quest_id } => {
                     self.client_state.follow_mut(client_state().quest_log()).remove(quest_id);
                 }
+                NetworkEvent::NavigateTo {
+                    target_type,
+                    service_flags,
+                    show_window,
+                    map_name,
+                    x,
+                    y,
+                    monster_id,
+                } => {
+                    self.client_state.follow_mut(client_state().navigation()).set_navigation(
+                        map_name,
+                        x,
+                        y,
+                        monster_id,
+                        target_type,
+                        service_flags,
+                    );
+                    if show_window
+                        && self.client_state.try_follow(this_entity()).is_some()
+                        && !self.interface.is_window_with_class_open(WindowClass::Navigation)
+                    {
+                        self.interface.open_window(NavigationWindow::new(client_state().navigation()));
+                    }
+                }
+                NetworkEvent::MinimapMark {
+                    npc_id,
+                    kind,
+                    x,
+                    y,
+                    slot,
+                    red,
+                    green,
+                    blue,
+                } => {
+                    self.client_state
+                        .follow_mut(client_state().navigation())
+                        .apply_mark(crate::state::navigation::MinimapMarkUpdate {
+                            npc_id: npc_id.0,
+                            kind,
+                            x,
+                            y,
+                            slot,
+                            red,
+                            green,
+                            blue,
+                            now: client_tick.0,
+                        });
+                }
             }
         }
     }
@@ -3292,6 +3369,14 @@ impl Client {
                         match self.interface.is_window_with_class_open(WindowClass::QuestJournal) {
                             true => self.interface.close_window_with_class(WindowClass::QuestJournal),
                             false => self.interface.open_window(QuestJournalWindow::new(client_state().quest_log())),
+                        }
+                    }
+                }
+                InputEvent::ToggleNavigationWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Navigation) {
+                            true => self.interface.close_window_with_class(WindowClass::Navigation),
+                            false => self.interface.open_window(NavigationWindow::new(client_state().navigation())),
                         }
                     }
                 }
@@ -4500,6 +4585,17 @@ impl Client {
             .follow_mut(client_state().entities())
             .iter_mut()
             .for_each(|entity| entity.update(&self.audio_engine, map, current_camera, client_tick));
+
+        // The navigation "you" pin follows the tile the player occupies now,
+        // including cells crossed while a walk is still in progress.
+        let player_cell = self.client_state.try_follow(this_entity()).map(|player| player.get_tile_position());
+        if let Some(tile) = player_cell {
+            let navigation = self.client_state.follow_mut(client_state().navigation());
+            let (x, y) = navigation.player_cell();
+            if x != tile.x || y != tile.y {
+                navigation.set_player_cell(tile.x, tile.y);
+            }
+        }
 
         self.client_state
             .follow_mut(client_state().dead_entities())
