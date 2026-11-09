@@ -4029,7 +4029,9 @@ mod transport_tests {
                 if matches!(version,SupportedPacketVersion::_20190530) {
                     // Unsupported plugin frame larger than a socket read.
                     bytes.resize(20_000,0);
-                    bytes[..4].copy_from_slice(&[0xf5,0x0e,0x20,0x4e]);
+                    // 0x00AE is a framed variable-length opcode with no handler.
+                    // 0x0EF5 is the alive-MVP list and would be parsed instead of skipped.
+                    bytes[..4].copy_from_slice(&[0xae,0x00,0x20,0x4e]);
                 }
                 // A handled large frame, then another gameplay frame.
                 let mut writer=ByteWriter::new();
