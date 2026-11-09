@@ -88,7 +88,6 @@ use state::theme::{CursorThemePathExt, IndicatorThemePathExt, InterfaceThemePath
 use state::{ChatMessage, ClientState, ClientStatePathExt, client_state, this_entity, this_player};
 #[cfg(feature = "debug")]
 use wgpu::Device;
-use wgpu::util::initialize_adapter_from_env_or_default;
 use wgpu::{DeviceDescriptor, ExperimentalFeatures, Instance, MemoryHints, Queue, Trace};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
@@ -413,7 +412,15 @@ impl Client {
         time_phase!("create adapter", {
             let instance = Instance::new(graphics::window_instance_descriptor(event_loop.owned_display_handle()));
 
-            let adapter = pollster::block_on(async { initialize_adapter_from_env_or_default(&instance, None).await.unwrap() });
+            let adapter = match pollster::block_on(async { graphics::select_startup_adapter(&instance).await }) {
+                Ok(adapter) => adapter,
+                Err(error) => {
+                    let summary = deployment::sanitize_graphics_diagnostic("adapter", &error);
+                    eprintln!("{summary}");
+                    deployment::report_failure(&summary, true);
+                    return None;
+                }
+            };
 
             #[cfg(feature = "debug")]
             {
@@ -421,13 +428,14 @@ impl Client {
                 print_debug!("using adapter {} ({})", adapter_info.name, adapter_info.backend);
                 print_debug!("using device {} ({})", adapter_info.device, adapter_info.vendor);
                 print_debug!("using driver {} ({})", adapter_info.driver, adapter_info.driver_info);
+                print_debug!("{}", graphics::adapter_diagnostic(&adapter));
             }
         });
 
         time_phase!("create device", {
             let capabilities = Capabilities::from_adapter(&adapter);
 
-            let (device, queue) = pollster::block_on(async {
+            let (device, queue) = match pollster::block_on(async {
                 adapter
                     .request_device(&DeviceDescriptor {
                         label: None,
@@ -438,8 +446,16 @@ impl Client {
                         trace: Trace::Off,
                     })
                     .await
-                    .unwrap()
-            });
+            }) {
+                Ok(pair) => pair,
+                Err(error) => {
+                    let detail = format!("{}; {}", graphics::adapter_diagnostic(&adapter), error);
+                    let summary = deployment::sanitize_graphics_diagnostic("device", &detail);
+                    eprintln!("{summary}");
+                    deployment::report_failure(&summary, true);
+                    return None;
+                }
+            };
 
             #[cfg(feature = "debug")]
             device.on_uncaptured_error(Arc::new(error_handler));
