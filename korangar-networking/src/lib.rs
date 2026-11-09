@@ -1188,6 +1188,92 @@ mod packet_handlers {
     }
 
     #[test]
+    fn packetver_20250716_combat_feedback_packets_become_typed_events() {
+        use ragnarok_packets::{
+            AccountId, ClientTick, DisplayGainedExperiencePacket, DisplayPlayerHealEffect, DisplaySkillEffectAndDamagePacket,
+            DisplaySpecialEffectPacket, EffectId, ExperienceSource, ExperienceType, HealType, SkillId, SkillLevel,
+        };
+
+        let special = handle_map_packet(SupportedPacketVersion::_20250716, DisplaySpecialEffectPacket {
+            entity_id: EntityId(9),
+            effect_id: EffectId::Heal,
+        });
+        assert!(matches!(special.0.as_slice(), [NetworkEvent::SpecialEffect {
+            entity_id: EntityId(9),
+            effect_id: EffectId::Heal,
+        }]));
+
+        let skill = handle_map_packet(SupportedPacketVersion::_20250716, DisplaySkillEffectAndDamagePacket {
+            skill_id: SkillId(28),
+            source_entity_id: EntityId(1),
+            destination_entity_id: EntityId(2),
+            start_time: ClientTick(40),
+            soruce_delay: 10,
+            destination_delay: 20,
+            damage: 150,
+            level: SkillLevel(3),
+            div: 2,
+            skill_type: 1,
+        });
+        assert!(matches!(skill.0.as_slice(), [NetworkEvent::SkillEffectAndDamage {
+            skill_id: SkillId(28),
+            source_entity_id: EntityId(1),
+            destination_entity_id: EntityId(2),
+            start_time: ClientTick(40),
+            source_delay: 10,
+            destination_delay: 20,
+            damage: 150,
+            level: SkillLevel(3),
+            hit_count: 2,
+            skill_type: 1,
+        }]));
+
+        let heal = handle_map_packet(SupportedPacketVersion::_20250716, DisplayPlayerHealEffect {
+            heal_type: HealType::SpellPoints,
+            heal_amount: 40,
+        });
+        assert!(matches!(heal.0.as_slice(), [NetworkEvent::PlayerHealEffect {
+            heal_type: HealType::SpellPoints,
+            heal_amount: 40,
+        }]));
+
+        let experience = handle_map_packet(SupportedPacketVersion::_20250716, DisplayGainedExperiencePacket {
+            account_id: AccountId(7),
+            amount: 1_250,
+            experience_type: ExperienceType::JobExperience,
+            experience_source: ExperienceSource::Quest,
+        });
+        assert!(matches!(experience.0.as_slice(), [NetworkEvent::GainedExperience {
+            account_id: AccountId(7),
+            amount: 1_250,
+            experience_type: ExperienceType::JobExperience,
+            experience_source: ExperienceSource::Quest,
+        }]));
+    }
+
+    #[test]
+    fn older_packetvers_still_drop_combat_feedback_packets() {
+        use ragnarok_packets::{AccountId, DisplayGainedExperiencePacket, ExperienceSource, ExperienceType};
+
+        let mut writer = ByteWriter::new();
+        DisplayGainedExperiencePacket {
+            account_id: AccountId(1),
+            amount: 10,
+            experience_type: ExperienceType::BaseExperience,
+            experience_source: ExperienceSource::Regular,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+
+        for version in [SupportedPacketVersion::_20220406, SupportedPacketVersion::_20190530] {
+            let HandlerResult::Ok(events) = handle_one(version, writer.as_slice()) else {
+                panic!("older packetver should still accept the experience packet");
+            };
+            assert!(events.0.is_empty(), "{version:?} should keep the packet as a noop");
+        }
+    }
+
+    #[test]
     fn older_packetvers_still_drop_skill_ack_packets() {
         use ragnarok_packets::DisplaySkillCooldownPacket;
 
@@ -1563,7 +1649,6 @@ mod packet_handlers {
         }]));
         assert!(process_one(SupportedPacketVersion::_20220406, writer.as_slice()).is_empty());
     }
-
 }
 
 #[cfg(test)]
