@@ -523,13 +523,20 @@ fn summarize(item: &FinderItem) -> String {
     format!("{}{} #{} · {}", item.name, slots, item.id, parts.join(" · "))
 }
 
-/// Monster drop lines for one item, including the slotted MVP sibling (`id +
-/// 40000`).
+/// Monster drop lines for one item. An explicit catalog `mvp` id is the slotted
+/// sibling. When that field is absent, the sibling is `id + 40000` if that id
+/// is in the catalog.
 pub fn drop_lines(catalog: &FinderCatalog, sources: &ItemSources, item_id: u32, player_level: i32) -> Vec<DropLine> {
     let mut raw = Vec::new();
     push_drops(sources, item_id, "", &mut raw);
-    if catalog.get(item_id).and_then(|item| item.mvp_item_id).is_none() && catalog.get(item_id.saturating_add(40000)).is_some() {
-        push_drops(sources, item_id + 40000, "slotted MVP version", &mut raw);
+    let mvp_sibling = catalog.get(item_id).and_then(|item| {
+        item.mvp_item_id.or_else(|| {
+            let sibling = item_id.checked_add(40000)?;
+            catalog.get(sibling).map(|_| sibling)
+        })
+    });
+    if let Some(mvp_id) = mvp_sibling {
+        push_drops(sources, mvp_id, "slotted MVP version", &mut raw);
     }
     let mut lines: Vec<DropLine> = raw
         .into_iter()
@@ -724,6 +731,33 @@ mod tests {
         );
         let quests = quest_files(&sources, 1201, None);
         assert_eq!(quests, vec!["npc/quests/knife.txt".to_owned()]);
+    }
+
+    #[test]
+    fn explicit_mvp_id_is_used_instead_of_plus_40000() {
+        let catalog_json = r#"{"items":[
+            {"id":1201,"n":"Knife","c":"weapon","j":"Every Job","mvp":50001,"eff":[]},
+            {"id":41201,"n":"Other Knife","c":"weapon","j":"Every Job","eff":[]},
+            {"id":4294967195,"n":"Wide Id","c":"weapon","j":"Every Job","eff":[]},
+            {"id":4294967295,"n":"Max Id","c":"weapon","j":"Every Job","eff":[]}
+        ]}"#;
+        let sources_json = r#"{
+            "mobs": {"1039": {"n": "Baphomet", "lv": 81, "b": 1, "mvp": 1, "sp": []}},
+            "drops": {
+                "41201": [[1039, 50, 0]],
+                "50001": [[1039, 100, 1]]
+            },
+            "quests": {},
+            "penalty": {"11": [[0, 100]], "12": [[0, 100]]}
+        }"#;
+        let catalog = parse_catalog(catalog_json.as_bytes()).unwrap();
+        let sources = parse_sources(sources_json.as_bytes()).unwrap();
+        let lines = drop_lines(&catalog, &sources, 1201, 0);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].tag, "slotted MVP version");
+        assert_eq!(lines[0].rate, 100);
+        // 4294967195 + 40000 overflows u32. The +40000 heuristic must not wrap.
+        assert!(drop_lines(&catalog, &sources, 4_294_967_195, 0).is_empty());
     }
 
     #[test]
