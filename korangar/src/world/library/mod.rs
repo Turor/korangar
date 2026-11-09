@@ -81,17 +81,51 @@ where
 
 trait LuaExt: Sized {
     fn load_from_game_files(game_file_loader: &impl FileLoader, files: &[&str]) -> mlua::Result<Self>;
+
+    fn load_from_game_files_with_fallbacks(
+        game_file_loader: &impl FileLoader,
+        file_groups: &[&[&str]],
+    ) -> mlua::Result<Self>;
 }
 
 impl LuaExt for Lua {
     fn load_from_game_files(game_file_loader: &impl FileLoader, files: &[&str]) -> mlua::Result<Self> {
+        // Each path is its own single-candidate group.
+        let groups: Vec<[&str; 1]> = files.iter().map(|file| [*file]).collect();
+        let group_refs: Vec<&[&str]> = groups.iter().map(|group| group.as_slice()).collect();
+        Self::load_from_game_files_with_fallbacks(game_file_loader, &group_refs)
+    }
+
+    /// For each group, load the first candidate the asset loader can read.
+    /// Used for Turoran overlay filenames with stock fallbacks (roBrowser parity).
+    fn load_from_game_files_with_fallbacks(
+        game_file_loader: &impl FileLoader,
+        file_groups: &[&[&str]],
+    ) -> mlua::Result<Self> {
         let state = Lua::new();
 
-        for file in files {
-            let data = game_file_loader
-                .get(file)
-                .map_err(|error| mlua::Error::RuntimeError(format!("Cannot read Lua asset {file}: {error:?}")))?;
-            execute_chunk(&state, file, &data)?;
+        for group in file_groups {
+            let mut last_error: Option<(&str, String)> = None;
+            let mut loaded = false;
+
+            for file in *group {
+                match game_file_loader.get(file) {
+                    Ok(data) => {
+                        execute_chunk(&state, file, &data)?;
+                        loaded = true;
+                        break;
+                    }
+                    Err(error) => last_error = Some((file, format!("{error:?}"))),
+                }
+            }
+
+            if !loaded {
+                let (file, error) = last_error.unwrap_or(("<empty group>", "no candidates".into()));
+                return Err(mlua::Error::RuntimeError(format!(
+                    "Cannot read Lua asset {file} (also tried {} fallbacks): {error}",
+                    group.len().saturating_sub(1)
+                )));
+            }
         }
 
         Ok(state)

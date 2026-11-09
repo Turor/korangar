@@ -31,12 +31,17 @@ impl Table for SkillListInformation {
     type Storage = HashMap<SkillId, Self>;
 
     fn load(game_file_loader: &GameFileLoader) -> mlua::Result<Self::Storage> {
-        let state = Lua::load_from_game_files(game_file_loader, &[
-            // Needed to get the `JOBID` table.
-            "data\\luafiles514\\lua files\\skillinfoz\\jobinheritlist.lub",
-            // Needed to get the `SKID` table.
-            "data\\luafiles514\\lua files\\skillinfoz\\skillid.lub",
-            "data\\luafiles514\\lua files\\skillinfoz\\skillinfolist.lub",
+        // Turoran overlays first (roBrowser DBManager parity), stock names as fallback.
+        let state = Lua::load_from_game_files_with_fallbacks(game_file_loader, &[
+            &["data\\luafiles514\\lua files\\skillinfoz\\jobinheritlist.lub"],
+            &[
+                "data\\luafiles514\\lua files\\skillinfoz\\skillid.turoran4.lub",
+                "data\\luafiles514\\lua files\\skillinfoz\\skillid.lub",
+            ],
+            &[
+                "data\\luafiles514\\lua files\\skillinfoz\\skillinfolist.turoran13.lub",
+                "data\\luafiles514\\lua files\\skillinfoz\\skillinfolist.lub",
+            ],
         ])?;
 
         Self::from_lua(&state)

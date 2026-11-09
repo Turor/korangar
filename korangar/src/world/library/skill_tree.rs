@@ -106,17 +106,19 @@ impl Table for SkillTreeLayout {
     type Storage = HashMap<JobId, Self>;
 
     fn load(game_file_loader: &GameFileLoader) -> mlua::Result<Self::Storage> {
-        let state = Lua::load_from_game_files(game_file_loader, &[
-            // Needed to get the `JOBID` table.
-            "data\\luafiles514\\lua files\\skillinfoz\\jobinheritlist.lub",
-            // Needed to get the `SKID` table.
-            "data\\luafiles514\\lua files\\skillinfoz\\skillid.lub",
-            // Better version of the `JobSkillTable.ChangeSkillTabName` function defined in `skillinfo_f.lub`.
-            "data\\lua-scaffolding\\skill-tree-tab-name.lua",
-            // Needed for the `SKILL_TREEVIEW_FOR_JOB` table.
-            "data\\luafiles514\\lua files\\skillinfoz\\skilltreeview.lub",
-            // Needed for `GET_TAB_FOR_JOB`.
-            "data\\lua-scaffolding\\skill-tree-tab-for-job.lua",
+        // Turoran overlays first (roBrowser DBManager parity), stock names as fallback.
+        let state = Lua::load_from_game_files_with_fallbacks(game_file_loader, &[
+            &["data\\luafiles514\\lua files\\skillinfoz\\jobinheritlist.lub"],
+            &[
+                "data\\luafiles514\\lua files\\skillinfoz\\skillid.turoran4.lub",
+                "data\\luafiles514\\lua files\\skillinfoz\\skillid.lub",
+            ],
+            &["data\\lua-scaffolding\\skill-tree-tab-name.lua"],
+            &[
+                "data\\luafiles514\\lua files\\skillinfoz\\skilltreeview.fourth.lub",
+                "data\\luafiles514\\lua files\\skillinfoz\\skilltreeview.lub",
+            ],
+            &["data\\lua-scaffolding\\skill-tree-tab-for-job.lua"],
         ])?;
 
         let globals = state.globals();
