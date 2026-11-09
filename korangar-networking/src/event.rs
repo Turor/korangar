@@ -209,6 +209,19 @@ pub enum NetworkEvent {
         index: InventoryIndex,
         equipped_position: EquipPosition,
     },
+    /// Full alternate equipment set from `EquippableSwitchItemList` (`0x0A9B`).
+    SetEquipSwitch {
+        entries: Vec<EquippableSwitchItemInformation>,
+    },
+    /// One switch-set assignment changed. An empty position removes the item.
+    UpdateEquipSwitch {
+        index: InventoryIndex,
+        position: EquipPosition,
+    },
+    /// Result of requesting a full equipment switch (`0x0A9D`).
+    EquipSwitchReply {
+        failed: bool,
+    },
     ChangeJob {
         account_id: AccountId,
         job_id: JobId,

@@ -81,6 +81,7 @@ use rust_state::{VecIndexExt, VecLookupExt};
 use settings::{
     AudioSettings, AudioSettingsPathExt, GraphicsSettingsCapabilities, GraphicsSettingsPathExt, InterfaceSettings, InterfaceSettingsPathExt,
 };
+use state::equip_switch::EquipSwitchPathExt;
 use state::hotbar::HotbarPathExt;
 use state::inventory::InventoryPathExt;
 use state::localization::Localization;
@@ -1127,6 +1128,7 @@ impl Client {
                     self.client_state.follow_mut(client_state().entities()).clear();
                     self.client_state.follow_mut(client_state().dead_entities()).clear();
                     self.client_state.follow_mut(client_state().ground_items()).clear();
+                    self.client_state.follow_mut(client_state().equip_switch()).clear();
                     *self.client_state.follow_mut(client_state().buffered_action()) = None;
 
                     self.audio_engine.play_background_music_track(None);
@@ -1861,6 +1863,22 @@ impl Client {
                         .follow_mut(client_state().inventory())
                         .update_equipped_position(index, equipped_position);
                 }
+                NetworkEvent::SetEquipSwitch { entries } => {
+                    let items = self.client_state.follow(client_state().inventory().items()).clone();
+                    self.client_state.follow_mut(client_state().equip_switch()).replace(entries, &items);
+                }
+                NetworkEvent::UpdateEquipSwitch { index, position } => {
+                    let items = self.client_state.follow(client_state().inventory().items()).clone();
+                    self.client_state
+                        .follow_mut(client_state().equip_switch())
+                        .assign(index, position, &items);
+                }
+                NetworkEvent::EquipSwitchReply { failed: true } => {
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new("Equipment switch failed.".to_owned(), MessageColor::Error));
+                }
+                NetworkEvent::EquipSwitchReply { failed: false } => {}
                 NetworkEvent::ChangeJob { account_id, job_id } => {
                     let layout = self.async_loader.request_skill_tree_layout_load(job_id, client_tick);
                     *self.client_state.follow_mut(client_state().skill_tree_window().selected_tab()) = layout.tabs.len().saturating_sub(1);
@@ -2494,6 +2512,22 @@ impl Client {
                             false => self.interface.open_window(EquipmentWindow::new(client_state().inventory().items())),
                         }
                     }
+                }
+                InputEvent::ToggleSwitchEquipWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::SwitchEquip) {
+                            true => self.interface.close_window_with_class(WindowClass::SwitchEquip),
+                            false => self
+                                .interface
+                                .open_window(SwitchEquipWindow::new(client_state().equip_switch().slots())),
+                        }
+                    }
+                }
+                InputEvent::ActivateEquipSwitch => {
+                    let _ = self.networking_system.request_equip_switch();
+                }
+                InputEvent::RemoveEquipSwitchItem { index } => {
+                    let _ = self.networking_system.request_equip_switch_remove(index);
                 }
                 InputEvent::ToggleSkillTreeWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {

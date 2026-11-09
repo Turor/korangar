@@ -1,6 +1,7 @@
 #[cfg(feature = "debug")]
 pub mod cache_statistics;
 pub mod character_slots;
+pub mod equip_switch;
 pub mod friends;
 pub mod hotbar;
 pub mod inventory;
@@ -55,6 +56,7 @@ use crate::settings::{
     GameSettings, GraphicsSettingsCapabilities, InterfaceSettings, InterfaceSettingsCapabilities, LoginSettings, ServiceSettings,
 };
 use crate::state::character_slots::CharacterSlots;
+use crate::state::equip_switch::EquipSwitch;
 use crate::state::hotbar::Hotbar;
 use crate::state::inventory::Inventory;
 use crate::state::skills::SkillTree;
@@ -182,6 +184,8 @@ pub struct ClientState {
     inventory: Inventory,
     /// Kafra or guild storage. Replaced when a storage list arrives.
     storage: Inventory,
+    /// Alternate equipment set. This does not change what is currently worn.
+    equip_switch: EquipSwitch,
     /// Player skill tree.
     skill_tree: SkillTree,
     /// Player-to-player trade.
@@ -410,6 +414,7 @@ impl ClientState {
             hotbar,
             inventory,
             storage,
+            equip_switch: EquipSwitch::default(),
             skill_tree,
             trade,
             character_servers,

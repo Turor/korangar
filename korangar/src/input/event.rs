@@ -61,6 +61,15 @@ pub enum InputEvent {
     ToggleInventoryWindow,
     /// Open or close the equipment window. Only works while playing.
     ToggleEquipmentWindow,
+    /// Open or close the alternate equipment set window.
+    ToggleSwitchEquipWindow,
+    /// Ask the server to swap worn equipment with the alternate set.
+    ActivateEquipSwitch,
+    /// Remove one item from the alternate equipment set.
+    RemoveEquipSwitchItem {
+        /// Inventory index of the item to remove.
+        index: ragnarok_packets::InventoryIndex,
+    },
     /// Open or close the skill tree window. Only works while playing.
     ToggleSkillTreeWindow,
     /// Open or close the stats window. Only works while playing.

@@ -478,7 +478,7 @@ where
             None => None,
         }
     })?;
-    packet_handler.register_noop::<EquippableSwitchItemListPacket>()?;
+    crate::equip_switch::register_packets(packet_handler)?;
     packet_handler.register_noop::<MapTypePacket>()?;
     packet_handler.register(|packet: UpdateSkillTreePacket| {
         let UpdateSkillTreePacket { skill_information } = packet;

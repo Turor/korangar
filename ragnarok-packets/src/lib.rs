@@ -1084,6 +1084,92 @@ pub struct EquippableSwitchItemListPacket {
     pub item_information: Vec<EquippableSwitchItemInformation>,
 }
 
+/// Add an item to the alternate equipment set (`CZ_REQ_WEAR_SWITCH`).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A97)]
+pub struct RequestEquipSwitchAddPacket {
+    pub inventory_index: InventoryIndex,
+    pub equip_position: EquipPosition,
+}
+
+/// Server acknowledgement for adding an item to the switch set (`0x0A98`).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A98)]
+pub struct EquipSwitchAddResultPacket {
+    pub inventory_index: InventoryIndex,
+    pub position: u32,
+    /// `0` is success. Any other value leaves the set unchanged.
+    pub flag: u16,
+}
+
+/// Remove an item from the alternate equipment set (`0x0A99`).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A99)]
+pub struct RequestEquipSwitchRemovePacket {
+    pub inventory_index: InventoryIndex,
+}
+
+/// Server acknowledgement for removing an item from the switch set (`0x0A9A`).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A9A)]
+pub struct EquipSwitchRemoveResultPacket {
+    pub inventory_index: InventoryIndex,
+    pub position: u32,
+    /// `0` means the item was removed.
+    pub failed: u16,
+}
+
+/// Swap the equipped set with the alternate set (`CZ_REQ_FULLSWITCH`,
+/// `0x0A9C`).
+///
+/// The packet has no payload. The packet derive does not support unit structs,
+/// so the `Packet` impl is written by hand.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RequestEquipSwitchPacket;
+
+impl RequestEquipSwitchPacket {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Packet for RequestEquipSwitchPacket {
+    const HEADER: PacketHeader = PacketHeader(0x0A9C);
+    const IS_PING: bool = false;
+
+    fn payload_from_bytes(_byte_reader: &mut ByteReader) -> ConversionResult<Self> {
+        Ok(Self)
+    }
+
+    fn payload_to_bytes(&self, _byte_writer: &mut ByteWriter) -> ConversionResult<usize> {
+        Ok(0)
+    }
+
+    #[cfg(feature = "packet-to-state-element")]
+    fn to_element<App: korangar_interface::application::Application>(
+        _self_path: impl rust_state::Path<App, Self>,
+        _name: String,
+    ) -> Box<dyn korangar_interface::element::Element<App, LayoutInfo = ()>> {
+        korangar_interface::element::ErasedElement::new(korangar_interface::element::EmptyElement)
+    }
+}
+
+impl ClientPacket for RequestEquipSwitchPacket {}
+impl MapServerPacket for RequestEquipSwitchPacket {}
+
+/// Result of a full equipment switch (`0x0A9D`).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A9D)]
+pub struct EquipSwitchReplyPacket {
+    /// `0` means the server accepted the switch.
+    pub failed: u16,
+}
+
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x099B)]
