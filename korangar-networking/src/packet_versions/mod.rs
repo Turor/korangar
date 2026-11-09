@@ -2,6 +2,7 @@ pub mod economy;
 pub mod enchant;
 pub mod framing_20190530;
 pub mod framing_20250716;
+pub mod item_workshop;
 pub mod refine;
 pub mod stable;
 pub mod version_20190530;

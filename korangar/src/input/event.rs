@@ -332,6 +332,32 @@ pub enum InputEvent {
     },
     /// Close the refine UI.
     RefineClose,
+    /// Reform the typed inventory index with the open catalyst.
+    ItemReformSubmit,
+    /// Close the item reform UI.
+    ItemReformClose,
+    /// Ask the grade UI for materials on the typed inventory index.
+    GradeEnchantSelect,
+    /// Choose one grade option by its list index.
+    GradeEnchantPick {
+        material_index: i32,
+    },
+    /// Send the grade request.
+    GradeEnchantSubmit,
+    /// Close the grade UI.
+    GradeEnchantClose,
+    /// Queue one synthesis stack.
+    LaphineSynthesisAdd,
+    /// Clear the synthesis queue.
+    LaphineSynthesisClear,
+    /// Submit Laphine synthesis.
+    LaphineSynthesisSubmit,
+    /// Close the synthesis UI.
+    LaphineSynthesisClose,
+    /// Submit Laphine upgrade.
+    LaphineUpgradeSubmit,
+    /// Close the upgrade UI.
+    LaphineUpgradeClose,
     /// Level up a skill.
     LevelUpSkills {
         /// List of skills to level up by one. This list is allowed to contain

@@ -1553,6 +1553,22 @@ impl Client {
                         self.client_state.follow_mut(client_state().refine()).close();
                         self.interface.close_window_with_class(WindowClass::Refine);
                     }
+                    if self.interface.is_window_with_class_open(WindowClass::ItemReform) {
+                        let _ = self.networking_system.close_item_reform();
+                        self.interface.close_window_with_class(WindowClass::ItemReform);
+                    }
+                    if self.interface.is_window_with_class_open(WindowClass::EnchantGrade) {
+                        let _ = self.networking_system.close_grade_enchant();
+                        self.interface.close_window_with_class(WindowClass::EnchantGrade);
+                    }
+                    if self.interface.is_window_with_class_open(WindowClass::LaphineSynthesis) {
+                        let _ = self.networking_system.close_laphine_synthesis();
+                        self.interface.close_window_with_class(WindowClass::LaphineSynthesis);
+                    }
+                    if self.interface.is_window_with_class_open(WindowClass::LaphineUpgrade) {
+                        let _ = self.networking_system.close_laphine_upgrade();
+                        self.interface.close_window_with_class(WindowClass::LaphineUpgrade);
+                    }
 
                     self.async_loader.request_map_load(map_name, Some(position));
                 }
@@ -2522,6 +2538,107 @@ impl Client {
                         let _ = self.networking_system.refine_select_item(InventoryIndex(stored_index));
                     }
                     let status = self.client_state.follow(client_state().refine()).status.clone();
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(status, MessageColor::Information));
+                }
+                NetworkEvent::EnchantGradeOpened { data } => {
+                    self.client_state.follow_mut(client_state().enchant_grade()).open(data);
+                    self.interface.open_window(EnchantGradeWindow::new());
+                }
+                NetworkEvent::EnchantGradeMaterials {
+                    index,
+                    success_chance,
+                    blessing,
+                    materials,
+                    ..
+                } => {
+                    let rows = materials
+                        .into_iter()
+                        .enumerate()
+                        .map(|(row, material)| {
+                            let flags = match (material.downgrade, material.breakable) {
+                                (true, true) => "downgrade, break",
+                                (true, false) => "downgrade",
+                                (false, true) => "break",
+                                (false, false) => "safe",
+                            };
+                            crate::state::item_workshop::GradeMaterialRow {
+                                material_index: row as i32,
+                                label: format!(
+                                    "Option {row}: item {} x{}  {}z  {flags}",
+                                    material.item_id.0, material.amount, material.price
+                                ),
+                            }
+                        })
+                        .collect();
+                    self.client_state.follow_mut(client_state().enchant_grade()).set_materials(
+                        index,
+                        success_chance,
+                        blessing.item_id,
+                        rows,
+                    );
+                }
+                NetworkEvent::EnchantGradeResult { index, grade, result } => {
+                    self.client_state
+                        .follow_mut(client_state().inventory())
+                        .apply_enchant_grade(index, grade, result);
+                    self.client_state
+                        .follow_mut(client_state().enchant_grade())
+                        .note_result(index.0, grade, result);
+                    let status = self.client_state.follow(client_state().enchant_grade()).status.clone();
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(status, MessageColor::Information));
+                }
+                NetworkEvent::EnchantGradeBroadcast {
+                    name,
+                    item_id,
+                    grade,
+                    success,
+                } => {
+                    let outcome = if success { "succeeded" } else { "failed" };
+                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
+                        format!("{name} grade enchant {outcome} on item {} (grade {grade})", item_id.0),
+                        MessageColor::Information,
+                    ));
+                }
+                NetworkEvent::ItemReformOpened { item_id } => {
+                    self.client_state.follow_mut(client_state().item_reform()).open(item_id.0);
+                    self.interface.open_window(ItemReformWindow::new());
+                }
+                NetworkEvent::ItemReformResult { index, result } => {
+                    let close = self
+                        .client_state
+                        .follow_mut(client_state().item_reform())
+                        .note_result(index.0, result);
+                    let status = self.client_state.follow(client_state().item_reform()).status.clone();
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(status, MessageColor::Information));
+                    if close {
+                        let _ = self.networking_system.close_item_reform();
+                        self.interface.close_window_with_class(WindowClass::ItemReform);
+                    }
+                }
+                NetworkEvent::LaphineSynthesisOpened { item_id } => {
+                    self.client_state.follow_mut(client_state().laphine_synthesis()).open(item_id.0);
+                    self.interface.open_window(LaphineSynthesisWindow::new());
+                }
+                NetworkEvent::LaphineSynthesisResult { result } => {
+                    self.client_state.follow_mut(client_state().laphine_synthesis()).note_result(result);
+                    let status = self.client_state.follow(client_state().laphine_synthesis()).status.clone();
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(status, MessageColor::Information));
+                }
+                NetworkEvent::LaphineUpgradeOpened { item_id } => {
+                    self.client_state.follow_mut(client_state().laphine_upgrade()).open(item_id.0);
+                    self.interface.open_window(LaphineUpgradeWindow::new());
+                }
+                NetworkEvent::LaphineUpgradeResult { result } => {
+                    self.client_state.follow_mut(client_state().laphine_upgrade()).note_result(result);
+                    let status = self.client_state.follow(client_state().laphine_upgrade()).status.clone();
                     self.client_state
                         .follow_mut(client_state().chat_messages())
                         .push(ChatMessage::new(status, MessageColor::Information));
@@ -3632,6 +3749,116 @@ impl Client {
                     let _ = self.networking_system.close_refine();
                     self.client_state.follow_mut(client_state().refine()).close();
                     self.interface.close_window_with_class(WindowClass::Refine);
+                }
+                InputEvent::ItemReformSubmit => {
+                    let (catalyst, index) = {
+                        let reform = self.client_state.follow(client_state().item_reform());
+                        (reform.catalyst_item_id, reform.index())
+                    };
+                    match index {
+                        Ok(index) if catalyst != 0 => {
+                            let _ = self
+                                .networking_system
+                                .item_reform(ragnarok_packets::ItemId(catalyst), InventoryIndex(index));
+                        }
+                        Ok(_) => {
+                            self.client_state.follow_mut(client_state().item_reform()).status = "Reform is not open.".to_owned();
+                        }
+                        Err(message) => {
+                            self.client_state.follow_mut(client_state().item_reform()).status = message.to_owned();
+                        }
+                    }
+                }
+                InputEvent::ItemReformClose => {
+                    let _ = self.networking_system.close_item_reform();
+                    self.interface.close_window_with_class(WindowClass::ItemReform);
+                }
+                InputEvent::GradeEnchantSelect => {
+                    let index = self
+                        .client_state
+                        .follow(client_state().enchant_grade())
+                        .index_text
+                        .trim()
+                        .parse::<u16>();
+                    match index {
+                        Ok(index) => {
+                            let _ = self.networking_system.grade_enchant_select(InventoryIndex(index));
+                        }
+                        Err(_) => {
+                            self.client_state.follow_mut(client_state().enchant_grade()).status = "Enter an inventory index.".to_owned();
+                        }
+                    }
+                }
+                InputEvent::GradeEnchantPick { material_index } => {
+                    self.client_state.follow_mut(client_state().enchant_grade()).pick(material_index);
+                }
+                InputEvent::GradeEnchantSubmit => {
+                    let submission = self.client_state.follow(client_state().enchant_grade()).submission();
+                    match submission {
+                        Ok(submission) => {
+                            let _ = self.networking_system.grade_enchant_request(
+                                InventoryIndex(submission.index),
+                                submission.material_index,
+                                submission.blessing_flag,
+                                submission.blessing_amount,
+                            );
+                        }
+                        Err(message) => {
+                            self.client_state.follow_mut(client_state().enchant_grade()).status = message.to_owned();
+                        }
+                    }
+                }
+                InputEvent::GradeEnchantClose => {
+                    let _ = self.networking_system.close_grade_enchant();
+                    self.interface.close_window_with_class(WindowClass::EnchantGrade);
+                }
+                InputEvent::LaphineSynthesisAdd => {
+                    if let Err(crate::state::item_workshop::SynthesisAddError::Message(message)) =
+                        self.client_state.follow_mut(client_state().laphine_synthesis()).add_row()
+                    {
+                        self.client_state.follow_mut(client_state().laphine_synthesis()).status = message.to_owned();
+                    }
+                }
+                InputEvent::LaphineSynthesisClear => {
+                    self.client_state.follow_mut(client_state().laphine_synthesis()).clear_rows();
+                }
+                InputEvent::LaphineSynthesisSubmit => {
+                    let (item_id, stacks) = {
+                        let synthesis = self.client_state.follow(client_state().laphine_synthesis());
+                        (synthesis.item_id, synthesis.stacks())
+                    };
+                    if item_id == 0 || stacks.is_empty() {
+                        self.client_state.follow_mut(client_state().laphine_synthesis()).status = "Add at least one stack.".to_owned();
+                    } else {
+                        let _ = self.networking_system.laphine_synthesis(ragnarok_packets::ItemId(item_id), &stacks);
+                    }
+                }
+                InputEvent::LaphineSynthesisClose => {
+                    let _ = self.networking_system.close_laphine_synthesis();
+                    self.interface.close_window_with_class(WindowClass::LaphineSynthesis);
+                }
+                InputEvent::LaphineUpgradeSubmit => {
+                    let (item_id, index) = {
+                        let upgrade = self.client_state.follow(client_state().laphine_upgrade());
+                        (upgrade.item_id, upgrade.index())
+                    };
+                    match index {
+                        Ok(index) if item_id != 0 => {
+                            let _ = self
+                                .networking_system
+                                .laphine_upgrade(ragnarok_packets::ItemId(item_id), InventoryIndex(index));
+                        }
+                        Ok(_) => {
+                            self.client_state.follow_mut(client_state().laphine_upgrade()).status = "Upgrade is not open.".to_owned();
+                        }
+                        Err(message) => {
+                            self.client_state.follow_mut(client_state().laphine_upgrade()).status = message.to_owned();
+                        }
+                    }
+                }
+                InputEvent::LaphineUpgradeClose => {
+                    let _ = self.networking_system.close_laphine_upgrade();
+                    self.interface.close_window_with_class(WindowClass::LaphineUpgrade);
                 }
                 InputEvent::LevelUpSkills { skill_ids } => {
                     for skill_id in skill_ids {

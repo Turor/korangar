@@ -9,6 +9,25 @@ use crate::{
     UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
 };
 
+/// Blessing catalyst on a grade-enchant material list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GradeBlessingOffer {
+    pub item_id: i32,
+    pub amount: i32,
+    pub max_blessing: i32,
+    pub bonus: i32,
+}
+
+/// One option row on a grade-enchant material list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GradeMaterialOffer {
+    pub item_id: ItemId,
+    pub amount: i32,
+    pub price: i32,
+    pub downgrade: bool,
+    pub breakable: bool,
+}
+
 /// One ore the refine UI can spend (`ZC_REFINING_MATERIAL_LIST`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RefineMaterialOffer {
@@ -451,6 +470,59 @@ pub enum NetworkEvent {
         result: u16,
         index: InventoryIndex,
         refine_level: u16,
+    },
+    /// `ZC_UI_OPEN` type 8 opened the grade enchant UI.
+    EnchantGradeOpened {
+        data: i32,
+    },
+    /// Materials for the equipment the player selected. `index` is `None` when
+    /// the server sent -1.
+    EnchantGradeMaterials {
+        index: Option<u16>,
+        success_chance: i32,
+        blessing: GradeBlessingOffer,
+        protect_item_id: ItemId,
+        protect_amount: i32,
+        materials: Vec<GradeMaterialOffer>,
+    },
+    /// A grade attempt finished. `result` is 0 success, 1 failed, 2 downgraded,
+    /// 3 destroyed, 4 protected.
+    EnchantGradeResult {
+        index: InventoryIndex,
+        grade: i16,
+        result: i32,
+    },
+    /// Someone's grade result was announced.
+    EnchantGradeBroadcast {
+        name: String,
+        item_id: ItemId,
+        grade: i16,
+        success: bool,
+    },
+    /// The item reform UI opened. `item_id` is the catalyst.
+    ItemReformOpened {
+        item_id: ItemId,
+    },
+    /// Reform finished. Result 0 is success and the server closes its side.
+    ItemReformResult {
+        index: InventoryIndex,
+        result: i8,
+    },
+    /// Laphine synthesis UI opened (`ZC_RANDOM_COMBINE_ITEM_UI_OPEN`).
+    LaphineSynthesisOpened {
+        item_id: ItemId,
+    },
+    /// Synthesis finished. Result 0 is success.
+    LaphineSynthesisResult {
+        result: i16,
+    },
+    /// Laphine upgrade UI opened (`ZC_RANDOM_UPGRADE_ITEM_UI_OPEN`).
+    LaphineUpgradeOpened {
+        item_id: ItemId,
+    },
+    /// Upgrade finished. Result 0 is success.
+    LaphineUpgradeResult {
+        result: u16,
     },
     AskBuyOrSell {
         shop_id: ShopId,
