@@ -87,10 +87,7 @@ where
 trait LuaExt: Sized {
     fn load_from_game_files(game_file_loader: &impl FileLoader, files: &[&str]) -> mlua::Result<Self>;
 
-    fn load_from_game_files_with_fallbacks(
-        game_file_loader: &impl FileLoader,
-        file_groups: &[&[&str]],
-    ) -> mlua::Result<Self>;
+    fn load_from_game_files_with_fallbacks(game_file_loader: &impl FileLoader, file_groups: &[&[&str]]) -> mlua::Result<Self>;
 }
 
 impl LuaExt for Lua {
@@ -101,40 +98,66 @@ impl LuaExt for Lua {
         Self::load_from_game_files_with_fallbacks(game_file_loader, &group_refs)
     }
 
-    /// For each group, load the first candidate the asset loader can read.
-    /// Used for Turoran overlay filenames with stock fallbacks (roBrowser parity).
-    fn load_from_game_files_with_fallbacks(
-        game_file_loader: &impl FileLoader,
-        file_groups: &[&[&str]],
-    ) -> mlua::Result<Self> {
-        let state = Lua::new();
+    /// For each group, use the first candidate that both reads and executes.
+    /// A Turoran overlay that exists but errors (missing `SKID`/`JOBID`, bad
+    /// syntax) is discarded and the next name in the group is tried. Probing
+    /// happens on a fresh state rebuilt from earlier successful groups, so a
+    /// failed chunk cannot leave partial globals behind.
+    fn load_from_game_files_with_fallbacks(game_file_loader: &impl FileLoader, file_groups: &[&[&str]]) -> mlua::Result<Self> {
+        let mut state = Lua::new();
+        // Owned copies of chunks that executed. Replayed into each probe so a
+        // later candidate still sees `SKID` / `JOBID` from earlier groups.
+        let mut committed: Vec<(String, Vec<u8>)> = Vec::new();
 
         for group in file_groups {
-            let mut last_error: Option<(&str, String)> = None;
-            let mut loaded = false;
+            let mut last_error: Option<String> = None;
+            let mut chosen: Option<(String, Vec<u8>, Lua)> = None;
 
             for file in *group {
-                match game_file_loader.get(file) {
-                    Ok(data) => {
-                        execute_chunk(&state, file, &data)?;
-                        loaded = true;
+                let data = match game_file_loader.get(file) {
+                    Ok(data) => data,
+                    Err(error) => {
+                        last_error = Some(format!("{error:?}"));
+                        continue;
+                    }
+                };
+
+                match replay_and_execute(&committed, file, &data) {
+                    Ok(probe) => {
+                        chosen = Some(((*file).to_owned(), data, probe));
                         break;
                     }
-                    Err(error) => last_error = Some((file, format!("{error:?}"))),
+                    Err(error) => {
+                        last_error = Some(error.to_string());
+                    }
                 }
             }
 
-            if !loaded {
-                let (file, error) = last_error.unwrap_or(("<empty group>", "no candidates".into()));
+            let Some((name, data, probe)) = chosen else {
+                let file = group.last().copied().unwrap_or("<empty group>");
+                let error = last_error.unwrap_or_else(|| "no candidates".to_owned());
                 return Err(mlua::Error::RuntimeError(format!(
                     "Cannot read Lua asset {file} (also tried {} fallbacks): {error}",
                     group.len().saturating_sub(1)
                 )));
-            }
+            };
+            state = probe;
+            committed.push((name, data));
         }
 
         Ok(state)
     }
+}
+
+/// Build a new state from chunks that already succeeded, then run `data`.
+/// `Err` means this candidate is unusable; `committed` is unchanged.
+fn replay_and_execute(committed: &[(String, Vec<u8>)], name: &str, data: &[u8]) -> mlua::Result<Lua> {
+    let state = Lua::new();
+    for (committed_name, committed_data) in committed {
+        execute_chunk(&state, committed_name, committed_data)?;
+    }
+    execute_chunk(&state, name, data)?;
+    Ok(state)
 }
 
 /// Trait for data that can be stored in a table and retrieved using a key.
