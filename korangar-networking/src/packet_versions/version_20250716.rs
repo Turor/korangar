@@ -514,7 +514,8 @@ where
         }
     })?;
     packet_handler.register(|packet: UpdatePartyInvitationStatePacket| NetworkEvent::PartyInvitationState {
-        invitations_allowed: packet.allowed != 0,
+        // `0x02C9` is a refuse flag (`denyPartyInvites`): 0 allows invites, non-zero denies them.
+        invitations_allowed: packet.allowed == 0,
     })?;
     packet_handler.register_noop::<UpdateShowEquipPacket>()?;
     packet_handler.register_noop::<UpdateConfigurationPacket>()?;
