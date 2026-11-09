@@ -129,6 +129,10 @@ impl GameFileLoader {
                 )
             })?;
             *self.remote.write().unwrap() = Some(Arc::new(remote));
+            if crate::deployment::remote_prefetch_enabled() {
+                let line = self.prefetch_remote_status();
+                eprintln!("{line}");
+            }
         }
         let remote_enabled = self.remote.read().unwrap().is_some();
         let game_archive_list = GameArchiveList::load(remote_enabled)?;
@@ -220,6 +224,26 @@ impl GameFileLoader {
 
         self.add_archive(archive, false);
     }
+
+    /// Finish the pinned snapshot when remote assets are configured. A failure
+    /// is a status line, not a startup error: later reads stay on demand.
+    /// The line names a virtual path only and never a URL.
+    pub(crate) fn prefetch_remote_status(&self) -> String {
+        let Some(remote) = self.remote.read().unwrap().clone() else {
+            return "Remote asset prefetch was requested but no remote cache is configured. Startup continues.".to_owned();
+        };
+        let report = remote.prefetch();
+        match (report.error, report.complete) {
+            (None, true) => "Remote asset prefetch verified the pinned snapshot locally.".to_owned(),
+            (None, false) => "Remote asset prefetch reported success but the pinned snapshot is incomplete. Startup continues with \
+                              on-demand retrieval."
+                .to_owned(),
+            (Some(error), complete) => format!(
+                "Remote asset prefetch did not finish ({error}). Pinned snapshot complete: {complete}. Startup continues with on-demand \
+                 retrieval."
+            ),
+        }
+    }
 }
 
 pub fn fix_broken_texture_file_endings(path: &str) -> String {
@@ -242,4 +266,17 @@ pub fn fix_broken_texture_file_endings(path: &str) -> String {
     }
 
     path
+}
+
+#[cfg(test)]
+mod prefetch_tests {
+    use super::*;
+
+    #[test]
+    fn prefetch_without_remote_is_a_soft_status() {
+        let loader = GameFileLoader::default();
+        let line = loader.prefetch_remote_status();
+        assert!(line.contains("no remote cache"));
+        assert!(!line.contains("http"));
+    }
 }

@@ -297,15 +297,56 @@ impl PersistentAssets {
 
     /// Explicit full download, resumable across process restarts. Verified
     /// existing objects are not fetched again and no object is ever evicted.
+    /// One failed object does not skip the rest. The error names the virtual
+    /// path and a static reason, never a URL or credential.
     pub fn download_all(&self) -> io::Result<()> {
+        let mut first: Option<io::Error> = None;
         for entry in self.entries.values() {
-            self.get(&entry.path)?;
+            if let Err(cause) = self.get(&entry.path)
+                && first.is_none()
+            {
+                first = Some(io::Error::other(format!(
+                    "verified remote object {} failed: {cause}",
+                    entry.path
+                )));
+            }
+        }
+        if let Some(error) = first {
+            return Err(error);
         }
         if !self.is_complete() {
             return Err(error("snapshot incomplete"));
         }
         Ok(())
     }
+
+    /// Opt-in completion pass. Uses [`Self::download_all`] and then
+    /// [`Self::is_complete`]. `error` is set when the snapshot is not fully
+    /// verified; objects that already checked out stay on disk. The text never
+    /// includes a request URL.
+    pub fn prefetch(&self) -> PrefetchReport {
+        let error = self.download_all().err().map(|error| sanitize_prefetch_detail(&error.to_string()));
+        PrefetchReport {
+            complete: self.is_complete(),
+            error,
+        }
+    }
+}
+
+/// Outcome of [`PersistentAssets::prefetch`]. Safe to log.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrefetchReport {
+    /// Local re-verification after the attempt.
+    pub complete: bool,
+    /// Absent only when every object verified.
+    pub error: Option<String>,
+}
+
+fn sanitize_prefetch_detail(detail: &str) -> String {
+    if detail.contains("://") || detail.to_ascii_lowercase().contains("http") || detail.len() > 240 {
+        return "remote object request failed".to_owned();
+    }
+    detail.to_owned()
 }
 
 #[cfg(test)]
@@ -315,7 +356,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
-    fn manifest(content: &[u8]) -> Vec<u8> {
+    pub(super) fn manifest(content: &[u8]) -> Vec<u8> {
         let files = vec![AssetEntry {
             path: "data/test.spr".into(),
             size: content.len() as u64,
@@ -328,7 +369,7 @@ mod tests {
         })
         .unwrap()
     }
-    fn server(replies: Vec<(String, Vec<u8>)>) -> (String, Arc<AtomicUsize>, std::thread::JoinHandle<()>) {
+    pub(super) fn server(replies: Vec<(String, Vec<u8>)>) -> (String, Arc<AtomicUsize>, std::thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}/client/", listener.local_addr().unwrap());
         let count = Arc::new(AtomicUsize::new(0));
@@ -356,7 +397,7 @@ mod tests {
         });
         (base, count, thread)
     }
-    fn config(base: String, cache: &Path) -> RemoteConfig {
+    pub(super) fn config(base: String, cache: &Path) -> RemoteConfig {
         RemoteConfig {
             base_url: base,
             cache_dir: cache.into(),
@@ -467,7 +508,9 @@ mod tests {
 mod failure_tests {
     use std::net::TcpListener;
     use std::sync::Arc;
+    use std::sync::atomic::Ordering;
 
+    use super::tests::{config, manifest, server};
     use super::*;
     fn local_manifest(cache: &Path, bytes: &[u8]) {
         let files = vec![AssetEntry {
@@ -583,5 +626,87 @@ mod failure_tests {
         .unwrap();
         assert!(!assets.is_complete());
         assert!(assets.get("data/test.spr").is_err());
+    }
+
+    fn two_file_manifest(good: &[u8], bad_len: u64, bad_hash: &str) -> Vec<u8> {
+        let files = vec![
+            AssetEntry {
+                path: "data/good.spr".into(),
+                size: good.len() as u64,
+                sha256: digest(good),
+            },
+            AssetEntry {
+                path: "data/missing.spr".into(),
+                size: bad_len,
+                sha256: bad_hash.to_owned(),
+            },
+        ];
+        serde_json::to_vec(&Manifest {
+            format_version: 1,
+            revision: digest(&serde_json::to_vec(&files).unwrap()),
+            files,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn prefetch_completes_from_synthetic_fixture_and_second_pass_is_local() {
+        let content = b"synthetic sprite";
+        let hash = digest(content);
+        let (base, count, server) = server(vec![
+            ("api/assets/v1/manifest".into(), manifest(content)),
+            (format!("api/assets/v1/blobs/{hash}"), content.to_vec()),
+        ]);
+        let dir = tempfile::tempdir().unwrap();
+        let assets = PersistentAssets::open(config(base, dir.path())).unwrap();
+        let report = assets.prefetch();
+        assert!(report.error.is_none(), "{report:?}");
+        assert!(report.complete);
+        assert!(assets.is_complete());
+        server.join().unwrap();
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+        assets.download_all().unwrap();
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn prefetch_soft_fail_keeps_verified_objects_and_names_the_virtual_path() {
+        let good = b"kept-bytes";
+        let good_hash = digest(good);
+        let bad_hash = digest(b"not-served");
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("manifest.json"), two_file_manifest(good, 9, &bad_hash)).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}/client/", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            // Manifest order is data/good.spr then data/missing.spr.
+            for (status, body) in [("200 OK", good.to_vec()), ("500 Internal Server Error", Vec::new())] {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    stream.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                }
+                write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                stream.write_all(&body).unwrap();
+            }
+        });
+        let assets = PersistentAssets::open(config(base, dir.path())).unwrap();
+        let report = assets.prefetch();
+        server.join().unwrap();
+        let detail = report.error.expect("incomplete snapshot");
+        assert!(detail.contains("data/missing.spr"), "{detail}");
+        assert!(!detail.contains("http") && !detail.contains("://"), "{detail}");
+        assert!(!report.complete);
+        assert!(!assets.is_complete());
+        assert_eq!(fs::read(dir.path().join("objects").join(good_hash)).unwrap(), good);
+        assert!(!dir.path().join("objects").join(&bad_hash).exists());
     }
 }
