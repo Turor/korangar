@@ -134,6 +134,8 @@ pub enum InputEvent {
         /// Id of the NPC the player is in a dialog with.
         npc_id: EntityId,
     },
+    /// Close Kafra storage and tell the map server.
+    CloseStorage,
     /// Action for the "Close"-button in a dialog.
     CloseDialog {
         /// Id of the NPC the player is in a dialog with.

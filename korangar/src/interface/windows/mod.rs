@@ -37,6 +37,7 @@ mod sell_cart;
 mod server_selection;
 mod skill_tree;
 mod stats;
+mod storage;
 #[cfg(feature = "debug")]
 mod theme_inspector;
 
@@ -81,6 +82,7 @@ pub use self::sell_cart::SellCartWindow;
 pub use self::server_selection::ServerSelectionWindow;
 pub use self::skill_tree::{SkillTreeWindow, SkillTreeWindowState, SkillTreeWindowStatePathExt};
 pub use self::stats::StatsWindow;
+pub use self::storage::StorageWindow;
 #[cfg(feature = "debug")]
 pub use self::theme_inspector::{ThemeInspectorWindow, ThemeInspectorWindowState};
 
@@ -100,6 +102,7 @@ pub enum WindowClass {
     GraphicsSettings,
     Hotbar,
     Inventory,
+    Storage,
     Equipment,
     SkillTree,
     Stats,

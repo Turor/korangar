@@ -1516,6 +1516,10 @@ impl Client {
 
                     // Close any remaining dialogs.
                     self.interface.close_window_with_class(WindowClass::Dialog);
+                    if self.interface.is_window_with_class_open(WindowClass::Storage) {
+                        let _ = self.networking_system.close_storage();
+                        self.interface.close_window_with_class(WindowClass::Storage);
+                    }
 
                     self.async_loader.request_map_load(map_name, Some(position));
                 }
@@ -1815,6 +1819,12 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().inventory())
                         .fill(&self.async_loader, items);
+                }
+                NetworkEvent::SetStorage { items } => {
+                    self.client_state
+                        .follow_mut(client_state().storage())
+                        .fill(&self.async_loader, items);
+                    self.interface.open_window(StorageWindow::new(client_state().storage().items()));
                 }
                 NetworkEvent::IventoryItemAdded { item } => {
                     self.client_state
@@ -2517,8 +2527,32 @@ impl Client {
                     (ItemSource::Equipment { .. }, ItemSource::Inventory) => {
                         let _ = self.networking_system.request_item_unequip(item.index);
                     }
+                    (ItemSource::Inventory, ItemSource::Storage) => {
+                        let amount = match &item.details {
+                            korangar_networking::InventoryItemDetails::Regular { amount, .. } => u32::from(*amount),
+                            korangar_networking::InventoryItemDetails::Equippable { .. } => 1,
+                        };
+                        if amount > 0 {
+                            let _ = self.networking_system.move_item_to_storage(item.index, amount);
+                        }
+                    }
+                    (ItemSource::Storage, ItemSource::Inventory) => {
+                        let amount = match &item.details {
+                            korangar_networking::InventoryItemDetails::Regular { amount, .. } => u32::from(*amount),
+                            korangar_networking::InventoryItemDetails::Equippable { .. } => 1,
+                        };
+                        if amount > 0 {
+                            let _ = self.networking_system.move_item_from_storage(item.index, amount);
+                        }
+                    }
                     _ => {}
                 },
+                InputEvent::CloseStorage => {
+                    if self.interface.is_window_with_class_open(WindowClass::Storage) {
+                        let _ = self.networking_system.close_storage();
+                        self.interface.close_window_with_class(WindowClass::Storage);
+                    }
+                }
                 InputEvent::SendEmotion { emotion } => {
                     let _ = self.networking_system.send_emotion(emotion);
                 }

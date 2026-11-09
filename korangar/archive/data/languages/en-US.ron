@@ -42,6 +42,7 @@
     remove_button_text: "Remove",
     hotbar_window_title: "Hotbar",
     inventory_window_title: "Inventory",
+    storage_window_title: "Storage",
     respawn_window_title: "Respawn Menu",
     respawn_button_text: "Respawn",
     disconnect_button_text: "Disconnect",

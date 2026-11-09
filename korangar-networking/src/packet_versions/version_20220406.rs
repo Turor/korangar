@@ -467,11 +467,10 @@ where
     packet_handler.register({
         let inventory_items = inventory_items.clone();
 
-        move |packet: InventoyEndPacket| {
-            inventory_items
-                .borrow_mut()
-                .finish(packet.inventory_type, packet.flag)
-                .map(|items| NetworkEvent::SetInventory { items })
+        move |packet: InventoyEndPacket| match inventory_items.borrow_mut().finish(packet.inventory_type, packet.flag) {
+            Some((crate::inventory_lists::InventoryListKind::Player, items)) => Some(NetworkEvent::SetInventory { items }),
+            Some((crate::inventory_lists::InventoryListKind::Storage, items)) => Some(NetworkEvent::SetStorage { items }),
+            None => None,
         }
     })?;
     packet_handler.register_noop::<EquippableSwitchItemListPacket>()?;

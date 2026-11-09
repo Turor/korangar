@@ -176,6 +176,8 @@ pub struct ClientState {
     hotbar: Hotbar,
     /// Player inventory.
     inventory: Inventory,
+    /// Kafra or guild storage. Replaced when a storage list arrives.
+    storage: Inventory,
     /// Player skill tree.
     skill_tree: SkillTree,
 
@@ -330,6 +332,7 @@ impl ClientState {
             let player_name = String::new();
             let hotbar = Hotbar::default();
             let inventory = Inventory::default();
+            let storage = Inventory::default();
             let skill_tree = SkillTree::default();
             let skill_tree_window = SkillTreeWindowState::default();
         });
@@ -399,6 +402,7 @@ impl ClientState {
             player_name,
             hotbar,
             inventory,
+            storage,
             skill_tree,
             character_servers,
             character_slots,

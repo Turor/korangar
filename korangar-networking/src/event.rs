@@ -190,6 +190,10 @@ pub enum NetworkEvent {
     SetInventory {
         items: Vec<InventoryItem<NoMetadata>>,
     },
+    /// Kafra storage (context 2) or guild storage (context 3) snapshot.
+    SetStorage {
+        items: Vec<InventoryItem<NoMetadata>>,
+    },
     IventoryItemAdded {
         item: InventoryItem<NoMetadata>,
     },
