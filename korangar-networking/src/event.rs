@@ -280,6 +280,38 @@ pub enum NetworkEvent {
     RemoveSkill {
         skill_id: SkillId,
     },
+    /// Remaining cooldown for a skill (`DisplaySkillCooldownPacket`, 0x043D).
+    SkillCooldown {
+        skill_id: SkillId,
+        until: ClientTick,
+    },
+    /// A skill cast was acknowledged (`UseSkillSuccessPacket`, 0x07FB).
+    UseSkillSuccess {
+        source_entity_id: EntityId,
+        destination_entity_id: EntityId,
+        position: TilePosition,
+        skill_id: SkillId,
+        element: u32,
+        delay_time: u32,
+        disposable: u8,
+    },
+    /// The server accepted a skill the client is about to use
+    /// (`ToUseSkillSuccessPacket`, 0x0110).
+    ToUseSkillSuccess {
+        skill_id: SkillId,
+        btype: i32,
+        item_id: ItemId,
+        flag: u8,
+        cause: u8,
+    },
+    /// A ground skill was placed (`NotifyGroundSkillPacket`, 0x0117).
+    NotifyGroundSkill {
+        skill_id: SkillId,
+        entity_id: EntityId,
+        level: SkillLevel,
+        position: TilePosition,
+        start_time: ClientTick,
+    },
 }
 
 /// New-type so we can implement some `From` traits. This will help when

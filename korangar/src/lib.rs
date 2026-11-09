@@ -2036,6 +2036,11 @@ impl Client {
                         .follow_mut(client_state().skill_tree_window().chosen_skill_level())
                         .remove(&skill_id);
                 }
+                // Typed skill packets are delivered for later UI. This pass does not render them.
+                NetworkEvent::SkillCooldown { .. } => {}
+                NetworkEvent::UseSkillSuccess { .. } => {}
+                NetworkEvent::ToUseSkillSuccess { .. } => {}
+                NetworkEvent::NotifyGroundSkill { .. } => {}
             }
         }
     }

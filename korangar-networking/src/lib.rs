@@ -1074,6 +1074,124 @@ mod packet_handlers {
             emotion: 3,
         }]));
     }
+
+    fn handle_one(
+        version: crate::SupportedPacketVersion,
+        bytes: &[u8],
+    ) -> ragnarok_packets::handler::HandlerResult<crate::event::NetworkEventList> {
+        let mut handler = NetworkingSystem::create_map_server_packet_handler(NoPacketCallback, version).unwrap();
+        let mut reader = ByteReader::without_metadata(bytes);
+        handler.process_one(&mut reader)
+    }
+
+    #[test]
+    fn packetver_20250716_skill_packets_become_typed_events() {
+        use ragnarok_packets::{
+            ClientTick, DisplaySkillCooldownPacket, ItemId, NotifyGroundSkillPacket, SkillId, SkillLevel, TilePosition,
+            ToUseSkillSuccessPacket, UseSkillSuccessPacket,
+        };
+
+        let cooldown = DisplaySkillCooldownPacket {
+            skill_id: SkillId(46),
+            until: ClientTick(1_500),
+        };
+        let mut writer = ByteWriter::new();
+        cooldown.packet_to_bytes(&mut writer).unwrap();
+        let HandlerResult::Ok(events) = handle_one(SupportedPacketVersion::_20250716, writer.as_slice()) else {
+            panic!("cooldown packet was not handled");
+        };
+        assert!(matches!(events.0.as_slice(), [NetworkEvent::SkillCooldown {
+            skill_id: SkillId(46),
+            until: ClientTick(1_500),
+        }]));
+
+        let use_skill = UseSkillSuccessPacket {
+            source_entity: EntityId(11),
+            destination_entity: EntityId(22),
+            position: TilePosition { x: 3, y: 4 },
+            skill_id: SkillId(28),
+            element: 6,
+            delay_time: 90,
+            disposable: 1,
+        };
+        let mut writer = ByteWriter::new();
+        use_skill.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 25);
+        let HandlerResult::Ok(events) = handle_one(SupportedPacketVersion::_20250716, writer.as_slice()) else {
+            panic!("use-skill packet was not handled");
+        };
+        assert!(matches!(events.0.as_slice(), [NetworkEvent::UseSkillSuccess {
+            source_entity_id: EntityId(11),
+            destination_entity_id: EntityId(22),
+            position: TilePosition { x: 3, y: 4 },
+            skill_id: SkillId(28),
+            element: 6,
+            delay_time: 90,
+            disposable: 1,
+        }]));
+
+        let to_use = ToUseSkillSuccessPacket {
+            skill_id: SkillId(7),
+            btype: -2,
+            item_id: ItemId(501),
+            flag: 1,
+            cause: 0,
+        };
+        let mut writer = ByteWriter::new();
+        to_use.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 14);
+        let HandlerResult::Ok(events) = handle_one(SupportedPacketVersion::_20250716, writer.as_slice()) else {
+            panic!("to-use-skill packet was not handled");
+        };
+        assert!(matches!(events.0.as_slice(), [NetworkEvent::ToUseSkillSuccess {
+            skill_id: SkillId(7),
+            btype: -2,
+            item_id: ItemId(501),
+            flag: 1,
+            cause: 0,
+        }]));
+
+        let ground = NotifyGroundSkillPacket {
+            skill_id: SkillId(89),
+            entity_id: EntityId(77),
+            level: SkillLevel(5),
+            position: TilePosition { x: 10, y: 20 },
+            start_time: ClientTick(42),
+        };
+        let mut writer = ByteWriter::new();
+        ground.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 18);
+        let HandlerResult::Ok(events) = handle_one(SupportedPacketVersion::_20250716, writer.as_slice()) else {
+            panic!("ground-skill packet was not handled");
+        };
+        assert!(matches!(events.0.as_slice(), [NetworkEvent::NotifyGroundSkill {
+            skill_id: SkillId(89),
+            entity_id: EntityId(77),
+            level: SkillLevel(5),
+            position: TilePosition { x: 10, y: 20 },
+            start_time: ClientTick(42),
+        }]));
+    }
+
+    #[test]
+    fn older_packetvers_still_drop_skill_ack_packets() {
+        use ragnarok_packets::DisplaySkillCooldownPacket;
+
+        let mut writer = ByteWriter::new();
+        DisplaySkillCooldownPacket {
+            skill_id: ragnarok_packets::SkillId(1),
+            until: ragnarok_packets::ClientTick(2),
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+
+        for version in [SupportedPacketVersion::_20220406, SupportedPacketVersion::_20190530] {
+            let HandlerResult::Ok(events) = handle_one(version, writer.as_slice()) else {
+                panic!("older packetver should still accept the cooldown packet");
+            };
+            assert!(events.0.is_empty(), "{version:?} should keep the packet as a noop");
+        }
+    }
 }
 
 #[cfg(test)]
