@@ -1476,6 +1476,94 @@ mod packet_handlers {
             }] if objectives.is_empty()
         ));
     }
+
+    fn map_handler(
+        version: SupportedPacketVersion,
+    ) -> ragnarok_packets::handler::PacketHandler<crate::event::NetworkEventList, NoPacketCallback> {
+        NetworkingSystem::create_map_server_packet_handler(NoPacketCallback, version).unwrap()
+    }
+
+    fn process_one(version: SupportedPacketVersion, bytes: &[u8]) -> Vec<NetworkEvent> {
+        let mut handler = map_handler(version);
+        let mut reader = ByteReader::without_metadata(bytes);
+        let HandlerResult::Ok(events) = handler.process_one(&mut reader) else {
+            panic!("packet was not handled");
+        };
+        assert!(reader.remaining_bytes().is_empty());
+        events.0
+    }
+
+    #[test]
+    fn packetver_20250716_friend_online_status_is_typed() {
+        use ragnarok_packets::{AccountId, CharacterId, FriendOnlineStatusPacket, OnlineState};
+
+        for (state, online) in [(OnlineState::Online, true), (OnlineState::Offline, false)] {
+            let packet = FriendOnlineStatusPacket {
+                account_id: AccountId(7),
+                character_id: CharacterId(9),
+                state,
+                name: "Nova".to_owned(),
+            };
+            let mut writer = ByteWriter::new();
+            packet.packet_to_bytes(&mut writer).unwrap();
+
+            let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+            assert!(matches!(events.as_slice(), [NetworkEvent::FriendOnlineStatus {
+                account_id: AccountId(7),
+                character_id: CharacterId(9),
+                online: got,
+                name,
+            }] if *got == online && name == "Nova"));
+
+            let older = process_one(SupportedPacketVersion::_20220406, writer.as_slice());
+            assert!(older.is_empty());
+        }
+    }
+
+    #[test]
+    fn packetver_20250716_party_invite_is_typed() {
+        use ragnarok_packets::{PartyId, PartyInvitePacket};
+
+        let packet = PartyInvitePacket {
+            party_id: PartyId(42),
+            party_name: "Wolves".to_owned(),
+        };
+        let mut writer = ByteWriter::new();
+        packet.packet_to_bytes(&mut writer).unwrap();
+
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::PartyInvite {
+            party_id: PartyId(42),
+            party_name,
+        }] if party_name == "Wolves"));
+
+        assert!(process_one(SupportedPacketVersion::_20190530, writer.as_slice()).is_empty());
+    }
+
+    #[test]
+    fn packetver_20250716_party_invitation_state_is_typed() {
+        use ragnarok_packets::UpdatePartyInvitationStatePacket;
+
+        // Refuse flag: 0 allows invitations, 1 auto-denies them.
+        let allowed = UpdatePartyInvitationStatePacket { allowed: 0 };
+        let blocked = UpdatePartyInvitationStatePacket { allowed: 1 };
+
+        let mut writer = ByteWriter::new();
+        allowed.packet_to_bytes(&mut writer).unwrap();
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::PartyInvitationState {
+            invitations_allowed: true
+        }]));
+
+        let mut writer = ByteWriter::new();
+        blocked.packet_to_bytes(&mut writer).unwrap();
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::PartyInvitationState {
+            invitations_allowed: false
+        }]));
+        assert!(process_one(SupportedPacketVersion::_20220406, writer.as_slice()).is_empty());
+    }
+
 }
 
 #[cfg(test)]

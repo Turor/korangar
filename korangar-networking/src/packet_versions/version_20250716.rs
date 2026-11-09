@@ -513,7 +513,10 @@ where
             luck_stat_points_cost,
         }
     })?;
-    packet_handler.register_noop::<UpdatePartyInvitationStatePacket>()?;
+    packet_handler.register(|packet: UpdatePartyInvitationStatePacket| NetworkEvent::PartyInvitationState {
+        // `0x02C9` is a refuse flag (`denyPartyInvites`): 0 allows invites, non-zero denies them.
+        invitations_allowed: packet.allowed == 0,
+    })?;
     packet_handler.register_noop::<UpdateShowEquipPacket>()?;
     packet_handler.register_noop::<UpdateConfigurationPacket>()?;
     packet_handler.register_noop::<NavigateToMonsterPacket>()?;
@@ -882,7 +885,12 @@ where
     packet_handler.register(|packet: FriendListPacket| NetworkEvent::SetFriendList {
         friend_list: packet.friend_list,
     })?;
-    packet_handler.register_noop::<FriendOnlineStatusPacket>()?;
+    packet_handler.register(|packet: FriendOnlineStatusPacket| NetworkEvent::FriendOnlineStatus {
+        account_id: packet.account_id,
+        character_id: packet.character_id,
+        online: matches!(packet.state, OnlineState::Online),
+        name: packet.name,
+    })?;
     packet_handler.register(|packet: FriendRequestPacket| NetworkEvent::FriendRequest {
         requestee: packet.requestee,
     })?;
@@ -909,11 +917,14 @@ where
         account_id: packet.account_id,
         character_id: packet.character_id,
     })?;
-    packet_handler.register_noop::<PartyInvitePacket>()?;
     packet_handler.register(|packet: StatusChangeSequencePacket| NetworkEvent::StatusChangeSequence {
         status_index: packet.index,
         entity_id: EntityId(packet.id),
         state: crate::event::StatusChangeState::from_wire(packet.state),
+    })?;
+    packet_handler.register(|packet: PartyInvitePacket| NetworkEvent::PartyInvite {
+        party_id: packet.party_id,
+        party_name: packet.party_name,
     })?;
     packet_handler.register_noop::<ReputationPacket>()?;
     packet_handler.register_noop::<ClanInfoPacket>()?;

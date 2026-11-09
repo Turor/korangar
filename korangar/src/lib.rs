@@ -1775,6 +1775,7 @@ impl Client {
                         .follow_mut(client_state().friend_list())
                         .retain(|friend| !(friend.account_id == account_id && friend.character_id == character_id));
                 }
+                NetworkEvent::FriendOnlineStatus { .. } | NetworkEvent::PartyInvite { .. } | NetworkEvent::PartyInvitationState { .. } => {}
                 NetworkEvent::FriendAdded { friend } => {
                     self.client_state.follow_mut(client_state().friend_list()).push(friend);
                 }
