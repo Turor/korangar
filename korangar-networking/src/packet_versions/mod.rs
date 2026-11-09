@@ -1,3 +1,4 @@
+pub mod companions;
 pub mod economy;
 pub mod eden;
 pub mod enchant;

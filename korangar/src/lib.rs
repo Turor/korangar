@@ -1144,6 +1144,7 @@ impl Client {
                     self.client_state.follow_mut(client_state().guild()).clear();
                     self.client_state.follow_mut(client_state().guild_window()).clear();
                     self.client_state.follow_mut(client_state().warpra_window()).clear_catalog();
+                    self.client_state.follow_mut(client_state().companion_window()).clear();
 
                     self.audio_engine.play_background_music_track(None);
 
@@ -1230,6 +1231,7 @@ impl Client {
                         self.client_state.follow_mut(client_state().guild()).clear();
                         self.client_state.follow_mut(client_state().guild_window()).clear();
                         self.client_state.follow_mut(client_state().warpra_window()).clear_catalog();
+                        self.client_state.follow_mut(client_state().companion_window()).clear();
                         self.interface.open_window(CharacterSelectionWindow::new(
                             client_state().character_slots(),
                             client_state().switch_request(),
@@ -1553,6 +1555,8 @@ impl Client {
                     self.interface.close_window_with_class(WindowClass::Eden);
                     self.interface.close_window_with_class(WindowClass::Warpra);
                     self.client_state.follow_mut(client_state().warpra_window()).clear_catalog();
+                    self.interface.close_window_with_class(WindowClass::Companions);
+                    self.client_state.follow_mut(client_state().companion_window()).clear();
                     if self.interface.is_window_with_class_open(WindowClass::Refine) {
                         let _ = self.networking_system.close_refine();
                         self.client_state.follow_mut(client_state().refine()).close();
@@ -1880,6 +1884,124 @@ impl Client {
                         .follow_mut(client_state().warpra_window())
                         .show_result(result, kind, location_id);
                     self.interface.open_window(WarpraWindow::new());
+                }
+                NetworkEvent::PetInfo {
+                    summary,
+                    name,
+                    renamed,
+                    level,
+                    hunger,
+                    intimacy,
+                    accessory_id,
+                    class_id,
+                } => {
+                    self.client_state.follow_mut(client_state().companion_window()).show_pet(
+                        crate::interface::windows::PetPanel {
+                            name,
+                            renamed,
+                            level,
+                            hunger,
+                            intimacy,
+                            accessory: accessory_id,
+                            class_id,
+                        },
+                        summary,
+                    );
+                    self.interface.open_window(CompanionWindow::new());
+                }
+                NetworkEvent::PetState { kind, value, .. } => {
+                    self.client_state
+                        .follow_mut(client_state().companion_window())
+                        .apply_pet_state(kind, value);
+                    self.interface.open_window(CompanionWindow::new());
+                }
+                NetworkEvent::HomunculusInfo { summary, .. } => {
+                    self.client_state
+                        .follow_mut(client_state().companion_window())
+                        .show_homunculus(summary);
+                    self.interface.open_window(CompanionWindow::new());
+                }
+                NetworkEvent::MercenaryInfo {
+                    summary,
+                    name,
+                    level,
+                    attack,
+                    magic_attack,
+                    hit,
+                    critical,
+                    defense,
+                    magic_defense,
+                    flee,
+                    attack_speed,
+                    health_points,
+                    maximum_health_points,
+                    spell_points,
+                    maximum_spell_points,
+                    expire_date,
+                    faith,
+                    summons,
+                    kills,
+                    attack_range,
+                    account_id,
+                } => {
+                    self.client_state
+                        .follow_mut(client_state().companion_window())
+                        .show_mercenary(
+                            crate::interface::windows::MercenaryPanel {
+                                name,
+                                level,
+                                attack,
+                                magic_attack,
+                                hit,
+                                critical,
+                                defense,
+                                magic_defense,
+                                flee,
+                                attack_speed,
+                                health_points,
+                                maximum_health_points,
+                                spell_points,
+                                maximum_spell_points,
+                                expire_date,
+                                faith,
+                                summons,
+                                kills,
+                                attack_range,
+                            },
+                            account_id == 0,
+                            summary,
+                        );
+                    self.interface.open_window(CompanionWindow::new());
+                }
+                NetworkEvent::MercenaryParameter { variable, value } => {
+                    self.client_state
+                        .follow_mut(client_state().companion_window())
+                        .apply_mercenary_parameter(variable, value);
+                    self.interface.open_window(CompanionWindow::new());
+                }
+                NetworkEvent::ElementalInfo {
+                    summary,
+                    class_id,
+                    health_points,
+                    maximum_health_points,
+                    spell_points,
+                    maximum_spell_points,
+                } => {
+                    self.client_state.follow_mut(client_state().companion_window()).show_elemental(
+                        class_id,
+                        health_points,
+                        maximum_health_points,
+                        spell_points,
+                        maximum_spell_points,
+                        summary,
+                    );
+                    self.interface.open_window(CompanionWindow::new());
+                }
+                NetworkEvent::ElementalParameter { variable, value } => {
+                    self.client_state
+                        .follow_mut(client_state().companion_window())
+                        .apply_elemental_parameter(variable, value);
+                    self.interface.open_window(CompanionWindow::new());
                 }
                 NetworkEvent::OpenDialog { text, npc_id } => {
                     self.client_state
@@ -3531,6 +3653,30 @@ impl Client {
                     }
                     Err(message) => self.client_state.follow_mut(client_state().warpra_window()).set_status(message),
                 },
+                InputEvent::OpenCompanions => {
+                    self.interface.open_window(CompanionWindow::new());
+                }
+                InputEvent::PetFeed => {
+                    let _ = self.networking_system.command_pet(korangar_networking::PET_ACT_FEED);
+                }
+                InputEvent::PetPerformance => {
+                    let _ = self.networking_system.command_pet(korangar_networking::PET_ACT_PERFORMANCE);
+                }
+                InputEvent::PetReturn => {
+                    let _ = self.networking_system.command_pet(korangar_networking::PET_ACT_RETURN);
+                }
+                InputEvent::PetUnequip => {
+                    let _ = self.networking_system.command_pet(korangar_networking::PET_ACT_UNEQUIP);
+                }
+                InputEvent::HomunculusFeed => {
+                    let _ = self.networking_system.command_homunculus(korangar_networking::HOM_ACT_FEED);
+                }
+                InputEvent::HomunculusRelease => {
+                    let _ = self.networking_system.command_homunculus(korangar_networking::HOM_ACT_DELETE);
+                }
+                InputEvent::MercenaryDismiss => {
+                    let _ = self.networking_system.command_mercenary(korangar_networking::MERC_ACT_DISMISS);
+                }
                 InputEvent::RequestWarpraBuy => match self.client_state.follow(client_state().warpra_window()).buy_request() {
                     Ok((kind, location_id)) => {
                         let _ = self

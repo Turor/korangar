@@ -191,6 +191,8 @@ pub struct ClientState {
     eden_window: crate::interface::windows::EdenWindowState,
     /// Internal state of the Turoran Warpra menu.
     warpra_window: crate::interface::windows::WarpraWindowState,
+    /// Homunculus, pet, mercenary, and elemental info.
+    companion_window: crate::interface::windows::CompanionWindowState,
     /// Internal state of the skill tree window.
     skill_tree_window: SkillTreeWindowState,
 
@@ -428,6 +430,7 @@ impl ClientState {
             let stable_window = crate::interface::windows::StableWindowState::default();
             let eden_window = crate::interface::windows::EdenWindowState::default();
             let warpra_window = crate::interface::windows::WarpraWindowState::default();
+            let companion_window = crate::interface::windows::CompanionWindowState::default();
 
             let shop_items = Vec::default();
             let buy_cart = Vec::default();
@@ -516,6 +519,7 @@ impl ClientState {
             stable_window,
             eden_window,
             warpra_window,
+            companion_window,
             skill_tree_window,
             entities: Vec::new(),
             dead_entities: Vec::new(),

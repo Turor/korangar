@@ -59,6 +59,10 @@ impl CustomWindow<ClientState> for MenuWindow {
                     text: "Warpra",
                     event: InputEvent::OpenWarpra,
                 },
+                button! {
+                    text: "Companions",
+                    event: InputEvent::OpenCompanions,
+                },
                 #[cfg(feature = "debug")]
                 button! {
                     text: "Render options",
