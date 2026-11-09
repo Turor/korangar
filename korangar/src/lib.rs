@@ -2017,12 +2017,13 @@ impl Client {
                     is_master,
                     master_character_id,
                 } => {
+                    let previous_id = self.client_state.follow(client_state().guild()).guild_id;
                     let joined = {
                         let guild = self.client_state.follow_mut(client_state().guild());
                         guild.apply_affiliation(guild_id, name, is_master, master_character_id);
                         guild.joined
                     };
-                    if !joined {
+                    if !joined || previous_id != guild_id {
                         self.client_state.follow_mut(client_state().guild_window()).clear();
                     }
                 }
@@ -2040,6 +2041,7 @@ impl Client {
                     territory,
                     master_character_id,
                 } => {
+                    let previous_id = self.client_state.follow(client_state().guild()).guild_id;
                     self.client_state
                         .follow_mut(client_state().guild())
                         .apply_info(crate::state::guild::GuildInfoUpdate {
@@ -2056,6 +2058,9 @@ impl Client {
                             territory,
                             master_character_id,
                         });
+                    if previous_id != guild_id {
+                        self.client_state.follow_mut(client_state().guild_window()).clear();
+                    }
                 }
                 NetworkEvent::GuildMembers { members } => {
                     self.client_state.follow_mut(client_state().guild()).set_members(members);

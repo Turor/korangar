@@ -132,6 +132,11 @@ impl GuildState {
         if self.guild_id != info.guild_id {
             self.members.clear();
             self.positions.clear();
+            // ZC_GUILD_NOTICE is omitted when both strings are empty, so a
+            // later affiliation packet for this same id must not keep the
+            // previous guild's notice.
+            self.subject.clear();
+            self.notice.clear();
         }
         self.joined = true;
         self.guild_id = info.guild_id;
@@ -183,7 +188,14 @@ impl GuildState {
             .iter_mut()
             .find(|member| member.account_id == account_id && member.character_id == character_id)
         {
-            member.online = online;
+            if member.online != online {
+                if online {
+                    self.online_members = self.online_members.saturating_add(1);
+                } else {
+                    self.online_members = (self.online_members - 1).max(0);
+                }
+                member.online = online;
+            }
             self.refresh_rows();
         }
     }
@@ -192,9 +204,12 @@ impl GuildState {
     /// character.
     pub fn remove_member(&mut self, character_id: CharacterId) -> Option<String> {
         let index = self.members.iter().position(|member| member.character_id == character_id)?;
-        let name = self.members.remove(index).name;
+        let removed = self.members.remove(index);
+        if removed.online {
+            self.online_members = (self.online_members - 1).max(0);
+        }
         self.refresh_rows();
-        Some(name)
+        Some(removed.name)
     }
 }
 
@@ -244,11 +259,56 @@ mod tests {
             master_character_id: 9,
         });
         guild.set_members(vec![member(9, "Alpha"), member(8, "Beta")]);
+        guild.online_members = 2;
         guild.set_member_online(AccountId(8), CharacterId(8), false);
         assert!(!guild.members[1].online);
+        assert_eq!(guild.online_members, 1);
+        guild.set_member_online(AccountId(8), CharacterId(8), false);
+        assert_eq!(guild.online_members, 1);
         assert_eq!(guild.remove_member(CharacterId(9)).as_deref(), Some("Alpha"));
         assert_eq!(guild.members.len(), 1);
+        assert_eq!(guild.online_members, 0);
         assert!(guild.remove_member(CharacterId(9)).is_none());
+        assert_eq!(guild.online_members, 0);
+    }
+
+    #[test]
+    fn info_for_a_new_guild_drops_the_previous_notice() {
+        let mut guild = GuildState::default();
+        guild.apply_info(GuildInfoUpdate {
+            guild_id: 1,
+            level: 1,
+            online_members: 1,
+            max_members: 16,
+            average_level: 10,
+            experience: 0,
+            next_experience: 1,
+            emblem_version: 0,
+            name: "Old".to_owned(),
+            master_name: "Lead".to_owned(),
+            territory: String::new(),
+            master_character_id: 1,
+        });
+        guild.set_notice("Old subject".to_owned(), "Old notice".to_owned());
+        guild.apply_info(GuildInfoUpdate {
+            guild_id: 2,
+            level: 1,
+            online_members: 1,
+            max_members: 16,
+            average_level: 10,
+            experience: 0,
+            next_experience: 1,
+            emblem_version: 3,
+            name: "New".to_owned(),
+            master_name: "Lead".to_owned(),
+            territory: String::new(),
+            master_character_id: 5,
+        });
+        assert!(guild.subject.is_empty());
+        assert!(guild.notice.is_empty());
+        guild.apply_affiliation(2, "New".to_owned(), true, 5);
+        assert!(guild.subject.is_empty());
+        assert!(guild.notice.is_empty());
     }
 
     #[test]
