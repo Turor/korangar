@@ -177,6 +177,12 @@ mod tests {
             match path {
                 "first.lua" => Ok(b"answer = 41".to_vec()),
                 "second.lua" => Ok(b"answer = answer + 1".to_vec()),
+                "prior.lua" => Ok(b"prior = 3".to_vec()),
+                // Readable, but syntax-invalid. Must not block the stock candidate.
+                "broken-syntax.lua" => Ok(b"answer = ???".to_vec()),
+                // Assigns globals, then errors. Those assignments must not survive.
+                "broken-runtime.lua" => Ok(b"prior = 0\nanswer = 1\nerror('overlay boom')".to_vec()),
+                "stock.lua" => Ok(b"answer = prior + 4".to_vec()),
                 _ => Err(korangar_loaders::FileNotFoundError::new(path.to_owned())),
             }
         }
@@ -195,11 +201,8 @@ mod tests {
 
     #[test]
     fn fallback_groups_prefer_turoran_names_then_stock() {
-        let state = Lua::load_from_game_files_with_fallbacks(&MemoryLoader, &[
-            &["missing-turoran.lua", "first.lua"],
-            &["second.lua"],
-        ])
-        .unwrap();
+        let state =
+            Lua::load_from_game_files_with_fallbacks(&MemoryLoader, &[&["missing-turoran.lua", "first.lua"], &["second.lua"]]).unwrap();
         assert_eq!(state.globals().get::<i32>("answer").unwrap(), 42);
 
         let error = Lua::load_from_game_files_with_fallbacks(&MemoryLoader, &[&["missing-a.lua", "missing-b.lua"]])
@@ -207,5 +210,33 @@ mod tests {
             .unwrap()
             .to_string();
         assert!(error.contains("missing-b.lua") || error.contains("missing-a.lua"));
+    }
+
+    #[test]
+    fn broken_overlay_falls_through_without_keeping_partial_globals() {
+        let state = Lua::load_from_game_files_with_fallbacks(&MemoryLoader, &[&["prior.lua"], &[
+            "broken-syntax.lua",
+            "broken-runtime.lua",
+            "stock.lua",
+        ]])
+        .unwrap();
+        assert_eq!(state.globals().get::<i32>("prior").unwrap(), 3);
+        assert_eq!(state.globals().get::<i32>("answer").unwrap(), 7);
+
+        let error = Lua::load_from_game_files_with_fallbacks(&MemoryLoader, &[&["broken-syntax.lua", "broken-runtime.lua"]])
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(
+            error.contains("broken-runtime.lua") || error.contains("overlay boom"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn readable_working_overlay_is_still_preferred_over_stock() {
+        let state = Lua::load_from_game_files_with_fallbacks(&MemoryLoader, &[&["first.lua", "stock.lua"]]).unwrap();
+        assert_eq!(state.globals().get::<i32>("answer").unwrap(), 41);
+        assert!(state.globals().get::<i32>("prior").is_err());
     }
 }
