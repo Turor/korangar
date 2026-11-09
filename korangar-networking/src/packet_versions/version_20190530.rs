@@ -10,7 +10,7 @@ use ragnarok_packets::version_20190530::{
 };
 use ragnarok_packets::*;
 
-use crate::event::{minimap_mark_event, navigate_to_event, NetworkEventList, NoNetworkEvents};
+use crate::event::{NetworkEventList, NoNetworkEvents, minimap_mark_event, navigate_to_event};
 use crate::items::ItemQuantity;
 use crate::packet_versions::economy::open_market_event;
 use crate::{

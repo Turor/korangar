@@ -1035,7 +1035,6 @@ where
         }
     }
 
-
     pub fn request_reset_enchant(&mut self, enchant_group: i64, inventory_index: i16) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
@@ -1659,7 +1658,9 @@ mod packet_handlers {
 
     #[test]
     fn nav_marks_packets_become_typed_events_on_every_profile() {
-        use ragnarok_packets::{ColorRGBA, LargeTilePosition, MarkMinimapPositionPacket, MarkerType, NavigateToMonsterPacket, TilePosition};
+        use ragnarok_packets::{
+            ColorRGBA, LargeTilePosition, MarkMinimapPositionPacket, MarkerType, NavigateToMonsterPacket, TilePosition,
+        };
 
         let navigate = NavigateToMonsterPacket {
             target_type: 3,
@@ -1717,7 +1718,10 @@ mod packet_handlers {
             ..navigate
         };
         let events = handle_map_packet(SupportedPacketVersion::_20250716, hidden);
-        assert!(matches!(events.0.as_slice(), [NetworkEvent::NavigateTo { show_window: false, .. }]));
+        assert!(matches!(events.0.as_slice(), [NetworkEvent::NavigateTo {
+            show_window: false,
+            ..
+        }]));
 
         let remove = MarkMinimapPositionPacket {
             marker_type: MarkerType::RemoveMark,
@@ -1725,7 +1729,11 @@ mod packet_handlers {
             ..mark
         };
         let events = handle_map_packet(SupportedPacketVersion::_20250716, remove);
-        assert!(matches!(events.0.as_slice(), [NetworkEvent::MinimapMark { kind: 2, slot: 1, .. }]));
+        assert!(matches!(events.0.as_slice(), [NetworkEvent::MinimapMark {
+            kind: 2,
+            slot: 1,
+            ..
+        }]));
     }
 
     fn handle_one(

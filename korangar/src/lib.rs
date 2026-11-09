@@ -1019,9 +1019,7 @@ impl Client {
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
     fn handle_network_events(&mut self, client_tick: ClientTick) {
         *self.client_state.follow_mut(client_state().client_tick()) = client_tick;
-        self.client_state
-            .follow_mut(client_state().navigation())
-            .expire(client_tick.0);
+        self.client_state.follow_mut(client_state().navigation()).expire(client_tick.0);
         self.networking_system.get_events(&mut self.network_event_buffer);
 
         for event in self.network_event_buffer.drain() {
@@ -3125,8 +3123,7 @@ impl Client {
                         && self.client_state.try_follow(this_entity()).is_some()
                         && !self.interface.is_window_with_class_open(WindowClass::Navigation)
                     {
-                        self.interface
-                            .open_window(NavigationWindow::new(client_state().navigation()));
+                        self.interface.open_window(NavigationWindow::new(client_state().navigation()));
                     }
                 }
                 NetworkEvent::MinimapMark {
@@ -3156,8 +3153,7 @@ impl Client {
                         && self.client_state.try_follow(this_entity()).is_some()
                         && !self.interface.is_window_with_class_open(WindowClass::Navigation)
                     {
-                        self.interface
-                            .open_window(NavigationWindow::new(client_state().navigation()));
+                        self.interface.open_window(NavigationWindow::new(client_state().navigation()));
                     }
                 }
             }
@@ -3367,9 +3363,7 @@ impl Client {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::Navigation) {
                             true => self.interface.close_window_with_class(WindowClass::Navigation),
-                            false => self
-                                .interface
-                                .open_window(NavigationWindow::new(client_state().navigation())),
+                            false => self.interface.open_window(NavigationWindow::new(client_state().navigation())),
                         }
                     }
                 }

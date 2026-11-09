@@ -1,4 +1,5 @@
-//! Navigation window: destination from `0x08E2` and viewpoint pins from `0x0144`.
+//! Navigation window: destination from `0x08E2` and viewpoint pins from
+//! `0x0144`.
 
 use korangar_interface::element::Element;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
@@ -11,9 +12,9 @@ use rust_state::{Path, State};
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
+use crate::state::ClientState;
 use crate::state::navigation::{Navigation, NavigationTarget};
 use crate::state::theme::InterfaceThemeType;
-use crate::state::ClientState;
 
 const MAP_SIZE: f32 = 180.0;
 const ROW_HEIGHT: f32 = 16.0;
@@ -39,8 +40,8 @@ fn canvas_cells(navigation: &Navigation) -> u32 {
     let (player_x, player_y) = navigation.player_cell();
     max_cell = max_cell.max(player_x as u32).max(player_y as u32);
     if let Some(target) = navigation.target() {
-        let same_map = crate::state::navigation::normalize_map_name(&target.map_name) == navigation.map_name()
-            || navigation.map_name().is_empty();
+        let same_map =
+            crate::state::navigation::normalize_map_name(&target.map_name) == navigation.map_name() || navigation.map_name().is_empty();
         if same_map {
             max_cell = max_cell.max(target.x as u32).max(target.y as u32);
         }
@@ -127,8 +128,8 @@ where
         );
 
         if let Some(target) = navigation.target() {
-            let same_map = crate::state::navigation::normalize_map_name(&target.map_name) == navigation.map_name()
-                || navigation.map_name().is_empty();
+            let same_map =
+                crate::state::navigation::normalize_map_name(&target.map_name) == navigation.map_name() || navigation.map_name().is_empty();
             if same_map {
                 paint_pin(
                     layout,

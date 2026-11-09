@@ -34,7 +34,8 @@ pub struct NavigationTarget {
     pub x: u16,
     pub y: u16,
     pub monster_id: u16,
-    /// 0 coordinates, 1 coordinates that fail when already on the map, 3 monster.
+    /// 0 coordinates, 1 coordinates that fail when already on the map, 3
+    /// monster.
     pub target_type: u8,
     /// rAthena `navigation_service` bits: airship, scroll, kafra.
     pub service_flags: u8,
@@ -154,15 +155,7 @@ impl Navigation {
         self.refresh_status_line();
     }
 
-    pub fn set_navigation(
-        &mut self,
-        map_name: String,
-        x: u16,
-        y: u16,
-        monster_id: u16,
-        target_type: u8,
-        service_flags: u8,
-    ) {
+    pub fn set_navigation(&mut self, map_name: String, x: u16, y: u16, monster_id: u16, target_type: u8, service_flags: u8) {
         let summary = target_summary(&map_name, x, y, monster_id, target_type, service_flags);
         self.target = Some(NavigationTarget {
             map_name,
@@ -244,7 +237,7 @@ impl Navigation {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_map_name, MinimapMarkUpdate, Navigation};
+    use super::{MinimapMarkUpdate, Navigation, normalize_map_name};
 
     #[allow(clippy::too_many_arguments)]
     fn mark(npc_id: u32, kind: u8, x: u32, y: u32, slot: u8, red: u8, green: u8, blue: u8, now: u32) -> MinimapMarkUpdate {
