@@ -1150,6 +1150,11 @@ impl Client {
                     self.client_state.follow_mut(client_state().mvp_minimap()).clear_markers();
                     self.client_state.follow_mut(client_state().mvp_minimap()).set_map_size(0, 0);
                     self.interface.close_window_with_class(WindowClass::MvpMinimap);
+                    if self.interface.is_window_with_class_open(WindowClass::Mail) {
+                        let _ = self.networking_system.close_rodex();
+                    }
+                    self.client_state.follow_mut(client_state().mail_window()).clear();
+                    self.interface.close_window_with_class(WindowClass::Mail);
 
                     self.audio_engine.play_background_music_track(None);
 
@@ -1609,6 +1614,10 @@ impl Client {
                         let _ = self.networking_system.close_laphine_upgrade();
                         self.interface.close_window_with_class(WindowClass::LaphineUpgrade);
                     }
+                    if self.interface.is_window_with_class_open(WindowClass::Mail) {
+                        let _ = self.networking_system.close_rodex();
+                        self.interface.close_window_with_class(WindowClass::Mail);
+                    }
 
                     self.client_state
                         .follow_mut(client_state().navigation())
@@ -2039,6 +2048,32 @@ impl Client {
                 }
                 NetworkEvent::MvpMinimap { flags, markers } => {
                     self.client_state.follow_mut(client_state().mvp_minimap()).replace(flags, markers);
+                }
+                NetworkEvent::NewMailStatus { available } => {
+                    self.client_state.follow_mut(client_state().mail_window()).set_new_mail(available);
+                    if available {
+                        self.interface.open_window(MailWindow::new());
+                    }
+                }
+                NetworkEvent::RodexMailList { summary, .. } => {
+                    self.client_state.follow_mut(client_state().mail_window()).set_list(summary);
+                    self.interface.open_window(MailWindow::new());
+                }
+                NetworkEvent::RodexWriteResult { summary, .. } => {
+                    self.client_state.follow_mut(client_state().mail_window()).set_status(summary);
+                    self.interface.open_window(MailWindow::new());
+                }
+                NetworkEvent::RodexDelete { mail_id, .. } => {
+                    self.client_state
+                        .follow_mut(client_state().mail_window())
+                        .set_status(format!("Deleted mail #{mail_id}."));
+                }
+                NetworkEvent::RodexZeny { summary, .. } => {
+                    self.client_state.follow_mut(client_state().mail_window()).set_status(summary);
+                }
+                NetworkEvent::RodexRead { summary, .. } => {
+                    self.client_state.follow_mut(client_state().mail_window()).set_body(summary);
+                    self.interface.open_window(MailWindow::new());
                 }
                 NetworkEvent::OpenDialog { text, npc_id } => {
                     self.client_state
@@ -3804,6 +3839,41 @@ impl Client {
                     }
                     Err(message) => self.client_state.follow_mut(client_state().warpra_window()).set_status(message),
                 },
+                InputEvent::OpenMail => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        let _ = self.networking_system.open_rodex(0);
+                        let _ = self.networking_system.refresh_rodex(0);
+                        self.interface.open_window(MailWindow::new());
+                    }
+                }
+                InputEvent::RefreshMail => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        let _ = self.networking_system.refresh_rodex(0);
+                        self.interface.open_window(MailWindow::new());
+                    }
+                }
+                InputEvent::ReadMail => match self.client_state.follow(client_state().mail_window()).mail_id() {
+                    Ok(mail_id) => {
+                        let _ = self.networking_system.read_rodex(0, mail_id);
+                    }
+                    Err(message) => self
+                        .client_state
+                        .follow_mut(client_state().mail_window())
+                        .set_status(message.to_owned()),
+                },
+                InputEvent::DeleteMail => match self.client_state.follow(client_state().mail_window()).mail_id() {
+                    Ok(mail_id) => {
+                        let _ = self.networking_system.delete_rodex(0, mail_id);
+                    }
+                    Err(message) => self
+                        .client_state
+                        .follow_mut(client_state().mail_window())
+                        .set_status(message.to_owned()),
+                },
+                InputEvent::CloseMail => {
+                    let _ = self.networking_system.close_rodex();
+                    self.interface.close_window_with_class(WindowClass::Mail);
+                }
                 InputEvent::ToggleMvpMinimap => {
                     if self.map.is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::MvpMinimap) {

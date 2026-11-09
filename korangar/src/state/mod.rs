@@ -197,6 +197,8 @@ pub struct ClientState {
     companion_window: crate::interface::windows::CompanionWindowState,
     /// Alive MVPs from `0x0EF5` and the loaded map size used to plot them.
     mvp_minimap: crate::interface::windows::MvpMinimapState,
+    /// Rodex inbox and the unread-mail flag.
+    mail_window: crate::interface::windows::MailWindowState,
     /// Internal state of the skill tree window.
     skill_tree_window: SkillTreeWindowState,
 
@@ -438,6 +440,7 @@ impl ClientState {
             let warpra_window = crate::interface::windows::WarpraWindowState::default();
             let companion_window = crate::interface::windows::CompanionWindowState::default();
             let mvp_minimap = crate::interface::windows::MvpMinimapState::default();
+            let mail_window = crate::interface::windows::MailWindowState::default();
 
             let shop_items = Vec::default();
             let buy_cart = Vec::default();
@@ -529,6 +532,7 @@ impl ClientState {
             warpra_window,
             companion_window,
             mvp_minimap,
+            mail_window,
             skill_tree_window,
             entities: Vec::new(),
             dead_entities: Vec::new(),

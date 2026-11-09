@@ -462,6 +462,38 @@ pub enum NetworkEvent {
         x: i16,
         y: i16,
     },
+    /// `ZC_NOTIFY_UNREADMAIL` (`0x09E7`).
+    NewMailStatus {
+        available: bool,
+    },
+    /// One page of `ZC_ACK_MAIL_LIST3` (`0x0AC2`).
+    RodexMailList {
+        is_end: bool,
+        summary: String,
+    },
+    /// `ZC_ACK_WRITE_MAIL` (`0x09ED`).
+    RodexWriteResult {
+        result: u8,
+        summary: String,
+    },
+    /// `ZC_ACK_DELETE_MAIL` (`0x09F6`).
+    RodexDelete {
+        open_type: u8,
+        mail_id: i64,
+    },
+    /// `ZC_ACK_ZENY_FROM_MAIL` (`0x09F2`).
+    RodexZeny {
+        mail_id: i64,
+        result: u8,
+        summary: String,
+    },
+    /// `ZC_ACK_READ_MAIL` (`0x09EB`, or `0x0B63` on the 2025-07-16 profile).
+    RodexRead {
+        mail_id: i64,
+        zeny: i64,
+        item_count: u8,
+        summary: String,
+    },
     /// Alive MVPs on the current map (`0x0EF5`). Replaces the previous list.
     MvpMinimap {
         flags: u8,

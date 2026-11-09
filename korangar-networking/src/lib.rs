@@ -46,6 +46,7 @@ pub use self::packet_versions::eden::{
 };
 pub use self::packet_versions::enchant::{format_enchant_result, parse_enchant_index, parse_enchant_item_id, parse_enchant_slot};
 pub use self::packet_versions::mvp_minimap::{format_mvp_markers, minimap_point};
+pub use self::packet_versions::rodex::{format_rodex_mails, parse_rodex_mail_id};
 pub use self::packet_versions::stable::{format_stable_result, parse_stable_action, parse_stable_id};
 pub use self::packet_versions::companions::{
     EL_VAR_HP, EL_VAR_MAX_HP, EL_VAR_MAX_SP, EL_VAR_SP, HOM_ACT_DELETE, HOM_ACT_FEED, MERC_ACT_DISMISS, MERC_VAR_ATTACK, MERC_VAR_ATTACK_SPEED,
@@ -915,6 +916,57 @@ where
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(CloseStoragePacket::new())
+            }
+        }
+    }
+
+    /// `CZ_OPEN_MAILBOX2` (`0x0AC0`, 26 bytes). `mail_id` 0 starts at the newest mail.
+    pub fn open_rodex(&mut self, mail_id: i64) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(OpenRodexPacket {
+                    mail_id,
+                    unused: [0; 16],
+                })
+            }
+        }
+    }
+
+    /// `CZ_REQ_REFRESH_MAIL_LIST2` (`0x0AC1`, 26 bytes). Reloads the inbox.
+    pub fn refresh_rodex(&mut self, mail_id: i64) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(RefreshRodexPacket {
+                    mail_id,
+                    unused: [0; 16],
+                })
+            }
+        }
+    }
+
+    /// `CZ_CLOSE_MAILBOX` (`0x09E9`).
+    pub fn close_rodex(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(CloseRodexPacket::new())
+            }
+        }
+    }
+
+    /// `CZ_REQ_READ_MAIL` (`0x09EA`).
+    pub fn read_rodex(&mut self, open_type: u8, mail_id: i64) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(ReadRodexPacket { open_type, mail_id })
+            }
+        }
+    }
+
+    /// `CZ_REQ_DELETE_MAIL` (`0x09F5`).
+    pub fn delete_rodex(&mut self, open_type: u8, mail_id: i64) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(DeleteRodexPacket { open_type, mail_id })
             }
         }
     }
@@ -2724,6 +2776,170 @@ mod packet_handlers {
     }
 
     #[test]
+    fn rodex_mail_packets_round_trip() {
+        use ragnarok_packets::{
+            CloseRodexPacket, DeleteRodexPacket, NewMailStatusPacket, OpenRodexPacket, ReadRodexPacket, RefreshRodexPacket,
+            RodexDeleteAckPacket, RodexMailEntry, RodexMailListPacket, RodexReadPacket, RodexReadPacket2025, RodexWriteResultPacket,
+            RodexZenyAckPacket,
+        };
+
+        let status = NewMailStatusPacket { new_available: 1 };
+        let mut writer = ByteWriter::new();
+        status.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 3);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x09E7);
+
+        for version in [
+            SupportedPacketVersion::_20250716,
+            SupportedPacketVersion::_20220406,
+            SupportedPacketVersion::_20190530,
+        ] {
+            let events = process_one(version, writer.as_slice());
+            assert!(matches!(events.as_slice(), [NetworkEvent::NewMailStatus { available: true }]));
+        }
+
+        let title = "Welcome";
+        let list = RodexMailListPacket {
+            is_end: 1,
+            mails: vec![RodexMailEntry {
+                open_type: 0,
+                mail_id: 42,
+                is_read: 0,
+                mail_type: 0x04,
+                sender_name: "Kafra".to_owned(),
+                expire_time: 1_700_000_000,
+                title_length: title.len() as i16,
+                title: title.to_owned(),
+            }],
+        };
+        let mut writer = ByteWriter::new();
+        list.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0AC2);
+        // header, length, is_end, row without title, title bytes.
+        assert_eq!(writer.as_slice().len(), 2 + 2 + 1 + 1 + 8 + 1 + 1 + 24 + 4 + 2 + title.len());
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::RodexMailList { is_end: true, summary }]
+            if summary.contains("#42 from Kafra: Welcome [unread] (item)")));
+
+        let empty = RodexMailListPacket {
+            is_end: 1,
+            mails: Vec::new(),
+        };
+        let mut writer = ByteWriter::new();
+        empty.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 5);
+        let events = process_one(SupportedPacketVersion::_20190530, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::RodexMailList { is_end: true, summary }] if summary == "Inbox is empty."));
+
+        let write_result = RodexWriteResultPacket { result: 0 };
+        let mut writer = ByteWriter::new();
+        write_result.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 3);
+        let events = process_one(SupportedPacketVersion::_20220406, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::RodexWriteResult { result: 0, .. }]));
+
+        let deleted = RodexDeleteAckPacket {
+            open_type: 0,
+            mail_id: 42,
+        };
+        let mut writer = ByteWriter::new();
+        deleted.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 11);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::RodexDelete { open_type: 0, mail_id: 42 }]));
+
+        let zeny = RodexZenyAckPacket {
+            mail_id: 42,
+            open_type: 0,
+            result: 0,
+        };
+        let mut writer = ByteWriter::new();
+        zeny.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 12);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::RodexZeny { mail_id: 42, result: 0, summary }] if summary.contains("#42")));
+
+        let mut writer = ByteWriter::new();
+        OpenRodexPacket {
+            mail_id: 0,
+            unused: [0; 16],
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 26);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0AC0);
+
+        let mut writer = ByteWriter::new();
+        RefreshRodexPacket {
+            mail_id: 0,
+            unused: [0; 16],
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 26);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0AC1);
+
+        let body = "Hello";
+        let read = RodexReadPacket {
+            open_type: 0,
+            mail_id: 42,
+            text_length: (body.len() + 1) as i16,
+            zeny: 100,
+            item_count: 1,
+            body: body.to_owned(),
+            items: vec![0x07],
+        };
+        let mut writer = ByteWriter::new();
+        read.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x09EB);
+        let events = process_one(SupportedPacketVersion::_20220406, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::RodexRead { mail_id: 42, zeny: 100, item_count: 1, summary }]
+            if summary.contains("Hello") && summary.contains("zeny 100")));
+        let events = process_one(SupportedPacketVersion::_20190530, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::RodexRead { mail_id: 42, .. }]));
+
+        let read_2025 = RodexReadPacket2025 {
+            open_type: 0,
+            mail_id: 42,
+            text_length: (body.len() + 1) as i16,
+            zeny: 100,
+            item_count: 1,
+            body: body.to_owned(),
+            items: vec![0x07],
+        };
+        let mut writer = ByteWriter::new();
+        read_2025.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0B63);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::RodexRead { mail_id: 42, item_count: 1, .. }]));
+
+        let mut writer = ByteWriter::new();
+        CloseRodexPacket::new().packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 2);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x09E9);
+
+        let mut writer = ByteWriter::new();
+        ReadRodexPacket {
+            open_type: 0,
+            mail_id: 42,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 11);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x09EA);
+
+        let mut writer = ByteWriter::new();
+        DeleteRodexPacket {
+            open_type: 0,
+            mail_id: 42,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 11);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x09F5);
+    }
+
+    #[test]
     fn mvp_minimap_packet_replaces_marker_list() {
         use ragnarok_packets::{EntityId, MvpMinimapEntry, MvpMinimapPacket, TilePosition};
 
@@ -3813,7 +4029,9 @@ mod transport_tests {
                 if matches!(version,SupportedPacketVersion::_20190530) {
                     // Unsupported plugin frame larger than a socket read.
                     bytes.resize(20_000,0);
-                    bytes[..4].copy_from_slice(&[0xf5,0x0e,0x20,0x4e]);
+                    // 0x00AE is a framed variable-length opcode with no handler.
+                    // 0x0EF5 is the alive-MVP list and would be parsed instead of skipped.
+                    bytes[..4].copy_from_slice(&[0xae,0x00,0x20,0x4e]);
                 }
                 // A handled large frame, then another gameplay frame.
                 let mut writer=ByteWriter::new();
