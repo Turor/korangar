@@ -1,3 +1,4 @@
+mod adapter;
 mod buffer;
 mod capabilities;
 mod color;
@@ -33,6 +34,7 @@ use wgpu::{
     TextureUsages, TextureViewDimension,
 };
 
+pub(crate) use self::adapter::{adapter_diagnostic, select_startup_adapter};
 pub use self::buffer::Buffer;
 pub use self::capabilities::*;
 pub use self::color::*;

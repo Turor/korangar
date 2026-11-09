@@ -152,6 +152,35 @@ pub(crate) fn remote_config() -> Option<RemoteConfig> {
         allow_http: std::env::var("KORANGAR_REMOTE_ALLOW_HTTP").ok(),
     })
 }
+pub(crate) fn is_portable() -> bool {
+    PORTABLE.get().is_some()
+}
+
+/// Keep only short technical wgpu failure text for startup-error.log.
+/// Never persist panic payloads, clipboard, packets, URLs, or env values.
+pub(crate) fn sanitize_graphics_diagnostic(kind: &str, detail: &str) -> String {
+    let mut cleaned = String::new();
+    for ch in detail.chars() {
+        let ok = ch.is_ascii_alphanumeric()
+            || ch.is_ascii_whitespace()
+            || matches!(
+                ch,
+                '.' | '_' | ':' | '-' | '(' | ')' | '[' | ']' | ',' | '=' | '+' | '/' | '<' | '>' | '|' | ';'
+            );
+        if ok {
+            cleaned.push(ch);
+        } else {
+            cleaned.push('?');
+        }
+        if cleaned.len() >= 480 {
+            cleaned.push_str("...");
+            break;
+        }
+    }
+    let cleaned = cleaned.lines().take(4).collect::<Vec<_>>().join(" | ");
+    format!("Graphics {kind}: {cleaned}")
+}
+
 pub(crate) fn default_backends() -> wgpu::Backends {
     if PORTABLE.get().is_some() {
         wgpu::Backends::VULKAN
