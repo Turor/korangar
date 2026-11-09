@@ -305,10 +305,11 @@ pub enum NetworkEvent {
     TradeZenyAdded {
         amount: i32,
     },
-    /// This client's add-item or add-zeny was accepted or rejected
-    /// (`ZC_ACK_ADD_EXCHANGE_ITEM`).
+    /// This client's add-item was accepted or rejected
+    /// (`ZC_ACK_ADD_EXCHANGE_ITEM`). Zeny is not acked. Index 0 is the dummy
+    /// success `trade_tradeok` sends and must not be booked as an offer.
     TradeAddResult {
-        /// Client inventory index, or 0 for zeny.
+        /// Client inventory index. Zero is the confirm dummy, not zeny.
         index: u16,
         result: u8,
     },

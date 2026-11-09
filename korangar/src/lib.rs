@@ -2209,33 +2209,18 @@ impl Client {
                     trade.refresh_summaries();
                 }
                 NetworkEvent::TradeZenyAdded { amount } => {
-                    if amount > 0 {
-                        let trade = self.client_state.follow_mut(client_state().trade());
-                        trade.partner_zeny = trade.partner_zeny.saturating_add(amount as u32);
-                        trade.refresh_summaries();
+                    if amount >= 0 {
+                        self.client_state
+                            .follow_mut(client_state().trade())
+                            .set_partner_zeny(amount as u32);
                     }
                 }
                 NetworkEvent::TradeAddResult { index, result } => {
-                    let trade = self.client_state.follow_mut(client_state().trade());
-                    let label = std::mem::take(&mut trade.pending_label);
-                    let pending_amount = trade.pending_amount;
-                    trade.pending_index = None;
-                    trade.pending_amount = 0;
-                    if result == 0 {
-                        if index == 0 {
-                            trade.own_zeny = trade.own_zeny.saturating_add(pending_amount);
-                        } else if !label.is_empty() {
-                            trade.own_lines.push(TradeOfferLine { label });
-                        }
-                        trade.refresh_summaries();
-                    } else {
-                        trade.refresh_summaries();
-                        let message = match result {
-                            1 => "That offer is too heavy.",
-                            2 => "The trade was cancelled.",
-                            3 => "That amount is too high.",
-                            _ => "Could not add that to the trade.",
-                        };
+                    if let Some(message) = self
+                        .client_state
+                        .follow_mut(client_state().trade())
+                        .apply_add_result(index, result)
+                    {
                         self.client_state
                             .follow_mut(client_state().chat_messages())
                             .push(ChatMessage::new(message.to_owned(), MessageColor::Error));
@@ -2922,7 +2907,7 @@ impl Client {
                 }
                 InputEvent::TradeAddItem { index, amount } => {
                     let trade = self.client_state.follow(client_state().trade());
-                    if !trade.self_locked && trade.pending_index.is_none() && amount > 0 {
+                    if trade.can_note_item_add(index, u32::from(amount)) {
                         let label = trade
                             .inventory_offers
                             .iter()
@@ -2934,25 +2919,16 @@ impl Client {
                             .add_trade_item(Some(InventoryIndex(index)), u32::from(amount))
                             .is_ok()
                         {
-                            let trade = self.client_state.follow_mut(client_state().trade());
-                            trade.pending_index = Some(index.saturating_add(2));
-                            trade.pending_label = label;
-                            trade.pending_amount = u32::from(amount);
+                            self.client_state
+                                .follow_mut(client_state().trade())
+                                .note_item_add(index, label, u32::from(amount));
                         }
                     }
                 }
                 InputEvent::TradeAddZeny { amount } => {
                     let trade = self.client_state.follow(client_state().trade());
-                    if !trade.self_locked
-                        && trade.pending_index.is_none()
-                        && amount > 0
-                        && self.networking_system.add_trade_item(None, amount).is_ok()
-                    {
-                        let trade = self.client_state.follow_mut(client_state().trade());
-                        trade.pending_index = Some(0);
-                        trade.pending_label = format!("{amount} zeny");
-                        trade.pending_amount = amount;
-                        trade.zeny_draft.clear();
+                    if !trade.self_locked && amount > 0 && self.networking_system.add_trade_item(None, amount).is_ok() {
+                        self.client_state.follow_mut(client_state().trade()).offer_own_zeny(amount);
                     }
                 }
                 InputEvent::TradeConfirm => {
