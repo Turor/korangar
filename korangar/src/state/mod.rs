@@ -5,7 +5,10 @@ pub mod friends;
 pub mod hotbar;
 pub mod inventory;
 pub mod localization;
+pub mod quest_log;
+pub mod skill_cooldowns;
 pub mod skills;
+pub mod status_effects;
 pub mod theme;
 pub mod trade;
 
@@ -28,7 +31,7 @@ use korangar_networking::{MessageColor, SellItem, ShopItem};
 use localization::Localization;
 #[cfg(feature = "debug")]
 use ragnarok_formats::map::{EffectSource, LightSource, MapData, SoundSource};
-use ragnarok_packets::{CharacterId, CharacterServerInformation, EntityId};
+use ragnarok_packets::{CharacterId, CharacterServerInformation, ClientTick, EntityId};
 #[cfg(feature = "debug")]
 use rust_state::{ManuallyAssertExt, VecIndexExt};
 use rust_state::{Path, PathExt, RustState, Selector};
@@ -57,7 +60,10 @@ use crate::settings::{
 use crate::state::character_slots::CharacterSlots;
 use crate::state::hotbar::Hotbar;
 use crate::state::inventory::Inventory;
+use crate::state::quest_log::QuestLog;
+use crate::state::skill_cooldowns::SkillCooldowns;
 use crate::state::skills::SkillTree;
+use crate::state::status_effects::StatusEffects;
 use crate::state::theme::WorldTheme;
 use crate::state::trade::TradeState;
 #[cfg(feature = "debug")]
@@ -186,6 +192,14 @@ pub struct ClientState {
     skill_tree: SkillTree,
     /// Player-to-player trade.
     trade: TradeState,
+    /// Local-player status effects (buffs/debuffs).
+    status_effects: StatusEffects,
+    /// Skill cooldown deadlines for hotbar overlays.
+    skill_cooldowns: SkillCooldowns,
+    /// Quest journal entries.
+    quest_log: QuestLog,
+    /// Latest client tick mirrored for UI overlays.
+    client_tick: ClientTick,
 
     /// List of all available character servers.
     character_servers: Vec<CharacterServerInformation>,
@@ -342,6 +356,10 @@ impl ClientState {
             let skill_tree = SkillTree::default();
             let skill_tree_window = SkillTreeWindowState::default();
             let trade = TradeState::default();
+            let status_effects = StatusEffects::default();
+            let skill_cooldowns = SkillCooldowns::default();
+            let quest_log = QuestLog::default();
+            let client_tick = ClientTick(0);
         });
 
         time_phase!("create window resources", {
@@ -412,6 +430,10 @@ impl ClientState {
             storage,
             skill_tree,
             trade,
+            status_effects,
+            skill_cooldowns,
+            quest_log,
+            client_tick,
             character_servers,
             character_slots,
             currently_deleting,

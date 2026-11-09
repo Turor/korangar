@@ -113,6 +113,14 @@ where
                     event: InputEvent::ToggleFriendListWindow,
                 },
                 button! {
+                    text: "Quests",
+                    event: InputEvent::ToggleQuestJournalWindow,
+                },
+                button! {
+                    text: "Status",
+                    event: InputEvent::ToggleStatusEffectsWindow,
+                },
+                button! {
                     text: client_state().localization().menu_button_text(),
                     event: InputEvent::ToggleMenuWindow,
                 },

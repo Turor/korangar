@@ -14,7 +14,9 @@ use crate::loaders::{FontSize, OverflowBehavior};
 use crate::renderer::LayoutExt;
 use crate::state::skills::{LearnableSkill, LearnedSkill};
 use crate::state::theme::{GlobalThemePathExt, InterfaceThemePathExt, SkillTreeThemePathExt};
-use crate::state::{ClientState, client_theme};
+use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
+
+const COOLDOWN_LABELS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
 struct LevelDisplay {
     maximum_level: SkillLevel,
@@ -209,6 +211,39 @@ where
                 && let Some(sprite) = &learnable_skill.sprite
             {
                 layout.add_sprite(layout_info.area, actions, sprite, &learnable_skill.animation_state, color, 1.0);
+            }
+
+            if let Some(remaining) = state
+                .get(&client_state().skill_cooldowns())
+                .remaining_seconds(learnable_skill.skill_id, *state.get(&client_state().client_tick()))
+            {
+                layout.add_rectangle(
+                    layout_info.area,
+                    CornerDiameter::uniform(8.0),
+                    Color::rgba_u8(8, 10, 16, 170),
+                    Color::rgba_u8(0, 0, 0, 0),
+                    ShadowPadding::uniform(0.0),
+                );
+                // Stable per-call label via display of remaining seconds only (single
+                // digit/short). Use level_display-like caching would be nicer;
+                // format into a small static is unsafe, so show via
+                // tooltip-only is insufficient — add_text needs &'a str. Keep a tiny
+                // leak-free approach: only digits 1..999 fit in a const table.
+                let label = if (remaining as usize) < COOLDOWN_LABELS.len() {
+                    COOLDOWN_LABELS[remaining as usize]
+                } else {
+                    "9+"
+                };
+                layout.add_text(
+                    layout_info.area,
+                    label,
+                    FontSize(14.0),
+                    Color::rgb_u8(255, 220, 120),
+                    Color::rgb_u8(255, 160, 60),
+                    HorizontalAlignment::Center { offset: 0.0, border: 0.0 },
+                    VerticalAlignment::Center { offset: 0.0 },
+                    OverflowBehavior::Shrink,
+                );
             }
 
             if is_hovered {
