@@ -360,7 +360,7 @@ where
         NetworkEvent::UpdateStat { stat_type }
     })?;
     packet_handler.register_noop::<UpdateAttackRangePacket>()?;
-    packet_handler.register_noop::<NewMailStatusPacket>()?;
+    crate::packet_versions::rodex::register_rodex_packets(packet_handler)?;
     packet_handler.register_noop::<AchievementUpdatePacket>()?;
     packet_handler.register_noop::<AchievementListPacket>()?;
     packet_handler.register_noop::<CriticalWeightUpdatePacket>()?;

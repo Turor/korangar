@@ -863,6 +863,97 @@ pub struct NewMailStatusPacket {
     pub new_available: u8,
 }
 
+/// `CZ_OPEN_MAILBOX` (`0x09E8`, 11 bytes). `open_type` 0 is the inbox.
+/// `upper_mail_id` is 0 to open at the newest mail.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09E8)]
+pub struct OpenRodexPacket {
+    pub open_type: u8,
+    pub upper_mail_id: i64,
+}
+
+/// `CZ_CLOSE_MAILBOX` (`0x09E9`, 2 bytes).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09E9)]
+pub struct CloseRodexPacket {}
+
+/// `CZ_REQ_READ_MAIL` (`0x09EA`, 11 bytes).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09EA)]
+pub struct ReadRodexPacket {
+    pub open_type: u8,
+    pub mail_id: i64,
+}
+
+/// `ZC_ACK_WRITE_MAIL` (`0x09ED`, 3 bytes).
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09ED)]
+pub struct RodexWriteResultPacket {
+    pub result: u8,
+}
+
+/// `CZ_REQ_DELETE_MAIL` (`0x09F5`, 11 bytes).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09F5)]
+pub struct DeleteRodexPacket {
+    pub open_type: u8,
+    pub mail_id: i64,
+}
+
+/// `ZC_ACK_DELETE_MAIL` (`0x09F6`, 11 bytes).
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09F6)]
+pub struct RodexDeleteAckPacket {
+    pub open_type: u8,
+    pub mail_id: i64,
+}
+
+/// `ZC_ACK_ZENY_FROM_MAIL` (`0x09F2`, 12 bytes).
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09F2)]
+pub struct RodexZenyAckPacket {
+    pub mail_id: i64,
+    pub open_type: u8,
+    pub result: u8,
+}
+
+/// One row of `ZC_ACK_MAIL_LIST3` (`0x0AC2`).
+///
+/// After the list header the row is `open_type`, `mail_id`, `is_read`,
+/// `mail_type`, a 24-byte sender, `expire_time`, then a `u16` title length and
+/// that many title bytes. `mail_type` bits: 2 zeny, 4 item, 8 NPC.
+#[derive(Debug, Clone, PartialEq, Eq, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct RodexMailEntry {
+    pub open_type: u8,
+    pub mail_id: i64,
+    pub is_read: u8,
+    pub mail_type: u8,
+    #[length(24)]
+    pub sender_name: String,
+    pub expire_time: i32,
+    pub title_length: i16,
+    #[length(title_length)]
+    pub title: String,
+}
+
+/// `ZC_ACK_MAIL_LIST3` (`0x0AC2`). `is_end` is 1 when this page is the last.
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0AC2)]
+#[variable_length]
+pub struct RodexMailListPacket {
+    pub is_end: u8,
+    pub mails: Vec<RodexMailEntry>,
+}
+
 #[derive(Debug, Clone, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct AchievementData {

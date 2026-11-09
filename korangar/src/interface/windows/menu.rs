@@ -71,6 +71,10 @@ impl CustomWindow<ClientState> for MenuWindow {
                     text: "Navigation",
                     event: InputEvent::ToggleNavigationWindow,
                 },
+                button! {
+                    text: "Mail",
+                    event: InputEvent::OpenMail,
+                },
                 #[cfg(feature = "debug")]
                 button! {
                     text: "Render options",

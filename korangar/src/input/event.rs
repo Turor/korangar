@@ -226,6 +226,16 @@ pub enum InputEvent {
     MercenaryDismiss,
     /// Open or close the alive-MVP minimap.
     ToggleMvpMinimap,
+    /// Open the Rodex window and request the inbox (`0x09E8`).
+    OpenMail,
+    /// Request the inbox again.
+    RefreshMail,
+    /// Read the mail id typed in the mail window (`0x09EA`).
+    ReadMail,
+    /// Delete the mail id typed in the mail window (`0x09F5`).
+    DeleteMail,
+    /// Tell the map server the mailbox closed (`0x09E9`).
+    CloseMail,
     /// Action for the "Close"-button in a dialog.
     CloseDialog {
         /// Id of the NPC the player is in a dialog with.

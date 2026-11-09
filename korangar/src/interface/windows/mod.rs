@@ -28,6 +28,7 @@ mod interface_settings;
 mod inventory;
 mod item_workshop;
 mod login;
+mod mail;
 #[cfg(feature = "debug")]
 mod maps;
 mod menu;
@@ -93,6 +94,7 @@ pub use self::interface_settings::InterfaceSettingsWindow;
 pub use self::inventory::InventoryWindow;
 pub use self::item_workshop::{EnchantGradeWindow, ItemReformWindow, LaphineSynthesisWindow, LaphineUpgradeWindow};
 pub use self::login::{LoginWindow, LoginWindowState, LoginWindowStatePathExt};
+pub use self::mail::{MailWindow, MailWindowState};
 #[cfg(feature = "debug")]
 pub use self::maps::MapsWindow;
 pub use self::menu::MenuWindow;
@@ -160,6 +162,7 @@ pub enum WindowClass {
     PartyInvite,
     Login,
     Menu,
+    Mail,
     MvpMinimap,
     Respawn,
     SelectServer,
