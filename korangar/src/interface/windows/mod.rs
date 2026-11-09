@@ -27,6 +27,7 @@ mod maps;
 mod menu;
 #[cfg(feature = "debug")]
 mod packet_inspector;
+mod party_invite;
 #[cfg(feature = "debug")]
 mod profiler;
 #[cfg(feature = "debug")]
@@ -72,6 +73,7 @@ pub use self::maps::MapsWindow;
 pub use self::menu::MenuWindow;
 #[cfg(feature = "debug")]
 pub use self::packet_inspector::PacketInspectorWindow;
+pub use self::party_invite::PartyInviteWindow;
 #[cfg(feature = "debug")]
 pub use self::profiler::{ProfilerWindow, ProfilerWindowState};
 #[cfg(feature = "debug")]
@@ -108,6 +110,7 @@ pub enum WindowClass {
     Stats,
     FriendList,
     FriendRequest,
+    PartyInvite,
     Login,
     Menu,
     Respawn,

@@ -4272,6 +4272,23 @@ pub struct PartyInvitePacket {
     pub party_name: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[numeric_type(u8)]
+pub enum PartyInviteReply {
+    Reject = 0,
+    Accept = 1,
+}
+
+/// Client reply to [`PartyInvitePacket`] (`CZ_PARTY_JOIN_REQ_ACK`, 0x02C7).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x02C7)]
+pub struct PartyInviteReplyPacket {
+    pub party_id: PartyId,
+    pub response: PartyInviteReply,
+}
+
 #[derive(Debug, Clone, ByteConvertable, FixedByteSize)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct ReputationEntry {

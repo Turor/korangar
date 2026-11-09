@@ -979,6 +979,26 @@ where
         }
     }
 
+    pub fn reject_party_invite(&mut self, party_id: PartyId) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(PartyInviteReplyPacket {
+                    party_id,
+                    response: PartyInviteReply::Reject,
+                }),
+        }
+    }
+
+    pub fn accept_party_invite(&mut self, party_id: PartyId) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(PartyInviteReplyPacket {
+                    party_id,
+                    response: PartyInviteReply::Accept,
+                }),
+        }
+    }
+
     pub fn set_hotkey_data(&mut self, tab: HotbarTab, index: HotbarSlot, hotkey_data: HotkeyData) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
@@ -1648,6 +1668,24 @@ mod packet_handlers {
         }] if party_name == "Wolves"));
 
         assert!(process_one(SupportedPacketVersion::_20190530, writer.as_slice()).is_empty());
+    }
+
+    #[test]
+    fn party_invite_reply_packet_is_seven_bytes() {
+        use ragnarok_packets::{PacketExt, PartyId, PartyInviteReply, PartyInviteReplyPacket};
+
+        let mut writer = ByteWriter::new();
+        PartyInviteReplyPacket {
+            party_id: PartyId(42),
+            response: PartyInviteReply::Accept,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        let bytes = writer.as_slice();
+        assert_eq!(bytes.len(), 7);
+        assert_eq!(u16::from_le_bytes([bytes[0], bytes[1]]), 0x02C7);
+        assert_eq!(u32::from_le_bytes(bytes[2..6].try_into().unwrap()), 42);
+        assert_eq!(bytes[6], 1);
     }
 
     #[test]

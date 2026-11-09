@@ -1,6 +1,7 @@
 #[cfg(feature = "debug")]
 pub mod cache_statistics;
 pub mod character_slots;
+pub mod friends;
 pub mod hotbar;
 pub mod inventory;
 pub mod localization;
@@ -26,7 +27,7 @@ use korangar_networking::{MessageColor, SellItem, ShopItem};
 use localization::Localization;
 #[cfg(feature = "debug")]
 use ragnarok_formats::map::{EffectSource, LightSource, MapData, SoundSource};
-use ragnarok_packets::{CharacterId, CharacterServerInformation, EntityId, Friend};
+use ragnarok_packets::{CharacterId, CharacterServerInformation, EntityId};
 #[cfg(feature = "debug")]
 use rust_state::{ManuallyAssertExt, VecIndexExt};
 use rust_state::{Path, PathExt, RustState, Selector};
@@ -34,6 +35,7 @@ use theme::{InterfaceTheme, InterfaceThemePathExt, InterfaceThemeType};
 
 #[cfg(feature = "debug")]
 use self::cache_statistics::CacheStatistics;
+use self::friends::FriendListEntry;
 #[cfg(feature = "debug")]
 use crate::PacketHistory;
 #[cfg(feature = "debug")]
@@ -152,7 +154,7 @@ pub struct ClientState {
     /// List of all received chat messages.
     chat_messages: Vec<ChatMessage>,
     /// List of all friends.
-    friend_list: Vec<Friend>,
+    friend_list: Vec<FriendListEntry>,
     /// List of items offered in the shop.
     // TODO: Unhide this
     #[hidden_element]
