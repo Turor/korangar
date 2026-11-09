@@ -53,7 +53,8 @@ pub struct FinderItem {
     pub equip_level: i32,
     pub jobs: String,
     /// Slotted MVP item id, when the catalog marks one. Also used as a quest-id
-    /// override.
+    /// override. Read by the drop helpers, which the window does not call yet.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub mvp_item_id: Option<u32>,
     pub effects: Vec<FinderEffect>,
     search_blob: String,
@@ -73,12 +74,14 @@ impl FinderCatalog {
         self.items.is_empty()
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn get(&self, id: u32) -> Option<&FinderItem> {
         self.items.iter().find(|item| item.id == id)
     }
 }
 
 #[derive(Clone, Debug)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub struct MobSpawn {
     pub map: String,
     pub name: String,
@@ -87,6 +90,7 @@ pub struct MobSpawn {
 }
 
 #[derive(Clone, Debug)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub struct FinderMob {
     pub name: String,
     pub level: i32,
@@ -96,6 +100,7 @@ pub struct FinderMob {
 }
 
 #[derive(Clone, Debug)]
+#[cfg_attr(not(test), allow(dead_code))]
 struct RawDrop {
     mob_id: u32,
     /// Server rate in 1/10000 units.
@@ -115,6 +120,7 @@ pub struct ItemSources {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub struct DropLine {
     pub mob_name: String,
     pub mob_level: i32,
@@ -526,6 +532,7 @@ fn summarize(item: &FinderItem) -> String {
 /// Monster drop lines for one item. An explicit catalog `mvp` id is the slotted
 /// sibling. When that field is absent, the sibling is `id + 40000` if that id
 /// is in the catalog.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn drop_lines(catalog: &FinderCatalog, sources: &ItemSources, item_id: u32, player_level: i32) -> Vec<DropLine> {
     let mut raw = Vec::new();
     push_drops(sources, item_id, "", &mut raw);
@@ -581,6 +588,7 @@ pub fn drop_lines(catalog: &FinderCatalog, sources: &ItemSources, item_id: u32, 
     lines
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn push_drops<'a>(sources: &'a ItemSources, item_id: u32, tag: &'a str, out: &mut Vec<(&'a RawDrop, &'a str)>) {
     if let Some(drops) = sources.drops.get(&item_id) {
         for drop in drops {
@@ -589,6 +597,7 @@ fn push_drops<'a>(sources: &'a ItemSources, item_id: u32, tag: &'a str, out: &mu
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn penalty_percent(boss: bool, mob_level: i32, player_level: i32, sources: &ItemSources) -> i32 {
     if player_level == 0 {
         return 100;
@@ -612,6 +621,7 @@ pub fn penalty_percent(boss: bool, mob_level: i32, player_level: i32, sources: &
     rate
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn quest_files(sources: &ItemSources, item_id: u32, mvp_item_id: Option<u32>) -> Vec<String> {
     sources
         .quests
@@ -762,8 +772,10 @@ mod tests {
 
     #[test]
     fn loaded_catalog_without_sources_still_lists_rows() {
-        let mut state = ItemFinderState::default();
-        state.query = "knife".to_owned();
+        let mut state = ItemFinderState {
+            query: "knife".to_owned(),
+            ..ItemFinderState::default()
+        };
         state.load_bytes(Some(CATALOG.as_bytes()), None);
         assert!(state.status.contains(SOURCES_PATH));
         assert!(state.status.contains("A5"));
