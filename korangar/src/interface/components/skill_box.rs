@@ -7,7 +7,7 @@ use korangar_interface::layout::{MouseButton, Resolvers, WindowLayout, with_sing
 use ragnarok_packets::SkillLevel;
 use rust_state::{Path, State};
 
-use crate::graphics::Color;
+use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::input::{InputEvent, MouseInputMode};
 use crate::interface::resource::SkillSource;
 use crate::loaders::{FontSize, OverflowBehavior};
