@@ -1,11 +1,11 @@
 use korangar_interface::window::{CustomWindow, Window};
 use ragnarok_packets::TilePosition;
 
-use crate::input::InputEvent;
 use super::mvp_minimap::MvpMinimapView;
+use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
-use crate::state::ClientState;
 use crate::state::theme::InterfaceThemeType;
+use crate::state::{ClientState, ClientStatePathExt, client_state};
 
 pub struct MapsWindow;
 
@@ -50,7 +50,7 @@ impl CustomWindow<ClientState> for MapsWindow {
             theme: InterfaceThemeType::InGame,
             closable: true,
             elements: (
-                MvpMinimapView::new(),
+                MvpMinimapView::new(client_state().mvp_minimap()),
                 fragment! {
                     gaps: theme().window().gaps(),
                     children: std::array::from_fn::<_, MAP_COUNT, _>(|index| {

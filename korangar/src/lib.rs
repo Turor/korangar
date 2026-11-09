@@ -1145,6 +1145,9 @@ impl Client {
                     self.client_state.follow_mut(client_state().guild_window()).clear();
                     self.client_state.follow_mut(client_state().warpra_window()).clear_catalog();
                     self.client_state.follow_mut(client_state().companion_window()).clear();
+                    self.client_state.follow_mut(client_state().mvp_minimap()).clear_markers();
+                    self.client_state.follow_mut(client_state().mvp_minimap()).set_map_size(0, 0);
+                    self.interface.close_window_with_class(WindowClass::MvpMinimap);
 
                     self.audio_engine.play_background_music_track(None);
 
@@ -2005,14 +2008,7 @@ impl Client {
                         .apply_elemental_parameter(variable, value);
                     self.interface.open_window(CompanionWindow::new());
                 NetworkEvent::MvpMinimap { flags, markers } => {
-                    let count = markers.len();
-                    self.client_state
-                        .follow_mut(client_state().mvp_minimap())
-                        .replace(flags, markers);
-                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
-                        format!("{count} alive MVP(s) on the minimap."),
-                        MessageColor::Information,
-                    ));
+                    self.client_state.follow_mut(client_state().mvp_minimap()).replace(flags, markers);
                 }
                 NetworkEvent::OpenDialog { text, npc_id } => {
                     self.client_state

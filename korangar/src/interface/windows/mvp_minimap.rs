@@ -1,13 +1,12 @@
-use korangar_interface::element::StateElement;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
-use korangar_interface::element::Element;
+use korangar_interface::element::{Element, StateElement};
 use korangar_interface::layout::area::Area;
 use korangar_interface::layout::{Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
 use korangar_networking::minimap_point;
 use ragnarok_packets::MvpMinimapEntry;
-use rust_state::{RustState, State};
+use rust_state::{Path, RustState, State};
 
 use super::WindowClass;
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
@@ -67,19 +66,20 @@ pub struct MinimapLayout {
 }
 
 /// Draws the loaded map as a square and plots alive MVPs plus the player.
-pub struct MvpMinimapView {
-    summary: String,
+pub struct MvpMinimapView<A> {
+    board_path: A,
 }
 
-impl MvpMinimapView {
-    pub fn new() -> Self {
-        Self {
-            summary: String::new(),
-        }
+impl<A> MvpMinimapView<A> {
+    pub fn new(board_path: A) -> Self {
+        Self { board_path }
     }
 }
 
-impl Element<ClientState> for MvpMinimapView {
+impl<A> Element<ClientState> for MvpMinimapView<A>
+where
+    A: Path<ClientState, MvpMinimapState>,
+{
     type LayoutInfo = MinimapLayout;
 
     fn create_layout_info(
@@ -88,21 +88,17 @@ impl Element<ClientState> for MvpMinimapView {
         _store: ElementStoreMut,
         resolvers: &mut dyn Resolvers<ClientState>,
     ) -> Self::LayoutInfo {
-        use rust_state::Path;
-
         let root = client_state();
-        let board_path = root.mvp_minimap();
-        let (map_width, map_height, mvp_dots) = {
-            let board = state.get(&board_path);
-            self.summary.clone_from(&board.summary);
+        let (map_width, map_height, mvp_dots, lines) = {
+            let board = state.get(&self.board_path);
             let mvp_dots = board
                 .markers
                 .iter()
                 .filter_map(|marker| minimap_point(board.map_width, board.map_height, marker.position, MINIMAP_SIZE))
                 .collect();
-            (board.map_width, board.map_height, mvp_dots)
+            let lines = board.summary.lines().count().max(1) as f32;
+            (board.map_width, board.map_height, mvp_dots, lines)
         };
-        let lines = self.summary.lines().count().max(1) as f32;
         let player_dot = this_entity()
             .follow(state.get(&root))
             .and_then(|player| minimap_point(map_width, map_height, player.get_tile_position(), MINIMAP_SIZE));
@@ -116,7 +112,7 @@ impl Element<ClientState> for MvpMinimapView {
 
     fn lay_out<'a>(
         &'a self,
-        _state: &'a State<ClientState>,
+        state: &'a State<ClientState>,
         _store: ElementStore<'a>,
         info: &'a Self::LayoutInfo,
         layout: &mut WindowLayout<'a, ClientState>,
@@ -173,7 +169,7 @@ impl Element<ClientState> for MvpMinimapView {
         };
         layout.add_text(
             text_area,
-            &self.summary,
+            state.get(&self.board_path).summary.as_str(),
             FontSize(14.0),
             Color::monochrome_u8(220),
             Color::rgb_u8(40, 40, 40),
@@ -201,7 +197,7 @@ impl CustomWindow<ClientState> for MvpMinimapWindow {
             closable: true,
             minimum_width: 220.0,
             elements: (
-                MvpMinimapView::new(),
+                MvpMinimapView::new(client_state().mvp_minimap()),
             ),
         }
     }
