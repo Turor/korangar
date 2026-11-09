@@ -858,6 +858,7 @@ where
     crate::packet_versions::mvp_minimap::register_mvp_minimap_packets(packet_handler)?;
     crate::packet_versions::economy::register_player_shop_packets(packet_handler)?;
     crate::packet_versions::refine::register_refine_packets(packet_handler)?;
+    crate::packet_versions::bank_cash_roulette::register_bank_cash_roulette(packet_handler)?;
     crate::packet_versions::item_workshop::register_reform_and_grade(packet_handler)?;
     crate::packet_versions::item_workshop::register_laphine(packet_handler)?;
     packet_handler.register(|packet: BuyOrSellPacket| NetworkEvent::AskBuyOrSell { shop_id: packet.shop_id })?;

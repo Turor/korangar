@@ -34,13 +34,20 @@ pub use self::entity::EntityData;
 pub use self::equip_switch::EquipSwitchSlotPathExt;
 pub use self::equip_switch::{EquipSwitchSlot, assign_slot, position_label, replace_slots};
 pub use self::event::{
-    DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, NetworkEvent, RefineMaterialOffer, SearchStoreHit,
-    StatusChangeState,
+    CashShopOffer, DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, NetworkEvent, RefineMaterialOffer,
+    RoulettePrize, SearchStoreHit, StatusChangeState,
 };
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
 pub use self::message::MessageColor;
 pub use self::packet_versions::SupportedPacketVersion;
+pub use self::packet_versions::companions::{
+    EL_VAR_HP, EL_VAR_MAX_HP, EL_VAR_MAX_SP, EL_VAR_SP, HOM_ACT_DELETE, HOM_ACT_FEED, MERC_ACT_DISMISS, MERC_VAR_ATTACK,
+    MERC_VAR_ATTACK_SPEED, MERC_VAR_CRITICAL, MERC_VAR_DEFENSE, MERC_VAR_FAITH, MERC_VAR_FLEE, MERC_VAR_HIT, MERC_VAR_HP, MERC_VAR_KILLS,
+    MERC_VAR_MAGIC_ATTACK, MERC_VAR_MAGIC_DEFENSE, MERC_VAR_MAX_HP, MERC_VAR_MAX_SP, MERC_VAR_SP, PET_ACT_FEED, PET_ACT_PERFORMANCE,
+    PET_ACT_RETURN, PET_ACT_UNEQUIP, PET_KIND_ACCESSORY, PET_KIND_HUNGER, PET_KIND_INTIMACY, elemental_variable_name, format_elemental,
+    format_homunculus_flags, format_pet, intimacy_label, mercenary_variable_name,
+};
 pub use self::packet_versions::eden::{
     EDEN_ACTION_ABANDON, EDEN_ACTION_ACCEPT, EDEN_ACTION_BUY, EDEN_ACTION_COMPLETE, EDEN_ACTION_LIST, format_eden_result, parse_eden_id,
 };
@@ -48,13 +55,6 @@ pub use self::packet_versions::enchant::{format_enchant_result, parse_enchant_in
 pub use self::packet_versions::mvp_minimap::{format_mvp_markers, minimap_point};
 pub use self::packet_versions::rodex::{format_rodex_mails, parse_rodex_mail_id};
 pub use self::packet_versions::stable::{format_stable_result, parse_stable_action, parse_stable_id};
-pub use self::packet_versions::companions::{
-    EL_VAR_HP, EL_VAR_MAX_HP, EL_VAR_MAX_SP, EL_VAR_SP, HOM_ACT_DELETE, HOM_ACT_FEED, MERC_ACT_DISMISS, MERC_VAR_ATTACK, MERC_VAR_ATTACK_SPEED,
-    MERC_VAR_CRITICAL, MERC_VAR_DEFENSE, MERC_VAR_FAITH, MERC_VAR_FLEE, MERC_VAR_HIT, MERC_VAR_HP, MERC_VAR_KILLS, MERC_VAR_MAGIC_ATTACK,
-    MERC_VAR_MAGIC_DEFENSE, MERC_VAR_MAX_HP, MERC_VAR_MAX_SP, MERC_VAR_SP, PET_ACT_FEED, PET_ACT_PERFORMANCE, PET_ACT_RETURN, PET_ACT_UNEQUIP,
-    PET_KIND_ACCESSORY, PET_KIND_HUNGER, PET_KIND_INTIMACY, elemental_variable_name, format_elemental, format_homunculus_flags, format_pet,
-    intimacy_label, mercenary_variable_name,
-};
 pub use self::packet_versions::warpra::{
     format_warpra_destinations, format_warpra_result, push_warpra_chunk, warpra_kind_name, warpra_level_requirement,
 };
@@ -920,14 +920,12 @@ where
         }
     }
 
-    /// `CZ_OPEN_MAILBOX2` (`0x0AC0`, 26 bytes). `mail_id` 0 starts at the newest mail.
+    /// `CZ_OPEN_MAILBOX2` (`0x0AC0`, 26 bytes). `mail_id` 0 starts at the
+    /// newest mail.
     pub fn open_rodex(&mut self, mail_id: i64) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
-                self.send_map_server_packet(OpenRodexPacket {
-                    mail_id,
-                    unused: [0; 16],
-                })
+                self.send_map_server_packet(OpenRodexPacket { mail_id, unused: [0; 16] })
             }
         }
     }
@@ -936,10 +934,7 @@ where
     pub fn refresh_rodex(&mut self, mail_id: i64) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
-                self.send_map_server_packet(RefreshRodexPacket {
-                    mail_id,
-                    unused: [0; 16],
-                })
+                self.send_map_server_packet(RefreshRodexPacket { mail_id, unused: [0; 16] })
             }
         }
     }
@@ -1061,11 +1056,9 @@ where
     /// `CZ_COMMAND_MER` (`0x022D`). `kind` is feed (`1`) or release (`2`).
     pub fn command_homunculus(&mut self, kind: u16) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
-                .send_map_server_packet(HomunculusCommandPacket {
-                    kind,
-                    command: kind as u8,
-                }),
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(HomunculusCommandPacket { kind, command: kind as u8 })
+            }
         }
     }
 
@@ -1106,18 +1099,13 @@ where
     }
 
     /// Add one item to the alternate equipment set (`0x0A97`).
-    pub fn request_equip_switch_add(
-        &mut self,
-        item_index: InventoryIndex,
-        equip_position: EquipPosition,
-    ) -> Result<(), NotConnectedError> {
+    pub fn request_equip_switch_add(&mut self, item_index: InventoryIndex, equip_position: EquipPosition) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
-                self.send_map_server_packet(RequestEquipSwitchAddPacket {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(RequestEquipSwitchAddPacket {
                     inventory_index: item_index,
                     equip_position,
-                })
-            }
+                }),
         }
     }
 
@@ -1600,6 +1588,73 @@ where
 
     pub fn close_laphine_upgrade(&mut self) -> Result<(), NotConnectedError> {
         self.send_map_server_packet(LaphineUpgradeClosePacket {})
+    }
+
+    pub fn open_bank(&mut self, account_id: AccountId) -> Result<(), NotConnectedError> {
+        self.send_map_server_packet(OpenBankPacket { account_id })
+    }
+
+    pub fn close_bank(&mut self, account_id: AccountId) -> Result<(), NotConnectedError> {
+        self.send_map_server_packet(CloseBankPacket { account_id })
+    }
+
+    pub fn check_bank(&mut self, account_id: AccountId) -> Result<(), NotConnectedError> {
+        self.send_map_server_packet(CheckBankPacket { account_id })
+    }
+
+    pub fn deposit_bank(&mut self, account_id: AccountId, zeny: i32) -> Result<(), NotConnectedError> {
+        self.send_map_server_packet(DepositBankPacket { account_id, zeny })
+    }
+
+    pub fn withdraw_bank(&mut self, account_id: AccountId, zeny: i32) -> Result<(), NotConnectedError> {
+        self.send_map_server_packet(WithdrawBankPacket { account_id, zeny })
+    }
+
+    /// Ask the map server to open the cash shop. 20190530 sends `0x0844`.
+    /// Later profiles send `0x0B6D` with the tab.
+    pub fn open_cash_shop(&mut self, tab: u32) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20190530 => self.send_map_server_packet(CashShopOpenRequestPacket {}),
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(CashShopOpenRequestV2Packet { tab })
+            }
+        }
+    }
+
+    pub fn close_cash_shop(&mut self) -> Result<(), NotConnectedError> {
+        self.send_map_server_packet(CashShopClosePacket {})
+    }
+
+    pub fn request_cash_shop_tab(&mut self, tab: i16) -> Result<(), NotConnectedError> {
+        self.send_map_server_packet(CashShopTabRequestPacket { tab })
+    }
+
+    pub fn buy_cash_shop_item(&mut self, item_id: u32, amount: u32, tab: u16, kafra_points: u32) -> Result<(), NotConnectedError> {
+        self.send_map_server_packet(CashShopBuyPacket {
+            count: 1,
+            kafra_points,
+            items: vec![CashShopBuyItem { item_id, amount, tab }],
+        })
+    }
+
+    pub fn open_roulette(&mut self) -> Result<(), NotConnectedError> {
+        self.send_map_server_packet(RouletteOpenPacket {})
+    }
+
+    pub fn request_roulette_info(&mut self) -> Result<(), NotConnectedError> {
+        self.send_map_server_packet(RouletteInfoRequestPacket {})
+    }
+
+    pub fn generate_roulette(&mut self) -> Result<(), NotConnectedError> {
+        self.send_map_server_packet(RouletteGeneratePacket {})
+    }
+
+    pub fn claim_roulette(&mut self) -> Result<(), NotConnectedError> {
+        self.send_map_server_packet(RouletteClaimPacket { condition: 0 })
+    }
+
+    pub fn close_roulette(&mut self) -> Result<(), NotConnectedError> {
+        self.send_map_server_packet(RouletteClosePacket {})
     }
 
     /// Tell the server the refine UI closed so the character can move again.
@@ -2420,7 +2475,7 @@ mod packet_handlers {
         NetworkingSystem::create_map_server_packet_handler(NoPacketCallback, version).unwrap()
     }
 
-    fn process_one(version: SupportedPacketVersion, bytes: &[u8]) -> Vec<NetworkEvent> {
+    pub(crate) fn process_one(version: SupportedPacketVersion, bytes: &[u8]) -> Vec<NetworkEvent> {
         let mut handler = map_handler(version);
         let mut reader = ByteReader::without_metadata(bytes);
         let HandlerResult::Ok(events) = handler.process_one(&mut reader) else {
@@ -2695,9 +2750,7 @@ mod packet_handlers {
             aliances: vec![Aliance {
                 name: "Archers".to_owned(),
             }],
-            antagonists: vec![Antagonist {
-                name: "Axes".to_owned(),
-            }],
+            antagonists: vec![Antagonist { name: "Axes".to_owned() }],
         };
         let mut writer = ByteWriter::new();
         info.packet_to_bytes(&mut writer).unwrap();
@@ -2996,8 +3049,10 @@ mod packet_handlers {
         // header, length, is_end, row without title, title bytes.
         assert_eq!(writer.as_slice().len(), 2 + 2 + 1 + 1 + 8 + 1 + 1 + 24 + 4 + 2 + title.len());
         let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
-        assert!(matches!(events.as_slice(), [NetworkEvent::RodexMailList { is_end: true, summary }]
-            if summary.contains("#42 from Kafra: Welcome [unread] (item)")));
+        assert!(
+            matches!(events.as_slice(), [NetworkEvent::RodexMailList { is_end: true, summary }]
+            if summary.contains("#42 from Kafra: Welcome [unread] (item)"))
+        );
 
         let empty = RodexMailListPacket {
             is_end: 1,
@@ -3016,15 +3071,15 @@ mod packet_handlers {
         let events = process_one(SupportedPacketVersion::_20220406, writer.as_slice());
         assert!(matches!(events.as_slice(), [NetworkEvent::RodexWriteResult { result: 0, .. }]));
 
-        let deleted = RodexDeleteAckPacket {
-            open_type: 0,
-            mail_id: 42,
-        };
+        let deleted = RodexDeleteAckPacket { open_type: 0, mail_id: 42 };
         let mut writer = ByteWriter::new();
         deleted.packet_to_bytes(&mut writer).unwrap();
         assert_eq!(writer.as_slice().len(), 11);
         let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
-        assert!(matches!(events.as_slice(), [NetworkEvent::RodexDelete { open_type: 0, mail_id: 42 }]));
+        assert!(matches!(events.as_slice(), [NetworkEvent::RodexDelete {
+            open_type: 0,
+            mail_id: 42
+        }]));
 
         let zeny = RodexZenyAckPacket {
             mail_id: 42,
@@ -3071,8 +3126,10 @@ mod packet_handlers {
         read.packet_to_bytes(&mut writer).unwrap();
         assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x09EB);
         let events = process_one(SupportedPacketVersion::_20220406, writer.as_slice());
-        assert!(matches!(events.as_slice(), [NetworkEvent::RodexRead { mail_id: 42, zeny: 100, item_count: 1, summary }]
-            if summary.contains("Hello") && summary.contains("zeny 100")));
+        assert!(
+            matches!(events.as_slice(), [NetworkEvent::RodexRead { mail_id: 42, zeny: 100, item_count: 1, summary }]
+            if summary.contains("Hello") && summary.contains("zeny 100"))
+        );
         let events = process_one(SupportedPacketVersion::_20190530, writer.as_slice());
         assert!(matches!(events.as_slice(), [NetworkEvent::RodexRead { mail_id: 42, .. }]));
 
@@ -3089,7 +3146,11 @@ mod packet_handlers {
         read_2025.packet_to_bytes(&mut writer).unwrap();
         assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0B63);
         let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
-        assert!(matches!(events.as_slice(), [NetworkEvent::RodexRead { mail_id: 42, item_count: 1, .. }]));
+        assert!(matches!(events.as_slice(), [NetworkEvent::RodexRead {
+            mail_id: 42,
+            item_count: 1,
+            ..
+        }]));
 
         let mut writer = ByteWriter::new();
         CloseRodexPacket::new().packet_to_bytes(&mut writer).unwrap();
@@ -3097,22 +3158,14 @@ mod packet_handlers {
         assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x09E9);
 
         let mut writer = ByteWriter::new();
-        ReadRodexPacket {
-            open_type: 0,
-            mail_id: 42,
-        }
-        .packet_to_bytes(&mut writer)
-        .unwrap();
+        ReadRodexPacket { open_type: 0, mail_id: 42 }.packet_to_bytes(&mut writer).unwrap();
         assert_eq!(writer.as_slice().len(), 11);
         assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x09EA);
 
         let mut writer = ByteWriter::new();
-        DeleteRodexPacket {
-            open_type: 0,
-            mail_id: 42,
-        }
-        .packet_to_bytes(&mut writer)
-        .unwrap();
+        DeleteRodexPacket { open_type: 0, mail_id: 42 }
+            .packet_to_bytes(&mut writer)
+            .unwrap();
         assert_eq!(writer.as_slice().len(), 11);
         assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x09F5);
     }
@@ -3340,19 +3393,14 @@ mod packet_handlers {
         assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x01A1);
 
         let mut writer = ByteWriter::new();
-        HomunculusCommandPacket {
-            kind: 2,
-            command: 2,
-        }
-        .packet_to_bytes(&mut writer)
-        .unwrap();
+        HomunculusCommandPacket { kind: 2, command: 2 }
+            .packet_to_bytes(&mut writer)
+            .unwrap();
         assert_eq!(writer.as_slice().len(), 5);
         assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x022D);
 
         let mut writer = ByteWriter::new();
-        MercenaryCommandPacket { command: 1 }
-            .packet_to_bytes(&mut writer)
-            .unwrap();
+        MercenaryCommandPacket { command: 1 }.packet_to_bytes(&mut writer).unwrap();
         assert_eq!(writer.as_slice().len(), 3);
 
         let pet = PetPropertyPacket {
@@ -3383,10 +3431,7 @@ mod packet_handlers {
         .unwrap();
         assert_eq!(writer.as_slice().len(), 11);
         let events = process_one(SupportedPacketVersion::_20220406, writer.as_slice());
-        assert!(matches!(
-            events.as_slice(),
-            [NetworkEvent::PetState { kind: 2, value: 40, .. }]
-        ));
+        assert!(matches!(events.as_slice(), [NetworkEvent::PetState { kind: 2, value: 40, .. }]));
 
         let hom = HomunculusPropertyPacket {
             name: "Lif".to_owned(),
@@ -3423,10 +3468,7 @@ mod packet_handlers {
         ));
         // 20220406 shares the 20190530 framing table and must accept 0x0BA4.
         let events = process_one(SupportedPacketVersion::_20220406, writer.as_slice());
-        assert!(matches!(
-            events.as_slice(),
-            [NetworkEvent::HomunculusInfo { level: 50, .. }]
-        ));
+        assert!(matches!(events.as_slice(), [NetworkEvent::HomunculusInfo { level: 50, .. }]));
 
         let merc = MercenaryInitPacket {
             account_id: 4,
@@ -3484,18 +3526,15 @@ mod packet_handlers {
         assert_eq!(writer.as_slice().len(), 66);
 
         let mut writer = ByteWriter::new();
-        MercenaryParameterPacket {
-            variable: 8,
-            value: 123,
-        }
-        .packet_to_bytes(&mut writer)
-        .unwrap();
+        MercenaryParameterPacket { variable: 8, value: 123 }
+            .packet_to_bytes(&mut writer)
+            .unwrap();
         assert_eq!(writer.as_slice().len(), 8);
         let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
-        assert!(matches!(
-            events.as_slice(),
-            [NetworkEvent::MercenaryParameter { variable: 8, value: 123 }]
-        ));
+        assert!(matches!(events.as_slice(), [NetworkEvent::MercenaryParameter {
+            variable: 8,
+            value: 123
+        }]));
 
         let mut writer = ByteWriter::new();
         ElementalInitPacket {
@@ -3515,18 +3554,15 @@ mod packet_handlers {
         ));
 
         let mut writer = ByteWriter::new();
-        ElementalParameterPacket {
-            variable: 2,
-            value: 12,
-        }
-        .packet_to_bytes(&mut writer)
-        .unwrap();
+        ElementalParameterPacket { variable: 2, value: 12 }
+            .packet_to_bytes(&mut writer)
+            .unwrap();
         assert_eq!(writer.as_slice().len(), 8);
         let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
-        assert!(matches!(
-            events.as_slice(),
-            [NetworkEvent::ElementalParameter { variable: 2, value: 12 }]
-        ));
+        assert!(matches!(events.as_slice(), [NetworkEvent::ElementalParameter {
+            variable: 2,
+            value: 12
+        }]));
     }
 
     #[test]
@@ -4245,5 +4281,207 @@ mod transport_tests {
     #[test]
     fn profile_20250716_retains_fragments_and_exact_plugin_boundaries() {
         exercise(SupportedPacketVersion::_20250716);
+    }
+
+    #[test]
+    fn bank_cash_shop_and_roulette_packets_round_trip() {
+        use ragnarok_bytes::FixedByteSize;
+        use ragnarok_packets::{
+            AccountId, BankCheckPacket, BankDepositAckPacket, CashShopBuyItem, CashShopBuyPacket, CashShopItemEntry,
+            CashShopItemListPacket, CashShopOpenPacket, CashShopOpenRequestPacket, CashShopOpenRequestV2Packet, CashShopOpenV2Packet,
+            DepositBankPacket, PacketExt, RouletteGenerateAckPacket, RouletteInfoPacket, RouletteOpenAckPacket, RouletteOpenPacket,
+            RoulettePrizeEntry,
+        };
+
+        use super::packet_handlers::process_one;
+
+        assert_eq!(
+            BankCheckPacket { money: 0, reason: 0 }
+                .packet_to_bytes(&mut ByteWriter::new())
+                .unwrap(),
+            12
+        );
+        let mut writer = ByteWriter::new();
+        DepositBankPacket {
+            account_id: AccountId(7),
+            zeny: 500,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice(), &[0xA7, 0x09, 7, 0, 0, 0, 0xF4, 0x01, 0, 0]);
+
+        let check = BankCheckPacket { money: 80, reason: 0 };
+        let mut writer = ByteWriter::new();
+        check.packet_to_bytes(&mut writer).unwrap();
+        for version in [
+            SupportedPacketVersion::_20190530,
+            SupportedPacketVersion::_20220406,
+            SupportedPacketVersion::_20250716,
+        ] {
+            let events = process_one(version, writer.as_slice());
+            assert!(matches!(events.as_slice(), [NetworkEvent::BankBalance {
+                money: 80,
+                reason: 0
+            }]));
+        }
+
+        let deposit = BankDepositAckPacket {
+            reason: 0,
+            money: 80,
+            zeny: 20,
+        };
+        let mut writer = ByteWriter::new();
+        deposit.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 16);
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20250716, writer.as_slice()).as_slice(),
+            [NetworkEvent::BankDeposit {
+                reason: 0,
+                money: 80,
+                zeny: 20
+            }]
+        ));
+
+        let mut writer = ByteWriter::new();
+        CashShopOpenRequestPacket {}.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0x44, 0x08]);
+        let mut writer = ByteWriter::new();
+        CashShopOpenRequestV2Packet { tab: 3 }.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0x6D, 0x0B, 3, 0, 0, 0]);
+
+        let opened = CashShopOpenPacket {
+            cash_points: 10,
+            kafra_points: 4,
+            tab: 1,
+        };
+        let mut writer = ByteWriter::new();
+        opened.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 14);
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20190530, writer.as_slice()).as_slice(),
+            [NetworkEvent::CashShopOpened {
+                cash_points: 10,
+                kafra_points: 4,
+                tab: 1
+            }]
+        ));
+        let opened_v2 = CashShopOpenV2Packet {
+            cash_points: 11,
+            kafra_points: 5,
+            tab: 2,
+        };
+        let mut writer = ByteWriter::new();
+        opened_v2.packet_to_bytes(&mut writer).unwrap();
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20250716, writer.as_slice()).as_slice(),
+            [NetworkEvent::CashShopOpened {
+                cash_points: 11,
+                kafra_points: 5,
+                tab: 2
+            }]
+        ));
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20220406, writer.as_slice()).as_slice(),
+            [NetworkEvent::CashShopOpened {
+                cash_points: 11,
+                kafra_points: 5,
+                tab: 2
+            }]
+        ));
+
+        let list = CashShopItemListPacket {
+            tab: 0,
+            count: 1,
+            items: vec![CashShopItemEntry { item_id: 501, price: 9 }],
+        };
+        let mut writer = ByteWriter::new();
+        list.packet_to_bytes(&mut writer).unwrap();
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20190530, writer.as_slice()).as_slice(),
+            [NetworkEvent::CashShopItems { tab: 0, items }] if items.len() == 1 && items[0].item_id == 501 && items[0].price == 9
+        ));
+
+        let buy = CashShopBuyPacket {
+            count: 1,
+            kafra_points: 2,
+            items: vec![CashShopBuyItem {
+                item_id: 501,
+                amount: 1,
+                tab: 0,
+            }],
+        };
+        let mut writer = ByteWriter::new();
+        buy.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice()[0], 0x48);
+        assert_eq!(writer.as_slice()[1], 0x08);
+        assert_eq!(writer.as_slice().len(), 4 + 2 + 4 + 10);
+
+        let mut writer = ByteWriter::new();
+        RouletteOpenPacket {}.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0x19, 0x0A]);
+        let open = RouletteOpenAckPacket {
+            result: 0,
+            serial: 9,
+            step: 1,
+            index: -1,
+            bonus_item_id: 0,
+            gold: 2,
+            silver: 3,
+            bronze: 4,
+        };
+        let mut writer = ByteWriter::new();
+        open.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 25);
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20220406, writer.as_slice()).as_slice(),
+            [NetworkEvent::RouletteOpened {
+                serial: 9,
+                index: -1,
+                gold: 2,
+                bronze: 4,
+                ..
+            }]
+        ));
+
+        let info = RouletteInfoPacket {
+            serial: 9,
+            prizes: vec![RoulettePrizeEntry {
+                row: 0,
+                position: 1,
+                item_id: 501,
+                count: 2,
+                unused: 0,
+            }],
+        };
+        let mut writer = ByteWriter::new();
+        info.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(RoulettePrizeEntry::size_in_bytes(), 12);
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20250716, writer.as_slice()).as_slice(),
+            [NetworkEvent::RoulettePrizes { serial: 9, prizes }] if prizes[0].item_id == 501 && prizes[0].count == 2
+        ));
+
+        let spin = RouletteGenerateAckPacket {
+            result: 0,
+            step: 1,
+            index: 2,
+            bonus_item_id: 0,
+            gold: 1,
+            silver: 0,
+            bronze: 8,
+        };
+        let mut writer = ByteWriter::new();
+        spin.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 23);
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20190530, writer.as_slice()).as_slice(),
+            [NetworkEvent::RouletteGenerated {
+                result: 0,
+                step: 1,
+                index: 2,
+                bronze: 8,
+                ..
+            }]
+        ));
     }
 }

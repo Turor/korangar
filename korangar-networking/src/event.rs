@@ -972,6 +972,84 @@ pub enum NetworkEvent {
         variable: u16,
         value: u32,
     },
+    /// The bank UI may open (`ZC_ACK_OPEN_BANKING`).
+    BankOpened {
+        unknown: i16,
+    },
+    /// Vault balance (`ZC_BANKING_CHECK`).
+    BankBalance {
+        money: i64,
+        reason: i16,
+    },
+    /// Deposit finished (`ZC_ACK_BANKING_DEPOSIT`).
+    BankDeposit {
+        reason: i16,
+        money: i64,
+        zeny: i32,
+    },
+    /// Withdraw finished (`ZC_ACK_BANKING_WITHDRAW`).
+    BankWithdraw {
+        reason: i16,
+        money: i64,
+        zeny: i32,
+    },
+    /// The bank UI closed (`ZC_ACK_CLOSE_BANKING`).
+    BankClosed {
+        unknown: i16,
+    },
+    /// Cash shop points. `tab` is 0 when the older 10-byte open packet arrives.
+    CashShopOpened {
+        cash_points: u32,
+        kafra_points: u32,
+        tab: u32,
+    },
+    /// One cash-shop tab (`ZC_ACK_SE_CASH_ITEM_LIST`).
+    CashShopItems {
+        tab: u32,
+        items: Vec<CashShopOffer>,
+    },
+    /// A cash-shop purchase finished (`ZC_SE_PC_BUY_CASHITEM_RESULT`).
+    CashShopBuyResult {
+        item_id: u32,
+        result: u16,
+        cash_points: u32,
+        kafra_points: u32,
+    },
+    /// Roulette opened (`ZC_ACK_OPEN_ROULETTE`).
+    RouletteOpened {
+        result: i8,
+        serial: i32,
+        step: i8,
+        index: i8,
+        bonus_item_id: u32,
+        gold: i32,
+        silver: i32,
+        bronze: i32,
+    },
+    /// Prize table (`ZC_ACK_ROULETTE_INFO`).
+    RoulettePrizes {
+        serial: u32,
+        prizes: Vec<RoulettePrize>,
+    },
+    /// Spin result (`ZC_ACK_GENERATE_ROULETTE`).
+    RouletteGenerated {
+        result: u8,
+        step: u16,
+        index: u16,
+        bonus_item_id: u32,
+        gold: i32,
+        silver: i32,
+        bronze: i32,
+    },
+    /// Claim result (`ZC_RECV_ROULETTE_ITEM`).
+    RouletteClaimed {
+        result: u8,
+        item_id: u32,
+    },
+    /// Roulette closed (`ZC_ACK_CLOSE_ROULETTE`).
+    RouletteClosed {
+        result: u8,
+    },
     /// Base or job experience (`DisplayGainedExperiencePacket`, 0x0ACC).
     GainedExperience {
         account_id: AccountId,
@@ -1003,6 +1081,22 @@ impl StatusChangeState {
             other => Self::Other(other),
         }
     }
+}
+
+/// One cash-shop catalog row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CashShopOffer {
+    pub item_id: u32,
+    pub price: i32,
+}
+
+/// One roulette prize cell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoulettePrize {
+    pub row: u16,
+    pub position: u16,
+    pub item_id: u32,
+    pub count: u16,
 }
 
 /// New-type so we can implement some `From` traits. This will help when
