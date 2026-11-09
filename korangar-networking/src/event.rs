@@ -743,6 +743,39 @@ pub enum NetworkEvent {
     QuestRemoved {
         quest_id: u32,
     },
+    /// Full achievement list (`ZC_ALL_ACH_LIST`, 0x0A23).
+    AchievementList {
+        total_score: u32,
+        level: u16,
+        experience: u32,
+        experience_to_next_level: u32,
+        entries: Vec<AchievementData>,
+    },
+    /// One achievement changed (`ZC_ACH_UPDATE`, 0x0A24).
+    AchievementUpdate {
+        total_score: u32,
+        level: u16,
+        experience: u32,
+        experience_to_next_level: u32,
+        entry: AchievementData,
+    },
+    /// Reward request result (`ZC_ACH_REWARD_ACK`, 0x0A26).
+    AchievementReward {
+        failed: bool,
+        achievement_id: u32,
+    },
+    /// Attendance period and calendar (`ZC_ATTENDANCE_DATA`, 0x0AE3).
+    Attendance {
+        start_time: u32,
+        end_time: u32,
+        count: u32,
+        rewards: Vec<AttendanceReward>,
+    },
+    /// Attendance claim result (`ZC_ATTENDANCE_RESPONSE`, 0x0AF0).
+    /// `result` is the new day counter on rAthena.
+    AttendanceClaim {
+        result: u32,
+    },
     /// Navigation destination (`ZC_NAVIGATION_ACTIVE`, `0x08E2`).
     /// `show_window` is the inverse of the packet's hide flag.
     NavigateTo {

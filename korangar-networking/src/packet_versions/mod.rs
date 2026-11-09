@@ -1,3 +1,4 @@
+pub mod achievements;
 pub mod clan;
 pub mod companions;
 pub mod economy;

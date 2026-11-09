@@ -1,3 +1,4 @@
+pub mod achievements;
 #[cfg(feature = "debug")]
 pub mod cache_statistics;
 pub mod character_slots;
@@ -66,6 +67,7 @@ use crate::renderer::InterfaceRenderer;
 use crate::settings::{
     GameSettings, GraphicsSettingsCapabilities, InterfaceSettings, InterfaceSettingsCapabilities, LoginSettings, ServiceSettings,
 };
+use crate::state::achievements::Achievements;
 use crate::state::character_slots::CharacterSlots;
 use crate::state::equip_switch::EquipSwitch;
 use crate::state::hotbar::Hotbar;
@@ -288,6 +290,8 @@ pub struct ClientState {
     skill_cooldowns: SkillCooldowns,
     /// Quest journal entries.
     quest_log: QuestLog,
+    /// Achievement list and attendance period.
+    achievements: Achievements,
     /// Navigation target and minimap viewpoint marks.
     navigation: Navigation,
     /// Latest client tick mirrored for UI overlays.
@@ -475,6 +479,7 @@ impl ClientState {
             let status_effects = StatusEffects::default();
             let skill_cooldowns = SkillCooldowns::default();
             let quest_log = QuestLog::default();
+            let achievements = Achievements::default();
             let navigation = Navigation::default();
             let client_tick = ClientTick(0);
         });
@@ -575,6 +580,7 @@ impl ClientState {
             status_effects,
             skill_cooldowns,
             quest_log,
+            achievements,
             navigation,
             client_tick,
             character_servers,
