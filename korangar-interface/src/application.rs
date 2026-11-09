@@ -186,7 +186,10 @@ where
     fn create() -> Self;
 
     /// Attempt to get the position and size for a given window class.
-    fn get_window_state(&self, window_class: App::WindowClass) -> Option<(Anchor<App>, App::Size)>;
+    ///
+    /// `screen` is the client size. Implementations use it for a first-open
+    /// preset when nothing has been saved for `window_class`.
+    fn get_window_state(&self, window_class: App::WindowClass, screen: App::Size) -> Option<(Anchor<App>, App::Size)>;
 
     /// Register a new window with its size and position.
     ///

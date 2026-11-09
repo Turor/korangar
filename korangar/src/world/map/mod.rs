@@ -392,11 +392,16 @@ impl Map {
         entities: &[Entity],
         camera: &dyn Camera,
         client_tick: ClientTick,
+        skip_controlled_player: bool,
     ) {
-        entities
-            .iter()
-            .enumerate()
-            .for_each(|(index, entity)| entity.render(instructions, camera, index != 0, client_tick));
+        entities.iter().enumerate().for_each(|(index, entity)| {
+            // The controlled player is `entities[0]`. While Gear is open that sprite is
+            // drawn in the preview frame instead of over the stats column.
+            if skip_controlled_player && index == 0 {
+                return;
+            }
+            entity.render(instructions, camera, index != 0, client_tick);
+        });
     }
 
     #[cfg_attr(feature = "debug", korangar_debug::profile)]

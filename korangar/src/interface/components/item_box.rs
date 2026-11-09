@@ -3,6 +3,7 @@ use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::{BaseLayoutInfo, Element};
 use korangar_interface::event::{ClickHandler, DropHandler, Event, EventQueue};
 use korangar_interface::layout::area::Area;
+use korangar_interface::layout::tooltip::TooltipExt;
 use korangar_interface::layout::{MouseButton, Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_networking::{InventoryItem, InventoryItemDetails};
@@ -81,6 +82,10 @@ pub struct ItemBox<A> {
     item_path: A,
     handler: ItemBoxHandler<A>,
     amount_display: AmountDisplay,
+    /// `0.0` keeps the historical 40px-tall stretched cell. A positive value is
+    /// a square icon frame of that side, centered in the cell.
+    side: f32,
+    tooltip: &'static str,
 }
 
 impl<A> ItemBox<A>
@@ -90,11 +95,13 @@ where
     /// This function is supposed to be called from a component macro
     /// and not intended to be called manually.
     #[inline(always)]
-    pub fn component_new(item_path: A, source: ItemSource) -> Self {
+    pub fn component_new(item_path: A, source: ItemSource, side: f32, tooltip: &'static str) -> Self {
         Self {
             item_path,
             handler: ItemBoxHandler::new(item_path, source),
             amount_display: AmountDisplay::default(),
+            side,
+            tooltip,
         }
     }
 }
@@ -112,7 +119,18 @@ where
         resolvers: &mut dyn Resolvers<ClientState>,
     ) -> Self::LayoutInfo {
         with_single_resolver(resolvers, |resolver| {
-            let area = resolver.with_height(40.0);
+            let area = if self.side > 0.0 {
+                let row = resolver.with_height(self.side);
+                let side = self.side.min(row.width);
+                Area {
+                    left: row.left + (row.width - side) / 2.0,
+                    top: row.top,
+                    width: side,
+                    height: side,
+                }
+            } else {
+                resolver.with_height(40.0)
+            };
 
             if let Some(item) = state.try_get(&self.item_path)
                 && item.metadata.texture.as_ref().is_some()
@@ -151,9 +169,13 @@ where
             },
         };
 
+        let corner = match self.side > 0.0 {
+            true => 4.0,
+            false => 20.0,
+        };
         layout.add_rectangle(
             layout_info.area,
-            CornerDiameter::uniform(20.0),
+            CornerDiameter::uniform(corner),
             background_color,
             Color::rgba_u8(0, 0, 0, 100),
             ShadowPadding::diagonal(2.0, 5.0),
@@ -161,6 +183,10 @@ where
 
         if is_hovered {
             layout.register_drop_handler(&self.handler);
+            if !self.tooltip.is_empty() {
+                struct SlotTooltip;
+                layout.add_tooltip(self.tooltip, SlotTooltip.tooltip_id());
+            }
         }
 
         if let Some(item) = state.try_get(&self.item_path)

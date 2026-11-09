@@ -3397,13 +3397,16 @@ impl Client {
                         }
                     }
                 }
-                InputEvent::ToggleInventoryWindow | InputEvent::ToggleEquipmentWindow => {
-                    // Combined Gear panel (paperdoll + inventory). Close a leftover
-                    // standalone Inventory window if one is still open from an older build.
+                InputEvent::ToggleInventoryWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
-                        if self.interface.is_window_with_class_open(WindowClass::Inventory) {
-                            self.interface.close_window_with_class(WindowClass::Inventory);
+                        match self.interface.is_window_with_class_open(WindowClass::Inventory) {
+                            true => self.interface.close_window_with_class(WindowClass::Inventory),
+                            false => self.interface.open_window(InventoryWindow::new(client_state().inventory().items())),
                         }
+                    }
+                }
+                InputEvent::ToggleEquipmentWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::Equipment) {
                             true => self.interface.close_window_with_class(WindowClass::Equipment),
                             false => self.interface.open_window(EquipmentWindow::new(client_state().inventory().items())),
@@ -5121,6 +5124,7 @@ impl Client {
         let mut indicator_instruction = None;
         let mut water_instruction = None;
 
+        let gear_hides_player = self.interface.is_window_with_class_open(WindowClass::Equipment);
         let mouse_mode = self.interface.get_mouse_mode();
         let is_mouse_mode_default = mouse_mode.is_default();
         let last_walking_destination = mouse_mode.walk_destination();
@@ -5267,6 +5271,7 @@ impl Client {
                 currently_playing,
                 is_mouse_mode_default,
                 is_interface_hovered: interface_frame.is_interface_hovered(),
+                gear_hides_player,
                 last_walking_destination,
                 buffered_action: *self.client_state.follow(client_state().buffered_action()),
                 #[cfg(feature = "debug")]
@@ -5604,6 +5609,7 @@ struct MapRenderContext<'a, 'm: 'a> {
     currently_playing: bool,
     is_mouse_mode_default: bool,
     is_interface_hovered: bool,
+    gear_hides_player: bool,
     last_walking_destination: Option<TilePosition>,
     buffered_action: Option<BufferedAction>,
     #[cfg(feature = "debug")]
@@ -5742,7 +5748,7 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
 
             #[cfg_attr(feature = "debug", korangar_debug::debug_condition(self.render_options.show_entities))]
             self.map
-                .render_entities(entity_instructions, entities, &partition_camera, self.client_tick);
+                .render_entities(entity_instructions, entities, &partition_camera, self.client_tick, false);
 
             #[cfg_attr(feature = "debug", korangar_debug::debug_condition(self.render_options.show_entities))]
             self.map
@@ -5833,8 +5839,13 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
             .render_ground_items(self.entity_instructions, ground_items, entity_camera, self.client_tick);
 
         #[cfg_attr(feature = "debug", korangar_debug::debug_condition(self.render_options.show_entities))]
-        self.map
-            .render_entities(self.entity_instructions, entities, entity_camera, self.client_tick);
+        self.map.render_entities(
+            self.entity_instructions,
+            entities,
+            entity_camera,
+            self.client_tick,
+            !crate::interface::windows::draw_world_entity(true, self.gear_hides_player),
+        );
 
         #[cfg_attr(feature = "debug", korangar_debug::debug_condition(self.render_options.show_entities))]
         self.map

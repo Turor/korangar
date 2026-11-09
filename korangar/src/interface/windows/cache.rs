@@ -7,7 +7,7 @@ use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
 
 use super::WindowClass;
-use super::placement::{REFERENCE_SCREEN_HEIGHT, REFERENCE_SCREEN_WIDTH, first_open_hud};
+use super::placement::{REFERENCE_SCREEN_HEIGHT, REFERENCE_SCREEN_WIDTH, ScreenAnchor, first_open_hud, frame_anchor_offset};
 use crate::graphics::{ScreenPosition, ScreenSize};
 use crate::state::ClientState;
 
@@ -70,11 +70,11 @@ impl korangar_interface::application::WindowCache<ClientState> for WindowCache {
         })
     }
 
-    fn get_window_state(&self, class: WindowClass) -> Option<(Anchor<ClientState>, ScreenSize)> {
+    fn get_window_state(&self, class: WindowClass, screen: ScreenSize) -> Option<(Anchor<ClientState>, ScreenSize)> {
         if let Some(entry) = self.entries.get(&class) {
             return Some((entry.anchor, entry.size));
         }
-        preset_window(class)
+        preset_window(class, screen.width, screen.height)
     }
 
     fn register_window(&mut self, class: WindowClass, anchor: Anchor<ClientState>, size: ScreenSize) {
@@ -90,7 +90,7 @@ impl korangar_interface::application::WindowCache<ClientState> for WindowCache {
     fn update_anchor(&mut self, class: WindowClass, anchor: Anchor<ClientState>) {
         if let Some(entry) = self.entries.get_mut(&class) {
             entry.anchor = anchor;
-        } else if let Some((_, size)) = preset_window(class) {
+        } else if let Some((_, size)) = preset_window(class, REFERENCE_SCREEN_WIDTH, REFERENCE_SCREEN_HEIGHT) {
             self.entries.insert(class, WindowState::new(anchor, size));
         }
     }
@@ -98,7 +98,7 @@ impl korangar_interface::application::WindowCache<ClientState> for WindowCache {
     fn update_size(&mut self, class: WindowClass, size: ScreenSize) {
         if let Some(entry) = self.entries.get_mut(&class) {
             entry.size = size;
-        } else if let Some((anchor, _)) = preset_window(class) {
+        } else if let Some((anchor, _)) = preset_window(class, REFERENCE_SCREEN_WIDTH, REFERENCE_SCREEN_HEIGHT) {
             self.entries.insert(class, WindowState::new(anchor, size));
         }
     }
@@ -106,45 +106,36 @@ impl korangar_interface::application::WindowCache<ClientState> for WindowCache {
 
 /// Anchor and size for a window that has never been moved.
 ///
-/// Offsets match [`first_open_hud`] on a 1280×720 client. Bottom anchors keep
-/// chat and the hotbar on the bottom edge at other heights.
-fn preset_window(class: WindowClass) -> Option<(Anchor<ClientState>, ScreenSize)> {
-    let hud = first_open_hud(REFERENCE_SCREEN_WIDTH, REFERENCE_SCREEN_HEIGHT);
-    let frame = match class {
-        WindowClass::Equipment => hud.gear,
-        WindowClass::Chat => hud.chat,
-        WindowClass::Hotbar => hud.hotbar,
+/// Offsets come from [`first_open_hud`] at the live client size.
+fn preset_window(class: WindowClass, screen_width: f32, screen_height: f32) -> Option<(Anchor<ClientState>, ScreenSize)> {
+    let hud = first_open_hud(screen_width, screen_height);
+    let (anchor_kind, frame) = match class {
+        WindowClass::Equipment => (ScreenAnchor::TopLeft, hud.gear),
+        WindowClass::Inventory => (ScreenAnchor::TopLeft, hud.inventory),
+        WindowClass::Stats => (ScreenAnchor::TopLeft, hud.stats),
+        WindowClass::Chat => (ScreenAnchor::BottomLeft, hud.chat),
+        WindowClass::Hotbar => (ScreenAnchor::BottomCenter, hud.hotbar),
+        WindowClass::MvpMinimap => (ScreenAnchor::TopRight, hud.minimap),
+        WindowClass::StatusEffects => (ScreenAnchor::TopRight, hud.status),
+        WindowClass::SkillTree => (ScreenAnchor::Center, hud.skill_tree),
+        WindowClass::QuestJournal => (ScreenAnchor::TopRight, hud.quest),
+        WindowClass::FriendList => (ScreenAnchor::TopRight, hud.friends),
+        WindowClass::PartyInvite => (ScreenAnchor::TopRight, hud.party),
+        WindowClass::Guild => (ScreenAnchor::TopRight, hud.guild),
         _ => return None,
     };
-    let size = ScreenSize {
+    let (left, top) = frame_anchor_offset(anchor_kind, frame, screen_width, screen_height);
+    let anchor_point = match anchor_kind {
+        ScreenAnchor::TopLeft => AnchorPoint::TopLeft,
+        ScreenAnchor::TopRight => AnchorPoint::TopRight,
+        ScreenAnchor::BottomLeft => AnchorPoint::BottomLeft,
+        ScreenAnchor::BottomCenter => AnchorPoint::BottomCenter,
+        ScreenAnchor::Center => AnchorPoint::Center,
+    };
+    Some((Anchor::at(anchor_point, ScreenPosition { left, top }), ScreenSize {
         width: frame.width,
         height: frame.height,
-    };
-    let anchor = match class {
-        WindowClass::Equipment => Anchor::at(
-            AnchorPoint::TopLeft,
-            ScreenPosition {
-                left: frame.left,
-                top: frame.top,
-            },
-        ),
-        WindowClass::Chat => Anchor::at(
-            AnchorPoint::BottomLeft,
-            ScreenPosition {
-                left: frame.left,
-                top: -(frame.height + 8.0),
-            },
-        ),
-        WindowClass::Hotbar => Anchor::at(
-            AnchorPoint::BottomCenter,
-            ScreenPosition {
-                left: -(frame.width / 2.0),
-                top: -(frame.height + 8.0),
-            },
-        ),
-        _ => return None,
-    };
-    Some((anchor, size))
+    }))
 }
 
 impl Drop for WindowCache {
