@@ -39,6 +39,7 @@ pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetad
 pub use self::message::MessageColor;
 pub use self::packet_versions::SupportedPacketVersion;
 pub use self::packet_versions::enchant::{format_enchant_result, parse_enchant_index, parse_enchant_item_id, parse_enchant_slot};
+pub use self::packet_versions::stable::{format_stable_result, parse_stable_action, parse_stable_id};
 pub use self::server::{
     CharacterServerLoginData, LoginServerLoginData, NotConnectedError, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
 };
@@ -940,6 +941,33 @@ where
                     inventory_index,
                     slot,
                 }),
+        }
+    }
+
+    /// `0x0EF0`. Asks the map server for the stable board.
+    pub fn request_stable_open(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(RequestStableOpenPacket::new())
+            }
+        }
+    }
+
+    /// `0x0EF1`.
+    pub fn request_stable_homunculus(&mut self, homunculus_id: i32) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(RequestStableHomunculusPacket { homunculus_id })
+            }
+        }
+    }
+
+    /// `0x0EF2`.
+    pub fn request_stable_pet(&mut self, action: i16, pet_id: i32) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(RequestStablePetPacket { action, pet_id })
+            }
         }
     }
 
@@ -2121,6 +2149,116 @@ mod packet_handlers {
         .unwrap();
         assert_eq!(writer.as_slice().len(), 12);
         assert_eq!(&writer.as_slice()[10..12], &(-1i16).to_le_bytes());
+    }
+
+    #[test]
+    fn stable_board_packets_round_trip() {
+        use ragnarok_packets::{
+            RequestStableHomunculusPacket, RequestStableOpenPacket, RequestStablePetPacket, StableHomunculusEntry,
+            StableHomunculusListPacket, StableOwnedEntry, StableOwnedListPacket, StablePetEntry, StablePetListPacket, StableResultPacket,
+        };
+
+        let mut writer = ByteWriter::new();
+        RequestStableOpenPacket::new().packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0xF0, 0x0E]);
+
+        let mut writer = ByteWriter::new();
+        RequestStableHomunculusPacket { homunculus_id: -7 }
+            .packet_to_bytes(&mut writer)
+            .unwrap();
+        assert_eq!(writer.as_slice().len(), 6);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0EF1);
+        assert_eq!(&writer.as_slice()[2..6], &(-7i32).to_le_bytes());
+
+        let mut writer = ByteWriter::new();
+        RequestStablePetPacket { action: 2, pet_id: 44 }
+            .packet_to_bytes(&mut writer)
+            .unwrap();
+        assert_eq!(writer.as_slice().len(), 8);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0EF2);
+        assert_eq!(&writer.as_slice()[2..4], &2i16.to_le_bytes());
+        assert_eq!(&writer.as_slice()[4..8], &44i32.to_le_bytes());
+
+        let homunculi = StableHomunculusListPacket {
+            active_homunculus_id: 3,
+            count: 1,
+            homunculi: vec![StableHomunculusEntry {
+                homunculus_id: 3,
+                class_id: 6001,
+                previous_class: 6000,
+                level: 12,
+                intimacy: 250,
+                hunger: 40,
+                vaporize: 1,
+                rename_flag: 0,
+                name: "Lif".to_owned(),
+            }],
+        };
+        let mut writer = ByteWriter::new();
+        homunculi.packet_to_bytes(&mut writer).unwrap();
+        // opcode + length + active id + count + 42-byte row.
+        assert_eq!(writer.as_slice().len(), 4 + 4 + 1 + 42);
+        for version in [
+            SupportedPacketVersion::_20250716,
+            SupportedPacketVersion::_20220406,
+            SupportedPacketVersion::_20190530,
+        ] {
+            let events = process_one(version, writer.as_slice());
+            assert!(matches!(events.as_slice(), [NetworkEvent::StableHomunculusList { active_id: 3, summary }] if summary.contains("Lif")));
+        }
+
+        let pets = StablePetListPacket {
+            active_pet_id: 9,
+            count: 1,
+            pets: vec![StablePetEntry {
+                pet_id: 9,
+                class_id: 1002,
+                level: 1,
+                intimacy: 100,
+                hunger: 20,
+                egg_item_id: 9001,
+                equip_item_id: 0,
+                character_id: 5,
+                incubate: 0,
+                rename_flag: 1,
+                flags: 0,
+                name: "Picky".to_owned(),
+                owner_name: "Ada".to_owned(),
+                attack: 3,
+                attack2: 4,
+                attack_speed: 150,
+                experience: 10,
+                next_experience: 50,
+                food_item_id: 531,
+                buff: "none".to_owned(),
+            }],
+        };
+        let mut writer = ByteWriter::new();
+        pets.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 4 + 4 + 1 + 191);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::StablePetList { active_id: 9, summary }] if summary.contains("Picky")));
+
+        let owned = StableOwnedListPacket {
+            count: 1,
+            items: vec![StableOwnedEntry { item_id: 714, owned: 3 }],
+        };
+        let mut writer = ByteWriter::new();
+        owned.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 4 + 2 + 8);
+        let events = process_one(SupportedPacketVersion::_20190530, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::StableOwnedList { summary }] if summary.contains("714")));
+
+        let result = StableResultPacket { result: 0, id: 9 };
+        let mut writer = ByteWriter::new();
+        result.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 8);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::StableResult {
+            result: 0,
+            id: 9,
+            ..
+        }]));
     }
 
     #[test]

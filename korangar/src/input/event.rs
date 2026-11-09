@@ -161,6 +161,12 @@ pub enum InputEvent {
     RequestResetEnchant,
     /// Close the enchant UI and send `CZ_CLOSE_UI_ENCHANT`.
     CloseEnchant,
+    /// Ask the map server for the Turoran stable board (`0x0EF0`).
+    OpenStable,
+    /// Request one stored homunculus (`0x0EF1`).
+    RequestStableHomunculus,
+    /// Request one stored pet (`0x0EF2`).
+    RequestStablePet,
     /// Action for the "Close"-button in a dialog.
     CloseDialog {
         /// Id of the NPC the player is in a dialog with.

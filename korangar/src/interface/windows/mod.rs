@@ -42,6 +42,7 @@ mod sell;
 mod sell_cart;
 mod server_selection;
 mod skill_tree;
+mod stable;
 mod stats;
 mod status_effects;
 mod storage;
@@ -98,6 +99,7 @@ pub use self::sell::SellWindow;
 pub use self::sell_cart::SellCartWindow;
 pub use self::server_selection::ServerSelectionWindow;
 pub use self::skill_tree::{SkillTreeWindow, SkillTreeWindowState, SkillTreeWindowStatePathExt};
+pub use self::stable::{StableWindow, StableWindowState};
 pub use self::stats::StatsWindow;
 pub use self::status_effects::StatusEffectsWindow;
 pub use self::storage::StorageWindow;
@@ -129,6 +131,7 @@ pub enum WindowClass {
     Equipment,
     SwitchEquip,
     SkillTree,
+    Stable,
     Stats,
     StatusEffects,
     QuestJournal,

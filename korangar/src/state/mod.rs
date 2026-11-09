@@ -181,6 +181,8 @@ pub struct ClientState {
     dialog_window: DialogWindowState,
     /// Internal state of the enchant window.
     enchant_window: crate::interface::windows::EnchantWindowState,
+    /// Internal state of the Turoran stable board.
+    stable_window: crate::interface::windows::StableWindowState,
     /// Internal state of the skill tree window.
     skill_tree_window: SkillTreeWindowState,
 
@@ -401,6 +403,7 @@ impl ClientState {
         time_phase!("create player resources", {
             let dialog_window = DialogWindowState::default();
             let enchant_window = crate::interface::windows::EnchantWindowState::default();
+            let stable_window = crate::interface::windows::StableWindowState::default();
 
             let shop_items = Vec::default();
             let buy_cart = Vec::default();
@@ -482,6 +485,7 @@ impl ClientState {
             friend_list_window,
             dialog_window,
             enchant_window,
+            stable_window,
             skill_tree_window,
             entities: Vec::new(),
             dead_entities: Vec::new(),

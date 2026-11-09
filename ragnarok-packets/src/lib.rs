@@ -3983,6 +3983,130 @@ pub struct EnchantResponsePacket {
 #[header(0x0BA0)]
 pub struct CloseUiEnchantPacket {}
 
+/// Turoran stable open (`0x0EF0`, 2 bytes, no payload).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EF0)]
+pub struct RequestStableOpenPacket {}
+
+/// Turoran stable homunculus request (`0x0EF1`, 6 bytes).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EF1)]
+pub struct RequestStableHomunculusPacket {
+    pub homunculus_id: i32,
+}
+
+/// Turoran stable pet request (`0x0EF2`, 8 bytes). `action` is the server's
+/// pet-action word.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EF2)]
+pub struct RequestStablePetPacket {
+    pub action: i16,
+    pub pet_id: i32,
+}
+
+/// One row of `0x0EF8`. Field order matches the Turoran stable homunculus list.
+#[derive(Debug, Clone, PartialEq, Eq, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct StableHomunculusEntry {
+    pub homunculus_id: i32,
+    pub class_id: i16,
+    pub previous_class: i16,
+    pub level: i16,
+    pub intimacy: i32,
+    pub hunger: i16,
+    pub vaporize: u8,
+    pub rename_flag: u8,
+    #[length(24)]
+    pub name: String,
+}
+
+/// Turoran stable homunculus list (`0x0EF8`, variable).
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EF8)]
+#[variable_length]
+pub struct StableHomunculusListPacket {
+    pub active_homunculus_id: i32,
+    #[new_derive]
+    pub count: u8,
+    #[repeating(count)]
+    pub homunculi: Vec<StableHomunculusEntry>,
+}
+
+/// One row of `0x0EF9`.
+#[derive(Debug, Clone, PartialEq, Eq, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct StablePetEntry {
+    pub pet_id: i32,
+    pub class_id: i32,
+    pub level: i16,
+    pub intimacy: i16,
+    pub hunger: i16,
+    pub egg_item_id: i32,
+    pub equip_item_id: i32,
+    pub character_id: i32,
+    pub incubate: u8,
+    pub rename_flag: u8,
+    pub flags: u8,
+    #[length(24)]
+    pub name: String,
+    #[length(24)]
+    pub owner_name: String,
+    pub attack: i16,
+    pub attack2: i16,
+    pub attack_speed: i16,
+    pub experience: i32,
+    pub next_experience: i32,
+    pub food_item_id: i32,
+    #[length(96)]
+    pub buff: String,
+}
+
+/// Turoran stable pet list (`0x0EF9`, variable).
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EF9)]
+#[variable_length]
+pub struct StablePetListPacket {
+    pub active_pet_id: i32,
+    #[new_derive]
+    pub count: u8,
+    #[repeating(count)]
+    pub pets: Vec<StablePetEntry>,
+}
+
+/// One owned evolution material on `0x0EF6` (inventory plus storage).
+#[derive(Debug, Clone, PartialEq, Eq, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct StableOwnedEntry {
+    pub item_id: i32,
+    pub owned: i32,
+}
+
+/// Turoran stable owned-material list (`0x0EF6`, variable).
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EF6)]
+#[variable_length]
+pub struct StableOwnedListPacket {
+    #[new_derive]
+    pub count: u16,
+    #[repeating(count)]
+    pub items: Vec<StableOwnedEntry>,
+}
+
+/// Turoran stable result (`0x0EFA`, 8 bytes).
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EFA)]
+pub struct StableResultPacket {
+    pub result: i16,
+    pub id: i32,
+}
+
 #[derive(Debug, Clone, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub enum RequestUnequipItemStatus {

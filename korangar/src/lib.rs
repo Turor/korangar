@@ -1543,6 +1543,7 @@ impl Client {
                         let _ = self.networking_system.close_ui_enchant();
                         self.interface.close_window_with_class(WindowClass::Enchant);
                     }
+                    self.interface.close_window_with_class(WindowClass::Stable);
                     if self.interface.is_window_with_class_open(WindowClass::Refine) {
                         let _ = self.networking_system.close_refine();
                         self.client_state.follow_mut(client_state().refine()).close();
@@ -1806,6 +1807,22 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().enchant_window())
                         .show_result(message_id, item_id);
+                }
+                NetworkEvent::StableHomunculusList { summary, .. } => {
+                    self.client_state.follow_mut(client_state().stable_window()).show_homunculi(summary);
+                    self.interface.open_window(StableWindow::new());
+                }
+                NetworkEvent::StablePetList { summary, .. } => {
+                    self.client_state.follow_mut(client_state().stable_window()).show_pets(summary);
+                    self.interface.open_window(StableWindow::new());
+                }
+                NetworkEvent::StableOwnedList { summary } => {
+                    self.client_state.follow_mut(client_state().stable_window()).show_owned(summary);
+                    self.interface.open_window(StableWindow::new());
+                }
+                NetworkEvent::StableResult { summary, .. } => {
+                    self.client_state.follow_mut(client_state().stable_window()).show_result(summary);
+                    self.interface.open_window(StableWindow::new());
                 }
                 NetworkEvent::OpenDialog { text, npc_id } => {
                     self.client_state
@@ -3159,6 +3176,32 @@ impl Client {
                     Err(message) => self
                         .client_state
                         .follow_mut(client_state().enchant_window())
+                        .set_status(message.to_owned()),
+                },
+                InputEvent::OpenStable => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        let _ = self.networking_system.request_stable_open();
+                        self.interface.open_window(StableWindow::new());
+                    }
+                }
+                InputEvent::RequestStableHomunculus => {
+                    match self.client_state.follow(client_state().stable_window()).homunculus_request() {
+                        Ok(homunculus_id) => {
+                            let _ = self.networking_system.request_stable_homunculus(homunculus_id);
+                        }
+                        Err(message) => self
+                            .client_state
+                            .follow_mut(client_state().stable_window())
+                            .set_status(message.to_owned()),
+                    }
+                }
+                InputEvent::RequestStablePet => match self.client_state.follow(client_state().stable_window()).pet_request() {
+                    Ok((action, pet_id)) => {
+                        let _ = self.networking_system.request_stable_pet(action, pet_id);
+                    }
+                    Err(message) => self
+                        .client_state
+                        .follow_mut(client_state().stable_window())
                         .set_status(message.to_owned()),
                 },
                 InputEvent::CloseEnchant => {
