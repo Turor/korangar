@@ -2207,6 +2207,28 @@ mod packet_handlers {
         opened.packet_to_bytes(&mut writer).unwrap();
         assert_eq!(&writer.as_slice()[..2], &[0x2F, 0x01]);
         assert_eq!(writer.as_slice().len(), 2 + 2 + 80 + 8);
+
+        // 0x0812 is open rejection (result + weight, 8 bytes). 0x081A is a finished
+        // trade rejection (result only, 4 bytes). Building the structs would hide a swap.
+        let open_failed = [0x12, 0x08, 0x02, 0x00, 0x40, 0x1F, 0x00, 0x00];
+        let trade_failed = [0x1A, 0x08, 0x03, 0x00];
+        for version in [SupportedPacketVersion::_20250716, SupportedPacketVersion::_20220406] {
+            let events = process_one(version, &open_failed);
+            assert!(matches!(events.as_slice(), [NetworkEvent::BuyingStoreOpenFailed {
+                result: 2,
+                total_weight: 8000,
+            }]));
+            let events = process_one(version, &trade_failed);
+            assert!(matches!(events.as_slice(), [NetworkEvent::BuyingStoreTradeFailed { result: 3 }]));
+        }
+        assert!(matches!(
+            map_handler(SupportedPacketVersion::_20190530).process_one(&mut ByteReader::without_metadata(&open_failed)),
+            HandlerResult::UnhandledPacket
+        ));
+        assert!(matches!(
+            map_handler(SupportedPacketVersion::_20190530).process_one(&mut ByteReader::without_metadata(&trade_failed)),
+            HandlerResult::UnhandledPacket
+        ));
     }
 
     #[test]

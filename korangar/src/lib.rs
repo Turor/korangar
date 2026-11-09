@@ -2203,9 +2203,15 @@ impl Client {
                         ));
                     }
                 }
-                NetworkEvent::BuyingStoreOpenFailed { result } => {
+                NetworkEvent::BuyingStoreOpenFailed { result, .. } => {
                     self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
                         format!("Could not open a buying store (code {result})."),
+                        MessageColor::Error,
+                    ));
+                }
+                NetworkEvent::BuyingStoreTradeFailed { result } => {
+                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
+                        format!("Could not sell to the buying store (code {result})."),
                         MessageColor::Error,
                     ));
                 }

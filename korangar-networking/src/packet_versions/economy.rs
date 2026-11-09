@@ -5,7 +5,8 @@
 
 use ragnarok_packets::handler::{DuplicateHandlerError, PacketCallback, PacketHandler};
 use ragnarok_packets::{
-    BuyingStoreClosedPacket, BuyingStoreListPacket, BuyingStoreOpenFailedPacket, BuyingStoreSignPacket, OpenMarketPacket,
+    BuyingStoreClosedPacket, BuyingStoreListPacket, BuyingStoreOpenFailedPacket, BuyingStoreSignPacket, BuyingStoreTradeFailedPacket,
+    OpenMarketPacket,
     OwnBuyingStoreListPacket, OwnVendingListPacket, SearchStoreFailedPacket, SearchStoreOpenPacket, SearchStoreResultPacket,
     SearchStoreSelectResultPacket, VendingPreparePacket, VendingPurchaseResultPacket, VendingShopClosedPacket, VendingShopListPacket,
     VendingShopSignPacket,
@@ -120,7 +121,11 @@ where
         item_count: packet.items.len(),
         buying_store: true,
     })?;
-    packet_handler.register(|packet: BuyingStoreOpenFailedPacket| NetworkEvent::BuyingStoreOpenFailed { result: packet.result })?;
+    packet_handler.register(|packet: BuyingStoreOpenFailedPacket| NetworkEvent::BuyingStoreOpenFailed {
+        result: packet.result,
+        total_weight: packet.total_weight,
+    })?;
+    packet_handler.register(|packet: BuyingStoreTradeFailedPacket| NetworkEvent::BuyingStoreTradeFailed { result: packet.result })?;
     packet_handler.register(|packet: SearchStoreOpenPacket| NetworkEvent::SearchStoreOpen {
         effect: packet.effect,
         remaining_uses: packet.remaining_uses,

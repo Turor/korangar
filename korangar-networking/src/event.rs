@@ -339,8 +339,13 @@ pub enum NetworkEvent {
         amount: u16,
         result: u8,
     },
-    /// Buying store could not open. `result` is the server reason code.
+    /// Buying store could not open (`0x0812`). `result` is the server reason code.
     BuyingStoreOpenFailed {
+        result: u16,
+        total_weight: u32,
+    },
+    /// A sale into a buying store was rejected (`0x081A`).
+    BuyingStoreTradeFailed {
         result: u16,
     },
     /// Search-store UI was enabled.

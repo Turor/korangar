@@ -4642,11 +4642,21 @@ pub struct OwnBuyingStoreListPacket {
 }
 
 /// Opening a buying store was rejected (`ZC_FAILED_OPEN_BUYING_STORE_TO_BUYER`,
-/// 0x081A).
+/// 0x0812). `result` is the reason; `total_weight` is the buyer's current weight.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0812)]
+pub struct BuyingStoreOpenFailedPacket {
+    pub result: u16,
+    pub total_weight: u32,
+}
+
+/// Selling into a buying store failed (`ZC_FAILED_TRADE_BUYING_STORE_TO_BUYER`,
+/// 0x081A). The result word is the only payload (buy limit or an empty store).
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x081A)]
-pub struct BuyingStoreOpenFailedPacket {
+pub struct BuyingStoreTradeFailedPacket {
     pub result: u16,
 }
 
