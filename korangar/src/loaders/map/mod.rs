@@ -133,10 +133,8 @@ impl MapLoader {
 
         // TODO: NHA Implement sky rendering
         let _map_sky_data = library.get::<MapSkyData>(&resource_file);
-        // Empty overlays and enable_signboards=false keep this at zero vendors.
         let signboards = library.get::<MapSignboards>(&resource_file);
         debug_assert_eq!(signboards.vendor_job_id_count(), 0);
-        let _signboard_count = signboards.labels().len() + signboards.town_services().len();
 
         let ground_file = format!("data\\{}", map_data.ground_file);
         let ground_data: GroundData = parse_generic_data(&ground_file, &self.game_file_loader)?;

@@ -1,9 +1,5 @@
-//! Signboards and town-info markers.
-//!
-//! Live Turoran ships empty `SignBoardList` / `mapNPCInfoTable` overlays and
-//! `enableSignboards: false`. Renewal lists otherwise place sprites that fall
-//! back to a vending-shop box when the sign model is missing. Parsed rows are
-//! map labels only: they never produce an entity job id.
+//! Signboard and town-info rows are map labels. They must not become entity job
+//! ids.
 
 use hashbrown::HashMap;
 use korangar_loaders::FileLoader;
@@ -27,16 +23,18 @@ pub fn resolve_signboards_enabled(env_value: Option<&str>, settings_flag: Option
 }
 
 pub fn signboards_enabled() -> bool {
-    let env_value = std::env::var("KORANGAR_ENABLE_SIGNBOARDS").ok();
-    let settings_flag = GameSettings::load().map(|settings| settings.enable_signboards);
-    resolve_signboards_enabled(env_value.as_deref(), settings_flag)
+    if let Ok(value) = std::env::var("KORANGAR_ENABLE_SIGNBOARDS") {
+        return resolve_signboards_enabled(Some(value.as_str()), None);
+    }
+    // `GameSettings` writes the settings file on drop, so read the flag through a
+    // probe.
+    resolve_signboards_enabled(None, GameSettings::read_enable_signboards())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignboardIconKind {
     None,
     Bitmap,
-    /// Sprite rows are still labels. They are not NPC or vending entities.
     Sprite,
     Signboard,
 }
@@ -82,8 +80,7 @@ pub struct SignboardLabel {
 }
 
 impl SignboardLabel {
-    /// Signboards are never player shops, including `IT_SPRITE` rows whose
-    /// missing model used to fall back to the vending box.
+    /// Rows must not become entity job ids.
     pub fn vendor_job_id(&self) -> Option<u16> {
         None
     }
@@ -111,14 +108,6 @@ pub struct MapSignboards {
 }
 
 impl MapSignboards {
-    pub fn labels(&self) -> &[SignboardLabel] {
-        &self.labels
-    }
-
-    pub fn town_services(&self) -> &[TownServiceMarker] {
-        &self.town_services
-    }
-
     pub fn vendor_job_id_count(&self) -> usize {
         self.labels.iter().filter(|label| label.vendor_job_id().is_some()).count()
             + self.town_services.iter().filter(|marker| marker.vendor_job_id().is_some()).count()
@@ -157,7 +146,11 @@ impl Table for MapSignboards {
     }
 }
 
-pub(crate) fn publish_markers(enabled: bool, labels: Vec<SignboardLabel>, town_services: Vec<TownServiceMarker>) -> HashMap<String, MapSignboards> {
+pub(crate) fn publish_markers(
+    enabled: bool,
+    labels: Vec<SignboardLabel>,
+    town_services: Vec<TownServiceMarker>,
+) -> HashMap<String, MapSignboards> {
     if !enabled {
         return HashMap::new();
     }
@@ -401,22 +394,28 @@ mod tests {
         let published = publish_markers(true, labels, towns);
 
         let prontera = published.get("prontera").unwrap();
-        assert_eq!(prontera.labels().len(), 2);
-        assert!(prontera.labels().iter().any(|label| {
-            label.icon_kind == SignboardIconKind::Sprite && label.caption.as_deref() == Some("Shop lookalike")
-        }));
-        assert!(prontera.labels().iter().all(|label| label.vendor_job_id().is_none()));
-        assert_eq!(prontera.town_services().len(), 2);
-        assert!(prontera.town_services().iter().all(|marker| marker.name != "Fake Vendor"));
-        assert!(prontera.town_services().iter().any(|marker| marker.kind == TownServiceKind::Kafra));
+        assert_eq!(prontera.labels.len(), 2);
+        assert!(
+            prontera
+                .labels
+                .iter()
+                .any(|label| { label.icon_kind == SignboardIconKind::Sprite && label.caption.as_deref() == Some("Shop lookalike") })
+        );
+        assert!(prontera.labels.iter().all(|label| label.vendor_job_id().is_none()));
+        assert_eq!(prontera.town_services.len(), 2);
+        assert!(prontera.town_services.iter().all(|marker| marker.name != "Fake Vendor"));
+        assert!(prontera.town_services.iter().any(|marker| marker.kind == TownServiceKind::Kafra));
         assert_eq!(prontera.vendor_job_id_count(), 0);
 
         let geffen = published.get("geffen").unwrap();
-        assert_eq!(geffen.labels()[0].icon_kind, SignboardIconKind::Signboard);
-        assert_eq!(geffen.labels()[0].height, 10);
+        assert_eq!(geffen.labels[0].icon_kind, SignboardIconKind::Signboard);
+        assert_eq!(geffen.labels[0].height, 10);
         assert!(published.get("alberta").is_none());
         assert!(published.get("payon").is_none());
         assert!(published.get("default").is_none());
-        assert_eq!(published.get("gef_fild00").unwrap().town_services()[0].kind, TownServiceKind::ToolDealer);
+        assert_eq!(
+            published.get("gef_fild00").unwrap().town_services[0].kind,
+            TownServiceKind::ToolDealer
+        );
     }
 }
