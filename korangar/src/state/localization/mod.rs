@@ -175,6 +175,8 @@ pub struct Localization {
     hotbar_window_title: String,
     inventory_window_title: String,
     storage_window_title: String,
+    cart_window_title: String,
+    cart_button_text: String,
     respawn_window_title: String,
     respawn_button_text: String,
     disconnect_button_text: String,

@@ -6,7 +6,7 @@ use std::time::Instant;
 use ragnarok_packets::handler::{DuplicateHandlerError, PacketCallback, PacketHandler};
 use ragnarok_packets::version_20250716::{
     AddSkillPacket, DisplayExpandedEmotionPacket, EquippableItemListPacket, ItemPickupPacket, TradeAddItemPacket, TradeAddItemResultPacket,
-    TradeCancelPacket, TradeCompletePacket, TradeConfirmPacket, TradeRequestPacket, TradeStartPacket, TradeUnlockPacket,
+    TradeCancelPacket, TradeCompletePacket, TradeConfirmPacket, TradeRequestPacket, TradeStartPacket, TradeUnlockPacket, AddItemToCartPacket,
 };
 use ragnarok_packets::*;
 
@@ -474,6 +474,7 @@ where
 
         move |packet: InventoyEndPacket| match inventory_items.borrow_mut().finish(packet.inventory_type, packet.flag) {
             Some((crate::inventory_lists::InventoryListKind::Player, items)) => Some(NetworkEvent::SetInventory { items }),
+            Some((crate::inventory_lists::InventoryListKind::Cart, items)) => Some(NetworkEvent::SetCart { items }),
             Some((crate::inventory_lists::InventoryListKind::Storage, items)) => Some(NetworkEvent::SetStorage { items }),
             None => None,
         }
@@ -731,6 +732,54 @@ where
             quantity,
             is_identified,
         }]
+    })?;
+    packet_handler.register(|packet: AddItemToCartPacket| {
+        let amount = u16::try_from(packet.amount).unwrap_or(u16::MAX);
+        let stackable = matches!(packet.item_type, 0 | 2 | 3 | 6 | 10 | 11 | 18);
+        let details = match stackable {
+            true => InventoryItemDetails::Regular {
+                amount,
+                equipped_position: EquipPosition::empty(),
+                flags: {
+                    let mut flags = RegularItemFlags::empty();
+                    flags.set(RegularItemFlags::IDENTIFIED, packet.identified != 0);
+                    flags
+                },
+            },
+            false => InventoryItemDetails::Equippable {
+                equip_position: EquipPosition::empty(),
+                equipped_position: EquipPosition::empty(),
+                bind_on_equip_type: 0,
+                w_item_sprite_number: 0,
+                option_count: packet.option_data.iter().filter(|option| option.index != 0).count() as u8,
+                option_data: packet.option_data,
+                forge_data: None,
+                refinement_level: packet.refine,
+                enchantment_level: 0,
+                flags: {
+                    let mut flags = EquippableItemFlags::empty();
+                    flags.set(EquippableItemFlags::IDENTIFIED, packet.identified != 0);
+                    flags.set(EquippableItemFlags::IS_BROKEN, packet.damaged != 0);
+                    flags
+                },
+            },
+        };
+
+        NetworkEvent::CartItemAdded {
+            item: InventoryItem {
+                metadata: NoMetadata,
+                index: packet.index,
+                item_id: packet.item_id,
+                item_type: packet.item_type,
+                slot: packet.cards,
+                hire_expiration_date: 0,
+                details,
+            },
+        }
+    })?;
+    packet_handler.register(|packet: DeleteItemFromCartPacket| NetworkEvent::CartItemRemoved {
+        index: packet.index,
+        amount: u16::try_from(packet.amount).unwrap_or(u16::MAX),
     })?;
     packet_handler.register(|packet: RemoveItemFromInventoryPacket| NetworkEvent::InventoryItemRemoved {
         reason: packet.remove_reason,

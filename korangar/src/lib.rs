@@ -167,6 +167,13 @@ pub fn init_tls_rand() {
     rand_aes::tls::rand_seed(seed.into());
 }
 
+fn cart_move_amount(item: &korangar_networking::InventoryItem<crate::world::ResourceMetadata>) -> i32 {
+    match &item.details {
+        korangar_networking::InventoryItemDetails::Regular { amount, .. } => i32::from(*amount),
+        korangar_networking::InventoryItemDetails::Equippable { .. } => 1,
+    }
+}
+
 fn initialize_shutdown_signal() {
     ctrlc::set_handler(|| {
         println!("CTRL-C received. Shutting down");
@@ -1837,6 +1844,25 @@ impl Client {
                         .fill(&self.async_loader, items);
                     self.interface.open_window(StorageWindow::new(client_state().storage().items()));
                 }
+                NetworkEvent::SetCart { items } => {
+                    let open_cart = !items.is_empty();
+                    self.client_state.follow_mut(client_state().cart()).fill(&self.async_loader, items);
+
+                    if open_cart
+                        && self.client_state.try_follow(this_entity()).is_some()
+                        && !self.interface.is_window_with_class_open(WindowClass::Cart)
+                    {
+                        self.interface.open_window(CartWindow::new(client_state().cart().items()));
+                    }
+                }
+                NetworkEvent::CartItemAdded { item } => {
+                    self.client_state
+                        .follow_mut(client_state().cart())
+                        .add_item(&self.async_loader, item);
+                }
+                NetworkEvent::CartItemRemoved { index, amount } => {
+                    self.client_state.follow_mut(client_state().cart()).remove_item(index, amount);
+                }
                 NetworkEvent::IventoryItemAdded { item } => {
                     self.client_state
                         .follow_mut(client_state().inventory())
@@ -2572,6 +2598,14 @@ impl Client {
                         }
                     }
                 }
+                InputEvent::ToggleCartWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Cart) {
+                            true => self.interface.close_window_with_class(WindowClass::Cart),
+                            false => self.interface.open_window(CartWindow::new(client_state().cart().items())),
+                        }
+                    }
+                }
                 InputEvent::ToggleEquipmentWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::Equipment) {
@@ -2838,6 +2872,12 @@ impl Client {
                         if amount > 0 {
                             let _ = self.networking_system.move_item_from_storage(item.index, amount);
                         }
+                    }
+                    (ItemSource::Inventory, ItemSource::Cart) => {
+                        let _ = self.networking_system.move_item_to_cart(item.index, cart_move_amount(&item));
+                    }
+                    (ItemSource::Cart, ItemSource::Inventory) => {
+                        let _ = self.networking_system.move_item_from_cart(item.index, cart_move_amount(&item));
                     }
                     _ => {}
                 },
@@ -3330,6 +3370,9 @@ impl Client {
 
                     self.client_state
                         .follow_mut(client_state().inventory())
+                        .update_item_sprite(item_id, texture.clone());
+                    self.client_state
+                        .follow_mut(client_state().cart())
                         .update_item_sprite(item_id, texture);
                 }
                 (LoaderId::Map(..), LoadableResource::Map { map, position }) => {

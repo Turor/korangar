@@ -194,6 +194,17 @@ pub enum NetworkEvent {
     SetStorage {
         items: Vec<InventoryItem<NoMetadata>>,
     },
+    /// Full cart snapshot. Distinct from [`Self::SetInventory`].
+    SetCart {
+        items: Vec<InventoryItem<NoMetadata>>,
+    },
+    CartItemAdded {
+        item: InventoryItem<NoMetadata>,
+    },
+    CartItemRemoved {
+        index: InventoryIndex,
+        amount: u16,
+    },
     IventoryItemAdded {
         item: InventoryItem<NoMetadata>,
     },

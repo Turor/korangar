@@ -900,8 +900,7 @@ where
         }
     }
 
-    /// Ask the map server to swap the worn equipment with the alternate set.
-    pub fn request_equip_switch(&mut self) -> Result<(), NotConnectedError> {
+pub fn request_equip_switch(&mut self) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(RequestEquipSwitchPacket::new())
@@ -910,10 +909,27 @@ where
     }
 
     /// Remove one item from the alternate equipment set.
-    pub fn request_equip_switch_remove(&mut self, item_index: InventoryIndex) -> Result<(), NotConnectedError> {
+
+pub fn request_equip_switch_remove(&mut self, item_index: InventoryIndex) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(RequestEquipSwitchRemovePacket::new(item_index))
+            }
+        }
+    }
+
+pub fn move_item_to_cart(&mut self, item_index: InventoryIndex, amount: i32) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(MoveItemFromBodyToCartPacket::new(item_index, amount))
+            }
+        }
+    }
+
+pub fn move_item_from_cart(&mut self, item_index: InventoryIndex, amount: i32) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(MoveItemFromCartToBodyPacket::new(item_index, amount))
             }
         }
     }
@@ -1164,6 +1180,55 @@ mod packet_handlers {
     fn map_server() {
         let result = NetworkingSystem::create_map_server_packet_handler(NoPacketCallback, SupportedPacketVersion::_20220406);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn cart_move_packets_are_eight_bytes() {
+        let mut body_to_cart = ByteWriter::new();
+        ragnarok_packets::MoveItemFromBodyToCartPacket {
+            index: ragnarok_packets::InventoryIndex(4),
+            amount: 2,
+        }
+        .packet_to_bytes(&mut body_to_cart)
+        .unwrap();
+        assert_eq!(body_to_cart.as_slice(), &[0x26, 0x01, 0x06, 0x00, 0x02, 0x00, 0x00, 0x00]);
+
+        let mut cart_to_body = ByteWriter::new();
+        ragnarok_packets::MoveItemFromCartToBodyPacket {
+            index: ragnarok_packets::InventoryIndex(4),
+            amount: 2,
+        }
+        .packet_to_bytes(&mut cart_to_body)
+        .unwrap();
+        assert_eq!(cart_to_body.as_slice(), &[0x27, 0x01, 0x06, 0x00, 0x02, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn add_item_to_cart_publishes_cart_not_bag() {
+        use ragnarok_packets::version_20250716::AddItemToCartPacket;
+        use ragnarok_packets::{ItemId, ItemOptions};
+
+        let packet = AddItemToCartPacket {
+            index: ragnarok_packets::InventoryIndex(9),
+            amount: 3,
+            item_id: ItemId(501),
+            item_type: 0,
+            identified: 1,
+            damaged: 0,
+            refine: 0,
+            cards: [0; 4],
+            option_data: std::array::from_fn(|_| ItemOptions {
+                index: 0,
+                value: 0,
+                parameter: 0,
+            }),
+        };
+        let mut writer = ByteWriter::new();
+        packet.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 57);
+
+        let events = handle_map_packet(SupportedPacketVersion::_20250716, packet);
+        assert!(matches!(events.0.as_slice(), [NetworkEvent::CartItemAdded { .. }]));
     }
 
     #[test]

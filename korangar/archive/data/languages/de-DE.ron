@@ -43,6 +43,8 @@
     hotbar_window_title: "Schnellzugriff",
     inventory_window_title: "Inventar",
     storage_window_title: "Lager",
+    cart_window_title: "Karren",
+    cart_button_text: "Karren",
     respawn_window_title: "Wiederbelebungsmenü",
     respawn_button_text: "Wiederbeleben",
     disconnect_button_text: "Verbindung trennen",
