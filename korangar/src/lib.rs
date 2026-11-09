@@ -1532,10 +1532,29 @@ impl Client {
                         #[cfg(feature = "debug")]
                         player.generate_pathing_mesh(&self.device, &self.queue, self.graphics_engine.bindless_support(), map);
                     }
-                    let destination = destination.tile_position();
+                    // The pin tracks the cell the walk starts from. Later frames
+                    // sample the entity tile, and a rejected step arrives as
+                    // `EntityStopMove` rather than the requested destination.
+                    let origin = origin.tile_position();
                     self.client_state
                         .follow_mut(client_state().navigation())
-                        .set_player_cell(destination.x, destination.y);
+                        .set_player_cell(origin.x, origin.y);
+                }
+                NetworkEvent::EntityStopMove { entity_id, position } => {
+                    let is_local_player = self
+                        .client_state
+                        .try_follow(this_entity())
+                        .is_some_and(|player| player.get_entity_id() == entity_id);
+                    if is_local_player {
+                        if let Some(map) = &self.map
+                            && let Some(player) = self.client_state.try_follow_mut(this_entity())
+                        {
+                            player.set_position(map, position, client_tick);
+                        }
+                        self.client_state
+                            .follow_mut(client_state().navigation())
+                            .set_player_cell(position.x, position.y);
+                    }
                 }
                 NetworkEvent::ChangeMap { map_name, position } => {
                     self.map = None;
@@ -3149,12 +3168,6 @@ impl Client {
                             blue,
                             now: client_tick.0,
                         });
-                    if kind != 2
-                        && self.client_state.try_follow(this_entity()).is_some()
-                        && !self.interface.is_window_with_class_open(WindowClass::Navigation)
-                    {
-                        self.interface.open_window(NavigationWindow::new(client_state().navigation()));
-                    }
                 }
             }
         }
@@ -4572,6 +4585,17 @@ impl Client {
             .follow_mut(client_state().entities())
             .iter_mut()
             .for_each(|entity| entity.update(&self.audio_engine, map, current_camera, client_tick));
+
+        // The navigation "you" pin follows the tile the player occupies now,
+        // including cells crossed while a walk is still in progress.
+        let player_cell = self.client_state.try_follow(this_entity()).map(|player| player.get_tile_position());
+        if let Some(tile) = player_cell {
+            let navigation = self.client_state.follow_mut(client_state().navigation());
+            let (x, y) = navigation.player_cell();
+            if x != tile.x || y != tile.y {
+                navigation.set_player_cell(tile.x, tile.y);
+            }
+        }
 
         self.client_state
             .follow_mut(client_state().dead_entities())

@@ -1659,7 +1659,8 @@ mod packet_handlers {
     #[test]
     fn nav_marks_packets_become_typed_events_on_every_profile() {
         use ragnarok_packets::{
-            ColorRGBA, LargeTilePosition, MarkMinimapPositionPacket, MarkerType, NavigateToMonsterPacket, TilePosition,
+            ColorRGBA, EntityStopMovePacket, LargeTilePosition, MarkMinimapPositionPacket, MarkerType, NavigateToMonsterPacket,
+            TilePosition,
         };
 
         let navigate = NavigateToMonsterPacket {
@@ -1710,6 +1711,16 @@ mod packet_handlers {
                 red: 255,
                 green: 0,
                 blue: 0,
+            }]));
+
+            let stop = EntityStopMovePacket {
+                entity_id: EntityId(7),
+                position: TilePosition { x: 11, y: 22 },
+            };
+            let events = handle_map_packet(version, stop);
+            assert!(matches!(events.0.as_slice(), [NetworkEvent::EntityStopMove {
+                entity_id: EntityId(7),
+                position: TilePosition { x: 11, y: 22 },
             }]));
         }
 

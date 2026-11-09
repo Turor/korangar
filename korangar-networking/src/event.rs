@@ -165,6 +165,13 @@ pub enum NetworkEvent {
         destination: WorldPosition,
         starting_timestamp: ClientTick,
     },
+    /// An entity stopped walking (`ZC_STOPMOVE` / `0x0088`). The position is
+    /// the cell the server accepted, which can differ from the requested
+    /// destination when the step was rejected.
+    EntityStopMove {
+        entity_id: EntityId,
+        position: TilePosition,
+    },
     /// An Entity nearby is pathing to a new position.
     EntityMove {
         entity_id: EntityId,

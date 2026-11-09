@@ -267,7 +267,10 @@ where
             starting_timestamp,
         }
     })?;
-    packet_handler.register_noop::<EntityStopMovePacket>()?;
+    packet_handler.register(|packet: EntityStopMovePacket| NetworkEvent::EntityStopMove {
+        entity_id: packet.entity_id,
+        position: packet.position,
+    })?;
     packet_handler.register(|packet: PlayerMovePacket| {
         let PlayerMovePacket {
             starting_timestamp,
