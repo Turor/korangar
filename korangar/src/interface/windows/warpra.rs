@@ -1,7 +1,7 @@
 use korangar_interface::components::text_box::DefaultHandler;
 use korangar_interface::element::StateElement;
 use korangar_interface::window::{CustomWindow, Window};
-use korangar_networking::{format_warpra_destinations, format_warpra_result, push_warpra_chunk, warpra_level_requirement};
+use korangar_networking::{format_warpra_destinations, format_warpra_result, push_warpra_chunk};
 use ragnarok_packets::{WARPRA_ACTION_BUY, WARPRA_ACTION_LIST, WARPRA_ACTION_WARP, WarpraDestinationEntry};
 use rust_state::{RustState, State};
 
@@ -44,10 +44,25 @@ impl Default for WarpraWindowState {
 }
 
 impl WarpraWindowState {
+    /// Drop an in-flight catalog so the next list cannot prepend those rows.
+    pub fn begin_list_request(&mut self) {
+        self.pending.clear();
+    }
+
+    /// Drop the catalog when the map or character changes.
+    pub fn clear_catalog(&mut self) {
+        self.pending.clear();
+        self.destinations.clear();
+        self.list_text.clear();
+        self.zeny = 0;
+        self.price = 0;
+        self.status = "Open Warpra to load towns, fields, dungeons, and special maps.".to_owned();
+    }
+
     pub fn apply_list(&mut self, zeny: i32, price: i32, flags: u8, total: u16, entries: Vec<WarpraDestinationEntry>) {
         self.zeny = zeny;
         self.price = price;
-        match push_warpra_chunk(&mut self.pending, flags, entries) {
+        match push_warpra_chunk(&mut self.pending, flags, total, entries) {
             None => {
                 self.status = format!("Loading destinations ({}/{}). Zeny {}.", self.pending.len(), total, self.zeny);
             }
@@ -92,15 +107,11 @@ impl WarpraWindowState {
     }
 
     pub fn warp_request(&self) -> Result<(i16, i16), String> {
-        let (kind, location_id) = self.selected()?;
-        self.reject_level_gate(kind, location_id)?;
-        Ok((kind, location_id))
+        self.selected()
     }
 
     pub fn buy_request(&self) -> Result<(i16, i16), String> {
-        let (kind, location_id) = self.selected()?;
-        self.reject_level_gate(kind, location_id)?;
-        Ok((kind, location_id))
+        self.selected()
     }
 
     pub fn warp_action() -> i16 {
@@ -123,23 +134,6 @@ impl WarpraWindowState {
             .parse::<i16>()
             .map_err(|_| "Enter a location id.".to_owned())?;
         Ok((kind, location_id))
-    }
-
-    fn reject_level_gate(&self, kind: i16, location_id: i16) -> Result<(), String> {
-        let Some(entry) = self
-            .destinations
-            .iter()
-            .find(|entry| i16::from(entry.kind) == kind && entry.id == location_id)
-        else {
-            return Ok(());
-        };
-        if entry.unlocked != 0 {
-            return Ok(());
-        }
-        if let Some(level) = warpra_level_requirement(&entry.name) {
-            return Err(format!("{} requires base level {level}.", entry.name));
-        }
-        Ok(())
     }
 }
 

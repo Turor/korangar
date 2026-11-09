@@ -1143,6 +1143,7 @@ impl Client {
                     self.client_state.follow_mut(client_state().quest_log()).clear();
                     self.client_state.follow_mut(client_state().guild()).clear();
                     self.client_state.follow_mut(client_state().guild_window()).clear();
+                    self.client_state.follow_mut(client_state().warpra_window()).clear_catalog();
 
                     self.audio_engine.play_background_music_track(None);
 
@@ -1228,6 +1229,7 @@ impl Client {
                         self.client_state.follow_mut(client_state().quest_log()).clear();
                         self.client_state.follow_mut(client_state().guild()).clear();
                         self.client_state.follow_mut(client_state().guild_window()).clear();
+                        self.client_state.follow_mut(client_state().warpra_window()).clear_catalog();
                         self.interface.open_window(CharacterSelectionWindow::new(
                             client_state().character_slots(),
                             client_state().switch_request(),
@@ -1550,6 +1552,7 @@ impl Client {
                     self.interface.close_window_with_class(WindowClass::Stable);
                     self.interface.close_window_with_class(WindowClass::Eden);
                     self.interface.close_window_with_class(WindowClass::Warpra);
+                    self.client_state.follow_mut(client_state().warpra_window()).clear_catalog();
                     if self.interface.is_window_with_class_open(WindowClass::Refine) {
                         let _ = self.networking_system.close_refine();
                         self.client_state.follow_mut(client_state().refine()).close();
@@ -3515,6 +3518,7 @@ impl Client {
                 },
                 InputEvent::OpenWarpra | InputEvent::RequestWarpraList => {
                     if self.client_state.try_follow(this_entity()).is_some() {
+                        self.client_state.follow_mut(client_state().warpra_window()).begin_list_request();
                         let _ = self.networking_system.request_warpra(WarpraWindowState::list_action(), 0, 0);
                         self.interface.open_window(WarpraWindow::new());
                     }

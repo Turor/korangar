@@ -95,12 +95,29 @@ pub fn format_warpra_result(result: i16, kind: i16, location_id: i16, name: Opti
 
 /// Fold catalog chunks. Returns the finished list once a chunk arrives without
 /// the more-data flag.
+///
+/// `pending` is one in-flight transfer. A chunk that cannot extend that count
+/// (a new catalog, a retry, or a chunk after the previous total was already
+/// reached) replaces it instead of appending.
 pub fn push_warpra_chunk(
     pending: &mut Vec<WarpraDestinationEntry>,
     flags: u8,
+    total: u16,
     entries: Vec<WarpraDestinationEntry>,
 ) -> Option<Vec<WarpraDestinationEntry>> {
-    if flags & WARPRA_FLAG_MORE != 0 {
+    let more = flags & WARPRA_FLAG_MORE != 0;
+    let total_len = usize::from(total);
+    let incoming = entries.len();
+    let held = pending.len();
+    let continues = held > 0
+        && total_len > 0
+        && held < total_len
+        && held + incoming <= total_len
+        && (more || held + incoming == total_len);
+    if held > 0 && !continues {
+        pending.clear();
+    }
+    if more {
         pending.extend(entries);
         return None;
     }
@@ -142,13 +159,27 @@ mod tests {
     #[test]
     fn chunks_wait_for_the_final_packet() {
         let mut pending = Vec::new();
-        assert!(push_warpra_chunk(&mut pending, 1, vec![row(1, "A")]).is_none());
-        let done = push_warpra_chunk(&mut pending, 0, vec![row(2, "B")]).unwrap();
+        assert!(push_warpra_chunk(&mut pending, 1, 2, vec![row(1, "A")]).is_none());
+        let done = push_warpra_chunk(&mut pending, 0, 2, vec![row(2, "B")]).unwrap();
         assert_eq!(done.len(), 2);
         assert!(pending.is_empty());
         assert_eq!(
             format_warpra_result(3, 0, 1, Some("Prontera"), Some(50_000_000)),
             "Need 50000000 zeny to unlock Prontera."
         );
+    }
+
+    #[test]
+    fn a_new_catalog_replaces_an_unfinished_one() {
+        let mut pending = vec![row(1, "stale")];
+        let done = push_warpra_chunk(&mut pending, 0, 1, vec![row(9, "fresh")]).unwrap();
+        assert_eq!(done.len(), 1);
+        assert_eq!(done[0].id, 9);
+        assert!(pending.is_empty());
+
+        let mut pending = vec![row(1, "A"), row(2, "B")];
+        assert!(push_warpra_chunk(&mut pending, 1, 1, vec![row(3, "C")]).is_none());
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].id, 3);
     }
 }
