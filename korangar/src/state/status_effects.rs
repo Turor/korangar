@@ -2,6 +2,8 @@ use korangar_interface::element::StateElement;
 use ragnarok_packets::ClientTick;
 use rust_state::RustState;
 
+use crate::state::status_names::status_effect_name;
+
 /// One timed (or flag) status currently on the local player.
 #[derive(Clone, Debug, RustState, StateElement)]
 pub struct ActiveStatusEffect {
@@ -10,8 +12,8 @@ pub struct ActiveStatusEffect {
     pub total_duration_milliseconds: u32,
     /// Client tick when the status was last refreshed.
     pub updated_at_tick: u32,
-    /// Preformatted chip label (`SC#12 5s`) so the window can borrow a stable
-    /// `&str`.
+    /// Preformatted chip label (`Blessing 5s`) so the window can borrow a
+    /// stable `&str`.
     pub label: String,
 }
 
@@ -22,11 +24,12 @@ pub struct StatusEffects {
 }
 
 fn format_label(status_index: u16, remaining_milliseconds: u32) -> String {
+    let name = status_effect_name(status_index);
     if remaining_milliseconds == 0 {
-        format!("SC#{status_index}")
+        name
     } else {
         let seconds = remaining_milliseconds.div_ceil(1000).max(1);
-        format!("SC#{status_index} {seconds}s")
+        format!("{name} {seconds}s")
     }
 }
 
@@ -72,19 +75,27 @@ mod tests {
     #[test]
     fn apply_upserts_and_end_removes() {
         let mut bar = StatusEffects::default();
-        bar.apply(12, 5000, 5000, ClientTick(100));
-        bar.apply(7, 1000, 1000, ClientTick(100));
+        bar.apply(10, 5000, 5000, ClientTick(100));
+        bar.apply(5, 1000, 1000, ClientTick(100));
         assert_eq!(bar.effects().len(), 2);
-        assert_eq!(bar.effects()[0].status_index, 7);
-        assert!(bar.effects()[0].label.contains("SC#7"));
-        bar.apply(12, 2000, 5000, ClientTick(150));
+        assert_eq!(bar.effects()[0].status_index, 5);
+        assert!(bar.effects()[0].label.contains("Cloaking"));
+        assert!(
+            bar.effects()
+                .iter()
+                .find(|e| e.status_index == 10)
+                .unwrap()
+                .label
+                .contains("Blessing")
+        );
+        bar.apply(10, 2000, 5000, ClientTick(150));
         assert_eq!(bar.effects().len(), 2);
         assert_eq!(
-            bar.effects().iter().find(|e| e.status_index == 12).unwrap().remaining_milliseconds,
+            bar.effects().iter().find(|e| e.status_index == 10).unwrap().remaining_milliseconds,
             2000
         );
-        bar.end(7);
+        bar.end(5);
         assert_eq!(bar.effects().len(), 1);
-        assert_eq!(bar.effects()[0].status_index, 12);
+        assert_eq!(bar.effects()[0].status_index, 10);
     }
 }

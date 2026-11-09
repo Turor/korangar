@@ -8,6 +8,7 @@ pub mod quest_log;
 pub mod skill_cooldowns;
 pub mod skills;
 pub mod status_effects;
+pub mod status_names;
 pub mod theme;
 
 use std::cell::Cell;
