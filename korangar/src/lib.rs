@@ -1298,8 +1298,6 @@ impl Client {
                         client_state().hotbar().skills(),
                         client_state().skill_tree().skills(),
                     ));
-                    self.interface
-                        .open_window(StatusEffectsWindow::new(client_state().status_effects()));
 
                     // Put the dialog system in a well-defined state.
                     self.client_state.follow_mut(client_state().dialog_window()).end();
