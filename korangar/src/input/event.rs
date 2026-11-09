@@ -306,6 +306,16 @@ pub enum InputEvent {
     TradeDeal,
     /// Cancel the trade.
     TradeCancel,
+    /// Place an inventory item into the refine UI.
+    RefineSelectItem {
+        index: u16,
+    },
+    /// Refine the selected item with this ore.
+    RefineWith {
+        item_id: u32,
+    },
+    /// Close the refine UI.
+    RefineClose,
     /// Level up a skill.
     LevelUpSkills {
         /// List of skills to level up by one. This list is allowed to contain

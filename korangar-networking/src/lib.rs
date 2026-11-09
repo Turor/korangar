@@ -33,7 +33,7 @@ pub use self::entity::EntityData;
 #[cfg(feature = "interface")]
 pub use self::equip_switch::EquipSwitchSlotPathExt;
 pub use self::equip_switch::{EquipSwitchSlot, assign_slot, position_label, replace_slots};
-pub use self::event::{DisconnectReason, NetworkEvent, SearchStoreHit, StatusChangeState};
+pub use self::event::{DisconnectReason, NetworkEvent, RefineMaterialOffer, SearchStoreHit, StatusChangeState};
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
 pub use self::message::MessageColor;
@@ -1286,6 +1286,37 @@ where
     }
 
     /// Ask the server where a search-store row is standing.
+    /// Ask the refine UI which ores apply to this inventory index.
+    pub fn refine_select_item(&mut self, index: InventoryIndex) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(RefineSelectItemPacket { index })
+            }
+        }
+    }
+
+    /// Spend one ore on the selected item. `blacksmith_blessing` is sent as 1
+    /// when set.
+    pub fn refine_item(&mut self, index: InventoryIndex, item_id: ItemId, blacksmith_blessing: bool) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(RefineRequestPacket {
+                    index,
+                    item_id,
+                    blacksmith_blessing: u8::from(blacksmith_blessing),
+                }),
+        }
+    }
+
+    /// Tell the server the refine UI closed so the character can move again.
+    pub fn close_refine(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(RefineClosePacket {})
+            }
+        }
+    }
+
     pub fn select_search_store_item(&mut self, account_id: AccountId, store_id: u32, item_id: ItemId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
@@ -2420,6 +2451,96 @@ mod packet_handlers {
             && hits[0].shop_name == "Arrow shop"
             && hits[0].item_id == ItemId(1750)
             && hits[0].amount == 99));
+    }
+
+    #[test]
+    fn refine_open_materials_and_result_are_typed() {
+        use ragnarok_packets::{
+            InventoryIndex, ItemId, PacketExt, RefineClosePacket, RefineMaterialInformation, RefineMaterialListPacket, RefineOpenPacket,
+            RefineRequestPacket, RefineSelectItemPacket,
+        };
+
+        let open = [0xA0, 0x0A];
+        // Wire index 5 is stored index 3. Two ores: Bradium 70% / 20000z, Carnium 40% /
+        // 50000z. Length includes the header: 2 + 2 + 2 + 1 + 9 + 9 = 25.
+        let mut materials = vec![0xA2, 0x0A, 25, 0, 5, 0, 1];
+        materials.extend_from_slice(&6223u32.to_le_bytes());
+        materials.push(70);
+        materials.extend_from_slice(&20_000u32.to_le_bytes());
+        materials.extend_from_slice(&6224u32.to_le_bytes());
+        materials.push(40);
+        materials.extend_from_slice(&50_000u32.to_le_bytes());
+        assert_eq!(materials.len(), 25);
+
+        let success = [0x88, 0x01, 0x00, 0x00, 5, 0, 8, 0];
+
+        for version in [
+            SupportedPacketVersion::_20250716,
+            SupportedPacketVersion::_20220406,
+            SupportedPacketVersion::_20190530,
+        ] {
+            assert!(matches!(process_one(version, &open).as_slice(), [NetworkEvent::RefineOpened]));
+            let events = process_one(version, &materials);
+            assert!(matches!(events.as_slice(), [NetworkEvent::RefineMaterials {
+                index: InventoryIndex(3),
+                blacksmith_blessing: 1,
+                materials,
+            }] if materials.len() == 2
+                && materials[0].item_id == ItemId(6223)
+                && materials[0].chance_percent == 70
+                && materials[0].zeny == 20_000
+                && materials[1].item_id == ItemId(6224)
+                && materials[1].chance_percent == 40));
+            assert!(matches!(process_one(version, &success).as_slice(), [
+                NetworkEvent::RefineResult {
+                    result: 0,
+                    index: InventoryIndex(3),
+                    refine_level: 8,
+                }
+            ]));
+        }
+
+        let select = RefineSelectItemPacket { index: InventoryIndex(3) };
+        let mut writer = ByteWriter::new();
+        select.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0xA1, 0x0A, 5, 0]);
+
+        let request = RefineRequestPacket {
+            index: InventoryIndex(3),
+            item_id: ItemId(6223),
+            blacksmith_blessing: 0,
+        };
+        let mut writer = ByteWriter::new();
+        request.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 9);
+        assert_eq!(&writer.as_slice()[..2], &[0xA3, 0x0A]);
+        assert_eq!(&writer.as_slice()[2..4], &5u16.to_le_bytes());
+        assert_eq!(&writer.as_slice()[4..8], &6223u32.to_le_bytes());
+
+        let close = RefineClosePacket {};
+        let mut writer = ByteWriter::new();
+        close.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0xA4, 0x0A]);
+
+        let listed = RefineMaterialListPacket {
+            index: InventoryIndex(3),
+            blacksmith_blessing: 0,
+            materials: vec![RefineMaterialInformation {
+                item_id: ItemId(6224),
+                chance_percent: 40,
+                zeny: 50_000,
+            }],
+        };
+        let mut writer = ByteWriter::new();
+        listed.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 2 + 2 + 2 + 1 + 9);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::RefineMaterials { materials, .. }] if materials[0].item_id == ItemId(6224)));
+
+        let opened = RefineOpenPacket {};
+        let mut writer = ByteWriter::new();
+        opened.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0xA0, 0x0A]);
     }
 }
 

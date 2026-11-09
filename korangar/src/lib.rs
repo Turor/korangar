@@ -62,8 +62,8 @@ use korangar_debug::profiling::Profiler;
 use korangar_interface::Interface;
 use korangar_interface::layout::MouseButton;
 use korangar_networking::{
-    DisconnectReason, HotkeyState, ItemQuantity, LoginServerLoginData, MessageColor, NetworkEvent, NetworkEventBuffer, NetworkingSystem,
-    NoMetadata, SellItem, ShopItem, StatusChangeState, SupportedPacketVersion,
+    DisconnectReason, HotkeyState, InventoryItemDetails, ItemQuantity, LoginServerLoginData, MessageColor, NetworkEvent,
+    NetworkEventBuffer, NetworkingSystem, NoMetadata, SellItem, ShopItem, StatusChangeState, SupportedPacketVersion,
 };
 #[cfg(feature = "debug")]
 use networking::{PacketHistory, PacketHistoryCallback};
@@ -71,8 +71,8 @@ use networking::{PacketHistory, PacketHistoryCallback};
 use ragnarok_packets::handler::NoPacketCallback;
 use ragnarok_packets::{
     AccountId, AttackRange, BuyShopItemsResult, CharacterServerInformation, ClientTick, Direction, DisappearanceReason, EffectId,
-    EquipPosition, ExperienceSource, ExperienceType, HealType, HotbarSlot, InventoryIndex, SellItemsResult, SkillId, SkillLevel, SkillType,
-    TilePosition, UnitId, WorldPosition,
+    EquipPosition, EquippableItemFlags, ExperienceSource, ExperienceType, HealType, HotbarSlot, InventoryIndex, SellItemsResult, SkillId,
+    SkillLevel, SkillType, TilePosition, UnitId, WorldPosition,
 };
 use renderer::InterfaceRenderer;
 use rust_state::{ManuallyAssertExt, State};
@@ -1543,6 +1543,11 @@ impl Client {
                         let _ = self.networking_system.close_ui_enchant();
                         self.interface.close_window_with_class(WindowClass::Enchant);
                     }
+                    if self.interface.is_window_with_class_open(WindowClass::Refine) {
+                        let _ = self.networking_system.close_refine();
+                        self.client_state.follow_mut(client_state().refine()).close();
+                        self.interface.close_window_with_class(WindowClass::Refine);
+                    }
 
                     self.async_loader.request_map_load(map_name, Some(position));
                 }
@@ -2353,6 +2358,68 @@ impl Client {
                     self.interface
                         .open_window(SellWindow::new(client_state().sell_items(), client_state().sell_cart()));
                     self.interface.open_window(SellCartWindow::new(client_state().sell_cart()));
+                }
+                NetworkEvent::RefineOpened => {
+                    let equips = self
+                        .client_state
+                        .follow(client_state().inventory().items())
+                        .iter()
+                        .filter_map(|item| {
+                            let InventoryItemDetails::Equippable {
+                                refinement_level, flags, ..
+                            } = &item.details
+                            else {
+                                return None;
+                            };
+                            if !flags.contains(EquippableItemFlags::IDENTIFIED) {
+                                return None;
+                            }
+                            Some(crate::state::refine::RefineEquip {
+                                index: item.index.0,
+                                item_id: item.item_id.0,
+                                refine: *refinement_level,
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    self.client_state.follow_mut(client_state().refine()).open_with(&equips);
+                    self.interface.open_window(RefineWindow::new(client_state().refine()));
+                }
+                NetworkEvent::RefineMaterials {
+                    index,
+                    blacksmith_blessing,
+                    materials,
+                } => {
+                    let rows = materials
+                        .into_iter()
+                        .map(|material| crate::state::refine::RefineMaterialRow {
+                            item_id: material.item_id.0,
+                            label: crate::state::refine::material_label(material.item_id.0, material.chance_percent, material.zeny),
+                        })
+                        .collect();
+                    self.client_state
+                        .follow_mut(client_state().refine())
+                        .set_materials(index.0, blacksmith_blessing, rows);
+                }
+                NetworkEvent::RefineResult {
+                    result,
+                    index,
+                    refine_level,
+                } => {
+                    let level = u8::try_from(refine_level).unwrap_or(u8::MAX);
+                    self.client_state
+                        .follow_mut(client_state().inventory())
+                        .set_refinement(index, level);
+                    let rearm = self
+                        .client_state
+                        .follow_mut(client_state().refine())
+                        .note_result(index.0, result, level);
+                    if let Some(stored_index) = rearm {
+                        let _ = self.networking_system.refine_select_item(InventoryIndex(stored_index));
+                    }
+                    let status = self.client_state.follow(client_state().refine()).status.clone();
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(status, MessageColor::Information));
                 }
                 NetworkEvent::TradeRequested { partner_name, level, .. } => {
                     let trade = self.client_state.follow_mut(client_state().trade());
@@ -3395,6 +3462,23 @@ impl Client {
                     self.client_state.follow_mut(client_state().trade()).clear();
                     self.interface.close_window_with_class(WindowClass::Trade);
                     self.interface.close_window_with_class(WindowClass::TradeRequest);
+                }
+                InputEvent::RefineSelectItem { index } => {
+                    self.client_state.follow_mut(client_state().refine()).select(index);
+                    let _ = self.networking_system.refine_select_item(InventoryIndex(index));
+                }
+                InputEvent::RefineWith { item_id } => {
+                    let index = self.client_state.follow(client_state().refine()).selected_index;
+                    if let Some(index) = index {
+                        let _ = self
+                            .networking_system
+                            .refine_item(InventoryIndex(index), ragnarok_packets::ItemId(item_id), false);
+                    }
+                }
+                InputEvent::RefineClose => {
+                    let _ = self.networking_system.close_refine();
+                    self.client_state.follow_mut(client_state().refine()).close();
+                    self.interface.close_window_with_class(WindowClass::Refine);
                 }
                 InputEvent::LevelUpSkills { skill_ids } => {
                     for skill_id in skill_ids {

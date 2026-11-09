@@ -4869,6 +4869,76 @@ pub struct SellToBuyingStorePacket {
     pub items: Vec<SellToBuyingStoreInformation>,
 }
 
+/// The server opened the refine UI (`ZC_OPEN_REFINING_UI`, 0x0AA0).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0AA0)]
+pub struct RefineOpenPacket {}
+
+/// Ask which ores can refine one inventory item (`CZ_REFINING_SELECT_ITEM`,
+/// 0x0AA1).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0AA1)]
+pub struct RefineSelectItemPacket {
+    pub index: InventoryIndex,
+}
+
+/// One ore row inside [`RefineMaterialListPacket`].
+///
+/// Item ids are 32-bit on the 20190530, 20220406, and 20250716 layouts this
+/// client speaks (`0x0AA3` is 9 bytes on those packet versions).
+#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct RefineMaterialInformation {
+    pub item_id: ItemId,
+    /// Success chance in percent, as the server sends it.
+    pub chance_percent: u8,
+    pub zeny: u32,
+}
+
+/// Ores and chances for the selected item (`ZC_REFINING_MATERIAL_LIST`,
+/// 0x0AA2).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0AA2)]
+#[variable_length]
+pub struct RefineMaterialListPacket {
+    pub index: InventoryIndex,
+    pub blacksmith_blessing: u8,
+    #[repeating_remaining]
+    pub materials: Vec<RefineMaterialInformation>,
+}
+
+/// Refine the selected item with one ore (`CZ_REQ_REFINING`, 0x0AA3).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0AA3)]
+pub struct RefineRequestPacket {
+    pub index: InventoryIndex,
+    pub item_id: ItemId,
+    /// Non-zero when the player spends a Blacksmith Blessing.
+    pub blacksmith_blessing: u8,
+}
+
+/// Close the refine UI (`CZ_CLOSE_REFINING_UI`, 0x0AA4).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0AA4)]
+pub struct RefineClosePacket {}
+
+/// Refine finished (`ZC_ACK_ITEMREFINING`, 0x0188).
+///
+/// `result` is 0 success, 1 destroyed, 2 downgraded, 3 unchanged.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0188)]
+pub struct RefineResultPacket {
+    pub result: u16,
+    pub index: InventoryIndex,
+    pub refine_level: u16,
+}
+
 /// Highlight a search result (`CZ_SSILIST_ITEM_CLICK`, 0x083C).
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
