@@ -151,6 +151,16 @@ pub enum InputEvent {
     },
     /// Close Kafra storage and tell the map server.
     CloseStorage,
+    /// Random enchant (`CZ_REQUEST_RANDOM_ENCHANT`).
+    RequestRandomEnchant,
+    /// Perfect enchant (`CZ_REQUEST_PERFECT_ENCHANT`).
+    RequestPerfectEnchant,
+    /// Upgrade an existing enchant (`CZ_REQUEST_UPGRADE_ENCHANT`).
+    RequestUpgradeEnchant,
+    /// Reset an enchant (`CZ_REQUEST_RESET_ENCHANT`).
+    RequestResetEnchant,
+    /// Close the enchant UI and send `CZ_CLOSE_UI_ENCHANT`.
+    CloseEnchant,
     /// Action for the "Close"-button in a dialog.
     CloseDialog {
         /// Id of the NPC the player is in a dialog with.
@@ -282,9 +292,14 @@ pub enum InputEvent {
     /// Decline an incoming player trade.
     DeclineTrade,
     /// Offer one inventory stack. `index` is the stored inventory index.
-    TradeAddItem { index: u16, amount: u16 },
+    TradeAddItem {
+        index: u16,
+        amount: u16,
+    },
     /// Offer zeny.
-    TradeAddZeny { amount: u32 },
+    TradeAddZeny {
+        amount: u32,
+    },
     /// Lock this side of the trade.
     TradeConfirm,
     /// Commit after both sides have locked.

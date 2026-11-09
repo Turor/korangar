@@ -1539,6 +1539,10 @@ impl Client {
                         let _ = self.networking_system.close_storage();
                         self.interface.close_window_with_class(WindowClass::Storage);
                     }
+                    if self.interface.is_window_with_class_open(WindowClass::Enchant) {
+                        let _ = self.networking_system.close_ui_enchant();
+                        self.interface.close_window_with_class(WindowClass::Enchant);
+                    }
 
                     self.async_loader.request_map_load(map_name, Some(position));
                 }
@@ -1788,6 +1792,15 @@ impl Client {
                     if let Some(player) = self.client_state.try_follow_mut(this_player()) {
                         player.update_stat(stat_type);
                     }
+                }
+                NetworkEvent::OpenEnchant { enchant_group } => {
+                    self.client_state.follow_mut(client_state().enchant_window()).open(enchant_group);
+                    self.interface.open_window(EnchantWindow::new());
+                }
+                NetworkEvent::EnchantResult { message_id, item_id } => {
+                    self.client_state
+                        .follow_mut(client_state().enchant_window())
+                        .show_result(message_id, item_id);
                 }
                 NetworkEvent::OpenDialog { text, npc_id } => {
                     self.client_state
@@ -2373,9 +2386,7 @@ impl Client {
                             .filter_map(|item| {
                                 let (amount, equipped) = match &item.details {
                                     korangar_networking::InventoryItemDetails::Regular {
-                                        amount,
-                                        equipped_position,
-                                        ..
+                                        amount, equipped_position, ..
                                     } => (*amount, *equipped_position != EquipPosition::NONE),
                                     korangar_networking::InventoryItemDetails::Equippable { equipped_position, .. } => {
                                         (1, *equipped_position != EquipPosition::NONE)
@@ -2436,17 +2447,11 @@ impl Client {
                 }
                 NetworkEvent::TradeZenyAdded { amount } => {
                     if amount >= 0 {
-                        self.client_state
-                            .follow_mut(client_state().trade())
-                            .set_partner_zeny(amount as u32);
+                        self.client_state.follow_mut(client_state().trade()).set_partner_zeny(amount as u32);
                     }
                 }
                 NetworkEvent::TradeAddResult { index, result } => {
-                    if let Some(message) = self
-                        .client_state
-                        .follow_mut(client_state().trade())
-                        .apply_add_result(index, result)
-                    {
+                    if let Some(message) = self.client_state.follow_mut(client_state().trade()).apply_add_result(index, result) {
                         self.client_state
                             .follow_mut(client_state().chat_messages())
                             .push(ChatMessage::new(message.to_owned(), MessageColor::Error));
@@ -3049,6 +3054,50 @@ impl Client {
                     if self.interface.is_window_with_class_open(WindowClass::Storage) {
                         let _ = self.networking_system.close_storage();
                         self.interface.close_window_with_class(WindowClass::Storage);
+                    }
+                }
+                InputEvent::RequestRandomEnchant => match self.client_state.follow(client_state().enchant_window()).request() {
+                    Ok((group, index, ..)) => {
+                        let _ = self.networking_system.request_random_enchant(group, index);
+                    }
+                    Err(message) => self
+                        .client_state
+                        .follow_mut(client_state().enchant_window())
+                        .set_status(message.to_owned()),
+                },
+                InputEvent::RequestPerfectEnchant => match self.client_state.follow(client_state().enchant_window()).request() {
+                    Ok((group, index, material, _)) => {
+                        let _ = self
+                            .networking_system
+                            .request_perfect_enchant(group, index, ragnarok_packets::ItemId(material));
+                    }
+                    Err(message) => self
+                        .client_state
+                        .follow_mut(client_state().enchant_window())
+                        .set_status(message.to_owned()),
+                },
+                InputEvent::RequestUpgradeEnchant => match self.client_state.follow(client_state().enchant_window()).request() {
+                    Ok((group, index, _, slot)) => {
+                        let _ = self.networking_system.request_upgrade_enchant(group, index, slot);
+                    }
+                    Err(message) => self
+                        .client_state
+                        .follow_mut(client_state().enchant_window())
+                        .set_status(message.to_owned()),
+                },
+                InputEvent::RequestResetEnchant => match self.client_state.follow(client_state().enchant_window()).request() {
+                    Ok((group, index, ..)) => {
+                        let _ = self.networking_system.request_reset_enchant(group, index);
+                    }
+                    Err(message) => self
+                        .client_state
+                        .follow_mut(client_state().enchant_window())
+                        .set_status(message.to_owned()),
+                },
+                InputEvent::CloseEnchant => {
+                    if self.interface.is_window_with_class_open(WindowClass::Enchant) {
+                        let _ = self.networking_system.close_ui_enchant();
+                        self.interface.close_window_with_class(WindowClass::Enchant);
                     }
                 }
                 InputEvent::SendEmotion { emotion } => {
