@@ -11,7 +11,7 @@ use ragnarok_packets::version_20250716::{
 };
 use ragnarok_packets::*;
 
-use crate::event::{NetworkEventList, NoNetworkEvents};
+use crate::event::{minimap_mark_event, navigate_to_event, NetworkEventList, NoNetworkEvents};
 use crate::items::ItemQuantity;
 use crate::packet_versions::economy::open_market_event;
 use crate::{
@@ -524,8 +524,8 @@ where
     })?;
     packet_handler.register_noop::<UpdateShowEquipPacket>()?;
     packet_handler.register_noop::<UpdateConfigurationPacket>()?;
-    packet_handler.register_noop::<NavigateToMonsterPacket>()?;
-    packet_handler.register_noop::<MarkMinimapPositionPacket>()?;
+    packet_handler.register(navigate_to_event)?;
+    packet_handler.register(minimap_mark_event)?;
     packet_handler.register(|packet: NextButtonPacket| {
         let NextButtonPacket { npc_id } = packet;
 

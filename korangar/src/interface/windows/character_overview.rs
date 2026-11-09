@@ -125,6 +125,10 @@ where
                     event: InputEvent::ToggleQuestJournalWindow,
                 },
                 button! {
+                    text: "Navigation",
+                    event: InputEvent::ToggleNavigationWindow,
+                },
+                button! {
                     text: "Status",
                     event: InputEvent::ToggleStatusEffectsWindow,
                 },

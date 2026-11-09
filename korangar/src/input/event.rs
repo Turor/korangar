@@ -98,6 +98,8 @@ pub enum InputEvent {
     },
     /// Open or close the quest journal. Only works while playing.
     ToggleQuestJournalWindow,
+    /// Open or close the navigation and minimap-mark window.
+    ToggleNavigationWindow,
     /// Open or close the status effects strip. Only works while playing.
     ToggleStatusEffectsWindow,
     /// Close the most recently opened or clicked closable window.

@@ -8,6 +8,7 @@ pub mod hotbar;
 pub mod inventory;
 pub mod item_workshop;
 pub mod localization;
+pub mod navigation;
 pub mod quest_log;
 pub mod refine;
 pub mod skill_cooldowns;
@@ -68,6 +69,7 @@ use crate::state::equip_switch::EquipSwitch;
 use crate::state::hotbar::Hotbar;
 use crate::state::inventory::Inventory;
 use crate::state::item_workshop::{EnchantGradeState, ItemReformState, LaphineSynthesisState, LaphineUpgradeState};
+use crate::state::navigation::Navigation;
 use crate::state::quest_log::QuestLog;
 use crate::state::refine::RefineState;
 use crate::state::skill_cooldowns::SkillCooldowns;
@@ -280,6 +282,8 @@ pub struct ClientState {
     skill_cooldowns: SkillCooldowns,
     /// Quest journal entries.
     quest_log: QuestLog,
+    /// Navigation target and minimap viewpoint marks.
+    navigation: Navigation,
     /// Latest client tick mirrored for UI overlays.
     client_tick: ClientTick,
 
@@ -463,6 +467,7 @@ impl ClientState {
             let status_effects = StatusEffects::default();
             let skill_cooldowns = SkillCooldowns::default();
             let quest_log = QuestLog::default();
+            let navigation = Navigation::default();
             let client_tick = ClientTick(0);
         });
 
@@ -560,6 +565,7 @@ impl ClientState {
             status_effects,
             skill_cooldowns,
             quest_log,
+            navigation,
             client_tick,
             character_servers,
             character_slots,
