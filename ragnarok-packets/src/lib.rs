@@ -4192,8 +4192,9 @@ pub struct EdenShopEntry {
 #[variable_length]
 pub struct EdenShopPacket {
     pub merit: i32,
+    /// Unsigned so a high bit cannot sign-extend into `Vec::with_capacity`.
     #[new_derive]
-    pub count: i16,
+    pub count: u16,
     #[repeating(count)]
     pub items: Vec<EdenShopEntry>,
 }

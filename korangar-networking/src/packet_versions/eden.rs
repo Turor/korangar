@@ -100,10 +100,10 @@ pub fn format_shop(merit: i32, items: &[EdenShopEntry]) -> String {
         return lines.join("\n");
     }
     for item in items {
-        let price = if item.price_merit > 0 {
-            format!("{} merit", item.price_merit)
-        } else {
-            format!("{} zeny", item.price_zeny)
+        let price = match (item.price_merit > 0, item.price_zeny > 0) {
+            (true, true) => format!("{} merit + {} zeny", item.price_merit, item.price_zeny),
+            (true, false) => format!("{} merit", item.price_merit),
+            (false, _) => format!("{} zeny", item.price_zeny),
         };
         lines.push(format!(
             "slot {slot} {category} item {item} x{amount} lv {level}+ {price}",
@@ -137,7 +137,8 @@ pub fn format_eden_result(result: i16, quest_id: i32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_eden_result, parse_eden_id, quest_state_label};
+    use super::{format_eden_result, format_shop, parse_eden_id, quest_state_label};
+    use ragnarok_packets::EdenShopEntry;
 
     #[test]
     fn parsers_and_result_text() {
@@ -147,5 +148,25 @@ mod tests {
         assert_eq!(quest_state_label(2), "ready");
         assert!(format_eden_result(9, 4).contains("Merit"));
         assert!(format_eden_result(0, 8).contains("ok"));
+
+        let both = EdenShopEntry {
+            slot: 1,
+            category: 0,
+            min_level: 1,
+            item_id: 501,
+            amount: 1,
+            price_merit: 4,
+            price_zeny: 100,
+        };
+        let merit_only = EdenShopEntry { price_zeny: 0, ..both.clone() };
+        let zeny_only = EdenShopEntry {
+            price_merit: 0,
+            price_zeny: 100,
+            ..both.clone()
+        };
+        let summary = format_shop(4, &[both, merit_only, zeny_only]);
+        assert!(summary.contains("4 merit + 100 zeny"));
+        assert!(summary.contains("4 merit"));
+        assert!(summary.contains("100 zeny"));
     }
 }
