@@ -1297,6 +1297,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn paperdoll_rows_flank_a_full_height_portrait() {
         assert!(PORTRAIT_SPANS_ALL_ROWS);
         assert_eq!(PAPERDOLL_COLUMN_COUNT, 3);
@@ -1346,6 +1347,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn inventory_grid_dimensions_match_standalone_window() {
         assert!(!GEAR_EMBEDS_INVENTORY);
         assert_eq!(GEAR_COLUMN_COUNT, 2);
@@ -1376,6 +1378,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn loadout_controls_fit_under_the_paperdoll() {
         assert_eq!(LOADOUT_CONTROLS, ["Save", "Load", "Rename"]);
         assert!(PREVIEW_RENDERS_CHARACTER);

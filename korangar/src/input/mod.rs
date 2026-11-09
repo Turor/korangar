@@ -245,6 +245,10 @@ impl InputSystem {
             events.push(InputEvent::ToggleClanWindow);
         }
 
+        if alt_down && self.get_key(KeyCode::KeyF).pressed() {
+            events.push(InputEvent::ToggleItemFinderWindow);
+        }
+
         if alt_down && self.get_key(KeyCode::KeyQ).pressed() {
             events.push(InputEvent::ToggleEquipmentWindow);
         }

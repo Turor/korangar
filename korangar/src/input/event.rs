@@ -101,6 +101,14 @@ pub enum InputEvent {
     ToggleGuildWindow,
     /// Open or close the clan window. Only works while playing.
     ToggleClanWindow,
+    /// Open or close the local Item Finder. Only works while playing.
+    ToggleItemFinderWindow,
+    /// Re-run the Item Finder query already stored in client state.
+    SearchItemFinder,
+    /// Switch the Item Finder category and search again.
+    SetItemFinderCategory {
+        category: &'static str,
+    },
     /// Ask the map server for guild info, members, positions, and the notice.
     RequestGuildWindow,
     /// Send a new guild subject and notice. The server accepts this from the

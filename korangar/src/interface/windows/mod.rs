@@ -28,6 +28,7 @@ mod guild;
 mod hotbar;
 mod interface_settings;
 mod inventory;
+mod item_finder;
 mod item_workshop;
 mod login;
 mod mail;
@@ -97,6 +98,7 @@ pub use self::hotbar::HotbarWindow;
 pub use self::interface_settings::InterfaceSettingsWindow;
 #[allow(unused_imports)]
 pub use self::inventory::InventoryWindow;
+pub use self::item_finder::ItemFinderWindow;
 pub use self::item_workshop::{EnchantGradeWindow, ItemReformWindow, LaphineSynthesisWindow, LaphineUpgradeWindow};
 pub use self::login::{LoginWindow, LoginWindowState, LoginWindowStatePathExt};
 pub use self::mail::{MailWindow, MailWindowState};
@@ -180,6 +182,7 @@ pub enum WindowClass {
     Vendor,
     SearchStore,
     Refine,
+    ItemFinder,
     ItemReform,
     EnchantGrade,
     LaphineSynthesis,

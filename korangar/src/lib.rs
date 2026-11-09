@@ -310,6 +310,14 @@ fn special_effect_path(effect_id: EffectId) -> Option<&'static str> {
     }
 }
 
+fn load_item_finder(loader: &loaders::GameFileLoader, state: &mut rust_state::State<state::ClientState>) {
+    let catalog = korangar_loaders::FileLoader::get(loader, state::item_finder::CATALOG_PATH).ok();
+    let sources = korangar_loaders::FileLoader::get(loader, state::item_finder::SOURCES_PATH).ok();
+    state
+        .follow_mut(client_state().item_finder())
+        .load_bytes(catalog.as_deref(), sources.as_deref());
+}
+
 impl Client {
     /// Check native configuration and verified asset-source initialization
     /// without creating a window/GPU or authenticating. This is not
@@ -3572,6 +3580,24 @@ impl Client {
                         }
                     }
                 }
+                InputEvent::ToggleItemFinderWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::ItemFinder) {
+                            true => self.interface.close_window_with_class(WindowClass::ItemFinder),
+                            false => {
+                                load_item_finder(self.game_file_loader.as_ref(), &mut self.client_state);
+                                self.interface
+                                    .open_window(ItemFinderWindow::new(client_state().item_finder()));
+                            }
+                        }
+                    }
+                }
+                InputEvent::SearchItemFinder => {
+                    self.client_state.follow_mut(client_state().item_finder()).search();
+                }
+                InputEvent::SetItemFinderCategory { category } => {
+                    self.client_state.follow_mut(client_state().item_finder()).set_category(category);
+                }
                 InputEvent::ToggleGuildWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::Guild) {
@@ -3729,6 +3755,19 @@ impl Client {
                     if text.as_str() == "/nc" {
                         let auto_attack = self.client_state.follow_mut(client_state().game_settings().auto_attack());
                         *auto_attack = !*auto_attack;
+                        continue;
+                    }
+
+                    if text == "/finder" || text.starts_with("/finder ") {
+                        if self.client_state.try_follow(this_entity()).is_some() {
+                            let query = text.trim_start_matches("/finder").trim().to_owned();
+                            self.client_state.follow_mut(client_state().item_finder()).query = query;
+                            load_item_finder(self.game_file_loader.as_ref(), &mut self.client_state);
+                            if !self.interface.is_window_with_class_open(WindowClass::ItemFinder) {
+                                self.interface
+                                    .open_window(ItemFinderWindow::new(client_state().item_finder()));
+                            }
+                        }
                         continue;
                     }
 
