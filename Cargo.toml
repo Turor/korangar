@@ -111,6 +111,9 @@ opt-level = 3
 [profile.dev.package.korangar-video]
 opt-level = 3
 
+[profile.dev.package.korangar-update]
+opt-level = 3
+
 [profile.dev.package.ragnarok-bytes]
 opt-level = 3
 

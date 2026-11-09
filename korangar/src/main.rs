@@ -10,10 +10,22 @@ struct Arguments {
     /// Check asset source and native clientinfo setup without a window/login.
     #[arg(long)]
     check_bootstrap: bool,
+    /// Print a fixed token and exit. The signed updater runs this after swapping
+    /// the executable and rolls back if it fails.
+    #[arg(long)]
+    update_self_check: bool,
 }
 
 fn main() {
     let arguments = Arguments::parse();
+    if arguments.update_self_check {
+        println!("update-self-check-ok");
+        return;
+    }
+    if let Err(error) = startup_update() {
+        eprintln!("Signed auto-update rejected: {error}");
+        std::process::exit(2);
+    }
     let interactive = !arguments.check_bootstrap && !arguments.sync_cache;
     if let Err(error) = korangar::deployment::prepare(interactive) {
         korangar::deployment::report_failure(&error, interactive);
@@ -52,4 +64,29 @@ fn main() {
         );
         std::process::exit(2);
     }
+}
+
+/// No-op unless `KORANGAR_UPDATE_MANIFEST_URL` is set. `KORANGAR_SKIP_UPDATE=1`
+/// disables the hook. The embedded public key is unset in this tree, so a URL
+/// without a release key fails closed and does not contact a CDN.
+fn startup_update() -> Result<(), String> {
+    let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let install_root = current_exe.parent().ok_or("executable has no directory")?.to_path_buf();
+    let relaunch_args: Vec<String> = std::env::args().skip(1).collect();
+    let skip = std::env::var("KORANGAR_SKIP_UPDATE").ok();
+    let manifest = std::env::var("KORANGAR_UPDATE_MANIFEST_URL").ok();
+    let outcome = korangar_update::run_startup_update(&korangar_update::StartupRequest {
+        skip_env: skip.as_deref(),
+        manifest_url: manifest.as_deref(),
+        current_version: env!("CARGO_PKG_VERSION"),
+        install_root: &install_root,
+        current_exe: &current_exe,
+        public_key: &korangar_update::manifest::EMBEDDED_UPDATE_PUBLIC_KEY,
+        relaunch_args: &relaunch_args,
+        spawn_relaunch: true,
+    })?;
+    if matches!(outcome, korangar_update::StartupOutcome::Applied { relaunched: true }) {
+        std::process::exit(0);
+    }
+    Ok(())
 }
