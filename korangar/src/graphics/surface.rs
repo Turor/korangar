@@ -182,9 +182,18 @@ impl Surface {
     }
 
     pub fn update_window_size(&mut self, window_size: ScreenSize) {
-        self.config.width = (window_size.width as u32).max(1);
-        self.config.height = (window_size.height as u32).max(1);
-        self.invalidate();
+        let width = (window_size.width as u32).max(1);
+        let height = (window_size.height as u32).max(1);
+        if self.config.width == width && self.config.height == height {
+            return;
+        }
+        self.config.width = width;
+        self.config.height = height;
+        // Reconfigure immediately. Deferred invalidate-only updates left the swapchain
+        // at the pre-map size under lavapipe/Xvfb, so the world drew into a small
+        // top-left rect while UI used the full window (black letterboxing).
+        self.surface.configure(&self.device, &self.config);
+        self.invalid = false;
     }
 
     pub fn present_mode_info(&self) -> PresentModeInfo {

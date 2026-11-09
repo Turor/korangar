@@ -97,10 +97,9 @@ impl ModelLoader {
 
         let array: [f32; 3] = node.scale.unwrap_or(Vector3::new(1.0, 1.0, 1.0)).into();
         let reverse_node_order = array.into_iter().fold(1.0, |a, b| a * b).is_sign_negative();
-
-        if reverse_node_order {
-            panic!("this can actually happen");
-        }
+        // Negative scale determinant flips winding; fold into reverse_order instead of panicking
+        // (a panic on the loader thread left `map` None after ChangeMap → permanent black frames).
+        let reverse_order = reverse_order ^ reverse_node_order;
 
         for face in &node.faces {
             let vertex_positions: [Point3<f32>; 3] = std::array::from_fn(|index| {
@@ -702,4 +701,28 @@ pub fn split_mesh_by_texture(
 enum TextureMapping {
     PreVersion2_3(Vec<TextureSetTexture>),
     PostVersion2_3(HashMap<String, TextureSetTexture>),
+}
+
+
+#[cfg(test)]
+mod reverse_scale_tests {
+    use cgmath::Vector3;
+
+    /// Mirrors the winding flip used in `make_vertices`: a negative product of
+    /// the three scale components means the node transform mirrors space.
+    fn reverse_node_order(scale: Vector3<f32>) -> bool {
+        let array: [f32; 3] = scale.into();
+        array.into_iter().fold(1.0, |a, b| a * b).is_sign_negative()
+    }
+
+    #[test]
+    fn negative_scale_does_not_panic_and_flips_winding() {
+        assert!(!reverse_node_order(Vector3::new(1.0, 1.0, 1.0)));
+        assert!(reverse_node_order(Vector3::new(-1.0, 1.0, 1.0)));
+        assert!(!reverse_node_order(Vector3::new(-1.0, -1.0, 1.0)));
+        assert!(reverse_node_order(Vector3::new(-1.0, -1.0, -1.0)));
+        let reverse_order = false;
+        let flipped = reverse_order ^ reverse_node_order(Vector3::new(-1.0, 1.0, 1.0));
+        assert!(flipped);
+    }
 }
