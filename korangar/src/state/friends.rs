@@ -55,9 +55,9 @@ mod tests {
             name: "Ada".to_owned(),
         };
         let mut entry = FriendListEntry::from_friend(friend, false);
-        assert!(entry.label.contains("Offline"));
+        assert_eq!(entry.label, "Ada — Offline");
         entry.set_online(true);
-        assert!(entry.label.contains("Online"));
+        assert_eq!(entry.label, "Ada — Online");
         assert!(entry.online);
     }
 }
