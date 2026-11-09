@@ -1,0 +1,3 @@
+-- Turoran overlay. Empty town NPC table; do not import renewal mapNPCInfoTable.
+mapNPCInfoTable = {
+}

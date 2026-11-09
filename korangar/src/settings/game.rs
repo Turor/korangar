@@ -8,11 +8,17 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Serialize, Deserialize, RustState, StateElement)]
 pub struct GameSettings {
     pub auto_attack: bool,
+    /// When false, signboard and town-info rows are not loaded.
+    #[serde(default)]
+    pub enable_signboards: bool,
 }
 
 impl Default for GameSettings {
     fn default() -> Self {
-        Self { auto_attack: true }
+        Self {
+            auto_attack: true,
+            enable_signboards: false,
+        }
     }
 }
 
@@ -25,6 +31,21 @@ impl GameSettings {
             print_debug!("failed to load game settings from {}", Self::FILE_NAME.magenta());
             Default::default()
         })
+    }
+
+    /// Reads `enable_signboards` without building a [`GameSettings`] value.
+    /// That type saves `client/game_settings.ron` when it is dropped.
+    pub fn read_enable_signboards() -> Option<bool> {
+        #[derive(Deserialize)]
+        struct Probe {
+            #[serde(default)]
+            enable_signboards: bool,
+        }
+
+        std::fs::read_to_string(Self::FILE_NAME)
+            .ok()
+            .and_then(|data| ron::from_str::<Probe>(&data).ok())
+            .map(|probe| probe.enable_signboards)
     }
 
     pub fn load() -> Option<Self> {

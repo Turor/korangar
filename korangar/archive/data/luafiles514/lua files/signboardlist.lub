@@ -1,0 +1,8 @@
+-- Turoran overlay. Renewal GRF SignBoardList rows are not used.
+-- Historical clients drew missing signboard sprites as vending boxes.
+IT_NONE = 0
+IT_BMP = 1
+IT_SPRITE = 2
+IT_SIGNBOARD = 3
+SignBoardList = {
+}
