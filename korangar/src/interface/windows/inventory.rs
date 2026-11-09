@@ -10,10 +10,14 @@ use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, ClientStatePathExt, client_state};
 use crate::world::ResourceMetadata;
 
+/// Standalone inventory window kept for API compatibility. In-game inventory
+/// and equipment hotkeys both open the combined Gear panel (`EquipmentWindow`).
+#[allow(dead_code)]
 pub struct InventoryWindow<P> {
     items_path: P,
 }
 
+#[allow(dead_code)]
 impl<P> InventoryWindow<P> {
     pub fn new(items_path: P) -> Self {
         Self { items_path }
