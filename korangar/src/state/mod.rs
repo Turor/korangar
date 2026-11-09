@@ -33,7 +33,7 @@ use korangar_networking::{MessageColor, SellItem, ShopItem};
 use localization::Localization;
 #[cfg(feature = "debug")]
 use ragnarok_formats::map::{EffectSource, LightSource, MapData, SoundSource};
-use ragnarok_packets::{CharacterId, CharacterServerInformation, ClientTick, EntityId};
+use ragnarok_packets::{AccountId, CharacterId, CharacterServerInformation, ClientTick, EntityId, ItemId};
 #[cfg(feature = "debug")]
 use rust_state::{ManuallyAssertExt, VecIndexExt};
 use rust_state::{Path, PathExt, RustState, Selector};
@@ -78,6 +78,31 @@ use crate::{AudioSettings, GraphicsSettings};
 ///
 /// The message stores the color separately rather than baking it into the
 /// message so the chat window can use the correct colors when switching themes.
+/// A player currently showing a vend or buying-store sign.
+#[derive(Clone, Debug, RustState, StateElement)]
+pub struct ShopSign {
+    pub account_id: AccountId,
+    pub buying_store: bool,
+}
+
+/// One row in the player-shop window.
+#[derive(Clone, Debug, RustState, StateElement)]
+pub struct VendorRow {
+    pub label: String,
+    pub name: String,
+    pub price: u32,
+    pub amount: u32,
+}
+
+/// One row in the shop-search window.
+#[derive(Clone, Debug, RustState, StateElement)]
+pub struct SearchStoreRow {
+    pub label: String,
+    pub account_id: AccountId,
+    pub store_id: u32,
+    pub item_id: ItemId,
+}
+
 #[derive(Debug, Clone, RustState, StateElement)]
 pub struct ChatMessage {
     /// Raw message.
@@ -182,6 +207,24 @@ pub struct ClientState {
     // TODO: Unhide this
     #[hidden_element]
     sell_cart: Vec<SellItem<(ResourceMetadata, u16)>>,
+    /// Players on this map who have a vend or buying store open.
+    player_shops: Vec<ShopSign>,
+    /// Account that owns the shop currently shown in the vendor window.
+    vendor_account_id: AccountId,
+    /// Vend id or buying-store id for the open shop.
+    vendor_shop_id: u32,
+    /// The open shop is a buying store (this client sells) rather than a vend.
+    vendor_buying: bool,
+    /// Cart indexes aligned with [`Self::vendor_rows`] for a vend.
+    #[hidden_element]
+    vendor_indexes: Vec<u16>,
+    /// Item ids aligned with [`Self::vendor_rows`].
+    #[hidden_element]
+    vendor_item_ids: Vec<ItemId>,
+    /// Rows shown in the vendor window.
+    vendor_rows: Vec<VendorRow>,
+    /// Rows shown in the shop-search window.
+    search_store_hits: Vec<SearchStoreRow>,
     /// The name of the active character. This information is not available
     /// while playing if we don't save it here.
     player_name: String,
@@ -356,6 +399,14 @@ impl ClientState {
             let buy_cart = Vec::default();
             let sell_items = Vec::default();
             let sell_cart = Vec::default();
+            let player_shops = Vec::default();
+            let vendor_account_id = AccountId(0);
+            let vendor_shop_id = 0;
+            let vendor_buying = false;
+            let vendor_indexes = Vec::default();
+            let vendor_item_ids = Vec::default();
+            let vendor_rows = Vec::default();
+            let search_store_hits = Vec::default();
             let player_name = String::new();
             let hotbar = Hotbar::default();
             let inventory = Inventory::default();
@@ -432,6 +483,14 @@ impl ClientState {
             buy_cart,
             sell_items,
             sell_cart,
+            player_shops,
+            vendor_account_id,
+            vendor_shop_id,
+            vendor_buying,
+            vendor_indexes,
+            vendor_item_ids,
+            vendor_rows,
+            search_store_hits,
             player_name,
             hotbar,
             inventory,

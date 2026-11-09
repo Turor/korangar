@@ -35,6 +35,7 @@ mod quest_journal;
 #[cfg(feature = "debug")]
 mod render_options;
 mod respawn;
+mod search_store;
 mod sell;
 mod sell_cart;
 mod server_selection;
@@ -46,6 +47,7 @@ mod switch_equip;
 #[cfg(feature = "debug")]
 mod theme_inspector;
 mod trade;
+mod vendor;
 
 use serde::{Deserialize, Serialize};
 
@@ -86,6 +88,7 @@ pub use self::quest_journal::QuestJournalWindow;
 #[cfg(feature = "debug")]
 pub use self::render_options::RenderOptionsWindow;
 pub use self::respawn::RespawnWindow;
+pub use self::search_store::SearchStoreWindow;
 pub use self::sell::SellWindow;
 pub use self::sell_cart::SellCartWindow;
 pub use self::server_selection::ServerSelectionWindow;
@@ -97,6 +100,7 @@ pub use self::switch_equip::SwitchEquipWindow;
 #[cfg(feature = "debug")]
 pub use self::theme_inspector::{ThemeInspectorWindow, ThemeInspectorWindowState};
 pub use self::trade::{TradeRequestWindow, TradeWindow};
+pub use self::vendor::VendorWindow;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WindowClass {
@@ -133,6 +137,8 @@ pub enum WindowClass {
     SellCart,
     Trade,
     TradeRequest,
+    Vendor,
+    SearchStore,
     #[cfg(feature = "debug")]
     Maps,
     #[cfg(feature = "debug")]

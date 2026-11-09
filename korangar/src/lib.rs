@@ -62,17 +62,17 @@ use korangar_debug::profiling::Profiler;
 use korangar_interface::Interface;
 use korangar_interface::layout::MouseButton;
 use korangar_networking::{
-    DisconnectReason, HotkeyState, LoginServerLoginData, MessageColor, NetworkEvent, NetworkEventBuffer, NetworkingSystem, SellItem,
-    StatusChangeState, SupportedPacketVersion,
+    DisconnectReason, HotkeyState, ItemQuantity, LoginServerLoginData, MessageColor, NetworkEvent, NetworkEventBuffer, NetworkingSystem,
+    NoMetadata, SellItem, ShopItem, StatusChangeState, SupportedPacketVersion,
 };
 #[cfg(feature = "debug")]
 use networking::{PacketHistory, PacketHistoryCallback};
 #[cfg(not(feature = "debug"))]
 use ragnarok_packets::handler::NoPacketCallback;
 use ragnarok_packets::{
-    AttackRange, BuyShopItemsResult, CharacterServerInformation, ClientTick, Direction, DisappearanceReason, EffectId, EquipPosition,
-    ExperienceSource, ExperienceType, HealType, HotbarSlot, InventoryIndex, SellItemsResult, SkillId, SkillLevel, SkillType, TilePosition,
-    UnitId, WorldPosition,
+    AccountId, AttackRange, BuyShopItemsResult, CharacterServerInformation, ClientTick, Direction, DisappearanceReason, EffectId,
+    EquipPosition, ExperienceSource, ExperienceType, HealType, HotbarSlot, InventoryIndex, SellItemsResult, SkillId, SkillLevel, SkillType,
+    TilePosition, UnitId, WorldPosition,
 };
 use renderer::InterfaceRenderer;
 use rust_state::{ManuallyAssertExt, State};
@@ -1530,6 +1530,7 @@ impl Client {
                     self.client_state.follow_mut(client_state().entities()).truncate(1);
                     self.client_state.follow_mut(client_state().dead_entities()).clear();
                     self.client_state.follow_mut(client_state().ground_items()).clear();
+                    self.client_state.follow_mut(client_state().player_shops()).clear();
                     *self.client_state.follow_mut(client_state().buffered_action()) = None;
 
                     // Close any remaining dialogs.
@@ -2114,6 +2115,152 @@ impl Client {
                             }
                         }
                     }
+                }
+                NetworkEvent::PlayerShopSign {
+                    account_id,
+                    buying_store,
+                    shop_name: _,
+                } => {
+                    let shops = self.client_state.follow_mut(client_state().player_shops());
+                    if let Some(existing) = shops.iter_mut().find(|shop| shop.account_id == account_id) {
+                        existing.buying_store = buying_store;
+                    } else {
+                        shops.push(crate::state::ShopSign { account_id, buying_store });
+                    }
+                }
+                NetworkEvent::PlayerShopClosed { account_id, buying_store } => {
+                    self.client_state
+                        .follow_mut(client_state().player_shops())
+                        .retain(|shop| shop.account_id != account_id || shop.buying_store != buying_store);
+                }
+                NetworkEvent::PlayerShopOpened {
+                    account_id,
+                    store_id,
+                    buying_store,
+                    items,
+                    indexes,
+                } => {
+                    let mut item_ids = Vec::with_capacity(items.len());
+                    let rows = items
+                        .into_iter()
+                        .map(|item| {
+                            item_ids.push(item.item_id);
+                            let amount = match item.quantity {
+                                ItemQuantity::Fixed(amount) => amount,
+                                ItemQuantity::Infinite => 0,
+                            };
+                            let price = item.price.0;
+                            let named = self.async_loader.request_shop_item_metadata_load(item);
+                            let verb = if buying_store { "Wants" } else { "Sells" };
+                            crate::state::VendorRow {
+                                label: format!("{verb} {}  x{amount}  {price}z", named.metadata.name),
+                                name: named.metadata.name,
+                                price,
+                                amount,
+                            }
+                        })
+                        .collect();
+
+                    *self.client_state.follow_mut(client_state().vendor_account_id()) = account_id;
+                    *self.client_state.follow_mut(client_state().vendor_shop_id()) = store_id;
+                    *self.client_state.follow_mut(client_state().vendor_buying()) = buying_store;
+                    *self.client_state.follow_mut(client_state().vendor_indexes()) = indexes;
+                    *self.client_state.follow_mut(client_state().vendor_item_ids()) = item_ids;
+                    *self.client_state.follow_mut(client_state().vendor_rows()) = rows;
+                    self.interface.open_window(VendorWindow::new(client_state().vendor_rows()));
+                }
+                NetworkEvent::VendingPrepare { item_count } => {
+                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
+                        format!("You can list {item_count} items in a vending shop."),
+                        MessageColor::Information,
+                    ));
+                }
+                NetworkEvent::OwnPlayerShopOpened { item_count, buying_store } => {
+                    let kind = if buying_store { "buying store" } else { "vending shop" };
+                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
+                        format!("Opened {kind} with {item_count} items."),
+                        MessageColor::Information,
+                    ));
+                }
+                NetworkEvent::VendingPurchaseResult { index, amount, result } => {
+                    if result == 0 {
+                        let position = self
+                            .client_state
+                            .follow(client_state().vendor_indexes())
+                            .iter()
+                            .position(|slot| *slot == index);
+                        if let Some(position) = position {
+                            let rows = self.client_state.follow_mut(client_state().vendor_rows());
+                            if let Some(row) = rows.get_mut(position) {
+                                row.amount = row.amount.saturating_sub(u32::from(amount));
+                                row.label = format!("Sells {}  x{}  {}z", row.name, row.amount, row.price);
+                            }
+                        }
+                    } else {
+                        self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
+                            format!("Could not buy from the vending shop (code {result})."),
+                            MessageColor::Error,
+                        ));
+                    }
+                }
+                NetworkEvent::BuyingStoreOpenFailed { result } => {
+                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
+                        format!("Could not open a buying store (code {result})."),
+                        MessageColor::Error,
+                    ));
+                }
+                NetworkEvent::SearchStoreOpen { remaining_uses, .. } => {
+                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
+                        format!("Shop search is available ({remaining_uses} uses left)."),
+                        MessageColor::Information,
+                    ));
+                }
+                NetworkEvent::SearchStoreFailed { reason } => {
+                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
+                        format!("Shop search failed (code {reason})."),
+                        MessageColor::Error,
+                    ));
+                }
+                NetworkEvent::SearchStoreResults {
+                    first_page,
+                    uses_remaining,
+                    hits,
+                    ..
+                } => {
+                    if first_page {
+                        self.client_state.follow_mut(client_state().search_store_hits()).clear();
+                    }
+                    let mut rows = Vec::with_capacity(hits.len());
+                    for hit in hits {
+                        let named = self.async_loader.request_shop_item_metadata_load(ShopItem {
+                            metadata: NoMetadata,
+                            item_id: hit.item_id,
+                            item_type: 0,
+                            price: hit.price,
+                            quantity: ItemQuantity::Fixed(u32::from(hit.amount)),
+                            weight: 0,
+                            location: 0,
+                        });
+                        rows.push(crate::state::SearchStoreRow {
+                            label: format!("{} — {}  x{}  {}z", hit.shop_name, named.metadata.name, hit.amount, hit.price.0),
+                            account_id: hit.account_id,
+                            store_id: hit.store_id,
+                            item_id: hit.item_id,
+                        });
+                    }
+                    self.client_state.follow_mut(client_state().search_store_hits()).extend(rows);
+                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
+                        format!("Shop search results ({uses_remaining} uses left)."),
+                        MessageColor::Information,
+                    ));
+                    self.interface
+                        .open_window(SearchStoreWindow::new(client_state().search_store_hits()));
+                }
+                NetworkEvent::SearchStorePosition { x, y } => {
+                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
+                        format!("Searched shop is at {x}, {y}."),
+                        MessageColor::Information,
+                    ));
                 }
                 NetworkEvent::OpenShop { items } => {
                     // Close the dialog. Some NPCs don't use the `BuyOrSellPacket` and instead use
@@ -2745,15 +2892,30 @@ impl Client {
                     *self.client_state.follow_mut(client_state().buffered_action()) = None;
                 }
                 InputEvent::PlayerInteract { entity_id } => {
-                    let entity = self
+                    let interaction = self
                         .client_state
-                        .follow_mut(client_state().entities())
-                        .iter_mut()
-                        .find(|entity| entity.get_entity_id() == entity_id);
+                        .follow(client_state().entities())
+                        .iter()
+                        .find(|entity| entity.get_entity_id() == entity_id)
+                        .map(|entity| (entity.get_entity_type(), entity.get_tile_position()));
 
-                    if let Some(entity) = entity {
-                        let _ = match entity.get_entity_type() {
+                    if let Some((entity_type, tile_position)) = interaction {
+                        let _ = match entity_type {
                             EntityType::Npc => self.networking_system.start_dialog(entity_id),
+                            EntityType::Player => {
+                                let account_id = AccountId(entity_id.0);
+                                let buying_store = self
+                                    .client_state
+                                    .follow(client_state().player_shops())
+                                    .iter()
+                                    .find(|shop| shop.account_id == account_id)
+                                    .map(|shop| shop.buying_store);
+                                match buying_store {
+                                    Some(true) => self.networking_system.request_buying_store_list(account_id),
+                                    Some(false) => self.networking_system.request_vending_list(account_id),
+                                    None => Ok(()),
+                                }
+                            }
                             EntityType::Monster => {
                                 let auto_attack = *self.client_state.follow(client_state().game_settings().auto_attack());
                                 let buffered_action = self.client_state.follow_mut(client_state().buffered_action());
@@ -2765,10 +2927,9 @@ impl Client {
                                 self.networking_system.player_attack(entity_id)
                             }
                             EntityType::Warp => self.networking_system.player_move({
-                                let position = entity.get_tile_position();
                                 WorldPosition {
-                                    x: position.x,
-                                    y: position.y,
+                                    x: tile_position.x,
+                                    y: tile_position.y,
                                     direction: Direction::North,
                                 }
                             }),
@@ -3012,6 +3173,50 @@ impl Client {
                 InputEvent::AcceptPartyInvite { party_id } => {
                     let _ = self.networking_system.accept_party_invite(party_id);
                     self.interface.close_window_with_class(WindowClass::PartyInvite);
+                }
+                InputEvent::VendorTrade { list_index } => {
+                    let buying = *self.client_state.follow(client_state().vendor_buying());
+                    let account_id = *self.client_state.follow(client_state().vendor_account_id());
+                    let store_id = *self.client_state.follow(client_state().vendor_shop_id());
+                    if buying {
+                        let item_id = self.client_state.follow(client_state().vendor_item_ids()).get(list_index).copied();
+                        let inventory_index = item_id.and_then(|item_id| {
+                            self.client_state
+                                .follow(client_state().inventory().items())
+                                .iter()
+                                .find(|item| item.item_id == item_id)
+                                .map(|item| item.index.0 as i16)
+                        });
+                        match (item_id, inventory_index) {
+                            (Some(item_id), Some(inventory_index)) => {
+                                let _ = self
+                                    .networking_system
+                                    .sell_to_buying_store(account_id, store_id, inventory_index, item_id, 1);
+                            }
+                            _ => {
+                                self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
+                                    "That item is not in your inventory.".to_owned(),
+                                    MessageColor::Error,
+                                ));
+                            }
+                        }
+                    } else if let Some(index) = self.client_state.follow(client_state().vendor_indexes()).get(list_index).copied() {
+                        let _ = self.networking_system.buy_from_vending(account_id, store_id, index, 1);
+                    }
+                }
+                InputEvent::OpenPlayerShop { account_id, buying_store } => {
+                    if buying_store {
+                        let _ = self.networking_system.request_buying_store_list(account_id);
+                    } else {
+                        let _ = self.networking_system.request_vending_list(account_id);
+                    }
+                }
+                InputEvent::LocateShop {
+                    account_id,
+                    store_id,
+                    item_id,
+                } => {
+                    let _ = self.networking_system.select_search_store_item(account_id, store_id, item_id);
                 }
                 InputEvent::BuyItems { items } => {
                     let _ = self.networking_system.purchase_items(items);

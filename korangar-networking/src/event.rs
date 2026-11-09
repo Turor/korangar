@@ -9,6 +9,17 @@ use crate::{
     UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
 };
 
+/// One row from a shop-search result (`0x0B64`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchStoreHit {
+    pub store_id: u32,
+    pub account_id: AccountId,
+    pub shop_name: String,
+    pub item_id: ItemId,
+    pub price: Price,
+    pub amount: u16,
+}
+
 /// An event triggered by one of the Ragnarok Online servers.
 #[derive(Debug)]
 pub enum NetworkEvent {
@@ -290,6 +301,66 @@ pub enum NetworkEvent {
     },
     OpenShop {
         items: Vec<ShopItem<NoMetadata>>,
+    },
+    /// A player started a vend or buying store. `buying_store` selects which
+    /// click packet opens it.
+    PlayerShopSign {
+        account_id: AccountId,
+        shop_name: String,
+        buying_store: bool,
+    },
+    /// A vend or buying-store sign was removed.
+    PlayerShopClosed {
+        account_id: AccountId,
+        buying_store: bool,
+    },
+    /// Item list for a player vend (`buying_store == false`) or a buying store.
+    /// `indexes` aligns with `items` for vends (cart index). Buying stores
+    /// leave it empty.
+    PlayerShopOpened {
+        account_id: AccountId,
+        store_id: u32,
+        buying_store: bool,
+        items: Vec<ShopItem<NoMetadata>>,
+        indexes: Vec<u16>,
+    },
+    /// This client may open a vend (`0x012D`).
+    VendingPrepare {
+        item_count: u16,
+    },
+    /// The server accepted this client's vend or buying store.
+    OwnPlayerShopOpened {
+        item_count: usize,
+        buying_store: bool,
+    },
+    /// Result of buying from a player vend. `result == 0` is success.
+    VendingPurchaseResult {
+        index: u16,
+        amount: u16,
+        result: u8,
+    },
+    /// Buying store could not open. `result` is the server reason code.
+    BuyingStoreOpenFailed {
+        result: u16,
+    },
+    /// Search-store UI was enabled.
+    SearchStoreOpen {
+        effect: u16,
+        remaining_uses: u8,
+    },
+    SearchStoreFailed {
+        reason: u8,
+    },
+    SearchStoreResults {
+        first_page: bool,
+        next_page: bool,
+        uses_remaining: u8,
+        hits: Vec<SearchStoreHit>,
+    },
+    /// Server pointed at a searched shop on the map.
+    SearchStorePosition {
+        x: i16,
+        y: i16,
     },
     AskBuyOrSell {
         shop_id: ShopId,

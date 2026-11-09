@@ -4493,6 +4493,314 @@ pub struct OpenMarketPacket {
     pub items: Vec<MarketItemInformation>,
 }
 
+/// Shop title floating over a vending player (`ZC_STORE_ENTRY`, 0x0131).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0131)]
+pub struct VendingShopSignPacket {
+    pub account_id: AccountId,
+    #[length(80)]
+    pub shop_name: String,
+}
+
+/// Remove a vending shop title (`ZC_DISAPPEAR_ENTRY`, 0x0132).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0132)]
+pub struct VendingShopClosedPacket {
+    pub account_id: AccountId,
+}
+
+/// Buying-store title (`ZC_BUYING_STORE_ENTRY`, 0x0814).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0814)]
+pub struct BuyingStoreSignPacket {
+    pub account_id: AccountId,
+    #[length(80)]
+    pub shop_name: String,
+}
+
+/// Remove a buying-store title (`ZC_DISAPPEAR_BUYING_STORE_ENTRY`, 0x0816).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0816)]
+pub struct BuyingStoreClosedPacket {
+    pub account_id: AccountId,
+}
+
+/// The server tells this client how many items a new vend may list
+/// (`ZC_OPENSTORE`, 0x012D).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x012D)]
+pub struct VendingPreparePacket {
+    pub item_count: u16,
+}
+
+/// One line of a player vend for PACKETVER main >= 20200916
+/// (`ZC_PC_PURCHASE_ITEMLIST_FROMMC`, 0x0B3D).
+#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct VendingShopItem {
+    pub price: Price,
+    pub amount: u16,
+    pub index: i16,
+    pub item_type: u8,
+    pub item_id: ItemId,
+    pub identified: u8,
+    pub damaged: u8,
+    pub cards: [u32; 4],
+    pub options: [ItemOptions; 5],
+    pub location: u32,
+    pub view_sprite: u16,
+    pub refine: u8,
+    pub grade: u8,
+}
+
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B3D)]
+#[variable_length]
+pub struct VendingShopListPacket {
+    pub account_id: AccountId,
+    pub vender_id: u32,
+    #[repeating_remaining]
+    pub items: Vec<VendingShopItem>,
+}
+
+/// Purchase result from a player vend (`ZC_PC_PURCHASE_RESULT_FROMMC`, 0x0135).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0135)]
+pub struct VendingPurchaseResultPacket {
+    pub index: u16,
+    pub amount: u16,
+    pub result: u8,
+}
+
+/// Items this client successfully put up for sale (`ZC_PC_PURCHASE_MYITEMLIST`,
+/// 0x0B40).
+#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct OwnVendingItem {
+    pub price: Price,
+    pub index: i16,
+    pub amount: i16,
+    pub item_type: u8,
+    pub item_id: ItemId,
+    pub identified: u8,
+    pub damaged: u8,
+    pub cards: [u32; 4],
+    pub options: [ItemOptions; 5],
+    pub refine: u8,
+    pub grade: u8,
+}
+
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B40)]
+#[variable_length]
+pub struct OwnVendingListPacket {
+    pub account_id: AccountId,
+    #[repeating_remaining]
+    pub items: Vec<OwnVendingItem>,
+}
+
+/// What a buying store wants (`ZC_ACK_ITEMLIST_BUYING_STORE`, 0x0818).
+#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct BuyingStoreItem {
+    pub price: Price,
+    pub amount: u16,
+    pub item_type: u8,
+    pub item_id: ItemId,
+}
+
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0818)]
+#[variable_length]
+pub struct BuyingStoreListPacket {
+    pub account_id: AccountId,
+    pub store_id: u32,
+    pub zeny_limit: u32,
+    #[repeating_remaining]
+    pub items: Vec<BuyingStoreItem>,
+}
+
+/// This client's own buying store (`ZC_MYITEMLIST_BUYING_STORE`, 0x0813).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0813)]
+#[variable_length]
+pub struct OwnBuyingStoreListPacket {
+    pub account_id: AccountId,
+    pub zeny_limit: u32,
+    #[repeating_remaining]
+    pub items: Vec<BuyingStoreItem>,
+}
+
+/// Opening a buying store was rejected (`ZC_FAILED_OPEN_BUYING_STORE_TO_BUYER`,
+/// 0x081A).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x081A)]
+pub struct BuyingStoreOpenFailedPacket {
+    pub result: u16,
+}
+
+/// Search store UI may open (`ZC_OPEN_SEARCH_STORE_INFO`, 0x083A).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x083A)]
+pub struct SearchStoreOpenPacket {
+    pub effect: u16,
+    pub remaining_uses: u8,
+}
+
+/// Search store query failed (`ZC_SEARCH_STORE_INFO_FAILED`, 0x0837).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0837)]
+pub struct SearchStoreFailedPacket {
+    pub reason: u8,
+}
+
+/// One search-store hit for PACKETVER main >= 20200916
+/// (`ZC_SEARCH_STORE_INFO_ACK`, 0x0B64).
+#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct SearchStoreHitInformation {
+    pub store_id: u32,
+    pub account_id: AccountId,
+    #[length(80)]
+    pub shop_name: String,
+    pub item_id: ItemId,
+    pub item_type: u8,
+    pub price: Price,
+    pub amount: u16,
+    pub cards: [u32; 4],
+    pub options: [ItemOptions; 5],
+    pub refine: u8,
+    pub grade: u8,
+}
+
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B64)]
+#[variable_length]
+pub struct SearchStoreResultPacket {
+    pub first_page: u8,
+    pub next_page: u8,
+    pub uses_remaining: u8,
+    #[repeating_remaining]
+    pub hits: Vec<SearchStoreHitInformation>,
+}
+
+/// Minimap coordinates for a search-store row (`ZC_SSILIST_ITEM_CLICK_ACK`,
+/// 0x083D).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x083D)]
+pub struct SearchStoreSelectResultPacket {
+    pub x: i16,
+    pub y: i16,
+}
+
+/// Ask a vending player for their item list (`CZ_PC_PURCHASE_ITEMLIST_FROMMC`
+/// request, 0x0130).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0130)]
+pub struct RequestVendingListPacket {
+    pub account_id: AccountId,
+}
+
+/// Ask a buying store for its wanted list (`CZ_REQ_CLICK_TO_BUYING_STORE`,
+/// 0x0817).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0817)]
+pub struct RequestBuyingStoreListPacket {
+    pub account_id: AccountId,
+}
+
+#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct VendingPurchaseInformation {
+    pub amount: u16,
+    pub index: u16,
+}
+
+/// Buy from a player vend (`CZ_PC_PURCHASE_ITEMLIST_FROMMC2`, 0x0801).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0801)]
+#[variable_length]
+pub struct BuyFromVendingPacket {
+    pub account_id: AccountId,
+    pub vender_id: u32,
+    #[repeating_remaining]
+    pub items: Vec<VendingPurchaseInformation>,
+}
+
+#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct OpenVendingItemInformation {
+    pub inventory_index: u16,
+    pub amount: u16,
+    pub price: Price,
+}
+
+/// Open this client's vend (`CZ_REQ_OPENSTORE`, 0x012F).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x012F)]
+#[variable_length]
+pub struct OpenVendingShopPacket {
+    #[length(80)]
+    pub shop_name: String,
+    #[repeating_remaining]
+    pub items: Vec<OpenVendingItemInformation>,
+}
+
+/// Close this client's vend (`CZ_REQ_CLOSESTORE`, 0x012E).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x012E)]
+pub struct CloseVendingShopPacket {}
+
+#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct SellToBuyingStoreInformation {
+    pub inventory_index: i16,
+    pub item_id: ItemId,
+    pub amount: u16,
+}
+
+/// Sell items into a buying store (`CZ_REQ_TRADE_BUYING_STORE`, 0x0819).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0819)]
+#[variable_length]
+pub struct SellToBuyingStorePacket {
+    pub account_id: AccountId,
+    pub store_id: u32,
+    #[repeating_remaining]
+    pub items: Vec<SellToBuyingStoreInformation>,
+}
+
+/// Highlight a search result (`CZ_SSILIST_ITEM_CLICK`, 0x083C).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x083C)]
+pub struct SearchStoreSelectPacket {
+    pub account_id: AccountId,
+    pub store_id: u32,
+    pub item_id: ItemId,
+}
+
 #[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct ShopItemInformation {
