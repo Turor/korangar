@@ -2377,6 +2377,9 @@ impl Client {
                         .follow_mut(client_state().clan())
                         .set_online_count(online_members, maximum_members);
                 }
+                NetworkEvent::ClanLeft => {
+                    self.client_state.follow_mut(client_state().clan()).clear();
+                }
                 NetworkEvent::GuildMemberRemoved { character_id } => {
                     let removed_name = self.client_state.follow_mut(client_state().guild()).remove_member(character_id);
                     if let Some(name) = removed_name {

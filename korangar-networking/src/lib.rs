@@ -2621,6 +2621,16 @@ mod packet_handlers {
             online_members: 4,
             maximum_members: 20,
         }]));
+
+        let leave = [0x89u8, 0x09];
+        for version in [
+            SupportedPacketVersion::_20190530,
+            SupportedPacketVersion::_20220406,
+            SupportedPacketVersion::_20250716,
+        ] {
+            let events = process_one(version, &leave);
+            assert!(matches!(events.as_slice(), [NetworkEvent::ClanLeft]));
+        }
     }
 
     fn zero_trade_option() -> ragnarok_packets::ItemOptions {

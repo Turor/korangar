@@ -389,8 +389,7 @@ pub enum NetworkEvent {
     GuildMemberRemoved {
         character_id: CharacterId,
     },
-    /// `ZC_CLANINFO` (`0x098A`). `clan_id == 0` means this character left the
-    /// clan.
+    /// `ZC_CLANINFO` (`0x098A`).
     ClanInfo {
         clan_id: u32,
         name: String,
@@ -404,6 +403,10 @@ pub enum NetworkEvent {
         online_members: u16,
         maximum_members: u16,
     },
+    /// `ZC_ACK_CLAN_LEAVE` (`0x0989`). Header-only ack that this character left
+    /// the clan. Membership is cleared from this packet, not from `clan_id ==
+    /// 0`.
+    ClanLeft,
     SetHotkeyData {
         tab: HotbarTab,
         hotkeys: Vec<HotkeyState>,

@@ -133,6 +133,22 @@ mod tests {
     }
 
     #[test]
+    fn leave_clears_membership() {
+        let mut clan = ClanState::default();
+        clan.apply_info(swords());
+        clan.set_online_count(4, 20);
+        clan.clear();
+        assert!(!clan.joined);
+        assert_eq!(clan.clan_id, 0);
+        assert!(clan.name.is_empty());
+        assert!(clan.alliances.is_empty());
+        assert!(clan.antagonists.is_empty());
+        assert!(clan.rows.is_empty());
+        assert_eq!(clan.online_members, 0);
+        assert_eq!(clan.maximum_members, 0);
+    }
+
+    #[test]
     fn switching_clan_drops_lists_and_counts() {
         let mut clan = ClanState::default();
         clan.apply_info(swords());
