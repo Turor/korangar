@@ -72,6 +72,17 @@ pub enum InputEvent {
         /// Inventory index of the item to remove.
         index: ragnarok_packets::InventoryIndex,
     },
+    /// Snapshot the live switch set into a named Gear loadout.
+    SaveEquipLoadout,
+    /// Rename the selected Gear loadout from the draft name.
+    RenameEquipLoadout,
+    /// Write a saved loadout back to the switch set.
+    ///
+    /// `wear` also asks the server to swap that set onto the character.
+    ApplyEquipLoadout {
+        index: usize,
+        wear: bool,
+    },
     /// Open or close the skill tree window. Only works while playing.
     ToggleSkillTreeWindow,
     /// Open or close the stats window. Only works while playing.
