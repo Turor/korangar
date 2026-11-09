@@ -192,4 +192,20 @@ mod tests {
             .to_string();
         assert!(error.contains("missing.lua"));
     }
+
+    #[test]
+    fn fallback_groups_prefer_turoran_names_then_stock() {
+        let state = Lua::load_from_game_files_with_fallbacks(&MemoryLoader, &[
+            &["missing-turoran.lua", "first.lua"],
+            &["second.lua"],
+        ])
+        .unwrap();
+        assert_eq!(state.globals().get::<i32>("answer").unwrap(), 42);
+
+        let error = Lua::load_from_game_files_with_fallbacks(&MemoryLoader, &[&["missing-a.lua", "missing-b.lua"]])
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains("missing-b.lua") || error.contains("missing-a.lua"));
+    }
 }

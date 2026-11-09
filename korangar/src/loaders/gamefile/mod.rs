@@ -144,11 +144,12 @@ impl GameFileLoader {
             );
         }
         for path in &game_archive_list.archives {
+            // Missing archives are skipped (DATA.INI / partial installs). Remote mode
+            // continues to serve files from the verified cache when local GRFs are absent.
             if !Path::new(path).exists() {
-                return Err(format!(
-                    "Configured archive is missing: {path}. Update client/game_archives.ron; remote-only installs should omit missing \
-                     GRFs."
-                ));
+                #[cfg(feature = "debug")]
+                print_debug!("Skipping missing game archive {}", path);
+                continue;
             }
             let game_archive = Self::load_archive_from_path(path);
             self.add_archive(game_archive, true);
