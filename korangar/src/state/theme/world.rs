@@ -96,8 +96,43 @@ pub struct WorldTheme {
 }
 
 impl WorldTheme {
+    /// Built-in Turoran dark world overlay (HP/SP/AP frames).
+    ///
+    /// Used when the selected world theme name is `turoran_dark` and no
+    /// overriding `client/world_themes/turoran_dark.ron` is present.
+    pub fn turoran_dark() -> Self {
+        Self {
+            overlay: OverlayTheme {
+                foreground_color: Color::rgb_u8(230, 232, 240),
+                text_offset: ScreenPosition { left: 18.0, top: 10.0 },
+                font_size: FontSize(22.0),
+            },
+            status_bar: StatusBarTheme {
+                background_color: Color::rgba_u8(10, 12, 18, 220),
+                player_health_color: Color::rgb_u8(62, 168, 96),
+                enemy_health_color: Color::rgb_u8(198, 64, 88),
+                spell_point_color: Color::rgb_u8(64, 156, 210),
+                activity_point_color: Color::rgb_u8(220, 150, 72),
+                player_bar_width: 96.0,
+                enemy_bar_width: 64.0,
+                health_height: 9.0,
+                enemy_health_height: 6.0,
+                spell_point_height: 5.0,
+                activity_point_height: 5.0,
+                border_size: ScreenSize { width: 3.0, height: 2.0 },
+                gap: 2.0,
+            },
+            indicator: IndicatorTheme {
+                walking: Color::rgba_u8(80, 220, 190, 180),
+            },
+            cursor: CursorTheme {
+                color: Color::rgb_u8(235, 236, 240),
+            },
+        }
+    }
+
     pub fn load(name: &str) -> Self {
-        use crate::settings::WORLD_THEMES_PATH;
+        use crate::settings::{TURORAN_DARK_THEME_NAME, WORLD_THEMES_PATH};
 
         #[cfg(feature = "debug")]
         let timer = Timer::new("Load theme");
@@ -111,6 +146,9 @@ impl WorldTheme {
             .ok()
             .and_then(|data| ron::from_str(&data).ok())
             .unwrap_or_else(|| {
+                if name == TURORAN_DARK_THEME_NAME {
+                    return WorldTheme::turoran_dark();
+                }
                 #[cfg(feature = "debug")]
                 print_debug!("[{}] failed to load theme {}", "error".red(), name.magenta());
                 WorldTheme::default()
@@ -144,5 +182,36 @@ impl WorldTheme {
         }
 
         timer.stop();
+    }
+}
+
+#[cfg(test)]
+mod turoran_dark_world_theme_tests {
+    use super::WorldTheme;
+    use crate::settings::TURORAN_DARK_THEME_NAME;
+
+    #[test]
+    fn turoran_dark_status_bar_is_framed_and_distinct() {
+        let theme = WorldTheme::turoran_dark();
+        let default = WorldTheme::default();
+        assert!(theme.status_bar.border_size.width >= default.status_bar.border_size.width);
+        assert!(theme.status_bar.player_bar_width >= default.status_bar.player_bar_width);
+        assert_ne!(
+            theme.status_bar.background_color.alpha_as_u8(),
+            255,
+            "player frame should stay translucent"
+        );
+        assert_ne!(theme.status_bar.player_health_color, default.status_bar.player_health_color);
+    }
+
+    #[test]
+    fn load_falls_back_to_built_in_turoran_dark() {
+        let loaded = WorldTheme::load(TURORAN_DARK_THEME_NAME);
+        let expected = WorldTheme::turoran_dark();
+        assert_eq!(loaded.status_bar.player_bar_width, expected.status_bar.player_bar_width);
+        assert_eq!(
+            loaded.status_bar.background_color.alpha_as_u8(),
+            expected.status_bar.background_color.alpha_as_u8()
+        );
     }
 }

@@ -37,6 +37,9 @@ where
             title: client_state().localization().hotbar_window_title(),
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
+            closable: false,
+            minimum_width: 420.0,
+            maximum_width: 640.0,
             elements: (
                 split! {
                     gaps: theme().window().gaps(),

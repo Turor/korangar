@@ -36,6 +36,14 @@ pub struct DebugButtonTheme {
 pub struct ChatTheme {
     window_color: Color,
     text_box_background_color: Color,
+    /// Default color for `MessageColor::Broadcast`.
+    broadcast_color: Color,
+    /// Default color for `MessageColor::Server`.
+    server_color: Color,
+    /// Default color for `MessageColor::Error`.
+    error_color: Color,
+    /// Default color for `MessageColor::Information`.
+    information_color: Color,
 }
 
 #[derive(Serialize, Deserialize, RustState, StateElement)]
@@ -352,6 +360,10 @@ impl InterfaceTheme {
             chat: ChatTheme {
                 window_color: Color::rgba_u8(12, 14, 20, 205),
                 text_box_background_color: Color::rgba_u8(8, 10, 14, 190),
+                broadcast_color: Color::rgb_u8(210, 190, 255),
+                server_color: Color::rgb_u8(140, 200, 230),
+                error_color: Color::rgb_u8(240, 110, 110),
+                information_color: Color::rgb_u8(180, 220, 170),
             },
             skill_tree: SkillTreeTheme {
                 slot_background_color: Color::rgba_u8(28, 32, 42, 230),
@@ -560,6 +572,10 @@ impl InterfaceTheme {
             chat: ChatTheme {
                 window_color: Color::TRANSPARENT,
                 text_box_background_color: Color::TRANSPARENT,
+                broadcast_color: Color::rgb_u8(220, 200, 255),
+                server_color: Color::rgb_u8(180, 220, 255),
+                error_color: Color::rgb_u8(255, 120, 120),
+                information_color: Color::rgb_u8(200, 230, 180),
             },
             skill_tree: SkillTreeTheme {
                 slot_background_color: Color::monochrome_u8(40),
@@ -768,6 +784,10 @@ impl InterfaceTheme {
             chat: ChatTheme {
                 window_color: Color::rgba_u8(0, 0, 0, 200),
                 text_box_background_color: Color::rgba_u8(0, 0, 0, 150),
+                broadcast_color: Color::rgb_u8(220, 200, 255),
+                server_color: Color::rgb_u8(180, 220, 255),
+                error_color: Color::rgb_u8(255, 120, 120),
+                information_color: Color::rgb_u8(200, 230, 180),
             },
             skill_tree: SkillTreeTheme {
                 slot_background_color: Color::monochrome_u8(40),
@@ -821,6 +841,8 @@ mod turoran_dark_theme_tests {
             "window should stay translucent"
         );
         assert!(decoded.chat.window_color.alpha_as_u8() < 255, "chat should stay translucent");
+        assert_ne!(decoded.chat.error_color, decoded.chat.server_color);
+        assert_ne!(decoded.chat.broadcast_color, decoded.chat.information_color);
     }
 
     #[test]
