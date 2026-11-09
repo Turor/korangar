@@ -1548,6 +1548,7 @@ impl Client {
                         self.interface.close_window_with_class(WindowClass::Enchant);
                     }
                     self.interface.close_window_with_class(WindowClass::Stable);
+                    self.interface.close_window_with_class(WindowClass::Eden);
                     if self.interface.is_window_with_class_open(WindowClass::Refine) {
                         let _ = self.networking_system.close_refine();
                         self.client_state.follow_mut(client_state().refine()).close();
@@ -1843,6 +1844,18 @@ impl Client {
                 NetworkEvent::StableResult { summary, .. } => {
                     self.client_state.follow_mut(client_state().stable_window()).show_result(summary);
                     self.interface.open_window(StableWindow::new());
+                }
+                NetworkEvent::EdenQuestList { summary, .. } => {
+                    self.client_state.follow_mut(client_state().eden_window()).show_quests(summary);
+                    self.interface.open_window(EdenWindow::new());
+                }
+                NetworkEvent::EdenShop { summary, .. } => {
+                    self.client_state.follow_mut(client_state().eden_window()).show_shop(summary);
+                    self.interface.open_window(EdenWindow::new());
+                }
+                NetworkEvent::EdenResult { summary, .. } => {
+                    self.client_state.follow_mut(client_state().eden_window()).show_result(summary);
+                    self.interface.open_window(EdenWindow::new());
                 }
                 NetworkEvent::OpenDialog { text, npc_id } => {
                     self.client_state
@@ -3429,6 +3442,54 @@ impl Client {
                     Err(message) => self
                         .client_state
                         .follow_mut(client_state().stable_window())
+                        .set_status(message.to_owned()),
+                },
+                InputEvent::OpenEden => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        let _ = self.networking_system.request_eden(korangar_networking::EDEN_ACTION_LIST, 0);
+                        self.interface.open_window(EdenWindow::new());
+                    }
+                }
+                InputEvent::EdenAccept => match self.client_state.follow(client_state().eden_window()).quest_id() {
+                    Ok(quest_id) => {
+                        let _ = self
+                            .networking_system
+                            .request_eden(korangar_networking::EDEN_ACTION_ACCEPT, quest_id);
+                    }
+                    Err(message) => self
+                        .client_state
+                        .follow_mut(client_state().eden_window())
+                        .set_status(message.to_owned()),
+                },
+                InputEvent::EdenComplete => match self.client_state.follow(client_state().eden_window()).quest_id() {
+                    Ok(quest_id) => {
+                        let _ = self
+                            .networking_system
+                            .request_eden(korangar_networking::EDEN_ACTION_COMPLETE, quest_id);
+                    }
+                    Err(message) => self
+                        .client_state
+                        .follow_mut(client_state().eden_window())
+                        .set_status(message.to_owned()),
+                },
+                InputEvent::EdenAbandon => match self.client_state.follow(client_state().eden_window()).quest_id() {
+                    Ok(quest_id) => {
+                        let _ = self
+                            .networking_system
+                            .request_eden(korangar_networking::EDEN_ACTION_ABANDON, quest_id);
+                    }
+                    Err(message) => self
+                        .client_state
+                        .follow_mut(client_state().eden_window())
+                        .set_status(message.to_owned()),
+                },
+                InputEvent::EdenBuy => match self.client_state.follow(client_state().eden_window()).shop_slot() {
+                    Ok(slot) => {
+                        let _ = self.networking_system.request_eden(korangar_networking::EDEN_ACTION_BUY, slot);
+                    }
+                    Err(message) => self
+                        .client_state
+                        .follow_mut(client_state().eden_window())
                         .set_status(message.to_owned()),
                 },
                 InputEvent::CloseEnchant => {

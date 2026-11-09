@@ -41,6 +41,9 @@ pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
 pub use self::message::MessageColor;
 pub use self::packet_versions::SupportedPacketVersion;
+pub use self::packet_versions::eden::{
+    EDEN_ACTION_ABANDON, EDEN_ACTION_ACCEPT, EDEN_ACTION_BUY, EDEN_ACTION_COMPLETE, EDEN_ACTION_LIST, format_eden_result, parse_eden_id,
+};
 pub use self::packet_versions::enchant::{format_enchant_result, parse_enchant_index, parse_enchant_item_id, parse_enchant_slot};
 pub use self::packet_versions::stable::{format_stable_result, parse_stable_action, parse_stable_id};
 pub use self::server::{
@@ -970,6 +973,15 @@ where
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(RequestStablePetPacket { action, pet_id })
+            }
+        }
+    }
+
+    /// `0x0EF3`. `quest_id` is a mission id, or a shop slot for a buy.
+    pub fn request_eden(&mut self, action: i16, quest_id: i32) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(RequestEdenPacket { action, quest_id })
             }
         }
     }
@@ -2553,6 +2565,92 @@ mod packet_handlers {
             id: 9,
             ..
         }]));
+    }
+
+    #[test]
+    fn eden_board_packets_round_trip() {
+        use ragnarok_packets::{EdenQuestEntry, EdenQuestListPacket, EdenResultPacket, EdenShopEntry, EdenShopPacket, RequestEdenPacket};
+
+        let mut writer = ByteWriter::new();
+        RequestEdenPacket { action: 1, quest_id: 44 }.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 8);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0EF3);
+        assert_eq!(&writer.as_slice()[2..4], &1i16.to_le_bytes());
+        assert_eq!(&writer.as_slice()[4..8], &44i32.to_le_bytes());
+
+        let list = EdenQuestListPacket {
+            base_level: 50,
+            count: 1,
+            reserved: 0,
+            merit: 7,
+            quests: vec![EdenQuestEntry {
+                quest_id: 44,
+                state: 2,
+                min_level: 41,
+                max_level: 55,
+                mob_id: 1002,
+                hunt_count: 3,
+                hunt_max: 10,
+                item_id: 909,
+                item_have: 1,
+                item_need: 2,
+                base_exp: 100,
+                job_exp: 50,
+                reward_item: 501,
+                reward_item_amount: 1,
+                merit: 2,
+                map: "prt_fild08".to_owned(),
+                spawn_count: 4,
+                name: "Poring hunt".to_owned(),
+                hint: "South of Prontera".to_owned(),
+            }],
+        };
+        let mut writer = ByteWriter::new();
+        list.packet_to_bytes(&mut writer).unwrap();
+        // opcode + length + level + count + reserved + merit + 203-byte row.
+        assert_eq!(writer.as_slice().len(), 4 + 2 + 1 + 1 + 4 + 203);
+        for version in [
+            SupportedPacketVersion::_20250716,
+            SupportedPacketVersion::_20220406,
+            SupportedPacketVersion::_20190530,
+        ] {
+            let events = process_one(version, writer.as_slice());
+            assert!(matches!(
+                events.as_slice(),
+                [NetworkEvent::EdenQuestList { base_level: 50, merit: 7, summary }]
+                    if summary.contains("Poring hunt") && summary.contains("ready")
+            ));
+        }
+
+        let shop = EdenShopPacket {
+            merit: 7,
+            count: 1,
+            items: vec![EdenShopEntry {
+                slot: 3,
+                category: 1,
+                min_level: 11,
+                item_id: 501,
+                amount: 2,
+                price_merit: 4,
+                price_zeny: 0,
+            }],
+        };
+        let mut writer = ByteWriter::new();
+        shop.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 4 + 4 + 2 + 18);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(
+            events.as_slice(),
+            [NetworkEvent::EdenShop { merit: 7, summary }] if summary.contains("slot 3") && summary.contains("gear")
+        ));
+
+        let result = EdenResultPacket { result: 9, quest_id: 44 };
+        let mut writer = ByteWriter::new();
+        result.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 8);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0EFC);
+        let events = process_one(SupportedPacketVersion::_20190530, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::EdenResult { result: 9, quest_id: 44, summary }] if summary.contains("Merit")));
     }
 
     #[test]
