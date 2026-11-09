@@ -3776,6 +3776,33 @@ pub struct RequestUnequipItemPacket {
     pub inventory_index: InventoryIndex,
 }
 
+/// CZ_MOVE_ITEM_FROM_BODY_TO_STORE2. Stable since PACKETVER >= 20180307
+/// (`0x0364`, index at 2, amount at 4). Framing length is 8.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0364)]
+pub struct MoveItemToStoragePacket {
+    pub inventory_index: InventoryIndex,
+    pub amount: u32,
+}
+
+/// CZ_MOVE_ITEM_FROM_STORE_TO_BODY2. Stable since PACKETVER >= 20180307
+/// (`0x0365`, index at 2, amount at 4). Framing length is 8.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0365)]
+pub struct MoveItemFromStoragePacket {
+    pub storage_index: InventoryIndex,
+    pub amount: u32,
+}
+
+/// CZ_CLOSE_STORE. Hercules keeps this at `0x0193` (2 bytes, no payload) for
+/// PACKETVER >= 20050110, including 20250716 MAIN. Framing length is 2.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0193)]
+pub struct CloseStoragePacket {}
+
 #[derive(Debug, Clone, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub enum RequestUnequipItemStatus {

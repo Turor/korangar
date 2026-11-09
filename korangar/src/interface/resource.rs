@@ -4,6 +4,7 @@ use ragnarok_packets::{EquipPosition, HotbarSlot};
 pub enum ItemSource {
     Inventory,
     Equipment { position: EquipPosition },
+    Storage,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

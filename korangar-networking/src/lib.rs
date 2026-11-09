@@ -872,6 +872,30 @@ where
         }
     }
 
+    pub fn move_item_to_storage(&mut self, inventory_index: InventoryIndex, amount: u32) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(MoveItemToStoragePacket::new(inventory_index, amount))
+            }
+        }
+    }
+
+    pub fn move_item_from_storage(&mut self, storage_index: InventoryIndex, amount: u32) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(MoveItemFromStoragePacket::new(storage_index, amount))
+            }
+        }
+    }
+
+    pub fn close_storage(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(CloseStoragePacket::new())
+            }
+        }
+    }
+
     pub fn cast_skill(&mut self, skill_id: SkillId, skill_level: SkillLevel, entity_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
@@ -1563,7 +1587,6 @@ mod packet_handlers {
         }]));
         assert!(process_one(SupportedPacketVersion::_20220406, writer.as_slice()).is_empty());
     }
-
 }
 
 #[cfg(test)]

@@ -190,6 +190,10 @@ pub enum NetworkEvent {
     SetInventory {
         items: Vec<InventoryItem<NoMetadata>>,
     },
+    /// Kafra storage (context 2) or guild storage (context 3) snapshot.
+    SetStorage {
+        items: Vec<InventoryItem<NoMetadata>>,
+    },
     IventoryItemAdded {
         item: InventoryItem<NoMetadata>,
     },
@@ -374,7 +378,6 @@ pub enum NetworkEvent {
         quest_id: u32,
     },
 }
-
 
 /// Wire `state` byte of the status-change packets.
 ///
