@@ -736,6 +736,23 @@ pub enum NetworkEvent {
         id: i32,
         summary: String,
     },
+    /// Turoran Eden quest list (`0x0EFB`).
+    EdenQuestList {
+        base_level: i16,
+        merit: i32,
+        summary: String,
+    },
+    /// Turoran Eden result (`0x0EFC`).
+    EdenResult {
+        result: i16,
+        quest_id: i32,
+        summary: String,
+    },
+    /// Turoran Eden shop (`0x0EFD`).
+    EdenShop {
+        merit: i32,
+        summary: String,
+    },
     /// Base or job experience (`DisplayGainedExperiencePacket`, 0x0ACC).
     GainedExperience {
         account_id: AccountId,

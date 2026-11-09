@@ -177,6 +177,16 @@ pub enum InputEvent {
     RequestStableHomunculus,
     /// Request one stored pet (`0x0EF2`).
     RequestStablePet,
+    /// Ask the map server for the Turoran Eden board (`0x0EF3`, action 0).
+    OpenEden,
+    /// Accept the typed Eden quest (`0x0EF3`, action 1).
+    EdenAccept,
+    /// Turn in the typed Eden quest (`0x0EF3`, action 2).
+    EdenComplete,
+    /// Abandon the typed Eden quest (`0x0EF3`, action 3).
+    EdenAbandon,
+    /// Buy the typed Eden shop slot (`0x0EF3`, action 4).
+    EdenBuy,
     /// Action for the "Close"-button in a dialog.
     CloseDialog {
         /// Id of the NPC the player is in a dialog with.

@@ -1,4 +1,5 @@
 pub mod economy;
+pub mod eden;
 pub mod enchant;
 pub mod framing_20190530;
 pub mod framing_20250716;

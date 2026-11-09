@@ -4107,6 +4107,98 @@ pub struct StableResultPacket {
     pub id: i32,
 }
 
+/// Turoran Eden board request (`0x0EF3`, 8 bytes).
+///
+/// `action` is list (0), accept (1), complete (2), abandon (3), or buy (4).
+/// `quest_id` is a quest id, or a shop slot when buying.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EF3)]
+pub struct RequestEdenPacket {
+    pub action: i16,
+    pub quest_id: i32,
+}
+
+/// One Eden mission row on `0x0EFB`.
+#[derive(Debug, Clone, PartialEq, Eq, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct EdenQuestEntry {
+    pub quest_id: i32,
+    pub state: u8,
+    pub min_level: i16,
+    pub max_level: i16,
+    pub mob_id: i32,
+    pub hunt_count: i16,
+    pub hunt_max: i16,
+    pub item_id: i32,
+    pub item_have: i16,
+    pub item_need: i16,
+    pub base_exp: i32,
+    pub job_exp: i32,
+    pub reward_item: i32,
+    pub reward_item_amount: i16,
+    pub merit: i16,
+    #[length(16)]
+    pub map: String,
+    pub spawn_count: i16,
+    #[length(48)]
+    pub name: String,
+    #[length(96)]
+    pub hint: String,
+}
+
+/// Turoran Eden quest list (`0x0EFB`, variable).
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EFB)]
+#[variable_length]
+pub struct EdenQuestListPacket {
+    pub base_level: i16,
+    #[new_derive]
+    pub count: u8,
+    pub reserved: u8,
+    pub merit: i32,
+    #[repeating(count)]
+    pub quests: Vec<EdenQuestEntry>,
+}
+
+/// Turoran Eden result (`0x0EFC`, 8 bytes).
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EFC)]
+pub struct EdenResultPacket {
+    pub result: i16,
+    pub quest_id: i32,
+}
+
+/// One Eden shop row on `0x0EFD`. `category` is supply (0), gear (1), or
+/// upgrade (2).
+#[derive(Debug, Clone, PartialEq, Eq, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct EdenShopEntry {
+    pub slot: i16,
+    pub category: u8,
+    pub min_level: u8,
+    pub item_id: i32,
+    pub amount: i16,
+    pub price_merit: i32,
+    pub price_zeny: i32,
+}
+
+/// Turoran Eden shop (`0x0EFD`, variable).
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EFD)]
+#[variable_length]
+pub struct EdenShopPacket {
+    pub merit: i32,
+    /// Unsigned so a high bit cannot sign-extend into `Vec::with_capacity`.
+    #[new_derive]
+    pub count: u16,
+    #[repeating(count)]
+    pub items: Vec<EdenShopEntry>,
+}
+
 #[derive(Debug, Clone, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub enum RequestUnequipItemStatus {

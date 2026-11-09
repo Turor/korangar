@@ -11,6 +11,7 @@ mod chat;
 #[cfg(feature = "debug")]
 mod commands;
 mod dialog;
+mod eden;
 mod enchant;
 mod equipment;
 mod error;
@@ -69,6 +70,7 @@ pub use self::chat::{ChatTextBox, ChatWindow, ChatWindowState};
 #[cfg(feature = "debug")]
 pub use self::commands::CommandsWindow;
 pub use self::dialog::{DialogWindow, DialogWindowState};
+pub use self::eden::{EdenWindow, EdenWindowState};
 pub use self::enchant::{EnchantWindow, EnchantWindowState};
 pub use self::equipment::EquipmentWindow;
 pub use self::error::ErrorWindow;
@@ -126,6 +128,7 @@ pub enum WindowClass {
     CharacterSelection,
     Dialog,
     Enchant,
+    Eden,
     GameSettings,
     InterfaceSettings,
     GraphicsSettings,
