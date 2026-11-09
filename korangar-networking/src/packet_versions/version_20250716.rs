@@ -4,7 +4,10 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use ragnarok_packets::handler::{DuplicateHandlerError, PacketCallback, PacketHandler};
-use ragnarok_packets::version_20250716::{AddSkillPacket, DisplayExpandedEmotionPacket, EquippableItemListPacket, ItemPickupPacket};
+use ragnarok_packets::version_20250716::{
+    AddSkillPacket, DisplayExpandedEmotionPacket, EquippableItemListPacket, ItemPickupPacket, TradeAddItemPacket, TradeAddItemResultPacket,
+    TradeCancelPacket, TradeCompletePacket, TradeConfirmPacket, TradeRequestPacket, TradeStartPacket, TradeUnlockPacket,
+};
 use ragnarok_packets::*;
 
 use crate::event::{NetworkEventList, NoNetworkEvents};
@@ -1006,6 +1009,39 @@ where
             None
         }
     })?;
+    packet_handler.register(|packet: TradeRequestPacket| NetworkEvent::TradeRequested {
+        partner_name: packet.partner_name,
+        partner_character_id: packet.partner_character_id,
+        level: packet.level,
+    })?;
+    packet_handler.register(|packet: TradeStartPacket| NetworkEvent::TradeOpened {
+        result: packet.result,
+        partner_character_id: packet.partner_character_id,
+        level: packet.level,
+    })?;
+    packet_handler.register(|packet: TradeAddItemPacket| {
+        if packet.item_id.0 == 0 {
+            NetworkEvent::TradeZenyAdded { amount: packet.amount }
+        } else {
+            NetworkEvent::TradeItemAdded {
+                item_id: packet.item_id,
+                item_type: packet.item_type,
+                amount: packet.amount,
+                identified: packet.identified != 0,
+                refinement_level: packet.refinement_level,
+            }
+        }
+    })?;
+    packet_handler.register(|packet: TradeAddItemResultPacket| NetworkEvent::TradeAddResult {
+        index: packet.index,
+        result: packet.result,
+    })?;
+    packet_handler.register(|packet: TradeConfirmPacket| NetworkEvent::TradeConfirmed {
+        partner: packet.which != 0,
+    })?;
+    packet_handler.register(|_packet: TradeCancelPacket| NetworkEvent::TradeCancelled)?;
+    packet_handler.register(|packet: TradeCompletePacket| NetworkEvent::TradeCompleted { result: packet.result })?;
+    packet_handler.register(|_packet: TradeUnlockPacket| NetworkEvent::TradeLockRemoved)?;
     packet_handler.register(|packet: AddSkillPacket| {
         let p = packet.skill_information;
         NetworkEvent::UpdateSkill {

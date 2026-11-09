@@ -119,6 +119,92 @@ pub struct AddSkillPacket {
     pub skill_information: SkillInformation,
 }
 
+/// Incoming trade request (`ZC_REQ_EXCHANGE_ITEM2`, 0x01F4). PACKETVER >= 6.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01F4)]
+pub struct TradeRequestPacket {
+    #[length(24)]
+    pub partner_name: String,
+    pub partner_character_id: CharacterId,
+    pub level: i16,
+}
+
+/// Trade request result (`ZC_ACK_EXCHANGE_ITEM2`, 0x01F5).
+///
+/// `result` 3 opens the trade. 0 too far, 1 missing, 2 failed, 4 cancelled, 5
+/// busy.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01F5)]
+pub struct TradeStartPacket {
+    pub result: u8,
+    pub partner_character_id: CharacterId,
+    pub level: i16,
+}
+
+/// Partner added an item or zeny (`ZC_ADD_EXCHANGE_ITEM`, 0x0B42).
+///
+/// Item id zero is a zeny offer. Layout is Hercules MAIN >= 20200916 with
+/// 32-bit item ids, plus the three Turoran forge options used by live inventory
+/// packets. The framed size is 77 bytes.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B42)]
+pub struct TradeAddItemPacket {
+    pub item_id: ItemId,
+    pub item_type: u8,
+    pub amount: i32,
+    pub identified: u8,
+    pub damaged: u8,
+    pub cards: [u32; 4],
+    pub option_data: [ItemOptions; 5],
+    pub location: u32,
+    pub look: u16,
+    pub forge_data: [ItemOptions; 3],
+    pub refinement_level: u8,
+    pub grade: u8,
+}
+
+/// Own add-item result (`ZC_ACK_ADD_EXCHANGE_ITEM`, 0x00EA).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00EA)]
+pub struct TradeAddItemResultPacket {
+    /// Client inventory index, or 0 when the offer was zeny.
+    pub index: u16,
+    pub result: u8,
+}
+
+/// One side locked the trade (`ZC_CONCLUDE_EXCHANGE_ITEM`, 0x00EC).
+/// `which` is 0 for this client and 1 for the partner.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00EC)]
+pub struct TradeConfirmPacket {
+    pub which: u8,
+}
+
+/// Trade was cancelled (`ZC_CANCEL_EXCHANGE_ITEM`, 0x00EE). Header only.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00EE)]
+pub struct TradeCancelPacket {}
+
+/// Trade finished (`ZC_EXEC_EXCHANGE_ITEM`, 0x00F0). Zero is success.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00F0)]
+pub struct TradeCompletePacket {
+    pub result: u8,
+}
+
+/// A lock was undone because an offer changed (`ZC_EXCHANGEITEM_UNDO`, 0x00F1).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00F1)]
+pub struct TradeUnlockPacket {}
+
 #[cfg(test)]
 mod tests {
     use ragnarok_bytes::{ByteReader, ByteWriter};
@@ -156,6 +242,38 @@ mod tests {
         packet.packet_to_bytes(&mut writer).unwrap();
         assert_eq!(writer.as_slice(), bytes);
     }
+    #[test]
+    fn trade_add_item_is_seventy_seven_bytes_on_main_20250716() {
+        let option = || ItemOptions {
+            index: 0,
+            value: 0,
+            parameter: 0,
+        };
+        let packet = TradeAddItemPacket {
+            item_id: ItemId(501),
+            item_type: 0,
+            amount: 3,
+            identified: 1,
+            damaged: 0,
+            cards: [0; 4],
+            option_data: std::array::from_fn(|_| option()),
+            location: 0,
+            look: 0,
+            forge_data: std::array::from_fn(|_| option()),
+            refinement_level: 0,
+            grade: 0,
+        };
+        let mut writer = ByteWriter::new();
+        packet.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 77);
+        assert_eq!(&writer.as_slice()[..2], &[0x42, 0x0B]);
+        let mut reader = ByteReader::without_metadata(writer.as_slice());
+        let decoded = TradeAddItemPacket::packet_from_bytes(&mut reader).unwrap();
+        assert!(reader.is_empty());
+        assert_eq!(decoded.item_id, ItemId(501));
+        assert_eq!(decoded.amount, 3);
+    }
+
     #[test]
     fn modern_emotes_keep_six_byte_request_and_ten_byte_response() {
         let mut writer = ByteWriter::new();

@@ -244,6 +244,20 @@ pub enum InputEvent {
         /// Id of the skill to level up.
         skill_id: SkillId,
     },
+    /// Accept an incoming player trade.
+    AcceptTrade,
+    /// Decline an incoming player trade.
+    DeclineTrade,
+    /// Offer one inventory stack. `index` is the stored inventory index.
+    TradeAddItem { index: u16, amount: u16 },
+    /// Offer zeny.
+    TradeAddZeny { amount: u32 },
+    /// Lock this side of the trade.
+    TradeConfirm,
+    /// Commit after both sides have locked.
+    TradeDeal,
+    /// Cancel the trade.
+    TradeCancel,
     /// Level up a skill.
     LevelUpSkills {
         /// List of skills to level up by one. This list is allowed to contain

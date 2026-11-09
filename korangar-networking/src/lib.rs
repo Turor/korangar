@@ -1055,6 +1055,58 @@ where
         }
     }
 
+    pub fn request_trade(&mut self, partner_account_id: AccountId) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(RequestTradePacket::new(partner_account_id))
+            }
+        }
+    }
+
+    pub fn respond_to_trade(&mut self, accept: bool) -> Result<(), NotConnectedError> {
+        let response = if accept { 3 } else { 4 };
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(TradeAckPacket::new(response))
+            }
+        }
+    }
+
+    /// `index` is the stored inventory index. The wire value is `index + 2`.
+    /// Pass `None` to offer zeny.
+    pub fn add_trade_item(&mut self, index: Option<InventoryIndex>, amount: u32) -> Result<(), NotConnectedError> {
+        let index = index.map(|index| index.0.saturating_add(2)).unwrap_or(0);
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(AddTradeItemPacket::new(index, amount))
+            }
+        }
+    }
+
+    pub fn conclude_trade(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(ConcludeTradePacket::new())
+            }
+        }
+    }
+
+    pub fn cancel_trade(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(CancelTradePacket::new())
+            }
+        }
+    }
+
+    pub fn commit_trade(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(CommitTradePacket::new())
+            }
+        }
+    }
+
     pub fn level_up_skill(&mut self, skill_id: SkillId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
@@ -1710,6 +1762,157 @@ mod packet_handlers {
             invitations_allowed: false
         }]));
         assert!(process_one(SupportedPacketVersion::_20220406, writer.as_slice()).is_empty());
+    }
+
+    fn zero_trade_option() -> ragnarok_packets::ItemOptions {
+        ragnarok_packets::ItemOptions {
+            index: 0,
+            value: 0,
+            parameter: 0,
+        }
+    }
+
+    #[test]
+    fn packetver_20250716_trade_packets_become_typed_events() {
+        use ragnarok_packets::version_20250716::{
+            TradeAddItemPacket, TradeAddItemResultPacket, TradeCancelPacket, TradeCompletePacket, TradeConfirmPacket, TradeRequestPacket,
+            TradeStartPacket, TradeUnlockPacket,
+        };
+        use ragnarok_packets::{
+            AccountId, AddTradeItemPacket, CancelTradePacket, CharacterId, CommitTradePacket, ConcludeTradePacket, ItemId,
+            RequestTradePacket, TradeAckPacket,
+        };
+
+        let request = TradeRequestPacket {
+            partner_name: "Alice".to_owned(),
+            partner_character_id: CharacterId(99),
+            level: 80,
+        };
+        let mut writer = ByteWriter::new();
+        request.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 32);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::TradeRequested {
+            partner_name,
+            partner_character_id: CharacterId(99),
+            level: 80,
+        }] if partner_name == "Alice"));
+
+        let opened = TradeStartPacket {
+            result: 3,
+            partner_character_id: CharacterId(99),
+            level: 80,
+        };
+        let mut writer = ByteWriter::new();
+        opened.packet_to_bytes(&mut writer).unwrap();
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::TradeOpened {
+            result: 3,
+            partner_character_id: CharacterId(99),
+            level: 80,
+        }]));
+
+        let item = TradeAddItemPacket {
+            item_id: ItemId(501),
+            item_type: 0,
+            amount: 2,
+            identified: 1,
+            damaged: 0,
+            cards: [0; 4],
+            option_data: std::array::from_fn(|_| zero_trade_option()),
+            location: 0,
+            look: 0,
+            forge_data: std::array::from_fn(|_| zero_trade_option()),
+            refinement_level: 7,
+            grade: 0,
+        };
+        let mut writer = ByteWriter::new();
+        item.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 77);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::TradeItemAdded {
+            item_id: ItemId(501),
+            amount: 2,
+            identified: true,
+            refinement_level: 7,
+            ..
+        }]));
+
+        let zeny = TradeAddItemPacket {
+            item_id: ItemId(0),
+            item_type: 0,
+            amount: 1_500,
+            identified: 0,
+            damaged: 0,
+            cards: [0; 4],
+            option_data: std::array::from_fn(|_| zero_trade_option()),
+            location: 0,
+            look: 0,
+            forge_data: std::array::from_fn(|_| zero_trade_option()),
+            refinement_level: 0,
+            grade: 0,
+        };
+        let mut writer = ByteWriter::new();
+        zeny.packet_to_bytes(&mut writer).unwrap();
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::TradeZenyAdded { amount: 1_500 }]));
+
+        let added = TradeAddItemResultPacket { index: 4, result: 0 };
+        let mut writer = ByteWriter::new();
+        added.packet_to_bytes(&mut writer).unwrap();
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::TradeAddResult {
+            index: 4,
+            result: 0
+        }]));
+
+        let confirm = TradeConfirmPacket { which: 1 };
+        let mut writer = ByteWriter::new();
+        confirm.packet_to_bytes(&mut writer).unwrap();
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::TradeConfirmed { partner: true }]));
+
+        let mut writer = ByteWriter::new();
+        TradeCancelPacket::new().packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0xEE, 0x00]);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::TradeCancelled]));
+
+        let mut writer = ByteWriter::new();
+        TradeCompletePacket { result: 0 }.packet_to_bytes(&mut writer).unwrap();
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::TradeCompleted { result: 0 }]));
+
+        let mut writer = ByteWriter::new();
+        TradeUnlockPacket::new().packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0xF1, 0x00]);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::TradeLockRemoved]));
+
+        let mut writer = ByteWriter::new();
+        RequestTradePacket::new(AccountId(5)).packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0xE4, 0x00, 5, 0, 0, 0]);
+        let mut writer = ByteWriter::new();
+        TradeAckPacket::new(3).packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0xE6, 0x00, 3]);
+        let mut writer = ByteWriter::new();
+        AddTradeItemPacket::new(0, 1_500).packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0xE8, 0x00, 0, 0, 0xDC, 0x05, 0, 0]);
+        let mut writer = ByteWriter::new();
+        ConcludeTradePacket::new().packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0xEB, 0x00]);
+        let mut writer = ByteWriter::new();
+        CancelTradePacket::new().packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0xED, 0x00]);
+        let mut writer = ByteWriter::new();
+        CommitTradePacket::new().packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0xEF, 0x00]);
+
+        let mut writer = ByteWriter::new();
+        request.packet_to_bytes(&mut writer).unwrap();
+        let mut handler = map_handler(SupportedPacketVersion::_20220406);
+        let mut reader = ByteReader::without_metadata(writer.as_slice());
+        assert!(matches!(handler.process_one(&mut reader), HandlerResult::UnhandledPacket));
     }
 }
 

@@ -279,6 +279,53 @@ pub enum NetworkEvent {
     SellingCompleted {
         result: SellItemsResult,
     },
+    /// Another player asked to trade (`ZC_REQ_EXCHANGE_ITEM2`).
+    TradeRequested {
+        partner_name: String,
+        partner_character_id: CharacterId,
+        level: i16,
+    },
+    /// The server accepted or rejected opening a trade
+    /// (`ZC_ACK_EXCHANGE_ITEM2`). Result `3` means the trade window should
+    /// open.
+    TradeOpened {
+        result: u8,
+        partner_character_id: CharacterId,
+        level: i16,
+    },
+    /// The partner placed an item on their side (`ZC_ADD_EXCHANGE_ITEM`).
+    TradeItemAdded {
+        item_id: ItemId,
+        item_type: u8,
+        amount: i32,
+        identified: bool,
+        refinement_level: u8,
+    },
+    /// The partner added zeny. Item id zero on `ZC_ADD_EXCHANGE_ITEM`.
+    TradeZenyAdded {
+        amount: i32,
+    },
+    /// This client's add-item was accepted or rejected
+    /// (`ZC_ACK_ADD_EXCHANGE_ITEM`). Zeny is not acked. Index 0 is the dummy
+    /// success `trade_tradeok` sends and must not be booked as an offer.
+    TradeAddResult {
+        /// Client inventory index. Zero is the confirm dummy, not zeny.
+        index: u16,
+        result: u8,
+    },
+    /// One side locked the offer (`ZC_CONCLUDE_EXCHANGE_ITEM`).
+    /// `partner` is false when this client locked.
+    TradeConfirmed {
+        partner: bool,
+    },
+    /// The trade was cancelled (`ZC_CANCEL_EXCHANGE_ITEM`).
+    TradeCancelled,
+    /// The trade finished (`ZC_EXEC_EXCHANGE_ITEM`). Result 0 is success.
+    TradeCompleted {
+        result: u8,
+    },
+    /// Locks were cleared because an offer changed (`ZC_EXCHANGEITEM_UNDO`).
+    TradeLockRemoved,
     InventoryItemRemoved {
         reason: RemoveItemReason,
         index: InventoryIndex,
