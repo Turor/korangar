@@ -13,6 +13,12 @@ use crate::state::localization::Language;
 /// to the default theme. The only issue is that loading the default theme will
 /// cause an error to appear when running Korangar with debug features.
 pub const DEFAULT_THEME_NAME: &str = "^000001default^000000\0";
+/// Built-in selectable Turoran dark in-game HUD theme.
+///
+/// Always offered in Interface Settings even when no RON file is present.
+/// A matching `client/in_game_themes/turoran_dark.ron` overrides the built-in
+/// palette when present.
+pub const TURORAN_DARK_THEME_NAME: &str = "turoran_dark";
 pub const MENU_THEMES_PATH: &str = "client/menu_themes";
 pub const IN_GAME_THEMES_PATH: &str = "client/in_game_themes";
 pub const WORLD_THEMES_PATH: &str = "client/world_themes";
@@ -95,18 +101,33 @@ impl InterfaceSettingsCapabilities {
     fn load_themes(directory: &str) -> Vec<String> {
         let mut themes = vec![DEFAULT_THEME_NAME.to_string()];
 
-        if let Ok(entries) = std::fs::read_dir(directory) {
-            themes.extend(
-                entries
-                    .filter_map(|entry| entry.ok())
-                    .filter_map(|entry| entry.file_name().to_string_lossy().strip_suffix(".ron").map(ToOwned::to_owned)),
-            );
+        // Always expose the built-in Turoran dark HUD theme for in-game windows.
+        if directory == IN_GAME_THEMES_PATH {
+            themes.push(TURORAN_DARK_THEME_NAME.to_string());
+        }
 
-            // Sort themes excluding the default since we always want that to be first.
+        if let Ok(entries) = std::fs::read_dir(directory) {
+            for name in entries
+                .filter_map(|entry| entry.ok())
+                .filter_map(|entry| entry.file_name().to_string_lossy().strip_suffix(".ron").map(ToOwned::to_owned))
+            {
+                if !themes.iter().any(|existing| existing == &name) {
+                    themes.push(name);
+                }
+            }
+        }
+
+        // Sort themes excluding the default since we always want that to be first.
+        if themes.len() > 1 {
             themes[1..].sort_unstable();
         }
 
         themes
+    }
+
+    #[cfg(test)]
+    fn in_game_theme_names_for_test() -> Vec<String> {
+        Self::load_themes(IN_GAME_THEMES_PATH)
     }
 }
 
@@ -137,5 +158,45 @@ impl Default for InterfaceSettingsCapabilities {
             in_game_themes: Self::load_themes(IN_GAME_THEMES_PATH),
             world_themes: Self::load_themes(WORLD_THEMES_PATH),
         }
+    }
+}
+
+#[cfg(test)]
+mod interface_settings_theme_tests {
+    use super::{DEFAULT_THEME_NAME, InterfaceSettings, InterfaceSettingsCapabilities, TURORAN_DARK_THEME_NAME};
+
+    #[test]
+    fn in_game_theme_capabilities_include_turoran_dark() {
+        let themes = InterfaceSettingsCapabilities::in_game_theme_names_for_test();
+        assert_eq!(themes.first().map(String::as_str), Some(DEFAULT_THEME_NAME));
+        assert!(
+            themes.iter().any(|name| name == TURORAN_DARK_THEME_NAME),
+            "expected {TURORAN_DARK_THEME_NAME} in {themes:?}"
+        );
+    }
+
+    #[test]
+    fn interface_settings_preserve_turoran_dark_selection() {
+        use std::mem::ManuallyDrop;
+
+        use crate::loaders::Scaling;
+        use crate::state::localization::Language;
+
+        let settings = ManuallyDrop::new(InterfaceSettings {
+            language: Language::English,
+            scaling: Scaling::new(1.0),
+            menu_theme: DEFAULT_THEME_NAME.to_string(),
+            in_game_theme: TURORAN_DARK_THEME_NAME.to_string(),
+            world_theme: DEFAULT_THEME_NAME.to_string(),
+        });
+
+        let encoded = ron::ser::to_string_pretty(&*settings, ron::ser::PrettyConfig::new()).expect("serialize settings");
+        let decoded = ManuallyDrop::new(ron::from_str::<InterfaceSettings>(&encoded).expect("deserialize settings"));
+
+        assert_eq!(decoded.in_game_theme, TURORAN_DARK_THEME_NAME);
+        assert_eq!(decoded.menu_theme, settings.menu_theme);
+        assert_eq!(decoded.world_theme, settings.world_theme);
+        assert!(matches!(decoded.language, Language::English));
+        assert_eq!(decoded.scaling.get_factor(), settings.scaling.get_factor());
     }
 }
