@@ -237,6 +237,10 @@ impl InputSystem {
             events.push(InputEvent::ToggleFriendListWindow);
         }
 
+        if alt_down && self.get_key(KeyCode::KeyG).pressed() {
+            events.push(InputEvent::ToggleGuildWindow);
+        }
+
         if alt_down && self.get_key(KeyCode::KeyQ).pressed() {
             events.push(InputEvent::ToggleEquipmentWindow);
         }

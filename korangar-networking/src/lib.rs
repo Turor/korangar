@@ -33,7 +33,7 @@ pub use self::entity::EntityData;
 #[cfg(feature = "interface")]
 pub use self::equip_switch::EquipSwitchSlotPathExt;
 pub use self::equip_switch::{EquipSwitchSlot, assign_slot, position_label, replace_slots};
-pub use self::event::{DisconnectReason, NetworkEvent, RefineMaterialOffer, SearchStoreHit, StatusChangeState};
+pub use self::event::{DisconnectReason, GuildMemberSnapshot, NetworkEvent, RefineMaterialOffer, SearchStoreHit, StatusChangeState};
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
 pub use self::message::MessageColor;
@@ -1117,6 +1117,36 @@ where
         }
     }
 
+    /// Ask for guild info, members, position names, and the notice.
+    pub fn request_guild_window(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                for menu in [
+                    ragnarok_packets::GUILD_MENU_INFO,
+                    ragnarok_packets::GUILD_MENU_MEMBERS,
+                    ragnarok_packets::GUILD_MENU_POSITIONS,
+                    ragnarok_packets::GUILD_MENU_NOTICE,
+                ] {
+                    self.send_map_server_packet(ragnarok_packets::RequestGuildMenuPacket { menu })?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// `CZ_GUILD_NOTICE`. Strings are clipped to the 60-byte subject and
+    /// 120-byte body.
+    pub fn update_guild_notice(&mut self, guild_id: u32, subject: String, notice: String) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(ragnarok_packets::ChangeGuildNoticePacket {
+                    guild_id,
+                    subject: clip_guild_text(subject, 60),
+                    notice: clip_guild_text(notice, 120),
+                }),
+        }
+    }
+
     pub fn set_hotkey_data(&mut self, tab: HotbarTab, index: HotbarSlot, hotkey_data: HotkeyData) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
@@ -1355,6 +1385,18 @@ where
                 }),
         }
     }
+}
+
+fn clip_guild_text(value: String, max_bytes: usize) -> String {
+    let mut clipped = String::new();
+    for character in value.chars() {
+        let next = clipped.len() + character.len_utf8();
+        if next > max_bytes {
+            break;
+        }
+        clipped.push(character);
+    }
+    clipped
 }
 
 #[cfg(test)]
@@ -2052,6 +2094,168 @@ mod packet_handlers {
             invitations_allowed: false
         }]));
         assert!(process_one(SupportedPacketVersion::_20220406, writer.as_slice()).is_empty());
+    }
+
+    #[test]
+    fn packetver_20250716_guild_window_packets_are_typed() {
+        use ragnarok_packets::{
+            AccountId, ChangeGuildNoticePacket, CharacterId, GUILD_MENU_NOTICE, GuildAffiliationPacket, GuildExpulsionPacket,
+            GuildInfoPacket, GuildLeavePacket, GuildMemberInformation, GuildMemberListPacket, GuildMemberOnlinePacket, GuildNoticePacket,
+            GuildPositionName, GuildPositionNamesPacket, PacketExt, RequestGuildMenuPacket,
+        };
+
+        let info = GuildInfoPacket {
+            guild_id: 9,
+            level: 3,
+            online_members: 2,
+            max_members: 16,
+            average_level: 40,
+            experience: 100,
+            next_experience: 500,
+            tax_points: 0,
+            honor: 0,
+            virtue: 0,
+            emblem_version: 4,
+            name: "Wolves".to_owned(),
+            territory: "Prontera".to_owned(),
+            zeny: 0,
+            master_character_id: 77,
+            master_name: "Alpha".to_owned(),
+        };
+        let mut writer = ByteWriter::new();
+        info.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 118);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::GuildInfo {
+            guild_id: 9,
+            name,
+            master_name,
+            territory,
+            level: 3,
+            ..
+        }] if name == "Wolves" && master_name == "Alpha" && territory == "Prontera"));
+
+        let members = GuildMemberListPacket {
+            members: vec![GuildMemberInformation {
+                account_id: AccountId(3),
+                character_id: CharacterId(77),
+                hair: 1,
+                hair_color: 2,
+                sex: 0,
+                job: 7,
+                level: 55,
+                contribution_exp: 12,
+                current_state: 1,
+                position_id: 0,
+                last_login_time: 0,
+                name: "Alpha".to_owned(),
+            }],
+        };
+        let mut writer = ByteWriter::new();
+        members.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 62);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::GuildMembers { members }]
+            if members.len() == 1 && members[0].name == "Alpha" && members[0].online && members[0].level == 55));
+
+        let positions = GuildPositionNamesPacket {
+            positions: vec![GuildPositionName {
+                position_id: 0,
+                name: "Master".to_owned(),
+            }],
+        };
+        let mut writer = ByteWriter::new();
+        positions.packet_to_bytes(&mut writer).unwrap();
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::GuildPositions { positions }]
+            if positions == &[(0, "Master".to_owned())]));
+
+        let notice = GuildNoticePacket {
+            subject: "Meet".to_owned(),
+            notice: "Castle at 8".to_owned(),
+        };
+        let mut writer = ByteWriter::new();
+        notice.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 182);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::GuildNotice { subject, notice }]
+            if subject == "Meet" && notice == "Castle at 8"));
+
+        let affiliation = GuildAffiliationPacket {
+            guild_id: 9,
+            emblem_version: 4,
+            mode: 1,
+            is_master: 1,
+            inter_sid: 0,
+            guild_name: "Wolves".to_owned(),
+            master_character_id: 77,
+        };
+        let mut writer = ByteWriter::new();
+        affiliation.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 47);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::GuildAffiliation {
+            guild_id: 9,
+            is_master: true,
+            name,
+            ..
+        }] if name == "Wolves"));
+
+        let online = GuildMemberOnlinePacket {
+            account_id: AccountId(3),
+            character_id: CharacterId(77),
+            status: 0,
+            gender: 1,
+            hair: 1,
+            hair_color: 2,
+        };
+        let mut writer = ByteWriter::new();
+        online.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 20);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::GuildMemberOnline {
+            online: false,
+            ..
+        }]));
+
+        let leave = GuildLeavePacket {
+            character_id: CharacterId(77),
+            reason: "bye".to_owned(),
+        };
+        let mut writer = ByteWriter::new();
+        leave.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 46);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::GuildMemberRemoved {
+            character_id: CharacterId(77),
+        }]));
+
+        let expulsion = GuildExpulsionPacket {
+            reason: "out".to_owned(),
+            character_id: CharacterId(8),
+        };
+        let mut writer = ByteWriter::new();
+        expulsion.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 46);
+        assert_eq!(u32::from_le_bytes(writer.as_slice()[42..46].try_into().unwrap()), 8);
+
+        let mut writer = ByteWriter::new();
+        RequestGuildMenuPacket { menu: GUILD_MENU_NOTICE }
+            .packet_to_bytes(&mut writer)
+            .unwrap();
+        assert_eq!(writer.as_slice().len(), 6);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x014F);
+
+        let mut writer = ByteWriter::new();
+        ChangeGuildNoticePacket {
+            guild_id: 9,
+            subject: "A".to_owned(),
+            notice: "B".to_owned(),
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 186);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x016E);
     }
 
     fn zero_trade_option() -> ragnarok_packets::ItemOptions {

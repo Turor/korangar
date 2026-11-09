@@ -3,6 +3,7 @@ pub mod cache_statistics;
 pub mod character_slots;
 pub mod equip_switch;
 pub mod friends;
+pub mod guild;
 pub mod hotbar;
 pub mod inventory;
 pub mod localization;
@@ -43,6 +44,7 @@ use theme::{InterfaceTheme, InterfaceThemePathExt, InterfaceThemeType};
 #[cfg(feature = "debug")]
 use self::cache_statistics::CacheStatistics;
 use self::friends::FriendListEntry;
+use self::guild::GuildState;
 #[cfg(feature = "debug")]
 use crate::PacketHistory;
 #[cfg(feature = "debug")]
@@ -50,8 +52,8 @@ use crate::graphics::RenderOptions;
 use crate::graphics::{Color, CornerDiameter, ScreenClip, ScreenPosition, ScreenSize, ShadowPadding};
 use crate::input::{InputEvent, MouseInputMode};
 use crate::interface::windows::{
-    ChatWindowState, DialogWindowState, FriendListWindowState, LoginWindowState, LoginWindowStatePathExt, SkillTreeWindowState,
-    WindowCache, WindowClass,
+    ChatWindowState, DialogWindowState, FriendListWindowState, GuildWindowState, LoginWindowState, LoginWindowStatePathExt,
+    SkillTreeWindowState, WindowCache, WindowClass,
 };
 #[cfg(feature = "debug")]
 use crate::interface::windows::{ProfilerWindowState, ThemeInspectorWindowState};
@@ -197,6 +199,10 @@ pub struct ClientState {
     chat_messages: Vec<ChatMessage>,
     /// List of all friends.
     friend_list: Vec<FriendListEntry>,
+    /// Guild info, members, and notice for the local character.
+    guild: GuildState,
+    /// Notice drafts edited in the guild window.
+    guild_window: GuildWindowState,
     /// List of items offered in the shop.
     // TODO: Unhide this
     #[hidden_element]
@@ -398,6 +404,8 @@ impl ClientState {
         time_phase!("create friend list state", {
             let friend_list = Vec::default();
             let friend_list_window = FriendListWindowState::default();
+            let guild = GuildState::default();
+            let guild_window = GuildWindowState::default();
         });
 
         time_phase!("create player resources", {
@@ -492,6 +500,8 @@ impl ClientState {
             ground_items: Vec::new(),
             chat_messages,
             friend_list,
+            guild,
+            guild_window,
             shop_items,
             buy_cart,
             sell_items,

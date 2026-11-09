@@ -20,6 +20,7 @@ mod friend_list;
 mod friend_request;
 mod game_settings;
 mod graphics_settings;
+mod guild;
 mod hotbar;
 mod interface_settings;
 mod inventory;
@@ -76,6 +77,7 @@ pub use self::friend_list::{FriendListWindow, FriendListWindowState};
 pub use self::friend_request::FriendRequestWindow;
 pub use self::game_settings::GameSettingsWindow;
 pub use self::graphics_settings::GraphicsSettingsWindow;
+pub use self::guild::{GuildWindow, GuildWindowState};
 pub use self::hotbar::HotbarWindow;
 pub use self::interface_settings::InterfaceSettingsWindow;
 #[allow(unused_imports)]
@@ -137,6 +139,7 @@ pub enum WindowClass {
     QuestJournal,
     FriendList,
     FriendRequest,
+    Guild,
     PartyInvite,
     Login,
     Menu,

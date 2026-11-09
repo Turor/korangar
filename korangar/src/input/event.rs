@@ -86,6 +86,16 @@ pub enum InputEvent {
     ToggleAudioSettingsWindow,
     /// Open or close the friend list window. Only works while playing.
     ToggleFriendListWindow,
+    /// Open or close the guild window. Only works while playing.
+    ToggleGuildWindow,
+    /// Ask the map server for guild info, members, positions, and the notice.
+    RequestGuildWindow,
+    /// Send a new guild subject and notice. The server accepts this from the
+    /// guild master.
+    UpdateGuildNotice {
+        subject: String,
+        notice: String,
+    },
     /// Open or close the quest journal. Only works while playing.
     ToggleQuestJournalWindow,
     /// Open or close the status effects strip. Only works while playing.

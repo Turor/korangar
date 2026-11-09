@@ -4593,6 +4593,178 @@ pub struct PartyInviteReplyPacket {
     pub response: PartyInviteReply,
 }
 
+/// `CZ_REQ_GUILD_MENU` page. Hercules: 0 basic info, 1 members, 2 positions, 6
+/// notice.
+pub const GUILD_MENU_INFO: u32 = 0;
+pub const GUILD_MENU_MEMBERS: u32 = 1;
+pub const GUILD_MENU_POSITIONS: u32 = 2;
+pub const GUILD_MENU_NOTICE: u32 = 6;
+
+/// Ask the map server for one guild window page (`CZ_REQ_GUILD_MENU`, 0x014F).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x014F)]
+pub struct RequestGuildMenuPacket {
+    pub menu: u32,
+}
+
+/// Guild the local player belongs to (`ZC_UPDATE_GDID`, 0x02F7, PACKETVER >=
+/// 20220216).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x02F7)]
+pub struct GuildAffiliationPacket {
+    pub guild_id: u32,
+    pub emblem_version: i32,
+    pub mode: u32,
+    pub is_master: u8,
+    pub inter_sid: i32,
+    #[length(24)]
+    pub guild_name: String,
+    pub master_character_id: u32,
+}
+
+/// Guild basic info (`ZC_GUILD_INFO`, 0x0B7B, PACKETVER >= 20200902).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B7B)]
+pub struct GuildInfoPacket {
+    pub guild_id: u32,
+    pub level: i32,
+    pub online_members: i32,
+    pub max_members: i32,
+    pub average_level: i32,
+    pub experience: i32,
+    pub next_experience: i32,
+    pub tax_points: i32,
+    pub honor: i32,
+    pub virtue: i32,
+    pub emblem_version: i32,
+    #[length(24)]
+    pub name: String,
+    #[length(16)]
+    pub territory: String,
+    pub zeny: i32,
+    pub master_character_id: u32,
+    #[length(24)]
+    pub master_name: String,
+}
+
+/// One row of `ZC_MEMBERMGR_INFO` for PACKETVER >= 20200902 (58 bytes).
+#[derive(Debug, Clone, ByteConvertable, FixedByteSize)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct GuildMemberInformation {
+    pub account_id: AccountId,
+    pub character_id: CharacterId,
+    pub hair: i16,
+    pub hair_color: i16,
+    pub sex: i16,
+    pub job: i16,
+    pub level: i16,
+    pub contribution_exp: i32,
+    pub current_state: i32,
+    pub position_id: i32,
+    pub last_login_time: u32,
+    #[length(24)]
+    pub name: String,
+}
+
+/// Guild member list (`ZC_MEMBERMGR_INFO`, 0x0B7D).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B7D)]
+#[variable_length]
+pub struct GuildMemberListPacket {
+    #[repeating_remaining]
+    pub members: Vec<GuildMemberInformation>,
+}
+
+/// Position title (`ZC_POSITION_ID_NAME_INFO`, 0x0166).
+#[derive(Debug, Clone, ByteConvertable, FixedByteSize)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct GuildPositionName {
+    pub position_id: i32,
+    #[length(24)]
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0166)]
+#[variable_length]
+pub struct GuildPositionNamesPacket {
+    #[repeating_remaining]
+    pub positions: Vec<GuildPositionName>,
+}
+
+/// Guild notice (`ZC_GUILD_NOTICE`, 0x016F). Subject is 60 bytes, body is 120.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x016F)]
+pub struct GuildNoticePacket {
+    #[length(60)]
+    pub subject: String,
+    #[length(120)]
+    pub notice: String,
+}
+
+/// Master updates the notice (`CZ_GUILD_NOTICE`, 0x016E).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x016E)]
+pub struct ChangeGuildNoticePacket {
+    pub guild_id: u32,
+    #[length(60)]
+    pub subject: String,
+    #[length(120)]
+    pub notice: String,
+}
+
+/// Member logged in or out (`ZC_UPDATE_CHARSTAT2`, 0x01F2). `status` 0 is
+/// offline.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01F2)]
+pub struct GuildMemberOnlinePacket {
+    pub account_id: AccountId,
+    pub character_id: CharacterId,
+    pub status: i32,
+    pub gender: i16,
+    pub hair: i16,
+    pub hair_color: i16,
+}
+
+/// Older member online flag (`ZC_UPDATE_CHARSTAT`, 0x016D).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x016D)]
+pub struct GuildMemberOnlineShortPacket {
+    pub account_id: AccountId,
+    pub character_id: CharacterId,
+    pub status: i32,
+}
+
+/// A member left (`ZC_ACK_LEAVE_GUILD`, 0x0A83).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A83)]
+pub struct GuildLeavePacket {
+    pub character_id: CharacterId,
+    #[length(40)]
+    pub reason: String,
+}
+
+/// A member was expelled (`ZC_ACK_BAN_GUILD`, 0x0A82). Reason comes before the
+/// character id.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A82)]
+pub struct GuildExpulsionPacket {
+    #[length(40)]
+    pub reason: String,
+    pub character_id: CharacterId,
+}
+
 #[derive(Debug, Clone, ByteConvertable, FixedByteSize)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct ReputationEntry {
