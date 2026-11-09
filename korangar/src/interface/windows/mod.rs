@@ -33,6 +33,7 @@ mod party_invite;
 #[cfg(feature = "debug")]
 mod profiler;
 mod quest_journal;
+mod refine;
 #[cfg(feature = "debug")]
 mod render_options;
 mod respawn;
@@ -88,6 +89,7 @@ pub use self::party_invite::PartyInviteWindow;
 #[cfg(feature = "debug")]
 pub use self::profiler::{ProfilerWindow, ProfilerWindowState};
 pub use self::quest_journal::QuestJournalWindow;
+pub use self::refine::RefineWindow;
 #[cfg(feature = "debug")]
 pub use self::render_options::RenderOptionsWindow;
 pub use self::respawn::RespawnWindow;
@@ -143,6 +145,7 @@ pub enum WindowClass {
     TradeRequest,
     Vendor,
     SearchStore,
+    Refine,
     #[cfg(feature = "debug")]
     Maps,
     #[cfg(feature = "debug")]

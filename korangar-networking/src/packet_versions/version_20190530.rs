@@ -900,6 +900,7 @@ where
         }
     })?;
     packet_handler.register(|packet: RemoveSkillPacket| NetworkEvent::RemoveSkill { skill_id: packet.skill_id })?;
+    crate::packet_versions::refine::register_refine_packets(packet_handler)?;
 
     Ok(())
 }

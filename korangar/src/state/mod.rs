@@ -7,6 +7,7 @@ pub mod hotbar;
 pub mod inventory;
 pub mod localization;
 pub mod quest_log;
+pub mod refine;
 pub mod skill_cooldowns;
 pub mod skills;
 pub mod status_effects;
@@ -64,6 +65,7 @@ use crate::state::equip_switch::EquipSwitch;
 use crate::state::hotbar::Hotbar;
 use crate::state::inventory::Inventory;
 use crate::state::quest_log::QuestLog;
+use crate::state::refine::RefineState;
 use crate::state::skill_cooldowns::SkillCooldowns;
 use crate::state::skills::SkillTree;
 use crate::state::status_effects::StatusEffects;
@@ -244,6 +246,8 @@ pub struct ClientState {
     skill_tree: SkillTree,
     /// Player-to-player trade.
     trade: TradeState,
+    /// NPC refine UI.
+    refine: RefineState,
     /// Local-player status effects (buffs/debuffs).
     status_effects: StatusEffects,
     /// Skill cooldown deadlines for hotbar overlays.
@@ -418,6 +422,7 @@ impl ClientState {
             let skill_tree = SkillTree::default();
             let skill_tree_window = SkillTreeWindowState::default();
             let trade = TradeState::default();
+            let refine = RefineState::default();
             let status_effects = StatusEffects::default();
             let skill_cooldowns = SkillCooldowns::default();
             let quest_log = QuestLog::default();
@@ -503,6 +508,7 @@ impl ClientState {
             cart,
             skill_tree,
             trade,
+            refine,
             status_effects,
             skill_cooldowns,
             quest_log,

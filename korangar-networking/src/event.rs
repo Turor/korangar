@@ -9,6 +9,15 @@ use crate::{
     UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
 };
 
+/// One ore the refine UI can spend (`ZC_REFINING_MATERIAL_LIST`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefineMaterialOffer {
+    pub item_id: ItemId,
+    /// Success chance in percent.
+    pub chance_percent: u8,
+    pub zeny: u32,
+}
+
 /// One row from a shop-search result (`0x0B64`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchStoreHit {
@@ -367,6 +376,22 @@ pub enum NetworkEvent {
     SearchStorePosition {
         x: i16,
         y: i16,
+    },
+    /// The refine UI opened (`ZC_OPEN_REFINING_UI`).
+    RefineOpened,
+    /// Ores and chances for the item the player selected.
+    RefineMaterials {
+        index: InventoryIndex,
+        blacksmith_blessing: u8,
+        materials: Vec<RefineMaterialOffer>,
+    },
+    /// A refine attempt finished (`ZC_ACK_ITEMREFINING`).
+    ///
+    /// `result` is 0 success, 1 destroyed, 2 downgraded, 3 unchanged.
+    RefineResult {
+        result: u16,
+        index: InventoryIndex,
+        refine_level: u16,
     },
     AskBuyOrSell {
         shop_id: ShopId,
