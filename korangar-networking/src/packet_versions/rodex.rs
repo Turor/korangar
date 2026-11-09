@@ -6,7 +6,8 @@
 
 use ragnarok_packets::handler::{DuplicateHandlerError, PacketCallback, PacketHandler};
 use ragnarok_packets::{
-    NewMailStatusPacket, RodexDeleteAckPacket, RodexMailEntry, RodexMailListPacket, RodexWriteResultPacket, RodexZenyAckPacket,
+    NewMailStatusPacket, RodexDeleteAckPacket, RodexMailEntry, RodexMailListPacket, RodexReadPacket, RodexReadPacket2025,
+    RodexWriteResultPacket, RodexZenyAckPacket,
 };
 
 use crate::event::{NetworkEvent, NetworkEventList};
@@ -35,6 +36,24 @@ where
         mail_id: packet.mail_id,
         result: packet.result,
         summary: format_rodex_zeny(packet.mail_id, packet.result),
+    })?;
+    packet_handler.register(|packet: RodexReadPacket| {
+        let summary = format_rodex_read(packet.mail_id, packet.zeny, packet.item_count, &packet.body);
+        Some(NetworkEvent::RodexRead {
+            mail_id: packet.mail_id,
+            zeny: packet.zeny,
+            item_count: packet.item_count,
+            summary,
+        })
+    })?;
+    packet_handler.register(|packet: RodexReadPacket2025| {
+        let summary = format_rodex_read(packet.mail_id, packet.zeny, packet.item_count, &packet.body);
+        Some(NetworkEvent::RodexRead {
+            mail_id: packet.mail_id,
+            zeny: packet.zeny,
+            item_count: packet.item_count,
+            summary,
+        })
     })?;
     Ok(())
 }
@@ -87,6 +106,17 @@ pub fn format_rodex_write_result(result: u8) -> String {
     }
 }
 
+pub fn format_rodex_read(mail_id: i64, zeny: i64, item_count: u8, body: &str) -> String {
+    let body = body.trim_end_matches('\0').trim();
+    let body = if body.is_empty() { "(no message)" } else { body };
+    let items = match item_count {
+        0 => "no items".to_owned(),
+        1 => "1 item".to_owned(),
+        count => format!("{count} items"),
+    };
+    format!("Mail #{mail_id}: {body} (zeny {zeny}, {items})")
+}
+
 pub fn format_rodex_zeny(mail_id: i64, result: u8) -> String {
     match result {
         0 => format!("Took zeny from mail #{mail_id}."),
@@ -106,7 +136,7 @@ pub fn parse_rodex_mail_id(text: &str) -> Option<i64> {
 mod tests {
     use ragnarok_packets::RodexMailEntry;
 
-    use super::{format_rodex_mails, format_rodex_write_result, format_rodex_zeny, parse_rodex_mail_id};
+    use super::{format_rodex_mails, format_rodex_read, format_rodex_write_result, format_rodex_zeny, parse_rodex_mail_id};
 
     fn sample(title: &str, is_read: u8, mail_type: u8) -> RodexMailEntry {
         RodexMailEntry {
@@ -137,6 +167,8 @@ mod tests {
     fn formats_results_and_parses_mail_ids() {
         assert_eq!(format_rodex_write_result(0), "Mail sent.");
         assert!(format_rodex_write_result(1).contains("result 1"));
+        assert_eq!(format_rodex_read(7, 50, 2, "Hello\0"), "Mail #7: Hello (zeny 50, 2 items)");
+        assert_eq!(format_rodex_read(1, 0, 0, ""), "Mail #1: (no message) (zeny 0, no items)");
         assert_eq!(format_rodex_zeny(7, 0), "Took zeny from mail #7.");
         assert_eq!(parse_rodex_mail_id(" 15 "), Some(15));
         assert_eq!(parse_rodex_mail_id(""), None);

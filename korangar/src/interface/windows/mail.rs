@@ -15,6 +15,7 @@ use crate::state::{ClientState, ClientStatePathExt, client_state};
 pub struct MailWindowState {
     status: String,
     list_text: String,
+    body_text: String,
     mail_id_text: String,
     mail_id_ghost: String,
     new_mail: bool,
@@ -25,6 +26,7 @@ impl Default for MailWindowState {
         Self {
             status: "Open the inbox to load Rodex mail.".to_owned(),
             list_text: String::new(),
+            body_text: String::new(),
             mail_id_text: String::new(),
             mail_id_ghost: "mail id".to_owned(),
             new_mail: false,
@@ -59,6 +61,11 @@ impl MailWindowState {
         self.status = status;
     }
 
+    pub fn set_body(&mut self, summary: String) {
+        self.body_text = summary.clone();
+        self.status = summary;
+    }
+
     pub fn mail_id(&self) -> Result<i64, &'static str> {
         parse_rodex_mail_id(&self.mail_id_text).ok_or("Enter a mail id.")
     }
@@ -89,7 +96,9 @@ impl CustomWindow<ClientState> for MailWindow {
             title: "Mail",
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
-            closable: true,
+            // The title-bar close only drops the window. Hercules clears Rodex
+            // state on `CZ_CLOSE_MAILBOX`, so close goes through the button.
+            closable: false,
             elements: (
                 text! {
                     text: state_path.status(),
@@ -97,6 +106,10 @@ impl CustomWindow<ClientState> for MailWindow {
                 },
                 text! {
                     text: state_path.list_text(),
+                    overflow_behavior: OverflowBehavior::Shrink,
+                },
+                text! {
+                    text: state_path.body_text(),
                     overflow_behavior: OverflowBehavior::Shrink,
                 },
                 text_box! {

@@ -920,13 +920,25 @@ where
         }
     }
 
-    /// `CZ_OPEN_MAILBOX` (`0x09E8`). `open_type` 0 opens the inbox.
-    pub fn open_rodex(&mut self, open_type: u8, upper_mail_id: i64) -> Result<(), NotConnectedError> {
+    /// `CZ_OPEN_MAILBOX2` (`0x0AC0`, 26 bytes). `mail_id` 0 starts at the newest mail.
+    pub fn open_rodex(&mut self, mail_id: i64) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(OpenRodexPacket {
-                    open_type,
-                    upper_mail_id,
+                    mail_id,
+                    unused: [0; 16],
+                })
+            }
+        }
+    }
+
+    /// `CZ_REQ_REFRESH_MAIL_LIST2` (`0x0AC1`, 26 bytes). Reloads the inbox.
+    pub fn refresh_rodex(&mut self, mail_id: i64) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(RefreshRodexPacket {
+                    mail_id,
+                    unused: [0; 16],
                 })
             }
         }
@@ -2766,8 +2778,9 @@ mod packet_handlers {
     #[test]
     fn rodex_mail_packets_round_trip() {
         use ragnarok_packets::{
-            CloseRodexPacket, DeleteRodexPacket, NewMailStatusPacket, OpenRodexPacket, ReadRodexPacket, RodexDeleteAckPacket, RodexMailEntry,
-            RodexMailListPacket, RodexWriteResultPacket, RodexZenyAckPacket,
+            CloseRodexPacket, DeleteRodexPacket, NewMailStatusPacket, OpenRodexPacket, ReadRodexPacket, RefreshRodexPacket,
+            RodexDeleteAckPacket, RodexMailEntry, RodexMailListPacket, RodexReadPacket, RodexReadPacket2025, RodexWriteResultPacket,
+            RodexZenyAckPacket,
         };
 
         let status = NewMailStatusPacket { new_available: 1 };
@@ -2848,13 +2861,57 @@ mod packet_handlers {
 
         let mut writer = ByteWriter::new();
         OpenRodexPacket {
-            open_type: 0,
-            upper_mail_id: 0,
+            mail_id: 0,
+            unused: [0; 16],
         }
         .packet_to_bytes(&mut writer)
         .unwrap();
-        assert_eq!(writer.as_slice().len(), 11);
-        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x09E8);
+        assert_eq!(writer.as_slice().len(), 26);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0AC0);
+
+        let mut writer = ByteWriter::new();
+        RefreshRodexPacket {
+            mail_id: 0,
+            unused: [0; 16],
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 26);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0AC1);
+
+        let body = "Hello";
+        let read = RodexReadPacket {
+            open_type: 0,
+            mail_id: 42,
+            text_length: (body.len() + 1) as i16,
+            zeny: 100,
+            item_count: 1,
+            body: body.to_owned(),
+            items: vec![0x07],
+        };
+        let mut writer = ByteWriter::new();
+        read.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x09EB);
+        let events = process_one(SupportedPacketVersion::_20220406, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::RodexRead { mail_id: 42, zeny: 100, item_count: 1, summary }]
+            if summary.contains("Hello") && summary.contains("zeny 100")));
+        let events = process_one(SupportedPacketVersion::_20190530, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::RodexRead { mail_id: 42, .. }]));
+
+        let read_2025 = RodexReadPacket2025 {
+            open_type: 0,
+            mail_id: 42,
+            text_length: (body.len() + 1) as i16,
+            zeny: 100,
+            item_count: 1,
+            body: body.to_owned(),
+            items: vec![0x07],
+        };
+        let mut writer = ByteWriter::new();
+        read_2025.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0B63);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::RodexRead { mail_id: 42, item_count: 1, .. }]));
 
         let mut writer = ByteWriter::new();
         CloseRodexPacket::new().packet_to_bytes(&mut writer).unwrap();

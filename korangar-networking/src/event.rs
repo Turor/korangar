@@ -487,6 +487,13 @@ pub enum NetworkEvent {
         result: u8,
         summary: String,
     },
+    /// `ZC_ACK_READ_MAIL` (`0x09EB`, or `0x0B63` on the 2025-07-16 profile).
+    RodexRead {
+        mail_id: i64,
+        zeny: i64,
+        item_count: u8,
+        summary: String,
+    },
     /// Alive MVPs on the current map (`0x0EF5`). Replaces the previous list.
     MvpMinimap {
         flags: u8,

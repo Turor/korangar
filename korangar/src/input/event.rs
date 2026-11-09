@@ -226,9 +226,9 @@ pub enum InputEvent {
     MercenaryDismiss,
     /// Open or close the alive-MVP minimap.
     ToggleMvpMinimap,
-    /// Open the Rodex window and request the inbox (`0x09E8`).
+    /// Open the Rodex window and reload the inbox (`0x0AC0` then `0x0AC1`).
     OpenMail,
-    /// Request the inbox again.
+    /// Reload the inbox (`0x0AC1`).
     RefreshMail,
     /// Read the mail id typed in the mail window (`0x09EA`).
     ReadMail,

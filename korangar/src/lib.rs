@@ -1150,6 +1150,9 @@ impl Client {
                     self.client_state.follow_mut(client_state().mvp_minimap()).clear_markers();
                     self.client_state.follow_mut(client_state().mvp_minimap()).set_map_size(0, 0);
                     self.interface.close_window_with_class(WindowClass::MvpMinimap);
+                    if self.interface.is_window_with_class_open(WindowClass::Mail) {
+                        let _ = self.networking_system.close_rodex();
+                    }
                     self.client_state.follow_mut(client_state().mail_window()).clear();
                     self.interface.close_window_with_class(WindowClass::Mail);
 
@@ -1611,6 +1614,10 @@ impl Client {
                         let _ = self.networking_system.close_laphine_upgrade();
                         self.interface.close_window_with_class(WindowClass::LaphineUpgrade);
                     }
+                    if self.interface.is_window_with_class_open(WindowClass::Mail) {
+                        let _ = self.networking_system.close_rodex();
+                        self.interface.close_window_with_class(WindowClass::Mail);
+                    }
 
                     self.client_state
                         .follow_mut(client_state().navigation())
@@ -2063,6 +2070,10 @@ impl Client {
                 }
                 NetworkEvent::RodexZeny { summary, .. } => {
                     self.client_state.follow_mut(client_state().mail_window()).set_status(summary);
+                }
+                NetworkEvent::RodexRead { summary, .. } => {
+                    self.client_state.follow_mut(client_state().mail_window()).set_body(summary);
+                    self.interface.open_window(MailWindow::new());
                 }
                 NetworkEvent::OpenDialog { text, npc_id } => {
                     self.client_state
@@ -3828,9 +3839,16 @@ impl Client {
                     }
                     Err(message) => self.client_state.follow_mut(client_state().warpra_window()).set_status(message),
                 },
-                InputEvent::OpenMail | InputEvent::RefreshMail => {
+                InputEvent::OpenMail => {
                     if self.client_state.try_follow(this_entity()).is_some() {
-                        let _ = self.networking_system.open_rodex(0, 0);
+                        let _ = self.networking_system.open_rodex(0);
+                        let _ = self.networking_system.refresh_rodex(0);
+                        self.interface.open_window(MailWindow::new());
+                    }
+                }
+                InputEvent::RefreshMail => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        let _ = self.networking_system.refresh_rodex(0);
                         self.interface.open_window(MailWindow::new());
                     }
                 }
