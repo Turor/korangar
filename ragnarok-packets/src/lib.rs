@@ -4396,7 +4396,7 @@ pub struct HomunculusCommandPacket {
 }
 
 /// Homunculus property (`ZC_PROPERTY_HOMUN`, `0x0BA4`, 85 bytes) for PACKETVER
-/// MAIN >= 20210303. `flags` bit 0 is renamed, bit 1 is resting, bit 2 is alive.
+/// MAIN >= 20210303. `flags` bit 0 is renamed, bit 1 is resting, bit 2 is dead.
 #[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0BA4)]

@@ -50,6 +50,7 @@ pub const PET_KIND_ACCESSORY: i8 = 3;
 
 pub fn register_companion_packets<Callback>(
     packet_handler: &mut PacketHandler<NetworkEventList, Callback>,
+    include_homunculus_0ba4: bool,
 ) -> Result<(), DuplicateHandlerError>
 where
     Callback: PacketCallback,
@@ -77,30 +78,35 @@ where
         entity_id: packet.entity_id,
         value: packet.value,
     })?;
-    packet_handler.register(|packet: HomunculusPropertyPacket| NetworkEvent::HomunculusInfo {
-        summary: format_homunculus(&packet),
-        name: packet.name,
-        flags: packet.flags,
-        level: packet.level,
-        hunger: packet.hunger,
-        intimacy: packet.intimacy,
-        attack: packet.attack,
-        magic_attack: packet.magic_attack,
-        hit: packet.hit,
-        critical: packet.critical,
-        defense: packet.defense,
-        magic_defense: packet.magic_defense,
-        flee: packet.flee,
-        attack_motion: packet.attack_motion,
-        health_points: packet.health_points,
-        maximum_health_points: packet.maximum_health_points,
-        spell_points: packet.spell_points,
-        maximum_spell_points: packet.maximum_spell_points,
-        experience: packet.experience,
-        next_experience: packet.next_experience,
-        skill_points: packet.skill_points,
-        attack_range: packet.attack_range,
-    })?;
+    // PACKETVER >= 20210303 (20220406 and 20250716) speaks `0x0BA4` / 85 bytes.
+    // 20190530 still uses `ZC_PROPERTY_HOMUN` `0x0B2F` / 73 bytes, so this struct
+    // must not be registered there.
+    if include_homunculus_0ba4 {
+        packet_handler.register(|packet: HomunculusPropertyPacket| NetworkEvent::HomunculusInfo {
+            summary: format_homunculus(&packet),
+            name: packet.name,
+            flags: packet.flags,
+            level: packet.level,
+            hunger: packet.hunger,
+            intimacy: packet.intimacy,
+            attack: packet.attack,
+            magic_attack: packet.magic_attack,
+            hit: packet.hit,
+            critical: packet.critical,
+            defense: packet.defense,
+            magic_defense: packet.magic_defense,
+            flee: packet.flee,
+            attack_motion: packet.attack_motion,
+            health_points: packet.health_points,
+            maximum_health_points: packet.maximum_health_points,
+            spell_points: packet.spell_points,
+            maximum_spell_points: packet.maximum_spell_points,
+            experience: packet.experience,
+            next_experience: packet.next_experience,
+            skill_points: packet.skill_points,
+            attack_range: packet.attack_range,
+        })?;
+    }
     packet_handler.register(|packet: MercenaryInitPacket| NetworkEvent::MercenaryInfo {
         summary: format_mercenary_init(&packet),
         account_id: packet.account_id,
@@ -200,7 +206,8 @@ pub fn format_pet(name: &str, renamed: bool, level: i16, hunger: i16, intimacy: 
 pub fn format_homunculus_flags(flags: u8) -> String {
     let renamed = if flags & 0x01 != 0 { "renamed" } else { "not renamed" };
     let rest = if flags & 0x02 != 0 { "resting" } else { "out" };
-    let life = if flags & 0x04 != 0 { "alive" } else { "down" };
+    // Hercules bit 2 (`0x04`) means the homunculus is dead.
+    let life = if flags & 0x04 != 0 { "down" } else { "alive" };
     format!("{renamed}, {rest}, {life}")
 }
 
@@ -340,7 +347,8 @@ mod tests {
     fn labels_and_flags() {
         assert_eq!(intimacy_label(50), "Awkward");
         assert_eq!(intimacy_label(1000), "Devoted");
-        assert_eq!(format_homunculus_flags(0x07), "renamed, resting, alive");
+        assert_eq!(format_homunculus_flags(0x01), "renamed, out, alive");
+        assert_eq!(format_homunculus_flags(0x07), "renamed, resting, down");
         assert_eq!(elemental_name(2114), "Agni");
         assert_eq!(mercenary_variable_name(MERC_VAR_HP), "HP");
         assert_eq!(elemental_variable_name(EL_VAR_SP), "SP");

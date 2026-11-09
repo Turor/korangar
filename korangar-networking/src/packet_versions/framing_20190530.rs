@@ -1480,6 +1480,8 @@ pub fn packet_length(opcode: u16) -> Option<i32> {
         0x0B2D => Some(11),
         0x0B2E => Some(4),
         0x0B2F => Some(73),
+        // ZC_PROPERTY_HOMUN for PACKETVER >= 20210303. 20220406 frames with this table.
+        0x0BA4 => Some(85),
         0x0B30 => Some(-1),
         0x0B9A => Some(11),
         0x0B9B => Some(12),
@@ -1558,5 +1560,6 @@ mod tests {
         assert_eq!(packet_length(0x006D), Some(177));
         assert_eq!(packet_length(0x0A37), Some(84));
         assert_eq!(packet_length(0x0EF5), Some(-1));
+        assert_eq!(packet_length(0x0BA4), Some(85));
     }
 }

@@ -2866,7 +2866,13 @@ mod packet_handlers {
         assert!(matches!(
             events.as_slice(),
             [NetworkEvent::HomunculusInfo { level: 50, health_points: 2000, summary, .. }]
-                if summary.contains("Lif") && summary.contains("alive") && summary.contains("Neutral")
+                if summary.contains("Lif") && summary.contains("down") && summary.contains("Neutral")
+        ));
+        // 20220406 shares the 20190530 framing table and must accept 0x0BA4.
+        let events = process_one(SupportedPacketVersion::_20220406, writer.as_slice());
+        assert!(matches!(
+            events.as_slice(),
+            [NetworkEvent::HomunculusInfo { level: 50, .. }]
         ));
 
         let merc = MercenaryInitPacket {
