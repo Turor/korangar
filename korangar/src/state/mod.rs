@@ -193,6 +193,8 @@ pub struct ClientState {
     storage: Inventory,
     /// Alternate equipment set. This does not change what is currently worn.
     equip_switch: EquipSwitch,
+/// Player cart. Separate from the bag and from NPC buy/sell drafts.
+    cart: Inventory,
     /// Player skill tree.
     skill_tree: SkillTree,
     /// Player-to-player trade.
@@ -358,6 +360,7 @@ impl ClientState {
             let hotbar = Hotbar::default();
             let inventory = Inventory::default();
             let storage = Inventory::default();
+            let cart = Inventory::default();
             let skill_tree = SkillTree::default();
             let skill_tree_window = SkillTreeWindowState::default();
             let trade = TradeState::default();
@@ -434,6 +437,7 @@ impl ClientState {
             inventory,
             storage,
             equip_switch: EquipSwitch::default(),
+            cart,
             skill_tree,
             trade,
             status_effects,

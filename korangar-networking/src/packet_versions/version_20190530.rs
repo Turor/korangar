@@ -474,6 +474,7 @@ where
 
         move |packet: InventoyEndPacket| match inventory_items.borrow_mut().finish(packet.inventory_type, packet.flag) {
             Some((crate::inventory_lists::InventoryListKind::Player, items)) => Some(NetworkEvent::SetInventory { items }),
+            Some((crate::inventory_lists::InventoryListKind::Cart, items)) => Some(NetworkEvent::SetCart { items }),
             Some((crate::inventory_lists::InventoryListKind::Storage, items)) => Some(NetworkEvent::SetStorage { items }),
             None => None,
         }
@@ -658,6 +659,10 @@ where
             quantity,
             is_identified,
         }]
+    })?;
+    packet_handler.register(|packet: DeleteItemFromCartPacket| NetworkEvent::CartItemRemoved {
+        index: packet.index,
+        amount: u16::try_from(packet.amount).unwrap_or(u16::MAX),
     })?;
     packet_handler.register(|packet: RemoveItemFromInventoryPacket| NetworkEvent::InventoryItemRemoved {
         reason: packet.remove_reason,

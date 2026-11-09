@@ -50,6 +50,22 @@ pub struct EquippableItemListPacket {
     #[repeating_remaining]
     pub item_information: Vec<EquippableItemInformation>,
 }
+/// `ZC_ADD_ITEM_TO_CART3` as framed for PACKETVER 20250716 (57 bytes).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A0B)]
+pub struct AddItemToCartPacket {
+    pub index: InventoryIndex,
+    pub amount: i32,
+    pub item_id: ItemId,
+    pub item_type: u8,
+    pub identified: u8,
+    pub damaged: u8,
+    pub refine: u8,
+    pub cards: [u32; 4],
+    pub option_data: [ItemOptions; 5],
+}
+
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0B41)]

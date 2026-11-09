@@ -43,6 +43,8 @@
     hotbar_window_title: "Hotbar",
     inventory_window_title: "Inventory",
     storage_window_title: "Storage",
+    cart_window_title: "Cart",
+    cart_button_text: "Cart",
     respawn_window_title: "Respawn Menu",
     respawn_button_text: "Respawn",
     disconnect_button_text: "Disconnect",

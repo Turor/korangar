@@ -3,6 +3,7 @@ use ragnarok_packets::{EquipPosition, HotbarSlot};
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ItemSource {
     Inventory,
+    Cart,
     Equipment { position: EquipPosition },
     Storage,
 }

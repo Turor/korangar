@@ -59,6 +59,8 @@ pub enum InputEvent {
     ToggleMenuWindow,
     /// Open or close the inventory window. Only works while playing.
     ToggleInventoryWindow,
+    /// Open or close the player cart window. Only works while playing.
+    ToggleCartWindow,
     /// Open or close the equipment window. Only works while playing.
     ToggleEquipmentWindow,
     /// Open or close the alternate equipment set window.

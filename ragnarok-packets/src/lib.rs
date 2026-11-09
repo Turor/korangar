@@ -3806,6 +3806,33 @@ impl ToBytes for EquipPosition {
     }
 }
 
+/// `ZC_DELETE_ITEM_FROM_CART` (0x0125): index and removed amount.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0125)]
+pub struct DeleteItemFromCartPacket {
+    pub index: InventoryIndex,
+    pub amount: i32,
+}
+
+/// `CZ_MOVE_ITEM_FROM_BODY_TO_CART` (0x0126). Amount is a 32-bit count.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0126)]
+pub struct MoveItemFromBodyToCartPacket {
+    pub index: InventoryIndex,
+    pub amount: i32,
+}
+
+/// `CZ_MOVE_ITEM_FROM_CART_TO_BODY` (0x0127). Amount is a 32-bit count.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0127)]
+pub struct MoveItemFromCartToBodyPacket {
+    pub index: InventoryIndex,
+    pub amount: i32,
+}
+
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0998)]

@@ -97,6 +97,10 @@ where
                     event: InputEvent::ToggleInventoryWindow,
                 },
                 button! {
+                    text: client_state().localization().cart_button_text(),
+                    event: InputEvent::ToggleCartWindow,
+                },
+                button! {
                     text: client_state().localization().equipment_button_text(),
                     event: InputEvent::ToggleEquipmentWindow,
                 },

@@ -2,13 +2,15 @@
 //! Never publish a non-inventory or failed transfer as the player inventory.
 //!
 //! Wire contexts (Hercules `e_inventory_type`): 0 player bag, 1 cart, 2 Kafra
-//! storage, 3 guild storage. Cart stays unpublished until a cart window exists.
+//! storage, 3 guild storage.
+
 use std::collections::HashMap;
 
 /// Which client list a completed inventory snapshot belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum InventoryListKind {
     Player,
+    Cart,
     Storage,
 }
 
@@ -32,8 +34,8 @@ impl<T> InventoryLists<T> {
     }
 
     /// `flag != 0` is a failed transfer and must not publish.
-    /// Context 0 is the player bag. Contexts 2 and 3 are storage. Every other
-    /// context (cart) is discarded so it cannot replace either list.
+    /// Context 0 is the player bag, 1 is the cart, and 2 and 3 are storage.
+    /// Every other context is discarded so it cannot replace either list.
     pub fn finish(&mut self, context: u8, flag: u8) -> Option<(InventoryListKind, Vec<T>)> {
         let items = self.pending.remove(&context)?;
         if flag != 0 {
@@ -41,6 +43,7 @@ impl<T> InventoryLists<T> {
         }
         match context {
             0 => Some((InventoryListKind::Player, items)),
+            1 => Some((InventoryListKind::Cart, items)),
             2 | 3 => Some((InventoryListKind::Storage, items)),
             _ => None,
         }
@@ -59,11 +62,14 @@ mod tests {
             lists.extend(context, [context as i32]);
         }
         lists.extend(0, [20]);
-        assert_eq!(lists.finish(1, 0), None);
+        assert_eq!(lists.finish(1, 0), Some((InventoryListKind::Cart, vec![1])));
         assert_eq!(lists.finish(2, 0), Some((InventoryListKind::Storage, vec![2])));
         assert_eq!(lists.finish(3, 0), Some((InventoryListKind::Storage, vec![3])));
         assert_eq!(lists.finish(0, 0), Some((InventoryListKind::Player, vec![10, 20])));
         assert_eq!(lists.finish(0, 0), None);
+        lists.start(1);
+        lists.extend(1, [7]);
+        assert_eq!(lists.finish(1, 1), None);
     }
 
     #[test]
@@ -147,6 +153,7 @@ mod tests {
             );
             let start = Instant::now();
             let mut replacements = 0;
+            let mut cart_lists = 0;
             let mut storage_lists = 0;
             while start.elapsed() < Duration::from_secs(4) {
                 network.get_events(&mut events);
@@ -154,6 +161,7 @@ mod tests {
                 for event in events.drain() {
                     match event {
                         NetworkEvent::SetInventory { .. } => replacements += 1,
+                        NetworkEvent::SetCart { .. } => cart_lists += 1,
                         NetworkEvent::SetStorage { .. } => storage_lists += 1,
                         NetworkEvent::MapServerDisconnected { .. } => disconnected = true,
                         _ => {}
@@ -167,6 +175,7 @@ mod tests {
             network.disconnect_from_map_server();
             server.join().unwrap();
             assert_eq!(replacements, 1, "only ordinary inventory may replace the player inventory");
+            assert_eq!(cart_lists, 1, "cart context is published separately from the bag");
             assert_eq!(storage_lists, 2, "kafra and guild storage lists must publish separately");
         }
     }
