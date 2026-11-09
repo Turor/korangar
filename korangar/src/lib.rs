@@ -1142,6 +1142,7 @@ impl Client {
                     self.client_state.follow_mut(client_state().status_effects()).clear();
                     self.client_state.follow_mut(client_state().skill_cooldowns()).clear();
                     self.client_state.follow_mut(client_state().quest_log()).clear();
+                    self.client_state.follow_mut(client_state().achievements()).clear();
                     self.client_state.follow_mut(client_state().navigation()).clear();
                     self.client_state.follow_mut(client_state().guild()).clear();
                     self.client_state.follow_mut(client_state().guild_window()).clear();
@@ -1239,6 +1240,7 @@ impl Client {
                         self.client_state.follow_mut(client_state().status_effects()).clear();
                         self.client_state.follow_mut(client_state().skill_cooldowns()).clear();
                         self.client_state.follow_mut(client_state().quest_log()).clear();
+                        self.client_state.follow_mut(client_state().achievements()).clear();
                         self.client_state.follow_mut(client_state().navigation()).clear();
                         self.client_state.follow_mut(client_state().guild()).clear();
                         self.client_state.follow_mut(client_state().guild_window()).clear();
@@ -1988,33 +1990,31 @@ impl Client {
                     attack_range,
                     account_id,
                 } => {
-                    self.client_state
-                        .follow_mut(client_state().companion_window())
-                        .show_mercenary(
-                            crate::interface::windows::MercenaryPanel {
-                                name,
-                                level,
-                                attack,
-                                magic_attack,
-                                hit,
-                                critical,
-                                defense,
-                                magic_defense,
-                                flee,
-                                attack_speed,
-                                health_points,
-                                maximum_health_points,
-                                spell_points,
-                                maximum_spell_points,
-                                expire_date,
-                                faith,
-                                summons,
-                                kills,
-                                attack_range,
-                            },
-                            account_id == 0,
-                            summary,
-                        );
+                    self.client_state.follow_mut(client_state().companion_window()).show_mercenary(
+                        crate::interface::windows::MercenaryPanel {
+                            name,
+                            level,
+                            attack,
+                            magic_attack,
+                            hit,
+                            critical,
+                            defense,
+                            magic_defense,
+                            flee,
+                            attack_speed,
+                            health_points,
+                            maximum_health_points,
+                            spell_points,
+                            maximum_spell_points,
+                            expire_date,
+                            faith,
+                            summons,
+                            kills,
+                            attack_range,
+                        },
+                        account_id == 0,
+                        summary,
+                    );
                     self.interface.open_window(CompanionWindow::new());
                 }
                 NetworkEvent::MercenaryParameter { variable, value } => {
@@ -3187,6 +3187,50 @@ impl Client {
                 NetworkEvent::QuestRemoved { quest_id } => {
                     self.client_state.follow_mut(client_state().quest_log()).remove(quest_id);
                 }
+                NetworkEvent::AchievementList {
+                    total_score,
+                    level,
+                    experience,
+                    experience_to_next_level,
+                    entries,
+                } => {
+                    self.client_state.follow_mut(client_state().achievements()).replace_list(
+                        total_score,
+                        level,
+                        experience,
+                        experience_to_next_level,
+                        entries,
+                    );
+                }
+                NetworkEvent::AchievementUpdate {
+                    total_score,
+                    level,
+                    experience,
+                    experience_to_next_level,
+                    entry,
+                } => {
+                    self.client_state.follow_mut(client_state().achievements()).upsert(
+                        total_score,
+                        level,
+                        experience,
+                        experience_to_next_level,
+                        entry,
+                    );
+                }
+                NetworkEvent::AchievementReward { failed, achievement_id } => {
+                    self.client_state
+                        .follow_mut(client_state().achievements())
+                        .apply_reward(achievement_id, failed);
+                }
+                NetworkEvent::Attendance {
+                    start_time,
+                    end_time,
+                    count,
+                } => {
+                    self.client_state
+                        .follow_mut(client_state().achievements())
+                        .set_attendance(start_time, end_time, count);
+                }
                 NetworkEvent::NavigateTo {
                     target_type,
                     service_flags,
@@ -3462,6 +3506,25 @@ impl Client {
                             true => self.interface.close_window_with_class(WindowClass::QuestJournal),
                             false => self.interface.open_window(QuestJournalWindow::new(client_state().quest_log())),
                         }
+                    }
+                }
+                InputEvent::ToggleAchievementsWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Achievements) {
+                            true => self.interface.close_window_with_class(WindowClass::Achievements),
+                            false => {
+                                let _ = self.networking_system.request_attendance();
+                                self.interface.open_window(AchievementsWindow::new(client_state().achievements()));
+                            }
+                        }
+                    }
+                }
+                InputEvent::RequestAttendance => {
+                    let _ = self.networking_system.request_attendance();
+                }
+                InputEvent::ClaimAchievementReward => {
+                    if let Some(achievement_id) = self.client_state.follow(client_state().achievements()).claimable_id() {
+                        let _ = self.networking_system.request_achievement_reward(achievement_id);
                     }
                 }
                 InputEvent::ToggleNavigationWindow => {

@@ -1038,6 +1038,45 @@ pub struct AchievementListPacket {
     pub acheivement_data: Vec<AchievementData>,
 }
 
+/// Ask the map server to grant a completed achievement reward
+/// (`CZ_REQ_ACH_REWARD`, 0x0A25, 6 bytes).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A25)]
+pub struct RequestAchievementRewardPacket {
+    pub achievement_id: u32,
+}
+
+/// Reward request result (`ZC_ACH_REWARD_ACK`, 0x0A26, 7 bytes).
+/// `failed` is 0 when the server granted the reward.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A26)]
+pub struct AchievementRewardAckPacket {
+    pub failed: u8,
+    pub achievement_id: u32,
+}
+
+/// Attendance window payload (`ZC_ATTENDANCE_DATA`, 0x0AE3).
+///
+/// The packet is length-prefixed. These three fields are the fixed body used
+/// by the 2018 attendance UI: period start, period end, and days attended.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0AE3)]
+#[variable_length]
+pub struct AttendanceDataPacket {
+    pub start_time: u32,
+    pub end_time: u32,
+    pub attendance_count: u32,
+}
+
+/// Ask the map server for the attendance window (`CZ_REQ_ATTENDANCE`, 0x0AEF).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0AEF)]
+pub struct RequestAttendancePacket {}
+
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0ADE)]
@@ -4513,7 +4552,8 @@ pub struct WarpraResultPacket {
 }
 
 /// Pet menu action (`CZ_COMMAND_PET`, `0x01A1`, 3 bytes).
-/// `0` info, `1` feed, `2` performance, `3` return to egg, `4` unequip accessory.
+/// `0` info, `1` feed, `2` performance, `3` return to egg, `4` unequip
+/// accessory.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x01A1)]
@@ -4547,8 +4587,8 @@ pub struct PetStatePacket {
 }
 
 /// Homunculus menu (`CZ_COMMAND_MER`, `0x022D`, 5 bytes).
-/// `kind` is the action word. `command` repeats that action in the trailing byte
-/// the 20250716 length table reserves.
+/// `kind` is the action word. `command` repeats that action in the trailing
+/// byte the 20250716 length table reserves.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x022D)]
@@ -4587,7 +4627,8 @@ pub struct HomunculusPropertyPacket {
     pub attack_range: u16,
 }
 
-/// Mercenary menu (`CZ_MER_COMMAND`, `0x029F`, 3 bytes). `1` dismisses the mercenary.
+/// Mercenary menu (`CZ_MER_COMMAND`, `0x029F`, 3 bytes). `1` dismisses the
+/// mercenary.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x029F)]
@@ -4623,7 +4664,8 @@ pub struct MercenaryInitPacket {
     pub attack_range: i16,
 }
 
-/// Mercenary stat block (`ZC_MER_PROPERTY`, `0x029C`, 66 bytes). Health fields are 16-bit.
+/// Mercenary stat block (`ZC_MER_PROPERTY`, `0x029C`, 66 bytes). Health fields
+/// are 16-bit.
 #[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x029C)]
@@ -4679,7 +4721,6 @@ pub struct ElementalParameterPacket {
     pub variable: u16,
     pub value: u32,
 }
-
 
 #[derive(Debug, Clone, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]

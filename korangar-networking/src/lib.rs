@@ -1327,6 +1327,23 @@ where
         }
     }
 
+    /// `CZ_REQ_ACH_REWARD` (0x0A25).
+    pub fn request_achievement_reward(&mut self, achievement_id: u32) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(ragnarok_packets::RequestAchievementRewardPacket { achievement_id }),
+        }
+    }
+
+    /// `CZ_REQ_ATTENDANCE` (0x0AEF). The server answers with attendance data.
+    pub fn request_attendance(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(ragnarok_packets::RequestAttendancePacket {})
+            }
+        }
+    }
+
     pub fn request_stat_up(&mut self, stat_type: StatUpType) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
@@ -2299,6 +2316,96 @@ mod packet_handlers {
                 ..
             }] if objectives.is_empty()
         ));
+    }
+
+    fn achievement_packet_bytes() -> Vec<u8> {
+        let mut writer = ByteWriter::new();
+        let entry = ragnarok_packets::AchievementData {
+            acheivement_id: 12,
+            is_completed: 1,
+            objectives: [3, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            completion_timestamp: 40,
+            got_rewarded: 0,
+        };
+        ragnarok_packets::AchievementListPacket {
+            achievement_count: 1,
+            total_score: 10,
+            level: 2,
+            acheivement_experience: 4,
+            acheivement_experience_to_next_level: 20,
+            acheivement_data: vec![entry.clone()],
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        ragnarok_packets::AchievementUpdatePacket {
+            total_score: 15,
+            level: 2,
+            acheivement_experience: 9,
+            acheivement_experience_to_next_level: 20,
+            acheivement_data: entry,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        ragnarok_packets::AchievementRewardAckPacket {
+            failed: 0,
+            achievement_id: 12,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        ragnarok_packets::AttendanceDataPacket {
+            start_time: 100,
+            end_time: 200,
+            attendance_count: 3,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        writer.into_inner()
+    }
+
+    #[test]
+    fn achievement_and_attendance_packets_round_trip() {
+        let bytes = achievement_packet_bytes();
+        assert_eq!(&bytes[0..2], &0x0A23u16.to_le_bytes());
+        let events = map_events(SupportedPacketVersion::_20250716, &bytes);
+        assert!(matches!(
+            events.first(),
+            Some(NetworkEvent::AchievementList {
+                total_score: 10,
+                level: 2,
+                entries,
+                ..
+            }) if entries.len() == 1 && entries[0].acheivement_id == 12 && entries[0].got_rewarded == 0
+        ));
+        assert!(matches!(
+            events.get(1),
+            Some(NetworkEvent::AchievementUpdate { total_score: 15, entry, .. }) if entry.acheivement_id == 12
+        ));
+        assert!(matches!(
+            events.get(2),
+            Some(NetworkEvent::AchievementReward {
+                failed: false,
+                achievement_id: 12
+            })
+        ));
+        assert!(matches!(
+            events.get(3),
+            Some(NetworkEvent::Attendance {
+                start_time: 100,
+                end_time: 200,
+                count: 3
+            })
+        ));
+        assert_eq!(events.len(), 4);
+
+        let mut request = ByteWriter::new();
+        ragnarok_packets::RequestAchievementRewardPacket { achievement_id: 12 }
+            .packet_to_bytes(&mut request)
+            .unwrap();
+        ragnarok_packets::RequestAttendancePacket {}
+            .packet_to_bytes(&mut request)
+            .unwrap();
+        let request = request.into_inner();
+        assert_eq!(request, [0x25, 0x0A, 12, 0, 0, 0, 0xEF, 0x0A]);
     }
 
     fn map_handler(

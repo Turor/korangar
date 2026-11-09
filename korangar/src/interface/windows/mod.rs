@@ -1,3 +1,4 @@
+mod achievements;
 mod audio_settings;
 mod buy;
 mod buy_cart;
@@ -9,9 +10,9 @@ mod character_overview;
 mod character_selection;
 mod chat;
 mod clan;
-mod companions;
 #[cfg(feature = "debug")]
 mod commands;
+mod companions;
 mod dialog;
 mod eden;
 mod enchant;
@@ -64,6 +65,7 @@ mod warpra;
 
 use serde::{Deserialize, Serialize};
 
+pub use self::achievements::AchievementsWindow;
 pub use self::audio_settings::AudioSettingsWindow;
 pub use self::buy::BuyWindow;
 pub use self::buy_cart::BuyCartWindow;
@@ -75,9 +77,9 @@ pub use self::character_overview::CharacterOverviewWindow;
 pub use self::character_selection::CharacterSelectionWindow;
 pub use self::chat::{ChatTextBox, ChatWindow, ChatWindowState};
 pub use self::clan::ClanWindow;
-pub use self::companions::{CompanionWindow, CompanionWindowState, MercenaryPanel, PetPanel};
 #[cfg(feature = "debug")]
 pub use self::commands::CommandsWindow;
+pub use self::companions::{CompanionWindow, CompanionWindowState, MercenaryPanel, PetPanel};
 pub use self::dialog::{DialogWindow, DialogWindowState};
 pub use self::eden::{EdenWindow, EdenWindowState};
 pub use self::enchant::{EnchantWindow, EnchantWindowState};
@@ -157,6 +159,7 @@ pub enum WindowClass {
     Stats,
     StatusEffects,
     QuestJournal,
+    Achievements,
     Navigation,
     FriendList,
     FriendRequest,

@@ -129,6 +129,10 @@ where
                     event: InputEvent::ToggleQuestJournalWindow,
                 },
                 button! {
+                    text: "Achievements",
+                    event: InputEvent::ToggleAchievementsWindow,
+                },
+                button! {
                     text: "Navigation",
                     event: InputEvent::ToggleNavigationWindow,
                 },

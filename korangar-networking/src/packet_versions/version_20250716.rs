@@ -366,8 +366,6 @@ where
     })?;
     packet_handler.register_noop::<UpdateAttackRangePacket>()?;
     crate::packet_versions::rodex::register_rodex_packets(packet_handler)?;
-    packet_handler.register_noop::<AchievementUpdatePacket>()?;
-    packet_handler.register_noop::<AchievementListPacket>()?;
     packet_handler.register_noop::<CriticalWeightUpdatePacket>()?;
     packet_handler.register(|packet: SpriteChangePacket| match packet.sprite_type {
         SpriteChangeType::Base => Some(NetworkEvent::ChangeJob {
@@ -1073,6 +1071,7 @@ where
     packet_handler.register(open_market_event)?;
     crate::packet_versions::enchant::register_enchant_packets(packet_handler)?;
     crate::packet_versions::stable::register_stable_packets(packet_handler)?;
+    crate::packet_versions::achievements::register_achievement_packets(packet_handler)?;
     crate::packet_versions::eden::register_eden_packets(packet_handler)?;
     crate::packet_versions::warpra::register_warpra_packets(packet_handler)?;
     crate::packet_versions::companions::register_companion_packets(packet_handler, true)?;

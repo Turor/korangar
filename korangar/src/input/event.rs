@@ -111,6 +111,12 @@ pub enum InputEvent {
     },
     /// Open or close the quest journal. Only works while playing.
     ToggleQuestJournalWindow,
+    /// Open or close the achievement and attendance list.
+    ToggleAchievementsWindow,
+    /// Ask the map server for the attendance period.
+    RequestAttendance,
+    /// Ask the map server to grant the first completed achievement reward.
+    ClaimAchievementReward,
     /// Open or close the navigation and minimap-mark window.
     ToggleNavigationWindow,
     /// Open or close the status effects strip. Only works while playing.
