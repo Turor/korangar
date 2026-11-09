@@ -18,6 +18,19 @@ pub struct RefineMaterialOffer {
     pub zeny: u32,
 }
 
+/// One guild member row from `ZC_MEMBERMGR_INFO`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GuildMemberSnapshot {
+    pub account_id: AccountId,
+    pub character_id: CharacterId,
+    pub name: String,
+    pub job: i16,
+    pub level: i16,
+    pub position_id: i32,
+    pub online: bool,
+    pub contribution: i32,
+}
+
 /// One row from a shop-search result (`0x0B64`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchStoreHit {
@@ -303,6 +316,52 @@ pub enum NetworkEvent {
     /// Whether this client may receive party invitations (`0x02C9`).
     PartyInvitationState {
         invitations_allowed: bool,
+    },
+    /// `ZC_UPDATE_GDID`. `guild_id == 0` means this character is not in a
+    /// guild.
+    GuildAffiliation {
+        guild_id: u32,
+        name: String,
+        is_master: bool,
+        master_character_id: u32,
+    },
+    /// `ZC_GUILD_INFO` (`0x0B7B`).
+    GuildInfo {
+        guild_id: u32,
+        level: i32,
+        online_members: i32,
+        max_members: i32,
+        average_level: i32,
+        experience: i32,
+        next_experience: i32,
+        emblem_version: i32,
+        name: String,
+        master_name: String,
+        territory: String,
+        master_character_id: u32,
+    },
+    /// `ZC_MEMBERMGR_INFO` (`0x0B7D`).
+    GuildMembers {
+        members: Vec<GuildMemberSnapshot>,
+    },
+    /// `ZC_POSITION_ID_NAME_INFO` (`0x0166`).
+    GuildPositions {
+        positions: Vec<(i32, String)>,
+    },
+    /// `ZC_GUILD_NOTICE` (`0x016F`).
+    GuildNotice {
+        subject: String,
+        notice: String,
+    },
+    /// Member came online or went offline (`0x01F2` / `0x016D`).
+    GuildMemberOnline {
+        account_id: AccountId,
+        character_id: CharacterId,
+        online: bool,
+    },
+    /// Member left or was expelled (`0x0A83` / `0x0A82`).
+    GuildMemberRemoved {
+        character_id: CharacterId,
     },
     SetHotkeyData {
         tab: HotbarTab,

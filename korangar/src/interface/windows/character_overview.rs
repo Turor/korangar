@@ -117,6 +117,10 @@ where
                     event: InputEvent::ToggleFriendListWindow,
                 },
                 button! {
+                    text: "Guild",
+                    event: InputEvent::ToggleGuildWindow,
+                },
+                button! {
                     text: "Quests",
                     event: InputEvent::ToggleQuestJournalWindow,
                 },

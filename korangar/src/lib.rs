@@ -1141,6 +1141,8 @@ impl Client {
                     self.client_state.follow_mut(client_state().status_effects()).clear();
                     self.client_state.follow_mut(client_state().skill_cooldowns()).clear();
                     self.client_state.follow_mut(client_state().quest_log()).clear();
+                    self.client_state.follow_mut(client_state().guild()).clear();
+                    self.client_state.follow_mut(client_state().guild_window()).clear();
 
                     self.audio_engine.play_background_music_track(None);
 
@@ -1224,6 +1226,8 @@ impl Client {
                         self.client_state.follow_mut(client_state().status_effects()).clear();
                         self.client_state.follow_mut(client_state().skill_cooldowns()).clear();
                         self.client_state.follow_mut(client_state().quest_log()).clear();
+                        self.client_state.follow_mut(client_state().guild()).clear();
+                        self.client_state.follow_mut(client_state().guild_window()).clear();
                         self.interface.open_window(CharacterSelectionWindow::new(
                             client_state().character_slots(),
                             client_state().switch_request(),
@@ -2007,6 +2011,85 @@ impl Client {
                     self.interface.open_window(PartyInviteWindow::new(party_id, party_name));
                 }
                 NetworkEvent::PartyInvitationState { .. } => {}
+                NetworkEvent::GuildAffiliation {
+                    guild_id,
+                    name,
+                    is_master,
+                    master_character_id,
+                } => {
+                    let joined = {
+                        let guild = self.client_state.follow_mut(client_state().guild());
+                        guild.apply_affiliation(guild_id, name, is_master, master_character_id);
+                        guild.joined
+                    };
+                    if !joined {
+                        self.client_state.follow_mut(client_state().guild_window()).clear();
+                    }
+                }
+                NetworkEvent::GuildInfo {
+                    guild_id,
+                    level,
+                    online_members,
+                    max_members,
+                    average_level,
+                    experience,
+                    next_experience,
+                    emblem_version,
+                    name,
+                    master_name,
+                    territory,
+                    master_character_id,
+                } => {
+                    self.client_state
+                        .follow_mut(client_state().guild())
+                        .apply_info(crate::state::guild::GuildInfoUpdate {
+                            guild_id,
+                            level,
+                            online_members,
+                            max_members,
+                            average_level,
+                            experience,
+                            next_experience,
+                            emblem_version,
+                            name,
+                            master_name,
+                            territory,
+                            master_character_id,
+                        });
+                }
+                NetworkEvent::GuildMembers { members } => {
+                    self.client_state.follow_mut(client_state().guild()).set_members(members);
+                }
+                NetworkEvent::GuildPositions { positions } => {
+                    self.client_state.follow_mut(client_state().guild()).set_positions(positions);
+                }
+                NetworkEvent::GuildNotice { subject, notice } => {
+                    self.client_state
+                        .follow_mut(client_state().guild())
+                        .set_notice(subject.clone(), notice.clone());
+                    let drafts = self.client_state.follow_mut(client_state().guild_window());
+                    drafts.subject = subject;
+                    drafts.notice = notice;
+                }
+                NetworkEvent::GuildMemberOnline {
+                    account_id,
+                    character_id,
+                    online,
+                } => {
+                    self.client_state
+                        .follow_mut(client_state().guild())
+                        .set_member_online(account_id, character_id, online);
+                }
+                NetworkEvent::GuildMemberRemoved { character_id } => {
+                    let removed_name = self.client_state.follow_mut(client_state().guild()).remove_member(character_id);
+                    if let Some(name) = removed_name {
+                        let player_name = self.client_state.follow(client_state().player_name()).clone();
+                        if player_name == name {
+                            self.client_state.follow_mut(client_state().guild()).clear();
+                            self.client_state.follow_mut(client_state().guild_window()).clear();
+                        }
+                    }
+                }
                 NetworkEvent::FriendAdded { friend } => {
                     self.client_state
                         .follow_mut(client_state().friend_list())
@@ -2925,6 +3008,28 @@ impl Client {
                                 client_state().friend_list(),
                             )),
                         }
+                    }
+                }
+                InputEvent::ToggleGuildWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Guild) {
+                            true => self.interface.close_window_with_class(WindowClass::Guild),
+                            false => {
+                                let _ = self.networking_system.request_guild_window();
+                                self.interface
+                                    .open_window(GuildWindow::new(client_state().guild_window(), client_state().guild()));
+                            }
+                        }
+                    }
+                }
+                InputEvent::RequestGuildWindow => {
+                    let _ = self.networking_system.request_guild_window();
+                }
+                InputEvent::UpdateGuildNotice { subject, notice } => {
+                    let guild_id = self.client_state.follow(client_state().guild()).guild_id;
+                    let is_master = self.client_state.follow(client_state().guild()).is_master;
+                    if guild_id != 0 && is_master {
+                        let _ = self.networking_system.update_guild_notice(guild_id, subject, notice);
                     }
                 }
                 InputEvent::CloseTopWindow => self.interface.close_top_window(&self.client_state),

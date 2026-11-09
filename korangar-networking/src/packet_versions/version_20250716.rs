@@ -15,8 +15,8 @@ use crate::event::{NetworkEventList, NoNetworkEvents};
 use crate::items::ItemQuantity;
 use crate::packet_versions::economy::open_market_event;
 use crate::{
-    CharacterServerLoginData, HotkeyState, InventoryItem, InventoryItemDetails, LoginServerLoginData, MessageColor, NetworkEvent,
-    NoMetadata, ShopItem, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
+    CharacterServerLoginData, GuildMemberSnapshot, HotkeyState, InventoryItem, InventoryItemDetails, LoginServerLoginData, MessageColor,
+    NetworkEvent, NoMetadata, ShopItem, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
 };
 
 pub fn register_login_server_packets<Callback>(
@@ -1000,6 +1000,69 @@ where
     packet_handler.register(|packet: PartyInvitePacket| NetworkEvent::PartyInvite {
         party_id: packet.party_id,
         party_name: packet.party_name,
+    })?;
+    packet_handler.register(|packet: GuildAffiliationPacket| NetworkEvent::GuildAffiliation {
+        guild_id: packet.guild_id,
+        name: packet.guild_name,
+        is_master: packet.is_master != 0,
+        master_character_id: packet.master_character_id,
+    })?;
+    packet_handler.register(|packet: GuildInfoPacket| NetworkEvent::GuildInfo {
+        guild_id: packet.guild_id,
+        level: packet.level,
+        online_members: packet.online_members,
+        max_members: packet.max_members,
+        average_level: packet.average_level,
+        experience: packet.experience,
+        next_experience: packet.next_experience,
+        emblem_version: packet.emblem_version,
+        name: packet.name,
+        master_name: packet.master_name,
+        territory: packet.territory,
+        master_character_id: packet.master_character_id,
+    })?;
+    packet_handler.register(|packet: GuildMemberListPacket| NetworkEvent::GuildMembers {
+        members: packet
+            .members
+            .into_iter()
+            .map(|member| GuildMemberSnapshot {
+                account_id: member.account_id,
+                character_id: member.character_id,
+                name: member.name,
+                job: member.job,
+                level: member.level,
+                position_id: member.position_id,
+                online: member.current_state != 0,
+                contribution: member.contribution_exp,
+            })
+            .collect(),
+    })?;
+    packet_handler.register(|packet: GuildPositionNamesPacket| NetworkEvent::GuildPositions {
+        positions: packet
+            .positions
+            .into_iter()
+            .map(|position| (position.position_id, position.name))
+            .collect(),
+    })?;
+    packet_handler.register(|packet: GuildNoticePacket| NetworkEvent::GuildNotice {
+        subject: packet.subject,
+        notice: packet.notice,
+    })?;
+    packet_handler.register(|packet: GuildMemberOnlinePacket| NetworkEvent::GuildMemberOnline {
+        account_id: packet.account_id,
+        character_id: packet.character_id,
+        online: packet.status != 0,
+    })?;
+    packet_handler.register(|packet: GuildMemberOnlineShortPacket| NetworkEvent::GuildMemberOnline {
+        account_id: packet.account_id,
+        character_id: packet.character_id,
+        online: packet.status != 0,
+    })?;
+    packet_handler.register(|packet: GuildLeavePacket| NetworkEvent::GuildMemberRemoved {
+        character_id: packet.character_id,
+    })?;
+    packet_handler.register(|packet: GuildExpulsionPacket| NetworkEvent::GuildMemberRemoved {
+        character_id: packet.character_id,
     })?;
     packet_handler.register_noop::<ReputationPacket>()?;
     packet_handler.register_noop::<ClanInfoPacket>()?;
