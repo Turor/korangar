@@ -8,6 +8,7 @@ mod character_creation;
 mod character_overview;
 mod character_selection;
 mod chat;
+mod clan;
 mod companions;
 #[cfg(feature = "debug")]
 mod commands;
@@ -73,6 +74,7 @@ pub use self::character_creation::CharacterCreationWindow;
 pub use self::character_overview::CharacterOverviewWindow;
 pub use self::character_selection::CharacterSelectionWindow;
 pub use self::chat::{ChatTextBox, ChatWindow, ChatWindowState};
+pub use self::clan::ClanWindow;
 pub use self::companions::{CompanionWindow, CompanionWindowState, MercenaryPanel, PetPanel};
 #[cfg(feature = "debug")]
 pub use self::commands::CommandsWindow;
@@ -159,6 +161,7 @@ pub enum WindowClass {
     FriendList,
     FriendRequest,
     Guild,
+    Clan,
     PartyInvite,
     Login,
     Menu,

@@ -1145,6 +1145,7 @@ impl Client {
                     self.client_state.follow_mut(client_state().navigation()).clear();
                     self.client_state.follow_mut(client_state().guild()).clear();
                     self.client_state.follow_mut(client_state().guild_window()).clear();
+                    self.client_state.follow_mut(client_state().clan()).clear();
                     self.client_state.follow_mut(client_state().warpra_window()).clear_catalog();
                     self.client_state.follow_mut(client_state().companion_window()).clear();
                     self.client_state.follow_mut(client_state().mvp_minimap()).clear_markers();
@@ -2349,6 +2350,33 @@ impl Client {
                         .follow_mut(client_state().guild())
                         .set_member_online(account_id, character_id, online);
                 }
+                NetworkEvent::ClanInfo {
+                    clan_id,
+                    name,
+                    master_name,
+                    map_name,
+                    alliances,
+                    antagonists,
+                } => {
+                    self.client_state
+                        .follow_mut(client_state().clan())
+                        .apply_info(crate::state::clan::ClanInfoUpdate {
+                            clan_id,
+                            name,
+                            master_name,
+                            map_name,
+                            alliances,
+                            antagonists,
+                        });
+                }
+                NetworkEvent::ClanOnlineCount {
+                    online_members,
+                    maximum_members,
+                } => {
+                    self.client_state
+                        .follow_mut(client_state().clan())
+                        .set_online_count(online_members, maximum_members);
+                }
                 NetworkEvent::GuildMemberRemoved { character_id } => {
                     let removed_name = self.client_state.follow_mut(client_state().guild()).remove_member(character_id);
                     if let Some(name) = removed_name {
@@ -3459,6 +3487,14 @@ impl Client {
                                 client_state().friend_list_window(),
                                 client_state().friend_list(),
                             )),
+                        }
+                    }
+                }
+                InputEvent::ToggleClanWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Clan) {
+                            true => self.interface.close_window_with_class(WindowClass::Clan),
+                            false => self.interface.open_window(ClanWindow::new(client_state().clan())),
                         }
                     }
                 }
