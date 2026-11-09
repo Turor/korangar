@@ -2581,6 +2581,9 @@ impl Client {
                 }
                 NetworkEvent::EnchantGradeResult { index, grade, result } => {
                     self.client_state
+                        .follow_mut(client_state().inventory())
+                        .apply_enchant_grade(index, grade, result);
+                    self.client_state
                         .follow_mut(client_state().enchant_grade())
                         .note_result(index.0, grade, result);
                     let status = self.client_state.follow(client_state().enchant_grade()).status.clone();
@@ -3810,8 +3813,8 @@ impl Client {
                     self.interface.close_window_with_class(WindowClass::EnchantGrade);
                 }
                 InputEvent::LaphineSynthesisAdd => {
-                    if let Err(message) = self.client_state.follow_mut(client_state().laphine_synthesis()).add_row()
-                        && message != "too many"
+                    if let Err(crate::state::item_workshop::SynthesisAddError::Message(message)) =
+                        self.client_state.follow_mut(client_state().laphine_synthesis()).add_row()
                     {
                         self.client_state.follow_mut(client_state().laphine_synthesis()).status = message.to_owned();
                     }

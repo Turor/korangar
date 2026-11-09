@@ -75,6 +75,35 @@ impl Inventory {
         *refinement_level = refine_level;
     }
 
+    /// Apply `ZC_GRADE_ENCHANT_ACK` to the local equip.
+    ///
+    /// rAthena writes the new grade in the ack and does not send a follow-up
+    /// item packet. Result 0 also forces refine to 0. Result 3 is removed by
+    /// the existing delete-item packet, so this leaves the stack alone.
+    /// Result 2 lowers refine by a server-side `downgrade_amount` that is not
+    /// on the wire; refine stays stale until the next full inventory list.
+    /// The grade field is still written.
+    pub fn apply_enchant_grade(&mut self, index: InventoryIndex, grade: i16, result: i32) {
+        if result == 3 {
+            return;
+        }
+        let Some(item) = self.items.iter_mut().find(|item| item.index == index) else {
+            return;
+        };
+        let InventoryItemDetails::Equippable {
+            refinement_level,
+            enchantment_level,
+            ..
+        } = &mut item.details
+        else {
+            return;
+        };
+        *enchantment_level = u8::try_from(grade).unwrap_or(0);
+        if result == 0 {
+            *refinement_level = 0;
+        }
+    }
+
     pub fn update_equipped_position(&mut self, index: InventoryIndex, new_equipped_position: EquipPosition) {
         let item = self.items.iter_mut().find(|item| item.index == index).unwrap();
 
@@ -84,5 +113,74 @@ impl Inventory {
         };
 
         *equipped_position = new_equipped_position;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use korangar_networking::{InventoryItem, InventoryItemDetails};
+    use ragnarok_packets::{EquipPosition, EquippableItemFlags, InventoryIndex, ItemId, ItemOptions};
+
+    use super::Inventory;
+    use crate::world::ResourceMetadata;
+
+    fn equip(index: u16, refine: u8, grade: u8) -> InventoryItem<ResourceMetadata> {
+        let option = || ItemOptions {
+            index: 0,
+            value: 0,
+            parameter: 0,
+        };
+        InventoryItem {
+            metadata: ResourceMetadata {
+                texture: None,
+                name: String::new(),
+            },
+            index: InventoryIndex(index),
+            item_id: ItemId(1),
+            item_type: 5,
+            slot: [0; 4],
+            hire_expiration_date: 0,
+            details: InventoryItemDetails::Equippable {
+                equip_position: EquipPosition::empty(),
+                equipped_position: EquipPosition::empty(),
+                bind_on_equip_type: 0,
+                w_item_sprite_number: 0,
+                option_count: 0,
+                option_data: [option(), option(), option(), option(), option()],
+                forge_data: None,
+                refinement_level: refine,
+                enchantment_level: grade,
+                flags: EquippableItemFlags::empty(),
+            },
+        }
+    }
+
+    fn levels(inventory: &Inventory, index: u16) -> (u8, u8) {
+        let item = inventory.items.iter().find(|item| item.index == InventoryIndex(index)).unwrap();
+        let InventoryItemDetails::Equippable {
+            refinement_level,
+            enchantment_level,
+            ..
+        } = item.details
+        else {
+            panic!("expected an equip");
+        };
+        (refinement_level, enchantment_level)
+    }
+
+    #[test]
+    fn grade_ack_updates_grade_and_clears_refine_on_success() {
+        let mut inventory = Inventory::default();
+        inventory.items.push(equip(4, 10, 1));
+
+        inventory.apply_enchant_grade(InventoryIndex(4), 2, 0);
+        assert_eq!(levels(&inventory, 4), (0, 2));
+
+        inventory.items[0] = equip(4, 9, 2);
+        inventory.apply_enchant_grade(InventoryIndex(4), 2, 2);
+        assert_eq!(levels(&inventory, 4), (9, 2));
+
+        inventory.apply_enchant_grade(InventoryIndex(4), 0, 3);
+        assert_eq!(levels(&inventory, 4), (9, 2));
     }
 }

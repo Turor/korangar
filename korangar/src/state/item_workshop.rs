@@ -26,12 +26,20 @@ pub fn format_grade_result(result: i32, grade: i16) -> String {
     let outcome = match result {
         0 => "Grade enchant succeeded",
         1 => "Grade enchant failed",
-        2 => "Grade enchant lowered the refine",
+        // The ack has no downgrade amount, so the local refine is left as-is.
+        2 => "Grade enchant lowered the refine (refine updates on the next inventory list)",
         3 => "Grade enchant destroyed the item",
         4 => "Grade enchant was protected",
         _ => "Grade enchant finished",
     };
     format!("{outcome} (result {result}, grade {grade})")
+}
+
+/// Why a synthesis row was rejected. The cap writes its own status line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SynthesisAddError {
+    TooMany,
+    Message(&'static str),
 }
 
 pub fn format_reform_result(result: i8, index: u16) -> String {
@@ -196,13 +204,15 @@ impl LaphineSynthesisState {
         self.status = format!("Laphine synthesis item {item_id}. Add inventory stacks, then submit.");
     }
 
-    pub fn add_row(&mut self) -> Result<(), &'static str> {
+    pub fn add_row(&mut self) -> Result<(), SynthesisAddError> {
         if self.materials.len() >= MAX_SYNTHESIS_ROWS {
             self.status = format!("Synthesis accepts at most {MAX_SYNTHESIS_ROWS} stacks.");
-            return Err("too many");
+            return Err(SynthesisAddError::TooMany);
         }
-        let index = parse_u16(&self.index_text).ok_or("Enter an inventory index.")?;
-        let count = parse_u16(&self.count_text).filter(|count| *count > 0).ok_or("Enter a count.")?;
+        let index = parse_u16(&self.index_text).ok_or(SynthesisAddError::Message("Enter an inventory index."))?;
+        let count = parse_u16(&self.count_text)
+            .filter(|count| *count > 0)
+            .ok_or(SynthesisAddError::Message("Enter a count."))?;
         self.materials.push(LaphineMaterialRow {
             index,
             count,
@@ -303,7 +313,7 @@ mod tests {
         for _ in 0..10 {
             state.add_row().unwrap();
         }
-        assert!(state.add_row().is_err());
+        assert_eq!(state.add_row(), Err(super::SynthesisAddError::TooMany));
         assert_eq!(state.stacks().len(), 10);
         state.clear_rows();
         assert!(state.stacks().is_empty());
