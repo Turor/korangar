@@ -355,9 +355,10 @@ impl AsyncLoader {
 
                 if let Some(id) = completed_id {
                     match pending_loads.remove(&id).unwrap() {
-                        LoadStatus::Failed(_error) => {
+                        LoadStatus::Failed(error) => {
+                            eprintln!("Async load error ({id:?}): {error:?}");
                             #[cfg(feature = "debug")]
-                            print_debug!("Async load error: {:?}", _error);
+                            print_debug!("Async load error: {:?}", error);
                             None
                         }
                         LoadStatus::Completed(resource) => Some((id, resource)),
