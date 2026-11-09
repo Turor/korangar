@@ -22,8 +22,9 @@ use crate::world::{PlayerPathExt, ResourceMetadata};
 /// One cell in the paperdoll grid. Empty cells reserve a column so head, shoes,
 /// and ammo stay in the center.
 ///
-/// Layout contract for tests / future builders. The window body is hand-built so
-/// `gap` and `equip_box` opaque element types can sit in the same `split!` row.
+/// Layout contract for tests / future builders. The window body is hand-built
+/// so `gap` and `equip_box` opaque element types can sit in the same `split!`
+/// row.
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PaperdollCell {
@@ -111,7 +112,20 @@ pub(crate) const PAPERDOLL_ROWS: [[PaperdollCell; PAPERDOLL_COLUMN_COUNT]; 14] =
 
 /// Label shown under an equipment socket. Match order is historical.
 pub(crate) fn equip_slot_label(equip_position: EquipPosition) -> &'static str {
+    // More specific costume/shadow flags first so a bad/legacy multi-bit value
+    // cannot fall through to a body-slot arm via `contains`.
     match equip_position {
+        _ if equip_position.contains(EquipPosition::COSTUME_HEAD_TOP) => "Costume head top",
+        _ if equip_position.contains(EquipPosition::COSTUME_HEAD_MIDDLE) => "Costume head middle",
+        _ if equip_position.contains(EquipPosition::COSTUME_HEAD_LOWER) => "Costume head lower",
+        _ if equip_position.contains(EquipPosition::COSTUME_GARMENT) => "Costume garment",
+        _ if equip_position.contains(EquipPosition::SHADOW_LEFT_RIGHT_ACCESSORY) => "Shadow accessory",
+        _ if equip_position.contains(EquipPosition::SHADOW_RIGHT_ACCESSORY) => "Shadow right accessory",
+        _ if equip_position.contains(EquipPosition::SHADOW_LEFT_ACCESSORY) => "Shadow left accessory",
+        _ if equip_position.contains(EquipPosition::SHADOW_WEAPON) => "Shadow weapon",
+        _ if equip_position.contains(EquipPosition::SHADOW_SHIELD) => "Shadow shield",
+        _ if equip_position.contains(EquipPosition::SHADOW_SHOES) => "Shadow shoes",
+        _ if equip_position.contains(EquipPosition::SHADOW_ARMOR) => "Shadow ammo",
         _ if equip_position.contains(EquipPosition::HEAD_LOWER) => "Head lower",
         _ if equip_position.contains(EquipPosition::HEAD_MIDDLE) => "Head middle",
         _ if equip_position.contains(EquipPosition::HEAD_TOP) => "Head top",
@@ -122,20 +136,9 @@ pub(crate) fn equip_slot_label(equip_position: EquipPosition) -> &'static str {
         _ if equip_position.contains(EquipPosition::GARMENT) => "Garment",
         _ if equip_position.contains(EquipPosition::LEFT_ACCESSORY) => "Left accessory",
         _ if equip_position.contains(EquipPosition::RIGTH_ACCESSORY) => "Right accessory",
-        _ if equip_position.contains(EquipPosition::COSTUME_HEAD_TOP) => "Costume head top",
-        _ if equip_position.contains(EquipPosition::COSTUME_HEAD_MIDDLE) => "Costume head middle",
-        _ if equip_position.contains(EquipPosition::COSTUME_HEAD_LOWER) => "Costume head lower",
-        _ if equip_position.contains(EquipPosition::COSTUME_GARMENT) => "Costume garment",
         _ if equip_position.contains(EquipPosition::AMMO) => "Ammo",
-        _ if equip_position.contains(EquipPosition::SHADOW_ARMOR) => "Shadow ammo",
-        _ if equip_position.contains(EquipPosition::SHADOW_WEAPON) => "Shadow weapon",
-        _ if equip_position.contains(EquipPosition::SHADOW_SHIELD) => "Shadow shield",
-        _ if equip_position.contains(EquipPosition::SHADOW_SHOES) => "Shadow shoes",
-        _ if equip_position.contains(EquipPosition::SHADOW_RIGHT_ACCESSORY) => "Shadow right accessory",
-        _ if equip_position.contains(EquipPosition::SHADOW_LEFT_ACCESSORY) => "Shadow left accessory",
         _ if equip_position.contains(EquipPosition::LEFT_RIGHT_ACCESSORY) => "Accessory",
         _ if equip_position.contains(EquipPosition::LEFT_RIGHT_HAND) => "Two hand weapon",
-        _ if equip_position.contains(EquipPosition::SHADOW_LEFT_RIGHT_ACCESSORY) => "Shadow accessory",
         _ => panic!("no display name for equip position"),
     }
 }
@@ -507,8 +510,11 @@ mod tests {
             assert!(!equip_slot_label(position).is_empty());
         }
         assert_eq!(equip_slot_label(EquipPosition::COSTUME_HEAD_TOP), "Costume head top");
+        assert_eq!(equip_slot_label(EquipPosition::COSTUME_HEAD_LOWER), "Costume head lower");
         assert_eq!(equip_slot_label(EquipPosition::SHADOW_WEAPON), "Shadow weapon");
         assert_eq!(equip_slot_label(EquipPosition::SHADOW_ARMOR), "Shadow ammo");
+        // LEFT_RIGHT_HAND includes RIGHT_HAND; historical body-slot preference.
         assert_eq!(equip_slot_label(EquipPosition::LEFT_RIGHT_HAND), "Right hand");
+        assert_eq!(EquipPosition::COSTUME_HEAD_LOWER.bits(), 4096);
     }
 }
