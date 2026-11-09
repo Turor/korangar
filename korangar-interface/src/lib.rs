@@ -359,7 +359,8 @@ where
 
         let window_class = window.get_class();
 
-        let (anchor, size) = match window_class.and_then(|window_class| self.window_cache.get_window_state(window_class)) {
+        let (anchor, size) = match window_class.and_then(|window_class| self.window_cache.get_window_state(window_class, self.window_size))
+        {
             Some(saved_state) => saved_state,
             None => {
                 let anchor = Anchor::default();
