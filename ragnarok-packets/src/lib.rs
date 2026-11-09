@@ -1057,10 +1057,21 @@ pub struct AchievementRewardAckPacket {
     pub achievement_id: u32,
 }
 
+/// One calendar reward on `ZC_ATTENDANCE_DATA` (`0x0AE3`).
+///
+/// Item ids are 32-bit on the 20190530 packet versions this client speaks.
+#[derive(Debug, Clone, ByteConvertable, FixedByteSize)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct AttendanceReward {
+    pub item_id: u32,
+    pub amount: u32,
+}
+
 /// Attendance window payload (`ZC_ATTENDANCE_DATA`, 0x0AE3).
 ///
-/// The packet is length-prefixed. These three fields are the fixed body used
-/// by the 2018 attendance UI: period start, period end, and days attended.
+/// Length-prefixed. After the period start, period end, and days attended, the
+/// frame continues with the calendar item list. Those entries must be consumed
+/// or a framed session treats the packet as a failed decode.
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0AE3)]
@@ -1069,13 +1080,29 @@ pub struct AttendanceDataPacket {
     pub start_time: u32,
     pub end_time: u32,
     pub attendance_count: u32,
+    #[repeating_remaining]
+    pub rewards: Vec<AttendanceReward>,
 }
 
-/// Ask the map server for the attendance window (`CZ_REQ_ATTENDANCE`, 0x0AEF).
+/// Claim today's attendance reward (`pc_attendance_claim_reward`, 0x0AEF, 2 bytes).
+///
+/// This is not a request for `0x0AE3`. The map server answers with
+/// `ZC_ATTENDANCE_RESPONSE` (`0x0AF0`).
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0AEF)]
 pub struct RequestAttendancePacket {}
+
+/// Attendance claim result (`ZC_ATTENDANCE_RESPONSE`, 0x0AF0, 10 bytes).
+///
+/// rAthena writes an unused zero, then the new attendance counter.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0AF0)]
+pub struct AttendanceRewardAckPacket {
+    pub unused: u32,
+    pub result: u32,
+}
 
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]

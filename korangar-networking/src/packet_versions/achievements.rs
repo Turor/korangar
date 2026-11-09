@@ -2,7 +2,9 @@
 //! attendance window (`0x0AE3`).
 
 use ragnarok_packets::handler::{DuplicateHandlerError, PacketCallback, PacketHandler};
-use ragnarok_packets::{AchievementListPacket, AchievementRewardAckPacket, AchievementUpdatePacket, AttendanceDataPacket};
+use ragnarok_packets::{
+    AchievementListPacket, AchievementRewardAckPacket, AchievementUpdatePacket, AttendanceDataPacket, AttendanceRewardAckPacket,
+};
 
 use crate::event::{NetworkEvent, NetworkEventList};
 
@@ -34,6 +36,8 @@ where
         start_time: packet.start_time,
         end_time: packet.end_time,
         count: packet.attendance_count,
+        rewards: packet.rewards,
     })?;
+    packet_handler.register(|packet: AttendanceRewardAckPacket| NetworkEvent::AttendanceClaim { result: packet.result })?;
     Ok(())
 }

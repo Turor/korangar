@@ -1,5 +1,5 @@
 use korangar_interface::element::StateElement;
-use ragnarok_packets::AchievementData;
+use ragnarok_packets::{AchievementData, AttendanceReward};
 use rust_state::RustState;
 
 /// One achievement row for the list window.
@@ -35,6 +35,7 @@ pub struct Achievements {
     attendance_start: u32,
     attendance_end: u32,
     attendance_known: bool,
+    attendance_rewards: Vec<AttendanceReward>,
     lines: Vec<String>,
 }
 
@@ -76,10 +77,18 @@ impl Achievements {
         self.rebuild_lines();
     }
 
-    pub fn set_attendance(&mut self, start_time: u32, end_time: u32, count: u32) {
+    pub fn set_attendance(&mut self, start_time: u32, end_time: u32, count: u32, rewards: Vec<AttendanceReward>) {
         self.attendance_start = start_time;
         self.attendance_end = end_time;
         self.attendance_count = count;
+        self.attendance_rewards = rewards;
+        self.attendance_known = true;
+        self.rebuild_lines();
+    }
+
+    /// `0x0AF0` result is the new day counter. It does not replace the calendar.
+    pub fn apply_attendance_claim(&mut self, result: u32) {
+        self.attendance_count = result;
         self.attendance_known = true;
         self.rebuild_lines();
     }
@@ -103,8 +112,11 @@ impl Achievements {
     fn rebuild_lines(&mut self) {
         let attendance = if self.attendance_known {
             format!(
-                "Attendance {} days ({}-{})",
-                self.attendance_count, self.attendance_start, self.attendance_end
+                "Attendance {} days ({}-{}) rewards {}",
+                self.attendance_count,
+                self.attendance_start,
+                self.attendance_end,
+                self.attendance_rewards.len()
             )
         } else {
             "Attendance not loaded".to_owned()
@@ -167,8 +179,15 @@ mod tests {
         log.apply_reward(1, false);
         assert!(log.lines()[2].contains("rewarded"));
         assert_eq!(log.claimable_id(), Some(2));
-        log.set_attendance(10, 20, 4);
-        assert!(log.lines().iter().any(|line| line.contains("4 days")));
+        log.set_attendance(
+            10,
+            20,
+            4,
+            vec![ragnarok_packets::AttendanceReward { item_id: 501, amount: 1 }],
+        );
+        assert!(log.lines().iter().any(|line| line.contains("4 days") && line.contains("rewards 1")));
+        log.apply_attendance_claim(5);
+        assert!(log.lines().iter().any(|line| line.contains("5 days") && line.contains("rewards 1")));
         log.clear();
         assert!(log.lines().is_empty() || log.lines().iter().any(|line| line.contains("not loaded")));
     }

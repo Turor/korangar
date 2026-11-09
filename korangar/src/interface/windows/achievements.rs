@@ -107,7 +107,7 @@ where
             maximum_height: 520.0,
             elements: (
                 button! {
-                    text: "Check attendance",
+                    text: "Claim attendance",
                     event: InputEvent::RequestAttendance,
                 },
                 button! {

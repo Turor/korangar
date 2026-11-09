@@ -1335,7 +1335,7 @@ where
         }
     }
 
-    /// `CZ_REQ_ATTENDANCE` (0x0AEF). The server answers with attendance data.
+    /// Claim today's attendance reward (`0x0AEF`). The server answers with `0x0AF0`.
     pub fn request_attendance(&mut self) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
@@ -2356,9 +2356,13 @@ mod packet_handlers {
             start_time: 100,
             end_time: 200,
             attendance_count: 3,
+            rewards: vec![ragnarok_packets::AttendanceReward { item_id: 501, amount: 10 }],
         }
         .packet_to_bytes(&mut writer)
         .unwrap();
+        ragnarok_packets::AttendanceRewardAckPacket { unused: 0, result: 4 }
+            .packet_to_bytes(&mut writer)
+            .unwrap();
         writer.into_inner()
     }
 
@@ -2392,10 +2396,12 @@ mod packet_handlers {
             Some(NetworkEvent::Attendance {
                 start_time: 100,
                 end_time: 200,
-                count: 3
-            })
+                count: 3,
+                rewards,
+            }) if rewards.len() == 1 && rewards[0].item_id == 501 && rewards[0].amount == 10
         ));
-        assert_eq!(events.len(), 4);
+        assert!(matches!(events.get(4), Some(NetworkEvent::AttendanceClaim { result: 4 })));
+        assert_eq!(events.len(), 5);
 
         let mut request = ByteWriter::new();
         ragnarok_packets::RequestAchievementRewardPacket { achievement_id: 12 }

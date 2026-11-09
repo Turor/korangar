@@ -3226,10 +3226,16 @@ impl Client {
                     start_time,
                     end_time,
                     count,
+                    rewards,
                 } => {
                     self.client_state
                         .follow_mut(client_state().achievements())
-                        .set_attendance(start_time, end_time, count);
+                        .set_attendance(start_time, end_time, count, rewards);
+                }
+                NetworkEvent::AttendanceClaim { result } => {
+                    self.client_state
+                        .follow_mut(client_state().achievements())
+                        .apply_attendance_claim(result);
                 }
                 NetworkEvent::NavigateTo {
                     target_type,
@@ -3513,7 +3519,6 @@ impl Client {
                         match self.interface.is_window_with_class_open(WindowClass::Achievements) {
                             true => self.interface.close_window_with_class(WindowClass::Achievements),
                             false => {
-                                let _ = self.networking_system.request_attendance();
                                 self.interface.open_window(AchievementsWindow::new(client_state().achievements()));
                             }
                         }
