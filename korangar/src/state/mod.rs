@@ -8,6 +8,7 @@ pub mod friends;
 pub mod guild;
 pub mod hotbar;
 pub mod inventory;
+pub mod item_finder;
 pub mod item_workshop;
 pub mod localization;
 pub mod navigation;
@@ -48,6 +49,7 @@ use theme::{InterfaceTheme, InterfaceThemePathExt, InterfaceThemeType};
 #[cfg(feature = "debug")]
 use self::cache_statistics::CacheStatistics;
 use self::clan::ClanState;
+use self::item_finder::ItemFinderState;
 use self::friends::FriendListEntry;
 use self::guild::GuildState;
 #[cfg(feature = "debug")]
@@ -223,6 +225,8 @@ pub struct ClientState {
     guild_window: GuildWindowState,
     /// Clan info and online counts for the local character.
     clan: ClanState,
+    /// Local Item Finder catalog, query, and result rows.
+    item_finder: ItemFinderState,
     /// List of items offered in the shop.
     // TODO: Unhide this
     #[hidden_element]
@@ -439,6 +443,7 @@ impl ClientState {
             let guild = GuildState::default();
             let guild_window = GuildWindowState::default();
             let clan = ClanState::default();
+            let item_finder = ItemFinderState::default();
         });
 
         time_phase!("create player resources", {
@@ -552,6 +557,7 @@ impl ClientState {
             guild,
             guild_window,
             clan,
+            item_finder,
             shop_items,
             buy_cart,
             sell_items,
