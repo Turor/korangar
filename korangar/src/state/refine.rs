@@ -47,12 +47,12 @@ pub fn refine_ore_name(item_id: u32) -> Option<&'static str> {
         985 => "Elunium",
         1010 => "Phracon",
         1011 => "Emveretarcon",
-        6223 => "Bradium",
-        6224 => "Carnium",
-        6225 => "HD Bradium",
-        6226 => "HD Carnium",
-        6240 => "HD Elunium",
-        6241 => "HD Oridecon",
+        6223 => "Carnium",
+        6224 => "Bradium",
+        6225 => "HD Carnium",
+        6226 => "HD Bradium",
+        6240 => "HD Oridecon",
+        6241 => "HD Elunium",
         6635 => "Blacksmith Blessing",
         7619 => "Enriched Elunium",
         7620 => "Enriched Oridecon",
@@ -186,10 +186,14 @@ mod tests {
 
     #[test]
     fn bradium_and_carnium_are_named_and_chances_are_shown() {
-        assert_eq!(refine_ore_name(6223), Some("Bradium"));
-        assert_eq!(refine_ore_name(6224), Some("Carnium"));
-        assert_eq!(material_label(6223, 70, 20_000), "Bradium  70%  20000z");
-        assert_eq!(material_label(6224, 40, 50_000), "Carnium  40%  50000z");
+        assert_eq!(refine_ore_name(6223), Some("Carnium"));
+        assert_eq!(refine_ore_name(6224), Some("Bradium"));
+        assert_eq!(refine_ore_name(6225), Some("HD Carnium"));
+        assert_eq!(refine_ore_name(6226), Some("HD Bradium"));
+        assert_eq!(refine_ore_name(6240), Some("HD Oridecon"));
+        assert_eq!(refine_ore_name(6241), Some("HD Elunium"));
+        assert_eq!(material_label(6223, 70, 20_000), "Carnium  70%  20000z");
+        assert_eq!(material_label(6224, 40, 50_000), "Bradium  40%  50000z");
         assert!(material_label(9, 10, 1).starts_with("Ore 9"));
     }
 
