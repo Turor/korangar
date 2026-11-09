@@ -1,0 +1,18 @@
+[package]
+name = "korangar-update"
+version = "0.1.0"
+edition = "2024"
+description = "Signed release-manifest client auto-update"
+publish = false
+
+[dependencies]
+ed25519-dalek = "2"
+getrandom = "0.2"
+sha2 = "0.10"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "korangar-sign-release"
+path = "src/bin/korangar-sign-release.rs"

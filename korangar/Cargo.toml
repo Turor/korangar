@@ -28,6 +28,7 @@ korangar-debug = { workspace = true, optional = true }
 korangar-interface = { workspace = true, features = ["serde", "cgmath", "theme-element"] }
 korangar-loaders = { workspace = true }
 korangar-networking = { workspace = true, features = ["interface"] }
+korangar-update = { path = "../korangar-update" }
 korangar-video = { workspace = true }
 lunify = { workspace = true }
 mlua = { workspace = true, features = ["lua51", "vendored"] }
