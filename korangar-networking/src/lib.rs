@@ -46,6 +46,13 @@ pub use self::packet_versions::eden::{
 };
 pub use self::packet_versions::enchant::{format_enchant_result, parse_enchant_index, parse_enchant_item_id, parse_enchant_slot};
 pub use self::packet_versions::stable::{format_stable_result, parse_stable_action, parse_stable_id};
+pub use self::packet_versions::companions::{
+    EL_VAR_HP, EL_VAR_MAX_HP, EL_VAR_MAX_SP, EL_VAR_SP, HOM_ACT_DELETE, HOM_ACT_FEED, MERC_ACT_DISMISS, MERC_VAR_ATTACK, MERC_VAR_ATTACK_SPEED,
+    MERC_VAR_CRITICAL, MERC_VAR_DEFENSE, MERC_VAR_FAITH, MERC_VAR_FLEE, MERC_VAR_HIT, MERC_VAR_HP, MERC_VAR_KILLS, MERC_VAR_MAGIC_ATTACK,
+    MERC_VAR_MAGIC_DEFENSE, MERC_VAR_MAX_HP, MERC_VAR_MAX_SP, MERC_VAR_SP, PET_ACT_FEED, PET_ACT_PERFORMANCE, PET_ACT_RETURN, PET_ACT_UNEQUIP,
+    PET_KIND_ACCESSORY, PET_KIND_HUNGER, PET_KIND_INTIMACY, elemental_variable_name, format_elemental, format_homunculus_flags, format_pet,
+    intimacy_label, mercenary_variable_name,
+};
 pub use self::packet_versions::warpra::{
     format_warpra_destinations, format_warpra_result, push_warpra_chunk, warpra_kind_name, warpra_level_requirement,
 };
@@ -985,6 +992,35 @@ where
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(RequestEdenPacket { action, quest_id })
+            }
+        }
+    }
+
+    /// `CZ_COMMAND_PET` (`0x01A1`).
+    pub fn command_pet(&mut self, action: u8) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(PetCommandPacket { action })
+            }
+        }
+    }
+
+    /// `CZ_COMMAND_MER` (`0x022D`). `kind` is feed (`1`) or release (`2`).
+    pub fn command_homunculus(&mut self, kind: u16) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(HomunculusCommandPacket {
+                    kind,
+                    command: kind as u8,
+                }),
+        }
+    }
+
+    /// `CZ_MER_COMMAND` (`0x029F`).
+    pub fn command_mercenary(&mut self, command: u8) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(MercenaryCommandPacket { command })
             }
         }
     }
@@ -2736,6 +2772,208 @@ mod packet_handlers {
         assert!(
             matches!(events.as_slice(), [NetworkEvent::WarpraResult { result: 2, location_id: 7, summary, .. }] if summary.contains("locked"))
         );
+    }
+
+    #[test]
+    fn companion_packets_match_20250716_lengths() {
+        use ragnarok_packets::{
+            ElementalInitPacket, ElementalParameterPacket, HomunculusCommandPacket, HomunculusPropertyPacket, MercenaryCommandPacket,
+            MercenaryInitPacket, MercenaryParameterPacket, MercenaryPropertyPacket, PetCommandPacket, PetPropertyPacket, PetStatePacket,
+        };
+
+        let mut writer = ByteWriter::new();
+        PetCommandPacket { action: 1 }.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 3);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x01A1);
+
+        let mut writer = ByteWriter::new();
+        HomunculusCommandPacket {
+            kind: 2,
+            command: 2,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 5);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x022D);
+
+        let mut writer = ByteWriter::new();
+        MercenaryCommandPacket { command: 1 }
+            .packet_to_bytes(&mut writer)
+            .unwrap();
+        assert_eq!(writer.as_slice().len(), 3);
+
+        let pet = PetPropertyPacket {
+            name: "Poring".to_owned(),
+            renamed: 1,
+            level: 12,
+            hunger: 80,
+            intimacy: 910,
+            accessory_id: 0,
+            class_id: 1002,
+        };
+        let mut writer = ByteWriter::new();
+        pet.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 37);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(
+            events.as_slice(),
+            [NetworkEvent::PetInfo { class_id: 1002, intimacy: 910, summary, .. }] if summary.contains("Loyal") && summary.contains("Poring")
+        ));
+
+        let mut writer = ByteWriter::new();
+        PetStatePacket {
+            kind: 2,
+            entity_id: 9,
+            value: 40,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 11);
+        let events = process_one(SupportedPacketVersion::_20220406, writer.as_slice());
+        assert!(matches!(
+            events.as_slice(),
+            [NetworkEvent::PetState { kind: 2, value: 40, .. }]
+        ));
+
+        let hom = HomunculusPropertyPacket {
+            name: "Lif".to_owned(),
+            flags: 0x05,
+            level: 50,
+            hunger: 70,
+            intimacy: 500,
+            attack: 100,
+            magic_attack: 20,
+            hit: 30,
+            critical: 4,
+            defense: 40,
+            magic_defense: 15,
+            flee: 60,
+            attack_motion: 150,
+            health_points: 2000,
+            maximum_health_points: 3000,
+            spell_points: 100,
+            maximum_spell_points: 200,
+            experience: 10,
+            next_experience: 1000,
+            skill_points: 3,
+            attack_range: 2,
+        };
+        let mut writer = ByteWriter::new();
+        hom.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 85);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0BA4);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(
+            events.as_slice(),
+            [NetworkEvent::HomunculusInfo { level: 50, health_points: 2000, summary, .. }]
+                if summary.contains("Lif") && summary.contains("down") && summary.contains("Neutral")
+        ));
+        // 20220406 shares the 20190530 framing table and must accept 0x0BA4.
+        let events = process_one(SupportedPacketVersion::_20220406, writer.as_slice());
+        assert!(matches!(
+            events.as_slice(),
+            [NetworkEvent::HomunculusInfo { level: 50, .. }]
+        ));
+
+        let merc = MercenaryInitPacket {
+            account_id: 4,
+            attack: 10,
+            magic_attack: 1,
+            hit: 2,
+            critical: 3,
+            defense: 4,
+            magic_defense: 5,
+            flee: 6,
+            attack_speed: 7,
+            name: "Spear".to_owned(),
+            level: 20,
+            health_points: 500,
+            maximum_health_points: 800,
+            spell_points: 10,
+            maximum_spell_points: 40,
+            expire_date: 1_700_000_000,
+            faith: 8,
+            summons: 2,
+            kills: 9,
+            attack_range: 3,
+        };
+        let mut writer = ByteWriter::new();
+        merc.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 80);
+        let events = process_one(SupportedPacketVersion::_20190530, writer.as_slice());
+        assert!(matches!(
+            events.as_slice(),
+            [NetworkEvent::MercenaryInfo { account_id: 4, kills: 9, summary, .. }] if summary.contains("Spear")
+        ));
+
+        let property = MercenaryPropertyPacket {
+            attack: 11,
+            magic_attack: 1,
+            hit: 2,
+            critical: 3,
+            defense: 4,
+            magic_defense: 5,
+            flee: 6,
+            attack_speed: 7,
+            name: "Spear".to_owned(),
+            level: 21,
+            health_points: 400,
+            maximum_health_points: 800,
+            spell_points: 10,
+            maximum_spell_points: 40,
+            expire_date: 1_700_000_000,
+            faith: 8,
+            summons: 2,
+            kills: 10,
+        };
+        let mut writer = ByteWriter::new();
+        property.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 66);
+
+        let mut writer = ByteWriter::new();
+        MercenaryParameterPacket {
+            variable: 8,
+            value: 123,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 8);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(
+            events.as_slice(),
+            [NetworkEvent::MercenaryParameter { variable: 8, value: 123 }]
+        ));
+
+        let mut writer = ByteWriter::new();
+        ElementalInitPacket {
+            class_id: 2114,
+            health_points: 100,
+            maximum_health_points: 200,
+            spell_points: 50,
+            maximum_spell_points: 80,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 22);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(
+            events.as_slice(),
+            [NetworkEvent::ElementalInfo { class_id: 2114, summary, .. }] if summary.contains("Agni")
+        ));
+
+        let mut writer = ByteWriter::new();
+        ElementalParameterPacket {
+            variable: 2,
+            value: 12,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 8);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(
+            events.as_slice(),
+            [NetworkEvent::ElementalParameter { variable: 2, value: 12 }]
+        ));
     }
 
     #[test]

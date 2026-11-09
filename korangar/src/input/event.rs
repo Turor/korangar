@@ -195,6 +195,22 @@ pub enum InputEvent {
     RequestWarpraWarp,
     /// Unlock the kind and location id typed in the Warpra window.
     RequestWarpraBuy,
+    /// Open the companion info window.
+    OpenCompanions,
+    /// `CZ_COMMAND_PET` feed.
+    PetFeed,
+    /// `CZ_COMMAND_PET` performance.
+    PetPerformance,
+    /// `CZ_COMMAND_PET` return to egg.
+    PetReturn,
+    /// `CZ_COMMAND_PET` unequip accessory.
+    PetUnequip,
+    /// `CZ_COMMAND_MER` feed.
+    HomunculusFeed,
+    /// `CZ_COMMAND_MER` release.
+    HomunculusRelease,
+    /// `CZ_MER_COMMAND` dismiss.
+    MercenaryDismiss,
     /// Action for the "Close"-button in a dialog.
     CloseDialog {
         /// Id of the NPC the player is in a dialog with.

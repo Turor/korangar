@@ -4350,6 +4350,174 @@ pub struct WarpraResultPacket {
     pub location_id: i16,
 }
 
+/// Pet menu action (`CZ_COMMAND_PET`, `0x01A1`, 3 bytes).
+/// `0` info, `1` feed, `2` performance, `3` return to egg, `4` unequip accessory.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01A1)]
+pub struct PetCommandPacket {
+    pub action: u8,
+}
+
+/// Owned pet (`ZC_PROPERTY_PET`, `0x01A2`, 37 bytes).
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01A2)]
+pub struct PetPropertyPacket {
+    #[length(24)]
+    pub name: String,
+    pub renamed: i8,
+    pub level: i16,
+    pub hunger: i16,
+    pub intimacy: i16,
+    pub accessory_id: i16,
+    pub class_id: i16,
+}
+
+/// One pet stat changed (`ZC_CHANGESTATE_PET`, `0x01A4`, 11 bytes).
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01A4)]
+pub struct PetStatePacket {
+    pub kind: i8,
+    pub entity_id: u32,
+    pub value: i32,
+}
+
+/// Homunculus menu (`CZ_COMMAND_MER`, `0x022D`, 5 bytes).
+/// `kind` is the action word. `command` repeats that action in the trailing byte
+/// the 20250716 length table reserves.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x022D)]
+pub struct HomunculusCommandPacket {
+    pub kind: u16,
+    pub command: u8,
+}
+
+/// Homunculus property (`ZC_PROPERTY_HOMUN`, `0x0BA4`, 85 bytes) for PACKETVER
+/// MAIN >= 20210303. `flags` bit 0 is renamed, bit 1 is resting, bit 2 is dead.
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0BA4)]
+pub struct HomunculusPropertyPacket {
+    #[length(24)]
+    pub name: String,
+    pub flags: u8,
+    pub level: u16,
+    pub hunger: u16,
+    pub intimacy: u16,
+    pub attack: u16,
+    pub magic_attack: u16,
+    pub hit: u16,
+    pub critical: u16,
+    pub defense: u16,
+    pub magic_defense: u16,
+    pub flee: u16,
+    pub attack_motion: u16,
+    pub health_points: u32,
+    pub maximum_health_points: u32,
+    pub spell_points: u32,
+    pub maximum_spell_points: u32,
+    pub experience: i64,
+    pub next_experience: i64,
+    pub skill_points: u16,
+    pub attack_range: u16,
+}
+
+/// Mercenary menu (`CZ_MER_COMMAND`, `0x029F`, 3 bytes). `1` dismisses the mercenary.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x029F)]
+pub struct MercenaryCommandPacket {
+    pub command: u8,
+}
+
+/// Mercenary spawn info (`ZC_MER_INIT`, `0x029B`, 80 bytes).
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x029B)]
+pub struct MercenaryInitPacket {
+    pub account_id: u32,
+    pub attack: i16,
+    pub magic_attack: i16,
+    pub hit: i16,
+    pub critical: i16,
+    pub defense: i16,
+    pub magic_defense: i16,
+    pub flee: i16,
+    pub attack_speed: i16,
+    #[length(24)]
+    pub name: String,
+    pub level: i16,
+    pub health_points: i32,
+    pub maximum_health_points: i32,
+    pub spell_points: i32,
+    pub maximum_spell_points: i32,
+    pub expire_date: i32,
+    pub faith: i16,
+    pub summons: i32,
+    pub kills: i32,
+    pub attack_range: i16,
+}
+
+/// Mercenary stat block (`ZC_MER_PROPERTY`, `0x029C`, 66 bytes). Health fields are 16-bit.
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x029C)]
+pub struct MercenaryPropertyPacket {
+    pub attack: i16,
+    pub magic_attack: i16,
+    pub hit: i16,
+    pub critical: i16,
+    pub defense: i16,
+    pub magic_defense: i16,
+    pub flee: i16,
+    pub attack_speed: i16,
+    #[length(24)]
+    pub name: String,
+    pub level: i16,
+    pub health_points: i16,
+    pub maximum_health_points: i16,
+    pub spell_points: i16,
+    pub maximum_spell_points: i16,
+    pub expire_date: i32,
+    pub faith: i16,
+    pub summons: i32,
+    pub kills: i32,
+}
+
+/// One mercenary parameter (`ZC_MER_PAR_CHANGE`, `0x02A2`, 8 bytes).
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x02A2)]
+pub struct MercenaryParameterPacket {
+    pub variable: u16,
+    pub value: i32,
+}
+
+/// Elemental spirit (`ZC_EL_INIT`, `0x081D`, 22 bytes).
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x081D)]
+pub struct ElementalInitPacket {
+    pub class_id: u32,
+    pub health_points: u32,
+    pub maximum_health_points: u32,
+    pub spell_points: u32,
+    pub maximum_spell_points: u32,
+}
+
+/// Elemental HP or SP (`ZC_EL_PAR_CHANGE`, `0x081E`, 8 bytes).
+/// `variable` is `0` HP, `1` max HP, `2` SP, `3` max SP.
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x081E)]
+pub struct ElementalParameterPacket {
+    pub variable: u16,
+    pub value: u32,
+}
+
 
 #[derive(Debug, Clone, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
