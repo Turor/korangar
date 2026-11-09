@@ -29,6 +29,7 @@ mod menu;
 mod packet_inspector;
 #[cfg(feature = "debug")]
 mod profiler;
+mod quest_journal;
 #[cfg(feature = "debug")]
 mod render_options;
 mod respawn;
@@ -37,6 +38,7 @@ mod sell_cart;
 mod server_selection;
 mod skill_tree;
 mod stats;
+mod status_effects;
 #[cfg(feature = "debug")]
 mod theme_inspector;
 
@@ -73,6 +75,7 @@ pub use self::menu::MenuWindow;
 pub use self::packet_inspector::PacketInspectorWindow;
 #[cfg(feature = "debug")]
 pub use self::profiler::{ProfilerWindow, ProfilerWindowState};
+pub use self::quest_journal::QuestJournalWindow;
 #[cfg(feature = "debug")]
 pub use self::render_options::RenderOptionsWindow;
 pub use self::respawn::RespawnWindow;
@@ -81,6 +84,7 @@ pub use self::sell_cart::SellCartWindow;
 pub use self::server_selection::ServerSelectionWindow;
 pub use self::skill_tree::{SkillTreeWindow, SkillTreeWindowState, SkillTreeWindowStatePathExt};
 pub use self::stats::StatsWindow;
+pub use self::status_effects::StatusEffectsWindow;
 #[cfg(feature = "debug")]
 pub use self::theme_inspector::{ThemeInspectorWindow, ThemeInspectorWindowState};
 
@@ -103,6 +107,8 @@ pub enum WindowClass {
     Equipment,
     SkillTree,
     Stats,
+    StatusEffects,
+    QuestJournal,
     FriendList,
     FriendRequest,
     Login,
