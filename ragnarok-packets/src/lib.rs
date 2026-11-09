@@ -5235,6 +5235,220 @@ pub struct RefineResultPacket {
     pub refine_level: u16,
 }
 
+/// `out_ui_type::OUT_UI_ENCHANTGRADE` on `ZC_UI_OPEN` (`0x0AE2`).
+pub const ENCHANT_GRADE_UI_TYPE: u8 = 8;
+
+/// `ZC_UI_OPEN` (`0x0AE2`, 7 bytes): `u8` UI type and `i32` payload.
+/// Grade enchant uses type [`ENCHANT_GRADE_UI_TYPE`].
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0AE2)]
+pub struct UiOpenPacket {
+    pub ui_type: u8,
+    pub data: i32,
+}
+
+/// Ask which materials can grade this equipment
+/// (`CZ_GRADE_ENCHANT_SELECT_EQUIPMENT`, 0x0B59).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B59)]
+pub struct GradeEnchantSelectPacket {
+    pub index: InventoryIndex,
+}
+
+/// Blessing block inside [`GradeEnchantMaterialListPacket`].
+#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct GradeEnchantBlessing {
+    pub item_id: i32,
+    pub amount: i32,
+    pub max_blessing: i32,
+    pub bonus: i32,
+}
+
+/// One grade option. `downgrade` and `breakable` are flags (0 or 1).
+#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct GradeEnchantMaterial {
+    pub item_id: ItemId,
+    pub amount: i32,
+    pub price: i32,
+    pub downgrade: i32,
+    pub breakable: i8,
+}
+
+/// Materials for the selected equipment (`ZC_GRADE_ENCHANT_MATERIAL_LIST`,
+/// 0x0B5A).
+///
+/// `index` is the client index, or -1 when nothing can be graded.
+/// `success_chance` is the server value after it divided the raw chance by 100.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B5A)]
+#[variable_length]
+pub struct GradeEnchantMaterialListPacket {
+    pub index: i16,
+    pub success_chance: i32,
+    pub blessing: GradeEnchantBlessing,
+    pub protect_item_id: ItemId,
+    pub protect_amount: i32,
+    #[repeating_remaining]
+    pub materials: Vec<GradeEnchantMaterial>,
+}
+
+/// Start a grade attempt (`CZ_GRADE_ENCHANT_REQUEST`, 0x0B5B, 14 bytes).
+///
+/// `protect_flag` stays on the wire for 20250716. This client sends 0.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B5B)]
+pub struct GradeEnchantRequestPacket {
+    pub index: InventoryIndex,
+    pub material_index: i32,
+    pub blessing_flag: u8,
+    pub blessing_amount: i32,
+    pub protect_flag: u8,
+}
+
+/// Close the grade UI (`CZ_GRADE_ENCHANT_CLOSE_UI`, 0x0B5C).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B5C)]
+pub struct GradeEnchantClosePacket {}
+
+/// Grade attempt finished (`ZC_GRADE_ENCHANT_ACK`, 0x0B5D).
+///
+/// `result` is 0 success, 1 failed, 2 downgraded, 3 destroyed, 4 protected.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B5D)]
+pub struct GradeEnchantResultPacket {
+    pub index: InventoryIndex,
+    pub grade: i16,
+    pub result: i32,
+}
+
+/// Server-wide grade announcement (`ZC_GRADE_ENCHANT_BROADCAST_RESULT`,
+/// 0x0B5E).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B5E)]
+pub struct GradeEnchantBroadcastPacket {
+    #[length(24)]
+    pub name: String,
+    pub item_id: ItemId,
+    pub grade: i16,
+    pub status: u8,
+}
+
+/// The reform UI opened (`ZC_OPEN_REFORM_UI`, 0x0B8F). `item_id` is the
+/// catalyst.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B8F)]
+pub struct ItemReformOpenPacket {
+    pub item_id: ItemId,
+}
+
+/// Close the reform UI (`CZ_CLOSE_REFORM_UI`, 0x0B90).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B90)]
+pub struct ItemReformClosePacket {}
+
+/// Reform one inventory item with the open catalyst (`CZ_ITEM_REFORM`, 0x0B91).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B91)]
+pub struct ItemReformRequestPacket {
+    pub item_id: ItemId,
+    pub index: InventoryIndex,
+}
+
+/// Reform finished (`ZC_ITEM_REFORM_ACK`, 0x0B92). Result 0 is success.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B92)]
+pub struct ItemReformResultPacket {
+    pub index: InventoryIndex,
+    pub result: i8,
+}
+
+/// Laphine synthesis UI opened (`ZC_RANDOM_COMBINE_ITEM_UI_OPEN`, 0x0A4E).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A4E)]
+pub struct LaphineSynthesisOpenPacket {
+    pub item_id: ItemId,
+}
+
+/// One stack inside [`LaphineSynthesisRequestPacket`].
+#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct LaphineSynthesisMaterial {
+    pub index: InventoryIndex,
+    pub count: u16,
+}
+
+/// Submit a synthesis (`CZ_REQ_RANDOM_COMBINE_ITEM`, 0x0A4F).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A4F)]
+#[variable_length]
+pub struct LaphineSynthesisRequestPacket {
+    pub item_id: ItemId,
+    #[repeating_remaining]
+    pub materials: Vec<LaphineSynthesisMaterial>,
+}
+
+/// Synthesis finished (`ZC_ACK_RANDOM_COMBINE_ITEM`, 0x0A50). Result 0 is
+/// success.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A50)]
+pub struct LaphineSynthesisResultPacket {
+    pub result: i16,
+}
+
+/// Close the synthesis UI (`CZ_RANDOM_COMBINE_ITEM_UI_CLOSE`, 0x0A70).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A70)]
+pub struct LaphineSynthesisClosePacket {}
+
+/// Laphine upgrade UI opened (`ZC_RANDOM_UPGRADE_ITEM_UI_OPEN`, 0x0AB4).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0AB4)]
+pub struct LaphineUpgradeOpenPacket {
+    pub item_id: ItemId,
+}
+
+/// Close the upgrade UI (`CZ_RANDOM_UPGRADE_ITEM_UI_CLOSE`, 0x0AB5).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0AB5)]
+pub struct LaphineUpgradeClosePacket {}
+
+/// Upgrade one inventory item (`CZ_REQ_RANDOM_UPGRADE_ITEM`, 0x0AB6).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0AB6)]
+pub struct LaphineUpgradeRequestPacket {
+    pub item_id: ItemId,
+    pub index: InventoryIndex,
+}
+
+/// Upgrade finished (`ZC_ACK_RANDOM_UPGRADE_ITEM`, 0x0AB7). Result 0 is
+/// success.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0AB7)]
+pub struct LaphineUpgradeResultPacket {
+    pub result: u16,
+}
+
 /// Highlight a search result (`CZ_SSILIST_ITEM_CLICK`, 0x083C).
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]

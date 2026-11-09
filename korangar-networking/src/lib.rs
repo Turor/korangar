@@ -33,7 +33,10 @@ pub use self::entity::EntityData;
 #[cfg(feature = "interface")]
 pub use self::equip_switch::EquipSwitchSlotPathExt;
 pub use self::equip_switch::{EquipSwitchSlot, assign_slot, position_label, replace_slots};
-pub use self::event::{DisconnectReason, GuildMemberSnapshot, NetworkEvent, RefineMaterialOffer, SearchStoreHit, StatusChangeState};
+pub use self::event::{
+    DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, NetworkEvent, RefineMaterialOffer, SearchStoreHit,
+    StatusChangeState,
+};
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
 pub use self::message::MessageColor;
@@ -1364,6 +1367,93 @@ where
                     blacksmith_blessing: u8::from(blacksmith_blessing),
                 }),
         }
+    }
+
+    /// Ask which materials grade this inventory index
+    /// (`CZ_GRADE_ENCHANT_SELECT_EQUIPMENT`).
+    pub fn grade_enchant_select(&mut self, index: InventoryIndex) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(GradeEnchantSelectPacket { index })
+            }
+            SupportedPacketVersion::_20190530 => Ok(()),
+        }
+    }
+
+    /// Spend one listed option on the selected equipment.
+    pub fn grade_enchant_request(
+        &mut self,
+        index: InventoryIndex,
+        material_index: i32,
+        blessing_flag: u8,
+        blessing_amount: i32,
+    ) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(GradeEnchantRequestPacket {
+                    index,
+                    material_index,
+                    blessing_flag,
+                    blessing_amount,
+                    protect_flag: 0,
+                })
+            }
+            SupportedPacketVersion::_20190530 => Ok(()),
+        }
+    }
+
+    /// Tell the server the grade UI closed.
+    pub fn close_grade_enchant(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(GradeEnchantClosePacket {})
+            }
+            SupportedPacketVersion::_20190530 => Ok(()),
+        }
+    }
+
+    /// Reform `index` with the catalyst that opened the UI.
+    pub fn item_reform(&mut self, item_id: ItemId, index: InventoryIndex) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(ItemReformRequestPacket { item_id, index })
+            }
+            SupportedPacketVersion::_20190530 => Ok(()),
+        }
+    }
+
+    /// Tell the server the reform UI closed.
+    pub fn close_item_reform(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20250716 => self.send_map_server_packet(ItemReformClosePacket {}),
+            SupportedPacketVersion::_20190530 => Ok(()),
+        }
+    }
+
+    /// Submit Laphine synthesis. `materials` are stored inventory indexes and
+    /// counts.
+    pub fn laphine_synthesis(&mut self, item_id: ItemId, materials: &[(u16, u16)]) -> Result<(), NotConnectedError> {
+        let materials = materials
+            .iter()
+            .copied()
+            .map(|(index, count)| LaphineSynthesisMaterial {
+                index: InventoryIndex(index),
+                count,
+            })
+            .collect();
+        self.send_map_server_packet(LaphineSynthesisRequestPacket { item_id, materials })
+    }
+
+    pub fn close_laphine_synthesis(&mut self) -> Result<(), NotConnectedError> {
+        self.send_map_server_packet(LaphineSynthesisClosePacket {})
+    }
+
+    pub fn laphine_upgrade(&mut self, item_id: ItemId, index: InventoryIndex) -> Result<(), NotConnectedError> {
+        self.send_map_server_packet(LaphineUpgradeRequestPacket { item_id, index })
+    }
+
+    pub fn close_laphine_upgrade(&mut self) -> Result<(), NotConnectedError> {
+        self.send_map_server_packet(LaphineUpgradeClosePacket {})
     }
 
     /// Tell the server the refine UI closed so the character can move again.
@@ -2883,6 +2973,243 @@ mod packet_handlers {
         let mut writer = ByteWriter::new();
         opened.packet_to_bytes(&mut writer).unwrap();
         assert_eq!(writer.as_slice(), &[0xA0, 0x0A]);
+    }
+
+    #[test]
+    fn item_workshop_packets_round_trip() {
+        use ragnarok_packets::{
+            GradeEnchantBlessing, GradeEnchantBroadcastPacket, GradeEnchantClosePacket, GradeEnchantMaterial,
+            GradeEnchantMaterialListPacket, GradeEnchantRequestPacket, GradeEnchantResultPacket, GradeEnchantSelectPacket, InventoryIndex,
+            ItemId, ItemReformClosePacket, ItemReformOpenPacket, ItemReformRequestPacket, ItemReformResultPacket,
+            LaphineSynthesisClosePacket, LaphineSynthesisMaterial, LaphineSynthesisOpenPacket, LaphineSynthesisRequestPacket,
+            LaphineSynthesisResultPacket, LaphineUpgradeClosePacket, LaphineUpgradeOpenPacket, LaphineUpgradeRequestPacket,
+            LaphineUpgradeResultPacket, UiOpenPacket,
+        };
+
+        let open_grade = UiOpenPacket { ui_type: 8, data: 0 };
+        let mut writer = ByteWriter::new();
+        open_grade.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 7);
+        for version in [SupportedPacketVersion::_20250716, SupportedPacketVersion::_20220406] {
+            assert!(matches!(process_one(version, writer.as_slice()).as_slice(), [
+                NetworkEvent::EnchantGradeOpened { data: 0 }
+            ]));
+        }
+
+        let other_ui = UiOpenPacket { ui_type: 1, data: 4 };
+        let mut writer = ByteWriter::new();
+        other_ui.packet_to_bytes(&mut writer).unwrap();
+        assert!(process_one(SupportedPacketVersion::_20250716, writer.as_slice()).is_empty());
+
+        let mut list = GradeEnchantMaterialListPacket {
+            index: -1,
+            success_chance: 0,
+            blessing: GradeEnchantBlessing {
+                item_id: 0,
+                amount: 0,
+                max_blessing: 0,
+                bonus: 0,
+            },
+            protect_item_id: ItemId(0),
+            protect_amount: 0,
+            materials: Vec::new(),
+        };
+        let mut writer = ByteWriter::new();
+        list.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 34);
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20250716, writer.as_slice()).as_slice(),
+            [NetworkEvent::EnchantGradeMaterials { index: None, materials, .. }] if materials.is_empty()
+        ));
+
+        list.index = 7;
+        list.success_chance = 55;
+        list.blessing.item_id = 6635;
+        list.blessing.amount = 1;
+        list.blessing.max_blessing = 3;
+        list.blessing.bonus = 2;
+        list.materials.push(GradeEnchantMaterial {
+            item_id: ItemId(984),
+            amount: 1,
+            price: 1000,
+            downgrade: 1,
+            breakable: 0,
+        });
+        let mut writer = ByteWriter::new();
+        list.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 34 + 17);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::EnchantGradeMaterials {
+            index: Some(5),
+            success_chance: 55,
+            materials,
+            ..
+        }] if materials.len() == 1 && materials[0].item_id == ItemId(984) && materials[0].downgrade && !materials[0].breakable));
+
+        let result = GradeEnchantResultPacket {
+            index: InventoryIndex(5),
+            grade: 2,
+            result: 0,
+        };
+        let mut writer = ByteWriter::new();
+        result.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 10);
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20250716, writer.as_slice()).as_slice(),
+            [NetworkEvent::EnchantGradeResult {
+                index: InventoryIndex(5),
+                grade: 2,
+                result: 0
+            }]
+        ));
+
+        let broadcast = GradeEnchantBroadcastPacket {
+            name: "Nova".to_owned(),
+            item_id: ItemId(1101),
+            grade: 1,
+            status: 1,
+        };
+        let mut writer = ByteWriter::new();
+        broadcast.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 33);
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20250716, writer.as_slice()).as_slice(),
+            [NetworkEvent::EnchantGradeBroadcast {
+                success: true,
+                grade: 1,
+                ..
+            }]
+        ));
+
+        let select = GradeEnchantSelectPacket { index: InventoryIndex(5) };
+        let mut writer = ByteWriter::new();
+        select.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0x59, 0x0B, 7, 0]);
+
+        let request = GradeEnchantRequestPacket {
+            index: InventoryIndex(5),
+            material_index: 1,
+            blessing_flag: 1,
+            blessing_amount: 2,
+            protect_flag: 0,
+        };
+        let mut writer = ByteWriter::new();
+        request.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 14);
+        assert_eq!(&writer.as_slice()[..2], &[0x5B, 0x0B]);
+
+        let close_grade = GradeEnchantClosePacket {};
+        let mut writer = ByteWriter::new();
+        close_grade.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0x5C, 0x0B]);
+
+        let reform = ItemReformOpenPacket { item_id: ItemId(4001) };
+        let mut writer = ByteWriter::new();
+        reform.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 6);
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20250716, writer.as_slice()).as_slice(),
+            [NetworkEvent::ItemReformOpened { item_id: ItemId(4001) }]
+        ));
+
+        let reform_result = ItemReformResultPacket {
+            index: InventoryIndex(3),
+            result: 0,
+        };
+        let mut writer = ByteWriter::new();
+        reform_result.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 5);
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20220406, writer.as_slice()).as_slice(),
+            [NetworkEvent::ItemReformResult {
+                index: InventoryIndex(3),
+                result: 0
+            }]
+        ));
+
+        let reform_request = ItemReformRequestPacket {
+            item_id: ItemId(4001),
+            index: InventoryIndex(3),
+        };
+        let mut writer = ByteWriter::new();
+        reform_request.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 8);
+        assert_eq!(&writer.as_slice()[..2], &[0x91, 0x0B]);
+
+        let reform_close = ItemReformClosePacket {};
+        let mut writer = ByteWriter::new();
+        reform_close.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0x90, 0x0B]);
+
+        let synthesis = LaphineSynthesisOpenPacket { item_id: ItemId(7210) };
+        let mut writer = ByteWriter::new();
+        synthesis.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 6);
+        for version in [
+            SupportedPacketVersion::_20250716,
+            SupportedPacketVersion::_20220406,
+            SupportedPacketVersion::_20190530,
+        ] {
+            assert!(matches!(process_one(version, writer.as_slice()).as_slice(), [
+                NetworkEvent::LaphineSynthesisOpened { item_id: ItemId(7210) }
+            ]));
+        }
+
+        let synthesis_request = LaphineSynthesisRequestPacket {
+            item_id: ItemId(7210),
+            materials: vec![LaphineSynthesisMaterial {
+                index: InventoryIndex(4),
+                count: 2,
+            }],
+        };
+        let mut writer = ByteWriter::new();
+        synthesis_request.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 2 + 2 + 4 + 4);
+        assert_eq!(&writer.as_slice()[8..10], &6u16.to_le_bytes());
+
+        let synthesis_result = LaphineSynthesisResultPacket { result: 0 };
+        let mut writer = ByteWriter::new();
+        synthesis_result.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 4);
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20190530, writer.as_slice()).as_slice(),
+            [NetworkEvent::LaphineSynthesisResult { result: 0 }]
+        ));
+
+        let synthesis_close = LaphineSynthesisClosePacket {};
+        let mut writer = ByteWriter::new();
+        synthesis_close.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0x70, 0x0A]);
+
+        let upgrade = LaphineUpgradeOpenPacket { item_id: ItemId(7211) };
+        let mut writer = ByteWriter::new();
+        upgrade.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 6);
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20250716, writer.as_slice()).as_slice(),
+            [NetworkEvent::LaphineUpgradeOpened { item_id: ItemId(7211) }]
+        ));
+
+        let upgrade_request = LaphineUpgradeRequestPacket {
+            item_id: ItemId(7211),
+            index: InventoryIndex(1),
+        };
+        let mut writer = ByteWriter::new();
+        upgrade_request.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 8);
+
+        let upgrade_result = LaphineUpgradeResultPacket { result: 1 };
+        let mut writer = ByteWriter::new();
+        upgrade_result.packet_to_bytes(&mut writer).unwrap();
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20250716, writer.as_slice()).as_slice(),
+            [NetworkEvent::LaphineUpgradeResult { result: 1 }]
+        ));
+
+        let upgrade_close = LaphineUpgradeClosePacket {};
+        let mut writer = ByteWriter::new();
+        upgrade_close.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0xB5, 0x0A]);
     }
 }
 

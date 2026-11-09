@@ -853,6 +853,8 @@ where
     crate::packet_versions::stable::register_stable_packets(packet_handler)?;
     crate::packet_versions::economy::register_player_shop_packets(packet_handler)?;
     crate::packet_versions::refine::register_refine_packets(packet_handler)?;
+    crate::packet_versions::item_workshop::register_reform_and_grade(packet_handler)?;
+    crate::packet_versions::item_workshop::register_laphine(packet_handler)?;
     packet_handler.register(|packet: BuyOrSellPacket| NetworkEvent::AskBuyOrSell { shop_id: packet.shop_id })?;
     packet_handler.register(|packet: ShopItemListPacket| {
         let items = packet

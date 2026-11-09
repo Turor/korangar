@@ -24,6 +24,7 @@ mod guild;
 mod hotbar;
 mod interface_settings;
 mod inventory;
+mod item_workshop;
 mod login;
 #[cfg(feature = "debug")]
 mod maps;
@@ -82,6 +83,7 @@ pub use self::hotbar::HotbarWindow;
 pub use self::interface_settings::InterfaceSettingsWindow;
 #[allow(unused_imports)]
 pub use self::inventory::InventoryWindow;
+pub use self::item_workshop::{EnchantGradeWindow, ItemReformWindow, LaphineSynthesisWindow, LaphineUpgradeWindow};
 pub use self::login::{LoginWindow, LoginWindowState, LoginWindowStatePathExt};
 #[cfg(feature = "debug")]
 pub use self::maps::MapsWindow;
@@ -152,6 +154,10 @@ pub enum WindowClass {
     Vendor,
     SearchStore,
     Refine,
+    ItemReform,
+    EnchantGrade,
+    LaphineSynthesis,
+    LaphineUpgrade,
     #[cfg(feature = "debug")]
     Maps,
     #[cfg(feature = "debug")]

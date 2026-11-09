@@ -6,6 +6,7 @@ pub mod friends;
 pub mod guild;
 pub mod hotbar;
 pub mod inventory;
+pub mod item_workshop;
 pub mod localization;
 pub mod quest_log;
 pub mod refine;
@@ -66,6 +67,7 @@ use crate::state::character_slots::CharacterSlots;
 use crate::state::equip_switch::EquipSwitch;
 use crate::state::hotbar::Hotbar;
 use crate::state::inventory::Inventory;
+use crate::state::item_workshop::{EnchantGradeState, ItemReformState, LaphineSynthesisState, LaphineUpgradeState};
 use crate::state::quest_log::QuestLog;
 use crate::state::refine::RefineState;
 use crate::state::skill_cooldowns::SkillCooldowns;
@@ -256,6 +258,14 @@ pub struct ClientState {
     trade: TradeState,
     /// NPC refine UI.
     refine: RefineState,
+    /// Item reform UI.
+    item_reform: ItemReformState,
+    /// Enchant grade UI.
+    enchant_grade: EnchantGradeState,
+    /// Laphine synthesis UI.
+    laphine_synthesis: LaphineSynthesisState,
+    /// Laphine upgrade UI.
+    laphine_upgrade: LaphineUpgradeState,
     /// Local-player status effects (buffs/debuffs).
     status_effects: StatusEffects,
     /// Skill cooldown deadlines for hotbar overlays.
@@ -434,6 +444,10 @@ impl ClientState {
             let skill_tree_window = SkillTreeWindowState::default();
             let trade = TradeState::default();
             let refine = RefineState::default();
+            let item_reform = ItemReformState::default();
+            let enchant_grade = EnchantGradeState::default();
+            let laphine_synthesis = LaphineSynthesisState::default();
+            let laphine_upgrade = LaphineUpgradeState::default();
             let status_effects = StatusEffects::default();
             let skill_cooldowns = SkillCooldowns::default();
             let quest_log = QuestLog::default();
@@ -523,6 +537,10 @@ impl ClientState {
             skill_tree,
             trade,
             refine,
+            item_reform,
+            enchant_grade,
+            laphine_synthesis,
+            laphine_upgrade,
             status_effects,
             skill_cooldowns,
             quest_log,
