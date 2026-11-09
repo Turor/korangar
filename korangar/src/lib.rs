@@ -2043,6 +2043,12 @@ impl Client {
                 NetworkEvent::NotifyGroundSkill { .. } => {}
                 // Status icons are intentionally not drawn here. The events stay available for later UI.
                 NetworkEvent::StatusChange { .. } | NetworkEvent::StatusChangeSequence { .. } => {}
+                // Quest journal UI is intentionally not implemented. These events stay available to networking.
+                NetworkEvent::QuestList { .. }
+                | NetworkEvent::QuestNotification { .. }
+                | NetworkEvent::HuntingQuestNotification { .. }
+                | NetworkEvent::HuntingQuestObjectiveUpdate { .. }
+                | NetworkEvent::QuestRemoved { .. } => {}
             }
         }
     }

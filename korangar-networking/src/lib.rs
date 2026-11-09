@@ -1292,8 +1292,191 @@ mod packet_handlers {
             );
         }
     }
-}
 
+    fn map_events(version: SupportedPacketVersion, bytes: &[u8]) -> Vec<NetworkEvent> {
+        let mut handler = NetworkingSystem::create_map_server_packet_handler(NoPacketCallback, version).unwrap();
+        let mut reader = ByteReader::without_metadata(bytes);
+        let mut events = Vec::new();
+        while !reader.is_empty() {
+            match handler.process_one(&mut reader) {
+                HandlerResult::Ok(list) => events.extend(list.0),
+                HandlerResult::UnhandledPacket => panic!("quest packet was not handled"),
+                HandlerResult::PacketCutOff => panic!("quest packet was cut off"),
+                HandlerResult::InternalError(error) => panic!("quest packet failed: {error:?}"),
+            }
+        }
+        events
+    }
+
+    fn sample_objective(name: &str, mob_count: u16) -> ragnarok_packets::ObjectiveDetails1 {
+        ragnarok_packets::ObjectiveDetails1 {
+            hunt_identification: 7,
+            objective_type: 1,
+            mob_id: 1002,
+            minimum_level: 1,
+            maximum_level: 99,
+            mob_count,
+            mob_name: name.to_owned(),
+        }
+    }
+
+    fn quest_packet_bytes() -> Vec<u8> {
+        let mut writer = ByteWriter::new();
+        ragnarok_packets::QuestListPacket {
+            quest_count: 1,
+            quests: vec![ragnarok_packets::Quest {
+                quest_id: 501,
+                active: 1,
+                remaining_time: 30,
+                expire_time: 90,
+                objective_count: 1,
+                objective_details: vec![ragnarok_packets::QuestDetails {
+                    hunt_identification: 4,
+                    objective_type: 1,
+                    mob_id: 1002,
+                    minimum_level: 1,
+                    maximum_level: 10,
+                    kill_count: 2,
+                    total_count: 5,
+                    mob_name: "Poring".to_owned(),
+                }],
+            }],
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+
+        let mut objectives = [sample_objective("Poring", 5), sample_objective("", 0), sample_objective("", 0)];
+        objectives[0].mob_name = "Poring".to_owned();
+        ragnarok_packets::QuestNotificationPacket1 {
+            quest_id: 501,
+            active: 1,
+            start_time: 11,
+            expire_time: 90,
+            objective_count: 1,
+            objective_details: objectives,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+
+        ragnarok_packets::HuntingQuestNotificationPacket {
+            objective_details: vec![ragnarok_packets::HuntingObjective {
+                quest_id: 501,
+                mob_id: 1002,
+                total_count: 5,
+                current_count: 1,
+            }],
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+
+        ragnarok_packets::HuntingQuestUpdateObjectivePacket {
+            objective_count: 1,
+            objective_details: vec![ragnarok_packets::HuntingObjective {
+                quest_id: 501,
+                mob_id: 1002,
+                total_count: 5,
+                current_count: 3,
+            }],
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+
+        ragnarok_packets::QuestRemovedPacket { quest_id: 501 }
+            .packet_to_bytes(&mut writer)
+            .unwrap();
+
+        writer.into_inner()
+    }
+
+    #[test]
+    fn quest_packets_20250716_emit_typed_events() {
+        let events = map_events(SupportedPacketVersion::_20250716, &quest_packet_bytes());
+        assert_eq!(events.len(), 5);
+
+        match &events[0] {
+            NetworkEvent::QuestList { quests } => {
+                assert_eq!(quests.len(), 1);
+                assert_eq!(quests[0].quest_id, 501);
+                assert_eq!(quests[0].active, 1);
+                assert_eq!(quests[0].objective_details.len(), 1);
+                assert_eq!(quests[0].objective_details[0].mob_name, "Poring");
+                assert_eq!(quests[0].objective_details[0].kill_count, 2);
+                assert_eq!(quests[0].objective_details[0].total_count, 5);
+            }
+            other => panic!("expected quest list, got {other:?}"),
+        }
+        match &events[1] {
+            NetworkEvent::QuestNotification {
+                quest_id,
+                active,
+                start_time,
+                expire_time,
+                objectives,
+            } => {
+                assert_eq!(*quest_id, 501);
+                assert!(*active);
+                assert_eq!(*start_time, 11);
+                assert_eq!(*expire_time, 90);
+                assert_eq!(objectives.len(), 1);
+                assert_eq!(objectives[0].mob_id, 1002);
+                assert_eq!(objectives[0].mob_count, 5);
+                assert_eq!(objectives[0].mob_name, "Poring");
+            }
+            other => panic!("expected quest notification, got {other:?}"),
+        }
+        match &events[2] {
+            NetworkEvent::HuntingQuestNotification { objectives } => {
+                assert_eq!(objectives.len(), 1);
+                assert_eq!(objectives[0].current_count, 1);
+                assert_eq!(objectives[0].total_count, 5);
+            }
+            other => panic!("expected hunting notification, got {other:?}"),
+        }
+        match &events[3] {
+            NetworkEvent::HuntingQuestObjectiveUpdate { objectives } => {
+                assert_eq!(objectives.len(), 1);
+                assert_eq!(objectives[0].quest_id, 501);
+                assert_eq!(objectives[0].current_count, 3);
+            }
+            other => panic!("expected hunting update, got {other:?}"),
+        }
+        assert!(matches!(events[4], NetworkEvent::QuestRemoved { quest_id: 501 }));
+    }
+
+    #[test]
+    fn quest_packets_stay_noop_on_older_profiles() {
+        for version in [SupportedPacketVersion::_20190530, SupportedPacketVersion::_20220406] {
+            let events = map_events(version, &quest_packet_bytes());
+            assert!(events.is_empty(), "{version:?} should not emit quest events");
+        }
+    }
+
+    #[test]
+    fn inactive_quest_notification_drops_padding_objectives() {
+        let mut writer = ByteWriter::new();
+        ragnarok_packets::QuestNotificationPacket1 {
+            quest_id: 9,
+            active: 0,
+            start_time: 0,
+            expire_time: 0,
+            objective_count: 0,
+            objective_details: [sample_objective("Pad", 9), sample_objective("Pad", 9), sample_objective("Pad", 9)],
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+
+        let events = map_events(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(
+            events.as_slice(),
+            [NetworkEvent::QuestNotification {
+                quest_id: 9,
+                active: false,
+                objectives,
+                ..
+            }] if objectives.is_empty()
+        ));
+    }
+}
 
 #[cfg(test)]
 mod transport_tests {

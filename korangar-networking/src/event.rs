@@ -329,7 +329,35 @@ pub enum NetworkEvent {
         entity_id: EntityId,
         state: StatusChangeState,
     },
+    /// Full quest list (`ZC_ALL_QUEST_LIST`, 0x09F8). No journal UI consumes
+    /// this yet.
+    QuestList {
+        quests: Vec<Quest>,
+    },
+    /// One quest was added or its definition changed (`ZC_ADD_QUEST`, 0x09F9).
+    /// Only the first `objective_count` objective slots are included; the
+    /// packet pads to three.
+    QuestNotification {
+        quest_id: u32,
+        active: bool,
+        start_time: u32,
+        expire_time: u32,
+        objectives: Vec<ObjectiveDetails1>,
+    },
+    /// Hunting objectives for the current quests (0x08FE).
+    HuntingQuestNotification {
+        objectives: Vec<HuntingObjective>,
+    },
+    /// Kill-count progress for hunting objectives (0x09FA).
+    HuntingQuestObjectiveUpdate {
+        objectives: Vec<HuntingObjective>,
+    },
+    /// A quest was removed from the character (0x02B4).
+    QuestRemoved {
+        quest_id: u32,
+    },
 }
+
 
 /// Wire `state` byte of the status-change packets.
 ///
