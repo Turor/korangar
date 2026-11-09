@@ -491,7 +491,7 @@ mod failure_tests {
         let server = std::thread::spawn(move || {
             let (mut s, _) = listener.accept().unwrap();
             let mut buf = [0; 4096];
-            s.read(&mut buf).unwrap();
+            assert_ne!(s.read(&mut buf).unwrap(), 0, "fixture requires a nonempty request");
             s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\npart")
                 .unwrap();
         });
@@ -516,7 +516,7 @@ mod failure_tests {
         let server = std::thread::spawn(move || {
             let (mut s, _) = listener.accept().unwrap();
             let mut buf = [0; 4096];
-            s.read(&mut buf).unwrap();
+            assert_ne!(s.read(&mut buf).unwrap(), 0, "fixture requires a nonempty request");
             s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\ncomplete")
                 .unwrap();
         });
@@ -549,7 +549,7 @@ mod failure_tests {
         let server = std::thread::spawn(move || {
             let (mut s, _) = listener.accept().unwrap();
             let mut buf = [0; 4096];
-            s.read(&mut buf).unwrap();
+            assert_ne!(s.read(&mut buf).unwrap(), 0, "fixture requires a nonempty request");
             s.write_all(b"HTTP/1.1 302 Found\r\nContent-Length: 0\r\nLocation: http://127.0.0.1:1/private\r\nConnection: close\r\n\r\n")
                 .unwrap();
         });
