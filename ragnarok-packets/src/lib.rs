@@ -4494,6 +4494,53 @@ pub struct BuyShopItemsResultPacket {
 #[header(0x09D4)]
 pub struct CloseShopPacket {}
 
+/// Ask another player to trade (`CZ_REQ_EXCHANGE_ITEM`, 0x00E4).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00E4)]
+pub struct RequestTradePacket {
+    pub partner_account_id: AccountId,
+}
+
+/// Accept (`3`) or reject (`4`) a trade request (`CZ_ACK_EXCHANGE_ITEM`,
+/// 0x00E6).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00E6)]
+pub struct TradeAckPacket {
+    pub response: u8,
+}
+
+/// Put an inventory item or zeny into the trade (`CZ_ADD_EXCHANGE_ITEM`,
+/// 0x00E8).
+///
+/// `index` is the client inventory index (stored index + 2). Zero means zeny.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00E8)]
+pub struct AddTradeItemPacket {
+    pub index: u16,
+    pub amount: u32,
+}
+
+/// Lock this side of the trade (`CZ_CONCLUDE_EXCHANGE_ITEM`, 0x00EB).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00EB)]
+pub struct ConcludeTradePacket {}
+
+/// Cancel the trade (`CZ_CANCEL_EXCHANGE_ITEM`, 0x00ED).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00ED)]
+pub struct CancelTradePacket {}
+
+/// Commit a locked trade (`CZ_EXEC_EXCHANGE_ITEM`, 0x00EF).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00EF)]
+pub struct CommitTradePacket {}
+
 #[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct SellItemInformation {

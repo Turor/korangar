@@ -40,6 +40,7 @@ mod stats;
 mod storage;
 #[cfg(feature = "debug")]
 mod theme_inspector;
+mod trade;
 
 use serde::{Deserialize, Serialize};
 
@@ -85,6 +86,7 @@ pub use self::stats::StatsWindow;
 pub use self::storage::StorageWindow;
 #[cfg(feature = "debug")]
 pub use self::theme_inspector::{ThemeInspectorWindow, ThemeInspectorWindowState};
+pub use self::trade::{TradeRequestWindow, TradeWindow};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WindowClass {
@@ -114,6 +116,8 @@ pub enum WindowClass {
     SelectServer,
     Sell,
     SellCart,
+    Trade,
+    TradeRequest,
     #[cfg(feature = "debug")]
     Maps,
     #[cfg(feature = "debug")]

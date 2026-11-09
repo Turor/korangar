@@ -6,6 +6,7 @@ pub mod inventory;
 pub mod localization;
 pub mod skills;
 pub mod theme;
+pub mod trade;
 
 use std::cell::Cell;
 use std::sync::Arc;
@@ -56,6 +57,7 @@ use crate::state::hotbar::Hotbar;
 use crate::state::inventory::Inventory;
 use crate::state::skills::SkillTree;
 use crate::state::theme::WorldTheme;
+use crate::state::trade::TradeState;
 #[cfg(feature = "debug")]
 use crate::world::Object;
 use crate::world::{Entity, GroundItem, Player, ResourceMetadata};
@@ -180,6 +182,8 @@ pub struct ClientState {
     storage: Inventory,
     /// Player skill tree.
     skill_tree: SkillTree,
+    /// Player-to-player trade.
+    trade: TradeState,
 
     /// List of all available character servers.
     character_servers: Vec<CharacterServerInformation>,
@@ -335,6 +339,7 @@ impl ClientState {
             let storage = Inventory::default();
             let skill_tree = SkillTree::default();
             let skill_tree_window = SkillTreeWindowState::default();
+            let trade = TradeState::default();
         });
 
         time_phase!("create window resources", {
@@ -404,6 +409,7 @@ impl ClientState {
             inventory,
             storage,
             skill_tree,
+            trade,
             character_servers,
             character_slots,
             currently_deleting,
