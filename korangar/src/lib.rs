@@ -2743,11 +2743,12 @@ impl Client {
                         }
                     }
                 }
-                InputEvent::ToggleInventoryWindow => {
+                InputEvent::ToggleInventoryWindow | InputEvent::ToggleEquipmentWindow => {
+                    // Combined Gear panel (paperdoll + inventory). Close a leftover
+                    // standalone Inventory window if one is still open from an older build.
                     if self.client_state.try_follow(this_entity()).is_some() {
-                        match self.interface.is_window_with_class_open(WindowClass::Inventory) {
-                            true => self.interface.close_window_with_class(WindowClass::Inventory),
-                            false => self.interface.open_window(InventoryWindow::new(client_state().inventory().items())),
+                        if self.interface.is_window_with_class_open(WindowClass::Inventory) {
+                            self.interface.close_window_with_class(WindowClass::Inventory);
                         }
                     }
                 }

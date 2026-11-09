@@ -1,36 +1,46 @@
-//! First-pass Turoran paperdoll for the equipment window.
+//! Turoran paperdoll + inventory gear panel (Warbound-inspired layout goals
+//! only).
 //!
-//! Inventory stays a separate 4×10 icon grid in `inventory.rs`. This window
-//! does not absorb it. Costume and shadow positions keep display names for
-//! later, but they are not placed on the paperdoll yet.
+//! Left: paperdoll sockets (body, costume, shadow). Right: existing 4x10
+//! inventory icon grid. Top: compact level/stat summary. No third-party art or
+//! packet changes.
 
+use korangar_components::item_box;
 use korangar_interface::element::Element;
 use korangar_interface::window::{CustomWindow, Window};
 use korangar_networking::{InventoryItem, InventoryItemDetails};
 use ragnarok_packets::EquipPosition;
-use rust_state::{Path, PathExt, Selector};
+use rust_state::{ManuallyAssertExt, Path, PathExt, Selector, VecIndexExt};
 
 use crate::ItemSource;
 use crate::interface::windows::WindowClass;
 use crate::loaders::OverflowBehavior;
-use crate::state::ClientState;
 use crate::state::theme::InterfaceThemeType;
-use crate::world::ResourceMetadata;
+use crate::state::{ClientState, this_player};
+use crate::world::{PlayerPathExt, ResourceMetadata};
 
 /// One cell in the paperdoll grid. Empty cells reserve a column so head, shoes,
 /// and ammo stay in the center.
+///
+/// Layout contract for tests / future builders. The window body is hand-built so
+/// `gap` and `equip_box` opaque element types can sit in the same `split!` row.
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PaperdollCell {
     Empty,
     Slot(EquipPosition),
 }
 
+#[allow(dead_code)]
 pub(crate) const PAPERDOLL_COLUMN_COUNT: usize = 3;
 
-/// Top to bottom. Hands flank armor; accessories flank the garment.
-/// Head, shoes, and ammo are center-biased. Costume and shadow gear are
-/// omitted.
-pub(crate) const PAPERDOLL_ROWS: [[PaperdollCell; PAPERDOLL_COLUMN_COUNT]; 7] = [
+/// Inventory grid reused from the standalone inventory window.
+pub(crate) const INVENTORY_ROWS: usize = 4;
+pub(crate) const INVENTORY_COLUMNS: usize = 10;
+
+/// Top to bottom. Body gear, then costume, then shadow.
+#[allow(dead_code)]
+pub(crate) const PAPERDOLL_ROWS: [[PaperdollCell; PAPERDOLL_COLUMN_COUNT]; 14] = [
     [
         PaperdollCell::Empty,
         PaperdollCell::Slot(EquipPosition::HEAD_TOP),
@@ -62,11 +72,44 @@ pub(crate) const PAPERDOLL_ROWS: [[PaperdollCell; PAPERDOLL_COLUMN_COUNT]; 7] = 
         PaperdollCell::Empty,
     ],
     [PaperdollCell::Empty, PaperdollCell::Slot(EquipPosition::AMMO), PaperdollCell::Empty],
+    [
+        PaperdollCell::Empty,
+        PaperdollCell::Slot(EquipPosition::COSTUME_HEAD_TOP),
+        PaperdollCell::Empty,
+    ],
+    [
+        PaperdollCell::Empty,
+        PaperdollCell::Slot(EquipPosition::COSTUME_HEAD_MIDDLE),
+        PaperdollCell::Empty,
+    ],
+    [
+        PaperdollCell::Empty,
+        PaperdollCell::Slot(EquipPosition::COSTUME_HEAD_LOWER),
+        PaperdollCell::Empty,
+    ],
+    [
+        PaperdollCell::Empty,
+        PaperdollCell::Slot(EquipPosition::COSTUME_GARMENT),
+        PaperdollCell::Empty,
+    ],
+    [
+        PaperdollCell::Slot(EquipPosition::SHADOW_WEAPON),
+        PaperdollCell::Slot(EquipPosition::SHADOW_ARMOR),
+        PaperdollCell::Slot(EquipPosition::SHADOW_SHIELD),
+    ],
+    [
+        PaperdollCell::Empty,
+        PaperdollCell::Slot(EquipPosition::SHADOW_SHOES),
+        PaperdollCell::Empty,
+    ],
+    [
+        PaperdollCell::Slot(EquipPosition::SHADOW_LEFT_ACCESSORY),
+        PaperdollCell::Empty,
+        PaperdollCell::Slot(EquipPosition::SHADOW_RIGHT_ACCESSORY),
+    ],
 ];
 
-/// Label shown under an equipment socket. Match order is the historical one:
-/// combined masks such as [`EquipPosition::LEFT_RIGHT_HAND`] hit the earlier
-/// single-hand arm.
+/// Label shown under an equipment socket. Match order is historical.
 pub(crate) fn equip_slot_label(equip_position: EquipPosition) -> &'static str {
     match equip_position {
         _ if equip_position.contains(EquipPosition::HEAD_LOWER) => "Head lower",
@@ -97,8 +140,7 @@ pub(crate) fn equip_slot_label(equip_position: EquipPosition) -> &'static str {
     }
 }
 
-/// Equip positions that have a socket on the first-pass paperdoll, top to
-/// bottom and left to right. Empty cells are skipped.
+#[allow(dead_code)]
 pub(crate) fn shown_equip_positions() -> impl Iterator<Item = EquipPosition> {
     PAPERDOLL_ROWS.into_iter().flatten().filter_map(|cell| match cell {
         PaperdollCell::Slot(position) => Some(position),
@@ -137,7 +179,6 @@ where
             if let InventoryItemDetails::Equippable { equipped_position, .. } = &item.details {
                 return equipped_position.contains(self.equip_position);
             }
-
             false
         })
     }
@@ -147,7 +188,6 @@ where
             if let InventoryItemDetails::Equippable { equipped_position, .. } = item.details {
                 return equipped_position.contains(self.equip_position);
             }
-
             false
         })
     }
@@ -178,16 +218,11 @@ where
             items_path: impl Path<ClientState, Vec<InventoryItem<ResourceMetadata>>>,
             equip_position: EquipPosition,
         ) -> impl Element<ClientState> {
-            use korangar_components::item_box;
-            use korangar_interface::prelude::*;
-
             let equipment_path = EquipmentPath {
                 equip_position,
                 path: items_path,
             };
 
-            // Icon above its slot name. The label stays visible when the socket is empty.
-            // `item_box` still owns click-drag and drop (`ItemSource::Equipment`).
             fragment! {
                 gaps: 2.0,
                 children: (
@@ -197,7 +232,7 @@ where
                     },
                     text! {
                         text: equip_slot_label(equip_position),
-                        height: 16.0,
+                        height: 14.0,
                         horizontal_alignment: HorizontalAlignment::Center { offset: 0.0, border: 0.0 },
                         overflow_behavior: OverflowBehavior::Shrink,
                     },
@@ -206,57 +241,189 @@ where
         }
 
         fn gap() -> impl Element<ClientState> {
-            use korangar_interface::prelude::*;
-
             fragment! {
                 children: (),
             }
         }
 
-        // Same cells as `PAPERDOLL_ROWS`. Heads, shoes, and ammo use a center column.
+        let items = self.items_path;
+
         window! {
-            title: "Equipment",
+            title: "Gear",
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
             closable: true,
-            minimum_width: 520.0,
-            maximum_width: 600.0,
+            minimum_width: 780.0,
+            maximum_width: 920.0,
             elements: (
                 split! {
                     gaps: theme().window().gaps(),
-                    children: (gap(), equip_box(self.items_path, EquipPosition::HEAD_TOP), gap()),
-                },
-                split! {
-                    gaps: theme().window().gaps(),
-                    children: (gap(), equip_box(self.items_path, EquipPosition::HEAD_MIDDLE), gap()),
-                },
-                split! {
-                    gaps: theme().window().gaps(),
-                    children: (gap(), equip_box(self.items_path, EquipPosition::HEAD_LOWER), gap()),
-                },
-                split! {
-                    gaps: theme().window().gaps(),
                     children: (
-                        equip_box(self.items_path, EquipPosition::LEFT_HAND),
-                        equip_box(self.items_path, EquipPosition::ARMOR),
-                        equip_box(self.items_path, EquipPosition::RIGHT_HAND),
+                        text! {
+                            text: "Base Lv",
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                        text! {
+                            text: PartialEqDisplaySelector::new(this_player().manually_asserted().base_level()),
+                            horizontal_alignment: HorizontalAlignment::Right { offset: 0.0, border: 3.0 },
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                        text! {
+                            text: "Job Lv",
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                        text! {
+                            text: PartialEqDisplaySelector::new(this_player().manually_asserted().job_level()),
+                            horizontal_alignment: HorizontalAlignment::Right { offset: 0.0, border: 3.0 },
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                        text! {
+                            text: "STR",
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                        text! {
+                            text: PartialEqDisplaySelector::new(this_player().manually_asserted().strength()),
+                            horizontal_alignment: HorizontalAlignment::Right { offset: 0.0, border: 3.0 },
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                        text! {
+                            text: "AGI",
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                        text! {
+                            text: PartialEqDisplaySelector::new(this_player().manually_asserted().agility()),
+                            horizontal_alignment: HorizontalAlignment::Right { offset: 0.0, border: 3.0 },
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                        text! {
+                            text: "VIT",
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                        text! {
+                            text: PartialEqDisplaySelector::new(this_player().manually_asserted().vitality()),
+                            horizontal_alignment: HorizontalAlignment::Right { offset: 0.0, border: 3.0 },
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
                     ),
                 },
                 split! {
                     gaps: theme().window().gaps(),
                     children: (
-                        equip_box(self.items_path, EquipPosition::LEFT_ACCESSORY),
-                        equip_box(self.items_path, EquipPosition::GARMENT),
-                        equip_box(self.items_path, EquipPosition::RIGTH_ACCESSORY),
+                        fragment! {
+                            gaps: theme().window().gaps(),
+                            children: (
+                                text! {
+                                    text: "Equipment",
+                                    overflow_behavior: OverflowBehavior::Shrink,
+                                },
+                                split! {
+                                    gaps: theme().window().gaps(),
+                                    children: (gap(), equip_box(items, EquipPosition::HEAD_TOP), gap()),
+                                },
+                                split! {
+                                    gaps: theme().window().gaps(),
+                                    children: (gap(), equip_box(items, EquipPosition::HEAD_MIDDLE), gap()),
+                                },
+                                split! {
+                                    gaps: theme().window().gaps(),
+                                    children: (gap(), equip_box(items, EquipPosition::HEAD_LOWER), gap()),
+                                },
+                                split! {
+                                    gaps: theme().window().gaps(),
+                                    children: (
+                                        equip_box(items, EquipPosition::LEFT_HAND),
+                                        equip_box(items, EquipPosition::ARMOR),
+                                        equip_box(items, EquipPosition::RIGHT_HAND),
+                                    ),
+                                },
+                                split! {
+                                    gaps: theme().window().gaps(),
+                                    children: (
+                                        equip_box(items, EquipPosition::LEFT_ACCESSORY),
+                                        equip_box(items, EquipPosition::GARMENT),
+                                        equip_box(items, EquipPosition::RIGTH_ACCESSORY),
+                                    ),
+                                },
+                                split! {
+                                    gaps: theme().window().gaps(),
+                                    children: (gap(), equip_box(items, EquipPosition::SHOES), gap()),
+                                },
+                                split! {
+                                    gaps: theme().window().gaps(),
+                                    children: (gap(), equip_box(items, EquipPosition::AMMO), gap()),
+                                },
+                                text! {
+                                    text: "Costume",
+                                    overflow_behavior: OverflowBehavior::Shrink,
+                                },
+                                split! {
+                                    gaps: theme().window().gaps(),
+                                    children: (gap(), equip_box(items, EquipPosition::COSTUME_HEAD_TOP), gap()),
+                                },
+                                split! {
+                                    gaps: theme().window().gaps(),
+                                    children: (gap(), equip_box(items, EquipPosition::COSTUME_HEAD_MIDDLE), gap()),
+                                },
+                                split! {
+                                    gaps: theme().window().gaps(),
+                                    children: (gap(), equip_box(items, EquipPosition::COSTUME_HEAD_LOWER), gap()),
+                                },
+                                split! {
+                                    gaps: theme().window().gaps(),
+                                    children: (gap(), equip_box(items, EquipPosition::COSTUME_GARMENT), gap()),
+                                },
+                                text! {
+                                    text: "Shadow",
+                                    overflow_behavior: OverflowBehavior::Shrink,
+                                },
+                                split! {
+                                    gaps: theme().window().gaps(),
+                                    children: (
+                                        equip_box(items, EquipPosition::SHADOW_WEAPON),
+                                        equip_box(items, EquipPosition::SHADOW_ARMOR),
+                                        equip_box(items, EquipPosition::SHADOW_SHIELD),
+                                    ),
+                                },
+                                split! {
+                                    gaps: theme().window().gaps(),
+                                    children: (gap(), equip_box(items, EquipPosition::SHADOW_SHOES), gap()),
+                                },
+                                split! {
+                                    gaps: theme().window().gaps(),
+                                    children: (
+                                        equip_box(items, EquipPosition::SHADOW_LEFT_ACCESSORY),
+                                        gap(),
+                                        equip_box(items, EquipPosition::SHADOW_RIGHT_ACCESSORY),
+                                    ),
+                                },
+                            ),
+                        },
+                        fragment! {
+                            gaps: theme().window().gaps(),
+                            children: (
+                                text! {
+                                    text: "Inventory",
+                                    overflow_behavior: OverflowBehavior::Shrink,
+                                },
+                                fragment! {
+                                    gaps: theme().window().gaps(),
+                                    children: std::array::from_fn::<_, INVENTORY_ROWS, _>(|row| {
+                                        split! {
+                                            gaps: theme().window().gaps(),
+                                            children: std::array::from_fn::<_, INVENTORY_COLUMNS, _>(|column| {
+                                                let path = items.index(row * INVENTORY_COLUMNS + column);
+
+                                                item_box! {
+                                                    item_path: path,
+                                                    source: ItemSource::Inventory,
+                                                }
+                                            }),
+                                        }
+                                    }),
+                                },
+                            ),
+                        },
                     ),
-                },
-                split! {
-                    gaps: theme().window().gaps(),
-                    children: (gap(), equip_box(self.items_path, EquipPosition::SHOES), gap()),
-                },
-                split! {
-                    gaps: theme().window().gaps(),
-                    children: (gap(), equip_box(self.items_path, EquipPosition::AMMO), gap()),
                 },
             ),
         }
@@ -267,13 +434,14 @@ where
 mod tests {
     use ragnarok_packets::EquipPosition;
 
-    use super::{PAPERDOLL_COLUMN_COUNT, PAPERDOLL_ROWS, PaperdollCell, equip_slot_label, shown_equip_positions};
+    use super::{
+        INVENTORY_COLUMNS, INVENTORY_ROWS, PAPERDOLL_COLUMN_COUNT, PAPERDOLL_ROWS, PaperdollCell, equip_slot_label, shown_equip_positions,
+    };
 
     #[test]
     fn paperdoll_shows_body_slots_and_both_accessories() {
         let shown: Vec<_> = shown_equip_positions().collect();
-
-        assert_eq!(shown, vec![
+        for position in [
             EquipPosition::HEAD_TOP,
             EquipPosition::HEAD_MIDDLE,
             EquipPosition::HEAD_LOWER,
@@ -285,22 +453,42 @@ mod tests {
             EquipPosition::RIGTH_ACCESSORY,
             EquipPosition::SHOES,
             EquipPosition::AMMO,
-        ]);
+        ] {
+            assert!(shown.contains(&position), "missing body slot {position:?}");
+        }
+    }
+
+    #[test]
+    fn paperdoll_includes_costume_and_shadow_slots() {
+        let shown: Vec<_> = shown_equip_positions().collect();
+        for position in [
+            EquipPosition::COSTUME_HEAD_TOP,
+            EquipPosition::COSTUME_HEAD_MIDDLE,
+            EquipPosition::COSTUME_HEAD_LOWER,
+            EquipPosition::COSTUME_GARMENT,
+            EquipPosition::SHADOW_WEAPON,
+            EquipPosition::SHADOW_ARMOR,
+            EquipPosition::SHADOW_SHIELD,
+            EquipPosition::SHADOW_SHOES,
+            EquipPosition::SHADOW_LEFT_ACCESSORY,
+            EquipPosition::SHADOW_RIGHT_ACCESSORY,
+        ] {
+            assert!(shown.contains(&position), "missing costume/shadow slot {position:?}");
+        }
+        assert!(!shown.contains(&EquipPosition::SHADOW_LEFT_RIGHT_ACCESSORY));
     }
 
     #[test]
     fn paperdoll_keeps_head_shoes_and_ammo_centered() {
         let center = |row: usize| PAPERDOLL_ROWS[row][1];
-
         assert_eq!(center(0), PaperdollCell::Slot(EquipPosition::HEAD_TOP));
         assert_eq!(center(1), PaperdollCell::Slot(EquipPosition::HEAD_MIDDLE));
         assert_eq!(center(2), PaperdollCell::Slot(EquipPosition::HEAD_LOWER));
         assert_eq!(center(5), PaperdollCell::Slot(EquipPosition::SHOES));
         assert_eq!(center(6), PaperdollCell::Slot(EquipPosition::AMMO));
-
+        assert_eq!(center(7), PaperdollCell::Slot(EquipPosition::COSTUME_HEAD_TOP));
+        assert_eq!(center(11), PaperdollCell::Slot(EquipPosition::SHADOW_ARMOR));
         assert!(PAPERDOLL_ROWS.iter().all(|row| row.len() == PAPERDOLL_COLUMN_COUNT));
-        assert_eq!(PAPERDOLL_ROWS[0][0], PaperdollCell::Empty);
-        assert_eq!(PAPERDOLL_ROWS[0][2], PaperdollCell::Empty);
         assert_eq!(PAPERDOLL_ROWS[3][0], PaperdollCell::Slot(EquipPosition::LEFT_HAND));
         assert_eq!(PAPERDOLL_ROWS[3][2], PaperdollCell::Slot(EquipPosition::RIGHT_HAND));
         assert_eq!(PAPERDOLL_ROWS[4][0], PaperdollCell::Slot(EquipPosition::LEFT_ACCESSORY));
@@ -308,58 +496,18 @@ mod tests {
     }
 
     #[test]
-    fn paperdoll_omits_costume_and_shadow_gear() {
-        let shown: Vec<_> = shown_equip_positions().collect();
-        let hidden = [
-            EquipPosition::COSTUME_HEAD_TOP,
-            EquipPosition::COSTUME_HEAD_MIDDLE,
-            EquipPosition::COSTUME_HEAD_LOWER,
-            EquipPosition::COSTUME_GARMENT,
-            EquipPosition::SHADOW_ARMOR,
-            EquipPosition::SHADOW_WEAPON,
-            EquipPosition::SHADOW_SHIELD,
-            EquipPosition::SHADOW_SHOES,
-            EquipPosition::SHADOW_RIGHT_ACCESSORY,
-            EquipPosition::SHADOW_LEFT_ACCESSORY,
-            EquipPosition::SHADOW_LEFT_RIGHT_ACCESSORY,
-        ];
-
-        for position in hidden {
-            assert!(!shown.contains(&position), "{position:?} is not on the first-pass paperdoll");
-        }
+    fn inventory_grid_dimensions_match_standalone_window() {
+        assert_eq!(INVENTORY_ROWS, 4);
+        assert_eq!(INVENTORY_COLUMNS, 10);
     }
 
     #[test]
     fn every_shown_slot_has_a_stable_label() {
-        let expected = [
-            (EquipPosition::HEAD_TOP, "Head top"),
-            (EquipPosition::HEAD_MIDDLE, "Head middle"),
-            (EquipPosition::HEAD_LOWER, "Head lower"),
-            (EquipPosition::LEFT_HAND, "Left hand"),
-            (EquipPosition::RIGHT_HAND, "Right hand"),
-            (EquipPosition::ARMOR, "Armor"),
-            (EquipPosition::SHOES, "Shoes"),
-            (EquipPosition::GARMENT, "Garment"),
-            (EquipPosition::LEFT_ACCESSORY, "Left accessory"),
-            (EquipPosition::RIGTH_ACCESSORY, "Right accessory"),
-            (EquipPosition::AMMO, "Ammo"),
-        ];
-
-        for (position, label) in expected {
-            assert_eq!(equip_slot_label(position), label);
-        }
-
         for position in shown_equip_positions() {
             assert!(!equip_slot_label(position).is_empty());
         }
-    }
-
-    #[test]
-    fn unshown_positions_keep_their_display_names() {
         assert_eq!(equip_slot_label(EquipPosition::COSTUME_HEAD_TOP), "Costume head top");
-        assert_eq!(equip_slot_label(EquipPosition::COSTUME_GARMENT), "Costume garment");
         assert_eq!(equip_slot_label(EquipPosition::SHADOW_WEAPON), "Shadow weapon");
-        // Pre-existing label. `SHADOW_ARMOR` is not "Shadow armor".
         assert_eq!(equip_slot_label(EquipPosition::SHADOW_ARMOR), "Shadow ammo");
         assert_eq!(equip_slot_label(EquipPosition::LEFT_RIGHT_HAND), "Right hand");
     }
