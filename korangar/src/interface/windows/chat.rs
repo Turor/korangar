@@ -19,6 +19,16 @@ use crate::state::{ChatMessage, ClientState, ClientStatePathExt, client_state, c
 
 const MAXIMUM_CHAT_MESSAGE_LENGTH: usize = 80;
 
+fn themed_message_color(state: &State<ClientState>, color: MessageColor) -> Color {
+    match color {
+        MessageColor::Rgb { red, green, blue } => Color::rgb_u8(red, green, blue),
+        MessageColor::Broadcast => *state.get(&client_theme().chat().broadcast_color()),
+        MessageColor::Server => *state.get(&client_theme().chat().server_color()),
+        MessageColor::Error => *state.get(&client_theme().chat().error_color()),
+        MessageColor::Information => *state.get(&client_theme().chat().information_color()),
+    }
+}
+
 /// ZST for getting the focus id of the chat text box. This is only needed to
 /// focus the chat when pressing enter.
 pub struct ChatTextBox;
@@ -60,17 +70,7 @@ where
             let message_heights = chat_messages
                 .iter()
                 .map(|chat_message| {
-                    let color = match chat_message.color {
-                        MessageColor::Rgb { red, green, blue } => Color::rgb_u8(red, green, blue),
-                        // TODO: Make the color right.
-                        MessageColor::Broadcast => Color::monochrome_u8(255),
-                        // TODO: Make the color right.
-                        MessageColor::Server => Color::monochrome_u8(255),
-                        // TODO: Make the color right.
-                        MessageColor::Error => Color::monochrome_u8(255),
-                        // TODO: Make the color right.
-                        MessageColor::Information => Color::monochrome_u8(255),
-                    };
+                    let color = themed_message_color(state, chat_message.color);
 
                     let (size, _) = resolver.get_text_dimensions(
                         &chat_message.text,
@@ -114,17 +114,7 @@ where
             .iter()
             .zip(layout_info.message_heights.iter())
             .for_each(|(chat_message, message_height)| {
-                let color = match chat_message.color {
-                    MessageColor::Rgb { red, green, blue } => Color::rgb_u8(red, green, blue),
-                    // TODO: Make the color right.
-                    MessageColor::Broadcast => Color::monochrome_u8(255),
-                    // TODO: Make the color right.
-                    MessageColor::Server => Color::monochrome_u8(255),
-                    // TODO: Make the color right.
-                    MessageColor::Error => Color::monochrome_u8(255),
-                    // TODO: Make the color right.
-                    MessageColor::Information => Color::monochrome_u8(255),
-                };
+                let color = themed_message_color(state, chat_message.color);
 
                 if offset != 0.0 {
                     offset += message_spacing;
