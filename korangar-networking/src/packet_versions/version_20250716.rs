@@ -538,17 +538,34 @@ where
 
         NetworkEvent::AddChoiceButtons { choices, npc_id }
     })?;
-    packet_handler.register_noop::<DisplaySpecialEffectPacket>()?;
+    packet_handler.register(|packet: DisplaySpecialEffectPacket| NetworkEvent::SpecialEffect {
+        entity_id: packet.entity_id,
+        effect_id: packet.effect_id,
+    })?;
     packet_handler.register(|packet: DisplaySkillCooldownPacket| NetworkEvent::SkillCooldown {
         skill_id: packet.skill_id,
         until: packet.until,
     })?;
-    packet_handler.register_noop::<DisplaySkillEffectAndDamagePacket>()?;
+    packet_handler.register(|packet: DisplaySkillEffectAndDamagePacket| NetworkEvent::SkillEffectAndDamage {
+        skill_id: packet.skill_id,
+        source_entity_id: packet.source_entity_id,
+        destination_entity_id: packet.destination_entity_id,
+        start_time: packet.start_time,
+        source_delay: packet.soruce_delay,
+        destination_delay: packet.destination_delay,
+        damage: packet.damage,
+        level: packet.level,
+        hit_count: packet.div,
+        skill_type: packet.skill_type,
+    })?;
     packet_handler.register(|packet: DisplaySkillEffectNoDamagePacket| NetworkEvent::HealEffect {
         entity_id: packet.destination_entity_id,
         heal_amount: packet.heal_amount as usize,
     })?;
-    packet_handler.register_noop::<DisplayPlayerHealEffect>()?;
+    packet_handler.register(|packet: DisplayPlayerHealEffect| NetworkEvent::PlayerHealEffect {
+        heal_type: packet.heal_type,
+        heal_amount: packet.heal_amount,
+    })?;
     packet_handler.register(|packet: StatusChangePacket| {
         let StatusChangePacket {
             index,
@@ -618,7 +635,12 @@ where
 
         NetworkEvent::VisualEffect { effect_path, entity_id }
     })?;
-    packet_handler.register_noop::<DisplayGainedExperiencePacket>()?;
+    packet_handler.register(|packet: DisplayGainedExperiencePacket| NetworkEvent::GainedExperience {
+        account_id: packet.account_id,
+        amount: packet.amount,
+        experience_type: packet.experience_type,
+        experience_source: packet.experience_source,
+    })?;
     packet_handler.register_noop::<DisplayImagePacket>()?;
     packet_handler.register_noop::<StateChangePacket>()?;
 

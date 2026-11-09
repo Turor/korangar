@@ -70,8 +70,8 @@ use networking::{PacketHistory, PacketHistoryCallback};
 #[cfg(not(feature = "debug"))]
 use ragnarok_packets::handler::NoPacketCallback;
 use ragnarok_packets::{
-    AttackRange, BuyShopItemsResult, CharacterServerInformation, ClientTick, Direction, DisappearanceReason, HotbarSlot, SellItemsResult,
-    SkillId, SkillLevel, SkillType, TilePosition, UnitId, WorldPosition,
+    AttackRange, BuyShopItemsResult, CharacterServerInformation, ClientTick, Direction, DisappearanceReason, EffectId, ExperienceSource,
+    ExperienceType, HealType, HotbarSlot, SellItemsResult, SkillId, SkillLevel, SkillType, TilePosition, UnitId, WorldPosition,
 };
 use renderer::InterfaceRenderer;
 use rust_state::{ManuallyAssertExt, State};
@@ -278,6 +278,26 @@ pub struct Client {
 
     map: Option<Arc<Map>>,
     client_state: State<ClientState>,
+}
+
+/// Effect files this client already loads for level-up, refine, and pharmacy
+/// feedback.
+fn special_effect_path(effect_id: EffectId) -> Option<&'static str> {
+    match effect_id {
+        EffectId::Lvup
+        | EffectId::Level99
+        | EffectId::Level99_2
+        | EffectId::Level99_3
+        | EffectId::Level99_4
+        | EffectId::Level99_5
+        | EffectId::Level99_6 => Some("angel.str"),
+        EffectId::Joblvup | EffectId::Joblvup50 => Some("joblvup.str"),
+        EffectId::Refineok => Some("bs_refinesuccess.str"),
+        EffectId::Refinefail => Some("bs_refinefailed.str"),
+        EffectId::PharmacyOk => Some("p_success.str"),
+        EffectId::PharmacyFail => Some("p_failed.str"),
+        _ => None,
+    }
 }
 
 impl Client {
@@ -1612,6 +1632,118 @@ impl Client {
                     {
                         self.particle_holder
                             .spawn_particle(Box::new(HealNumber::new(entity.get_position(), heal_amount.to_string())));
+                    }
+                }
+                NetworkEvent::PlayerHealEffect { heal_type, heal_amount } => {
+                    let kind = match heal_type {
+                        HealType::Health => "HP",
+                        HealType::SpellPoints => "SP",
+                    };
+                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
+                        format!("Recovered {heal_amount} {kind}."),
+                        MessageColor::Information,
+                    ));
+
+                    if let Some(entity) = self.client_state.try_follow(this_entity()) {
+                        self.particle_holder
+                            .spawn_particle(Box::new(HealNumber::new(entity.get_position(), heal_amount.to_string())));
+                    }
+                }
+                NetworkEvent::GainedExperience {
+                    amount,
+                    experience_type,
+                    experience_source,
+                    ..
+                } => {
+                    let kind = match experience_type {
+                        ExperienceType::BaseExperience => "Base",
+                        ExperienceType::JobExperience => "Job",
+                    };
+                    let source = match experience_source {
+                        ExperienceSource::Quest => " (quest)",
+                        ExperienceSource::Regular => "",
+                    };
+                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
+                        format!("Gained {amount} {kind} EXP{source}."),
+                        MessageColor::Information,
+                    ));
+                }
+                NetworkEvent::SpecialEffect { entity_id, effect_id } => {
+                    if let Some(effect_path) = special_effect_path(effect_id) {
+                        let effect = self.effect_loader.get_or_load(effect_path, &self.texture_loader).unwrap();
+                        let frame_timer = effect.new_frame_timer();
+
+                        self.effect_holder.add_effect(Box::new(EffectWithLight::new(
+                            effect,
+                            frame_timer,
+                            EffectCenter::Entity(entity_id, Point3::new(0.0, 0.0, 0.0)),
+                            Vector3::new(0.0, 9.0, 0.0),
+                            PointLightId::new(entity_id.0),
+                            Vector3::new(0.0, 12.0, 0.0),
+                            Color::WHITE,
+                            50.0,
+                            false,
+                        )));
+                    } else if matches!(effect_id, EffectId::Heal | EffectId::Heal2 | EffectId::Heal3 | EffectId::Heal4) {
+                        if let Some(entity) = self
+                            .client_state
+                            .follow(client_state().entities())
+                            .iter()
+                            .find(|entity| entity.get_entity_id() == entity_id)
+                            .or_else(|| self.client_state.try_follow(this_entity()))
+                        {
+                            self.particle_holder
+                                .spawn_particle(Box::new(HealNumber::new(entity.get_position(), "+".to_owned())));
+                        }
+                    } else {
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(format!("Effect: {effect_id:?}"), MessageColor::Information));
+                    }
+                }
+                NetworkEvent::SkillEffectAndDamage {
+                    source_entity_id,
+                    destination_entity_id,
+                    damage,
+                    destination_delay,
+                    source_delay,
+                    ..
+                } => {
+                    let target_position = self
+                        .client_state
+                        .follow(client_state().entities())
+                        .iter()
+                        .find(|entity| entity.get_entity_id() == destination_entity_id)
+                        .map(|entity| entity.get_tile_position());
+
+                    let attack_duration = if destination_delay != 0 { destination_delay } else { source_delay };
+
+                    if let Some(entity) = self
+                        .client_state
+                        .follow_mut(client_state().entities())
+                        .iter_mut()
+                        .find(|entity| entity.get_entity_id() == source_entity_id)
+                    {
+                        if let Some(target_position) = target_position {
+                            entity.rotate_towards(target_position);
+                        }
+
+                        entity.set_attack(attack_duration, false, client_tick);
+                    }
+
+                    if let Some(entity) = self
+                        .client_state
+                        .follow(client_state().entities())
+                        .iter()
+                        .find(|entity| entity.get_entity_id() == destination_entity_id)
+                        .or_else(|| {
+                            self.client_state
+                                .try_follow(this_entity())
+                                .filter(|entity| entity.get_entity_id() == destination_entity_id)
+                        })
+                    {
+                        self.particle_holder
+                            .spawn_particle(Box::new(DamageNumber::new(entity.get_position(), damage.to_string(), false)));
                     }
                 }
                 NetworkEvent::UpdateEntityHealth {

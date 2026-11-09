@@ -373,8 +373,38 @@ pub enum NetworkEvent {
     QuestRemoved {
         quest_id: u32,
     },
+    /// Entity effect (`DisplaySpecialEffectPacket`, 0x01F3).
+    SpecialEffect {
+        entity_id: EntityId,
+        effect_id: EffectId,
+    },
+    /// Skill hit that also carries damage (`DisplaySkillEffectAndDamagePacket`,
+    /// 0x01DE).
+    SkillEffectAndDamage {
+        skill_id: SkillId,
+        source_entity_id: EntityId,
+        destination_entity_id: EntityId,
+        start_time: ClientTick,
+        source_delay: u32,
+        destination_delay: u32,
+        damage: u32,
+        level: SkillLevel,
+        hit_count: u16,
+        skill_type: u8,
+    },
+    /// The local player recovered HP or SP (`DisplayPlayerHealEffect`, 0x0A27).
+    PlayerHealEffect {
+        heal_type: HealType,
+        heal_amount: u32,
+    },
+    /// Base or job experience (`DisplayGainedExperiencePacket`, 0x0ACC).
+    GainedExperience {
+        account_id: AccountId,
+        amount: u64,
+        experience_type: ExperienceType,
+        experience_source: ExperienceSource,
+    },
 }
-
 
 /// Wire `state` byte of the status-change packets.
 ///
