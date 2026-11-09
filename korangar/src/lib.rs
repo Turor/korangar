@@ -2750,6 +2750,10 @@ impl Client {
                         if self.interface.is_window_with_class_open(WindowClass::Inventory) {
                             self.interface.close_window_with_class(WindowClass::Inventory);
                         }
+                        match self.interface.is_window_with_class_open(WindowClass::Equipment) {
+                            true => self.interface.close_window_with_class(WindowClass::Equipment),
+                            false => self.interface.open_window(EquipmentWindow::new(client_state().inventory().items())),
+                        }
                     }
                 }
                 InputEvent::ToggleCartWindow => {
@@ -2757,14 +2761,6 @@ impl Client {
                         match self.interface.is_window_with_class_open(WindowClass::Cart) {
                             true => self.interface.close_window_with_class(WindowClass::Cart),
                             false => self.interface.open_window(CartWindow::new(client_state().cart().items())),
-                        }
-                    }
-                }
-                InputEvent::ToggleEquipmentWindow => {
-                    if self.client_state.try_follow(this_entity()).is_some() {
-                        match self.interface.is_window_with_class_open(WindowClass::Equipment) {
-                            true => self.interface.close_window_with_class(WindowClass::Equipment),
-                            false => self.interface.open_window(EquipmentWindow::new(client_state().inventory().items())),
                         }
                     }
                 }
