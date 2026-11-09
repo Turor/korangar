@@ -8,11 +8,19 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Serialize, Deserialize, RustState, StateElement)]
 pub struct GameSettings {
     pub auto_attack: bool,
+    /// Renewal SignBoardList / Towninfo markers stay off unless set.
+    /// Live Turoran roBrowser uses `enableSignboards: false` plus empty overlays
+    /// so missing signboard sprites are not drawn as vending boxes.
+    #[serde(default)]
+    pub enable_signboards: bool,
 }
 
 impl Default for GameSettings {
     fn default() -> Self {
-        Self { auto_attack: true }
+        Self {
+            auto_attack: true,
+            enable_signboards: false,
+        }
     }
 }
 

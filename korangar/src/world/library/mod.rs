@@ -5,6 +5,7 @@ mod item_resource;
 mod job_identity;
 mod lua;
 mod map_sky_data;
+mod signboard;
 mod skill_information;
 mod skill_requirements;
 mod skill_tree;
@@ -22,6 +23,7 @@ pub use self::item_resource::{ItemResource, ItemResourceKey};
 pub use self::job_identity::JobIdentity;
 use self::lua::{execute_chunk, game_string};
 pub use self::map_sky_data::MapSkyData;
+pub use self::signboard::MapSignboards;
 pub use self::skill_tree::SkillTreeLayout;
 use crate::loaders::GameFileLoader;
 pub use crate::world::library::skill_information::SkillListInformation;
@@ -35,6 +37,7 @@ pub struct Library {
     skill_requirements_table: <SkillListRequirements as Table>::Storage,
     skill_tree_table: <SkillTreeLayout as Table>::Storage,
     baby_job_table: <IsBabyJob as Table>::Storage,
+    signboard_table: <MapSignboards as Table>::Storage,
 }
 
 impl Library {
@@ -46,6 +49,7 @@ impl Library {
         let skill_requirements_table = SkillListRequirements::load(game_file_loader).context("loading SkillListRequirements")?;
         let skill_tree_table = SkillTreeLayout::load(game_file_loader).context("loading SkillTreeLayout")?;
         let baby_job_table = IsBabyJob::load(game_file_loader).context("loading IsBabyJob")?;
+        let signboard_table = MapSignboards::load(game_file_loader).context("loading MapSignboards")?;
 
         Ok(Self {
             job_identity_table,
@@ -55,6 +59,7 @@ impl Library {
             skill_requirements_table,
             skill_tree_table,
             baby_job_table,
+            signboard_table,
         })
     }
 
