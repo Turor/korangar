@@ -63,7 +63,7 @@ use korangar_interface::Interface;
 use korangar_interface::layout::MouseButton;
 use korangar_networking::{
     DisconnectReason, HotkeyState, LoginServerLoginData, MessageColor, NetworkEvent, NetworkEventBuffer, NetworkingSystem, SellItem,
-    SupportedPacketVersion,
+    StatusChangeState, SupportedPacketVersion,
 };
 #[cfg(feature = "debug")]
 use networking::{PacketHistory, PacketHistoryCallback};
@@ -1011,6 +1011,7 @@ impl Client {
     #[inline(always)]
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
     fn handle_network_events(&mut self, client_tick: ClientTick) {
+        *self.client_state.follow_mut(client_state().client_tick()) = client_tick;
         self.networking_system.get_events(&mut self.network_event_buffer);
 
         for event in self.network_event_buffer.drain() {
@@ -1130,6 +1131,9 @@ impl Client {
                     self.client_state.follow_mut(client_state().ground_items()).clear();
                     self.client_state.follow_mut(client_state().equip_switch()).clear();
                     *self.client_state.follow_mut(client_state().buffered_action()) = None;
+                    self.client_state.follow_mut(client_state().status_effects()).clear();
+                    self.client_state.follow_mut(client_state().skill_cooldowns()).clear();
+                    self.client_state.follow_mut(client_state().quest_log()).clear();
 
                     self.audio_engine.play_background_music_track(None);
 
@@ -1210,6 +1214,9 @@ impl Client {
                         #[cfg(feature = "debug")]
                         self.interface.close_all_windows_except(DEBUG_WINDOWS);
 
+                        self.client_state.follow_mut(client_state().status_effects()).clear();
+                        self.client_state.follow_mut(client_state().skill_cooldowns()).clear();
+                        self.client_state.follow_mut(client_state().quest_log()).clear();
                         self.interface.open_window(CharacterSelectionWindow::new(
                             client_state().character_slots(),
                             client_state().switch_request(),
@@ -2372,19 +2379,79 @@ impl Client {
                         .follow_mut(client_state().skill_tree_window().chosen_skill_level())
                         .remove(&skill_id);
                 }
-                // Typed skill packets are delivered for later UI. This pass does not render them.
-                NetworkEvent::SkillCooldown { .. } => {}
+                NetworkEvent::SkillCooldown { skill_id, until } => {
+                    self.client_state.follow_mut(client_state().skill_cooldowns()).set(skill_id, until);
+                }
                 NetworkEvent::UseSkillSuccess { .. } => {}
                 NetworkEvent::ToUseSkillSuccess { .. } => {}
                 NetworkEvent::NotifyGroundSkill { .. } => {}
-                // Status icons are intentionally not drawn here. The events stay available for later UI.
-                NetworkEvent::StatusChange { .. } | NetworkEvent::StatusChangeSequence { .. } => {}
-                // Quest journal UI is intentionally not implemented. These events stay available to networking.
-                NetworkEvent::QuestList { .. }
-                | NetworkEvent::QuestNotification { .. }
-                | NetworkEvent::HuntingQuestNotification { .. }
-                | NetworkEvent::HuntingQuestObjectiveUpdate { .. }
-                | NetworkEvent::QuestRemoved { .. } => {}
+                NetworkEvent::StatusChange {
+                    status_index,
+                    entity_id,
+                    state,
+                    total_duration_milliseconds,
+                    remaining_milliseconds,
+                    ..
+                } => {
+                    let is_local = self
+                        .client_state
+                        .try_follow(this_entity())
+                        .is_some_and(|entity| entity.get_entity_id() == entity_id);
+                    if is_local {
+                        let statuses = self.client_state.follow_mut(client_state().status_effects());
+                        match state {
+                            StatusChangeState::Ended => statuses.end(status_index),
+                            StatusChangeState::Active | StatusChangeState::StillActive | StatusChangeState::Other(_) => {
+                                statuses.apply(status_index, remaining_milliseconds, total_duration_milliseconds, client_tick);
+                            }
+                        }
+                    }
+                }
+                NetworkEvent::StatusChangeSequence {
+                    status_index,
+                    entity_id,
+                    state,
+                } => {
+                    let is_local = self
+                        .client_state
+                        .try_follow(this_entity())
+                        .is_some_and(|entity| entity.get_entity_id() == entity_id);
+                    if is_local {
+                        let statuses = self.client_state.follow_mut(client_state().status_effects());
+                        match state {
+                            StatusChangeState::Ended => statuses.end(status_index),
+                            StatusChangeState::Active | StatusChangeState::StillActive | StatusChangeState::Other(_) => {
+                                statuses.apply(status_index, 0, 0, client_tick);
+                            }
+                        }
+                    }
+                }
+                NetworkEvent::QuestList { quests } => {
+                    self.client_state.follow_mut(client_state().quest_log()).replace_all(quests);
+                }
+                NetworkEvent::QuestNotification {
+                    quest_id,
+                    active,
+                    start_time,
+                    expire_time,
+                    objectives,
+                } => {
+                    self.client_state.follow_mut(client_state().quest_log()).upsert_notification(
+                        quest_id,
+                        active,
+                        start_time,
+                        expire_time,
+                        objectives,
+                    );
+                }
+                NetworkEvent::HuntingQuestNotification { objectives } | NetworkEvent::HuntingQuestObjectiveUpdate { objectives } => {
+                    self.client_state
+                        .follow_mut(client_state().quest_log())
+                        .apply_hunting_objectives(&objectives);
+                }
+                NetworkEvent::QuestRemoved { quest_id } => {
+                    self.client_state.follow_mut(client_state().quest_log()).remove(quest_id);
+                }
             }
         }
     }
@@ -2575,6 +2642,24 @@ impl Client {
                         .interface
                         .open_window(AudioSettingsWindow::new(client_state().audio_settings())),
                 },
+                InputEvent::ToggleQuestJournalWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::QuestJournal) {
+                            true => self.interface.close_window_with_class(WindowClass::QuestJournal),
+                            false => self.interface.open_window(QuestJournalWindow::new(client_state().quest_log())),
+                        }
+                    }
+                }
+                InputEvent::ToggleStatusEffectsWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::StatusEffects) {
+                            true => self.interface.close_window_with_class(WindowClass::StatusEffects),
+                            false => self
+                                .interface
+                                .open_window(StatusEffectsWindow::new(client_state().status_effects())),
+                        }
+                    }
+                }
                 InputEvent::ToggleFriendListWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::FriendList) {

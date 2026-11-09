@@ -84,6 +84,10 @@ pub enum InputEvent {
     ToggleAudioSettingsWindow,
     /// Open or close the friend list window. Only works while playing.
     ToggleFriendListWindow,
+    /// Open or close the quest journal. Only works while playing.
+    ToggleQuestJournalWindow,
+    /// Open or close the status effects strip. Only works while playing.
+    ToggleStatusEffectsWindow,
     /// Close the most recently opened or clicked closable window.
     CloseTopWindow,
     /// Toggle if the user interface should be rendered or not.

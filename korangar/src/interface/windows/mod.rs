@@ -30,6 +30,7 @@ mod packet_inspector;
 mod party_invite;
 #[cfg(feature = "debug")]
 mod profiler;
+mod quest_journal;
 #[cfg(feature = "debug")]
 mod render_options;
 mod respawn;
@@ -38,6 +39,7 @@ mod sell_cart;
 mod server_selection;
 mod skill_tree;
 mod stats;
+mod status_effects;
 mod storage;
 mod switch_equip;
 #[cfg(feature = "debug")]
@@ -78,6 +80,7 @@ pub use self::packet_inspector::PacketInspectorWindow;
 pub use self::party_invite::PartyInviteWindow;
 #[cfg(feature = "debug")]
 pub use self::profiler::{ProfilerWindow, ProfilerWindowState};
+pub use self::quest_journal::QuestJournalWindow;
 #[cfg(feature = "debug")]
 pub use self::render_options::RenderOptionsWindow;
 pub use self::respawn::RespawnWindow;
@@ -86,6 +89,7 @@ pub use self::sell_cart::SellCartWindow;
 pub use self::server_selection::ServerSelectionWindow;
 pub use self::skill_tree::{SkillTreeWindow, SkillTreeWindowState, SkillTreeWindowStatePathExt};
 pub use self::stats::StatsWindow;
+pub use self::status_effects::StatusEffectsWindow;
 pub use self::storage::StorageWindow;
 pub use self::switch_equip::SwitchEquipWindow;
 #[cfg(feature = "debug")]
@@ -113,6 +117,8 @@ pub enum WindowClass {
     SwitchEquip,
     SkillTree,
     Stats,
+    StatusEffects,
+    QuestJournal,
     FriendList,
     FriendRequest,
     PartyInvite,
