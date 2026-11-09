@@ -239,6 +239,23 @@ pub enum NetworkEvent {
         account_id: AccountId,
         character_id: CharacterId,
     },
+    /// Friend came online or went offline. `online` is true for
+    /// [`OnlineState::Online`].
+    FriendOnlineStatus {
+        account_id: AccountId,
+        character_id: CharacterId,
+        online: bool,
+        name: String,
+    },
+    /// Another player invited this client into a party.
+    PartyInvite {
+        party_id: PartyId,
+        party_name: String,
+    },
+    /// Whether this client may receive party invitations (`0x02C9`).
+    PartyInvitationState {
+        invitations_allowed: bool,
+    },
     SetHotkeyData {
         tab: HotbarTab,
         hotkeys: Vec<HotkeyState>,
