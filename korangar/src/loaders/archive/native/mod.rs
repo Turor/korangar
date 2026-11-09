@@ -15,8 +15,8 @@ use korangar_debug::logging::{Colorize, Timer, print_debug};
 use ragnarok_bytes::{ByteReader, FixedByteSize, FromBytes};
 use ragnarok_formats::archive::{AssetTable, FileTableRow, Header};
 
-use crate::loaders::archive::Archive;
 use crate::loaders::archive::native::mixcrypt::decrypt_file;
+use crate::loaders::archive::{Archive, normalize_archive_path};
 
 /// Represents a GRF file. GRF Files are an archive to store game assets.
 /// Each GRF contains a [`Header`] with metadata (number of files, size,
@@ -66,7 +66,7 @@ impl Archive for NativeArchive {
 
         for _index in 0..file_count {
             let file_information = FileTableRow::from_bytes(&mut file_table_byte_reader).unwrap();
-            let file_name = file_information.file_name.to_lowercase();
+            let file_name = normalize_archive_path(&file_information.file_name);
 
             assets.insert(file_name, file_information);
         }
@@ -83,11 +83,11 @@ impl Archive for NativeArchive {
     }
 
     fn file_exists(&self, asset_path: &str) -> bool {
-        self.file_table.contains_key(asset_path)
+        self.file_table.contains_key(&normalize_archive_path(asset_path))
     }
 
     fn get_file_by_path(&self, asset_path: &str) -> Option<Vec<u8>> {
-        self.file_table.get(asset_path).map(|file_information| {
+        self.file_table.get(&normalize_archive_path(asset_path)).map(|file_information| {
             let mut compressed_file_buffer = vec![0u8; file_information.compressed_size_aligned as usize];
 
             let position = file_information.offset as u64 + Header::size_in_bytes() as u64;

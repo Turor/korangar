@@ -14,7 +14,7 @@ use korangar_debug::logging::{Colorize, Timer, print_debug};
 use sevenz_rust2::BlockDecoder;
 
 pub use self::builder::SevenZipArchiveBuilder;
-use crate::loaders::archive::{Archive, Compression};
+use crate::loaders::archive::{Archive, Compression, normalize_archive_path};
 
 const MB_1: u64 = 1024 * 1024;
 const MB_4: u64 = 4 * MB_1;
@@ -66,7 +66,7 @@ impl Archive for SevenZipArchive {
                 continue;
             };
 
-            let name_with_backslash = file.name().replace('/', "\\").to_lowercase();
+            let name_with_backslash = normalize_archive_path(file.name());
 
             let block = &archive.blocks[block_index];
 
@@ -99,11 +99,11 @@ impl Archive for SevenZipArchive {
     }
 
     fn file_exists(&self, asset_path: &str) -> bool {
-        self.file_lookup.contains_key(asset_path)
+        self.file_lookup.contains_key(&normalize_archive_path(asset_path))
     }
 
     fn get_file_by_path(&self, asset_path: &str) -> Option<Vec<u8>> {
-        let file_entry = self.file_lookup.get(asset_path)?;
+        let file_entry = self.file_lookup.get(&normalize_archive_path(asset_path))?;
 
         FILE_CACHE.with(|cache| {
             let mut cache = cache.borrow_mut();
@@ -158,7 +158,7 @@ impl Archive for SevenZipArchive {
                     .any(|extension| !file.is_directory() && file.name().ends_with(extension))
             })
             .for_each(|file| {
-                let name_with_backslash = file.name().replace('/', "\\").to_lowercase();
+                let name_with_backslash = normalize_archive_path(file.name());
                 files.push(name_with_backslash)
             })
     }

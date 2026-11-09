@@ -16,6 +16,8 @@ use sha2::{Digest, Sha256};
 
 const MAX_ASSET: u64 = 100 * 1024 * 1024;
 const MAX_MANIFEST: u64 = 64 * 1024 * 1024;
+/// Cache identity when no snapshot manifest is available. Not a content hash.
+const LOOSE_REVISION: &str = "loose-ondemand-v1";
 
 /// One raw game asset, not a filesystem or network URL.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -42,7 +44,12 @@ pub struct Manifest {
 }
 
 fn error(message: &'static str) -> io::Error {
-    io::Error::other(message)
+    let kind = match message {
+        "asset not found" => io::ErrorKind::NotFound,
+        "asset redirect denied" => io::ErrorKind::PermissionDenied,
+        _ => io::ErrorKind::Other,
+    };
+    io::Error::new(kind, message)
 }
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
@@ -68,6 +75,40 @@ pub fn canonical_path(path: &str) -> Option<String> {
         return None;
     }
     Some(path)
+}
+
+/// Percent-encode a canonical virtual path onto the asset base. Hangul is
+/// encoded as UTF-8 octets. EUC-KR sources are already decoded to Unicode by
+/// the format readers before this runs.
+pub fn loose_asset_url(base: &Url, virtual_path: &str) -> Option<Url> {
+    let path = canonical_path(virtual_path)?;
+    let mut url = base.clone();
+    {
+        let mut segments = url.path_segments_mut().ok()?;
+        if base.path().ends_with('/') {
+            segments.pop();
+        }
+        for part in path.split('/') {
+            segments.push(part);
+        }
+    }
+    if !url.path().starts_with(base.path()) {
+        return None;
+    }
+    Some(url)
+}
+
+fn loose_manifest() -> Manifest {
+    Manifest {
+        format_version: 1,
+        revision: LOOSE_REVISION.to_owned(),
+        files: Vec::new(),
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct LooseIndex {
+    files: Vec<AssetEntry>,
 }
 
 impl Manifest {
@@ -131,6 +172,8 @@ pub struct PersistentAssets {
     client: Client,
     manifest: Manifest,
     entries: BTreeMap<String, AssetEntry>,
+    /// Paths fetched as loose files under the base URL, outside the snapshot.
+    loose_entries: Mutex<BTreeMap<String, AssetEntry>>,
     download_lock: Mutex<()>,
 }
 
@@ -156,6 +199,12 @@ fn atomic_write(root: &Path, target: &Path, bytes: &[u8]) -> io::Result<()> {
 }
 fn fetch(client: &Client, url: Url, limit: u64) -> io::Result<Vec<u8>> {
     let response = client.get(url).send().map_err(|_| error("asset request failed"))?;
+    if response.status().is_redirection() {
+        return Err(error("asset redirect denied"));
+    }
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(error("asset not found"));
+    }
     if !response.status().is_success() {
         return Err(error("asset request was not successful"));
     }
@@ -172,6 +221,38 @@ fn fetch(client: &Client, url: Url, limit: u64) -> io::Result<Vec<u8>> {
     }
     Ok(bytes)
 }
+
+fn load_loose_index(cache: &Path) -> BTreeMap<String, AssetEntry> {
+    let Ok(bytes) = read_bounded(&cache.join("loose-index.json"), MAX_MANIFEST) else {
+        return BTreeMap::new();
+    };
+    let Ok(index) = serde_json::from_slice::<LooseIndex>(&bytes) else {
+        return BTreeMap::new();
+    };
+    index
+        .files
+        .into_iter()
+        .filter(|entry| {
+            canonical_path(&entry.path).as_deref() == Some(entry.path.as_str())
+                && valid_digest(&entry.sha256)
+                && entry.size > 0
+                && entry.size <= MAX_ASSET
+        })
+        .map(|entry| (entry.path.clone(), entry))
+        .collect()
+}
+
+fn persist_loose_index(cache: &Path, entries: &BTreeMap<String, AssetEntry>) -> io::Result<()> {
+    let index = LooseIndex {
+        files: entries.values().cloned().collect(),
+    };
+    let bytes = serde_json::to_vec(&index).map_err(|_| error("invalid loose index"))?;
+    if bytes.len() as u64 > MAX_MANIFEST {
+        return Err(error("manifest too large"));
+    }
+    atomic_write(cache, &cache.join("loose-index.json"), &bytes)
+}
+
 impl PersistentAssets {
     /// Open the pinned local manifest, or fetch and atomically persist it once.
     /// A corrupt existing manifest is an error, never silently replaced by a
@@ -204,35 +285,46 @@ impl PersistentAssets {
             .build()
             .map_err(|_| error("asset HTTP initialization failed"))?;
         let manifest_path = config.cache_dir.join("manifest.json");
-        let bytes = match read_bounded(&manifest_path, MAX_MANIFEST) {
-            Ok(bytes) => bytes,
+        let manifest = match read_bounded(&manifest_path, MAX_MANIFEST) {
+            Ok(bytes) => Manifest::parse(&bytes)?,
             Err(e) if e.kind() == io::ErrorKind::NotFound && !config.offline => {
                 let url = base.join("api/assets/v1/manifest").map_err(|_| error("invalid manifest URL"))?;
-                let bytes = fetch(&client, url, MAX_MANIFEST)?;
-                Manifest::parse(&bytes)?;
-                let mut temp = tempfile::NamedTempFile::new_in(&config.cache_dir)?;
-                temp.write_all(&bytes)?;
-                temp.as_file().sync_all()?;
-                match temp.persist_noclobber(&manifest_path) {
-                    Ok(_) => {
-                        #[cfg(unix)]
-                        fs::File::open(&config.cache_dir)?.sync_all()?;
-                        bytes
-                    }
-                    Err(e) if e.error.kind() == io::ErrorKind::AlreadyExists => read_bounded(&manifest_path, MAX_MANIFEST)?,
-                    Err(e) => return Err(e.error),
+                match fetch(&client, url, MAX_MANIFEST) {
+                    Ok(bytes) => match Manifest::parse(&bytes) {
+                        Ok(parsed) => {
+                            let mut temp = tempfile::NamedTempFile::new_in(&config.cache_dir)?;
+                            temp.write_all(&bytes)?;
+                            temp.as_file().sync_all()?;
+                            match temp.persist_noclobber(&manifest_path) {
+                                Ok(_) => {
+                                    #[cfg(unix)]
+                                    fs::File::open(&config.cache_dir)?.sync_all()?;
+                                    parsed
+                                }
+                                Err(e) if e.error.kind() == io::ErrorKind::AlreadyExists => {
+                                    Manifest::parse(&read_bounded(&manifest_path, MAX_MANIFEST)?)?
+                                }
+                                Err(e) => return Err(e.error),
+                            }
+                        }
+                        // Snapshot API answered with something that is not a v1 manifest.
+                        Err(_) => loose_manifest(),
+                    },
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => loose_manifest(),
+                    Err(e) => return Err(e),
                 }
             }
             Err(e) => return Err(e),
         };
-        let manifest = Manifest::parse(&bytes)?;
         let entries = manifest.files.iter().map(|e| (e.path.clone(), e.clone())).collect();
+        let loose_entries = Mutex::new(load_loose_index(&config.cache_dir));
         Ok(Self {
             config,
             base,
             client,
             manifest,
             entries,
+            loose_entries,
             download_lock: Mutex::new(()),
         })
     }
@@ -248,9 +340,10 @@ impl PersistentAssets {
         self.entries.keys().map(String::as_str)
     }
 
-    /// True only for a manifest-authorized canonical game path.
+    /// True for a manifest path or a loose object already stored in the cache.
     pub fn contains(&self, path: &str) -> bool {
-        canonical_path(path).is_some_and(|p| self.entries.contains_key(&p))
+        canonical_path(path)
+            .is_some_and(|p| self.entries.contains_key(&p) || self.loose_entries.lock().is_ok_and(|entries| entries.contains_key(&p)))
     }
 
     fn local(&self, e: &AssetEntry) -> io::Result<Vec<u8>> {
@@ -265,7 +358,9 @@ impl PersistentAssets {
     /// Failed/interrupted transfers never publish a final cache entry.
     pub fn get(&self, path: &str) -> io::Result<Vec<u8>> {
         let path = canonical_path(path).ok_or_else(|| error("invalid virtual asset path"))?;
-        let entry = self.entries.get(&path).ok_or_else(|| error("asset not in pinned manifest"))?;
+        let Some(entry) = self.entries.get(&path) else {
+            return self.loose_get(&path);
+        };
         if let Ok(bytes) = self.local(entry) {
             return Ok(bytes);
         }
@@ -289,8 +384,49 @@ impl PersistentAssets {
         Ok(bytes)
     }
 
-    /// Reverify every unique object locally. Never performs a network request.
+    /// Fetch one file that is not in the pinned snapshot and store it by
+    /// digest.
+    fn loose_get(&self, path: &str) -> io::Result<Vec<u8>> {
+        if let Some(bytes) = self.cached_loose(path) {
+            return Ok(bytes);
+        }
+        if self.config.offline {
+            return Err(error("asset unavailable offline"));
+        }
+        let _guard = self.download_lock.lock().map_err(|_| error("asset lock poisoned"))?;
+        if let Some(bytes) = self.cached_loose(path) {
+            return Ok(bytes);
+        }
+        let url = loose_asset_url(&self.base, path).ok_or_else(|| error("invalid virtual asset path"))?;
+        let bytes = fetch(&self.client, url, MAX_ASSET)?;
+        if bytes.is_empty() {
+            return Err(error("asset not found"));
+        }
+        let entry = AssetEntry {
+            path: path.to_owned(),
+            size: bytes.len() as u64,
+            sha256: digest(&bytes),
+        };
+        let objects = self.config.cache_dir.join("objects");
+        atomic_write(&objects, &objects.join(&entry.sha256), &bytes)?;
+        let mut loose = self.loose_entries.lock().map_err(|_| error("asset lock poisoned"))?;
+        loose.insert(path.to_owned(), entry);
+        persist_loose_index(&self.config.cache_dir, &loose)?;
+        Ok(bytes)
+    }
+
+    fn cached_loose(&self, path: &str) -> Option<Vec<u8>> {
+        let loose = self.loose_entries.lock().ok()?;
+        let entry = loose.get(path)?;
+        self.local(entry).ok()
+    }
+
+    /// Reverify every unique manifest object locally. Never performs a network
+    /// request. A loose-only cache has no snapshot, so it is not complete.
     pub fn is_complete(&self) -> bool {
+        if self.manifest.files.is_empty() {
+            return false;
+        }
         let mut checked = BTreeSet::new();
         self.entries.values().all(|e| !checked.insert(&e.sha256) || self.local(e).is_ok())
     }
@@ -459,6 +595,19 @@ mod tests {
         ] {
             assert!(canonical_path(path).is_none());
         }
+        assert_eq!(
+            canonical_path(r"DATA\Model\내부소품\거미줄.rsm").as_deref(),
+            Some("data/model/내부소품/거미줄.rsm")
+        );
+        let url = loose_asset_url(
+            &Url::parse("https://ro.turoran.com/client/").unwrap(),
+            r"data\model\내부소품\x.rsm",
+        )
+        .unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://ro.turoran.com/client/data/model/%EB%82%B4%EB%B6%80%EC%86%8C%ED%92%88/x.rsm"
+        );
         let mut m: Manifest = serde_json::from_slice(&manifest(b"x")).unwrap();
         m.files[0].path = "src/main.rs".into();
         m.revision = digest(&serde_json::to_vec(&m.files).unwrap());
@@ -488,6 +637,56 @@ mod tests {
         assert!(assets.get("data/test.spr").is_err());
         assert!(!assets.is_complete());
     }
+    #[test]
+    fn loose_fetch_caches_hangul_path_and_second_get_is_local() {
+        let body = b"synthetic-rsm";
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}/client/", listener.local_addr().unwrap());
+        let hits = Arc::new(AtomicUsize::new(0));
+        let seen = hits.clone();
+        let server = std::thread::spawn(move || {
+            for status_body in [(404u16, Vec::<u8>::new()), (200, body.to_vec())] {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    stream.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                }
+                let text = String::from_utf8_lossy(&request);
+                if seen.load(Ordering::SeqCst) == 0 {
+                    assert!(text.starts_with("GET /client/api/assets/v1/manifest "));
+                } else {
+                    assert!(
+                        text.starts_with("GET /client/data/model/%EB%82%B4%EB%B6%80%EC%86%8C%ED%92%88/x.rsm "),
+                        "{text}"
+                    );
+                }
+                seen.fetch_add(1, Ordering::SeqCst);
+                write!(
+                    stream,
+                    "HTTP/1.1 {} {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    status_body.0,
+                    if status_body.0 == 200 { "OK" } else { "Not Found" },
+                    status_body.1.len()
+                )
+                .unwrap();
+                stream.write_all(&status_body.1).unwrap();
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let assets = PersistentAssets::open(config(base, dir.path())).unwrap();
+        assert_eq!(assets.revision(), "loose-ondemand-v1");
+        let path = r"data\model\내부소품\x.rsm";
+        assert_eq!(assets.get(path).unwrap(), body);
+        assert_eq!(assets.get("DATA/model/내부소품/x.rsm").unwrap(), body);
+        server.join().unwrap();
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        assert!(dir.path().join("loose-index.json").is_file());
+        assert!(assets.contains(path));
+    }
+
     #[test]
     fn insecure_or_credentialed_origins_require_rejection() {
         let dir = tempfile::tempdir().unwrap();
