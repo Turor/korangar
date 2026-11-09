@@ -12,6 +12,7 @@ use ragnarok_packets::*;
 
 use crate::event::{NetworkEventList, NoNetworkEvents};
 use crate::items::ItemQuantity;
+use crate::packet_versions::economy::open_market_event;
 use crate::{
     CharacterServerLoginData, HotkeyState, InventoryItem, InventoryItemDetails, LoginServerLoginData, MessageColor, NetworkEvent,
     NoMetadata, ShopItem, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
@@ -854,7 +855,7 @@ where
     packet_handler.register_noop::<ClanInfoPacket>()?;
     packet_handler.register_noop::<ClanOnlineCountPacket>()?;
     packet_handler.register_noop::<ChangeMapCellPacket>()?;
-    packet_handler.register_noop::<OpenMarketPacket>()?;
+    packet_handler.register(open_market_event)?;
     packet_handler.register(|packet: BuyOrSellPacket| NetworkEvent::AskBuyOrSell { shop_id: packet.shop_id })?;
     packet_handler.register(|packet: ShopItemListPacket| {
         let items = packet

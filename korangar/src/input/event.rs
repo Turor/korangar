@@ -5,7 +5,7 @@ use korangar_debug::profiling::FrameMeasurement;
 use korangar_interface::event::{ClickHandler, Event, EventQueue};
 use korangar_networking::{InventoryItem, ShopItem};
 use ragnarok_packets::{
-    AccountId, BuyOrSellOption, CharacterId, CharacterServerInformation, EntityId, HotbarSlot, PartyId, ShopId, SkillId,
+    AccountId, BuyOrSellOption, CharacterId, CharacterServerInformation, EntityId, HotbarSlot, ItemId, PartyId, ShopId, SkillId,
     SoldItemInformation, StatUpType, TilePosition,
 };
 use rust_state::State;
@@ -228,7 +228,25 @@ pub enum InputEvent {
     AcceptPartyInvite {
         party_id: PartyId,
     },
-    /// Buy items from a shop.
+    /// Buy one vend slot, or sell one matching inventory item into a buying
+    /// store.
+    VendorTrade {
+        /// Index into the open vendor window.
+        list_index: usize,
+    },
+    /// Request a player shop's item list.
+    OpenPlayerShop {
+        account_id: AccountId,
+        /// When true, the shop is a buying store.
+        buying_store: bool,
+    },
+    /// Ask the server for the map position of a shop-search row.
+    LocateShop {
+        account_id: AccountId,
+        store_id: u32,
+        item_id: ItemId,
+    },
+    /// Buy items from an NPC shop. This is not a player vend.
     BuyItems {
         /// Items to buy.
         items: Vec<ShopItem<u32>>,
