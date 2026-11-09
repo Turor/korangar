@@ -99,6 +99,8 @@ pub enum InputEvent {
     ToggleFriendListWindow,
     /// Open or close the guild window. Only works while playing.
     ToggleGuildWindow,
+    /// Open or close the clan window. Only works while playing.
+    ToggleClanWindow,
     /// Ask the map server for guild info, members, positions, and the notice.
     RequestGuildWindow,
     /// Send a new guild subject and notice. The server accepts this from the

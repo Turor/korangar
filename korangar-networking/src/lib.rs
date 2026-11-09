@@ -2568,6 +2568,71 @@ mod packet_handlers {
         assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x016E);
     }
 
+    #[test]
+    fn clan_info_and_online_packets_are_typed() {
+        use ragnarok_packets::{Aliance, Antagonist, ClanInfoPacket, ClanOnlineCountPacket, PacketExt};
+
+        let info = ClanInfoPacket {
+            clan_id: 3,
+            clan_name: "Swords".to_owned(),
+            clan_master: "Lead".to_owned(),
+            clan_map: "prontera".to_owned(),
+            aliance_count: 1,
+            antagonist_count: 1,
+            aliances: vec![Aliance {
+                name: "Archers".to_owned(),
+            }],
+            antagonists: vec![Antagonist {
+                name: "Axes".to_owned(),
+            }],
+        };
+        let mut writer = ByteWriter::new();
+        info.packet_to_bytes(&mut writer).unwrap();
+        for version in [
+            SupportedPacketVersion::_20190530,
+            SupportedPacketVersion::_20220406,
+            SupportedPacketVersion::_20250716,
+        ] {
+            let events = process_one(version, writer.as_slice());
+            assert!(matches!(events.as_slice(), [NetworkEvent::ClanInfo {
+                clan_id: 3,
+                name,
+                master_name,
+                map_name,
+                alliances,
+                antagonists,
+            }] if name == "Swords"
+                && master_name == "Lead"
+                && map_name == "prontera"
+                && alliances == &["Archers".to_owned()]
+                && antagonists == &["Axes".to_owned()]));
+        }
+
+        let online = ClanOnlineCountPacket {
+            online_members: 4,
+            maximum_members: 20,
+        };
+        let mut writer = ByteWriter::new();
+        online.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 6);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0988);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::ClanOnlineCount {
+            online_members: 4,
+            maximum_members: 20,
+        }]));
+
+        let leave = [0x89u8, 0x09];
+        for version in [
+            SupportedPacketVersion::_20190530,
+            SupportedPacketVersion::_20220406,
+            SupportedPacketVersion::_20250716,
+        ] {
+            let events = process_one(version, &leave);
+            assert!(matches!(events.as_slice(), [NetworkEvent::ClanLeft]));
+        }
+    }
+
     fn zero_trade_option() -> ragnarok_packets::ItemOptions {
         ragnarok_packets::ItemOptions {
             index: 0,

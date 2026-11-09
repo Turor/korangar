@@ -121,6 +121,10 @@ where
                     event: InputEvent::ToggleGuildWindow,
                 },
                 button! {
+                    text: "Clan",
+                    event: InputEvent::ToggleClanWindow,
+                },
+                button! {
                     text: "Quests",
                     event: InputEvent::ToggleQuestJournalWindow,
                 },

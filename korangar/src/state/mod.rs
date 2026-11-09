@@ -1,6 +1,7 @@
 #[cfg(feature = "debug")]
 pub mod cache_statistics;
 pub mod character_slots;
+pub mod clan;
 pub mod equip_switch;
 pub mod friends;
 pub mod guild;
@@ -45,6 +46,7 @@ use theme::{InterfaceTheme, InterfaceThemePathExt, InterfaceThemeType};
 
 #[cfg(feature = "debug")]
 use self::cache_statistics::CacheStatistics;
+use self::clan::ClanState;
 use self::friends::FriendListEntry;
 use self::guild::GuildState;
 #[cfg(feature = "debug")]
@@ -217,6 +219,8 @@ pub struct ClientState {
     guild: GuildState,
     /// Notice drafts edited in the guild window.
     guild_window: GuildWindowState,
+    /// Clan info and online counts for the local character.
+    clan: ClanState,
     /// List of items offered in the shop.
     // TODO: Unhide this
     #[hidden_element]
@@ -430,6 +434,7 @@ impl ClientState {
             let friend_list_window = FriendListWindowState::default();
             let guild = GuildState::default();
             let guild_window = GuildWindowState::default();
+            let clan = ClanState::default();
         });
 
         time_phase!("create player resources", {
@@ -541,6 +546,7 @@ impl ClientState {
             friend_list,
             guild,
             guild_window,
+            clan,
             shop_items,
             buy_cart,
             sell_items,

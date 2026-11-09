@@ -855,8 +855,7 @@ where
     packet_handler.register_noop::<PartyInvitePacket>()?;
     packet_handler.register_noop::<StatusChangeSequencePacket>()?;
     packet_handler.register_noop::<ReputationPacket>()?;
-    packet_handler.register_noop::<ClanInfoPacket>()?;
-    packet_handler.register_noop::<ClanOnlineCountPacket>()?;
+    crate::packet_versions::clan::register_clan_packets(packet_handler)?;
     packet_handler.register_noop::<ChangeMapCellPacket>()?;
     packet_handler.register(open_market_event)?;
     crate::packet_versions::enchant::register_enchant_packets(packet_handler)?;

@@ -5400,6 +5400,13 @@ pub struct ClanOnlineCountPacket {
     pub maximum_members: u16,
 }
 
+/// `ZC_ACK_CLAN_LEAVE` (`0x0989`). Header only (2 bytes). The character left
+/// the clan. Framing length is 2 on both 20190530 and 20250716 tables.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0989)]
+pub struct ClanLeaveAckPacket {}
+
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0192)]

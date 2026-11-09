@@ -1,3 +1,4 @@
+pub mod clan;
 pub mod companions;
 pub mod economy;
 pub mod eden;
