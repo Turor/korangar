@@ -47,6 +47,10 @@ impl CustomWindow<ClientState> for MenuWindow {
                     text: "Switch equipment",
                     event: InputEvent::ToggleSwitchEquipWindow,
                 },
+                button! {
+                    text: "Stable",
+                    event: InputEvent::OpenStable,
+                },
                 #[cfg(feature = "debug")]
                 button! {
                     text: "Render options",

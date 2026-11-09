@@ -1007,6 +1007,7 @@ where
     packet_handler.register_noop::<ChangeMapCellPacket>()?;
     packet_handler.register(open_market_event)?;
     crate::packet_versions::enchant::register_enchant_packets(packet_handler)?;
+    crate::packet_versions::stable::register_stable_packets(packet_handler)?;
     crate::packet_versions::economy::register_player_shop_packets(packet_handler)?;
     crate::packet_versions::refine::register_refine_packets(packet_handler)?;
     packet_handler.register(|packet: BuyOrSellPacket| NetworkEvent::AskBuyOrSell { shop_id: packet.shop_id })?;

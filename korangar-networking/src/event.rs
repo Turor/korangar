@@ -585,6 +585,26 @@ pub enum NetworkEvent {
         message_id: i32,
         item_id: ItemId,
     },
+    /// Turoran stable homunculus list (`0x0EF8`).
+    StableHomunculusList {
+        active_id: i32,
+        summary: String,
+    },
+    /// Turoran stable pet list (`0x0EF9`).
+    StablePetList {
+        active_id: i32,
+        summary: String,
+    },
+    /// Turoran stable evolution materials (`0x0EF6`).
+    StableOwnedList {
+        summary: String,
+    },
+    /// Turoran stable result (`0x0EFA`).
+    StableResult {
+        result: i16,
+        id: i32,
+        summary: String,
+    },
     /// Base or job experience (`DisplayGainedExperiencePacket`, 0x0ACC).
     GainedExperience {
         account_id: AccountId,
