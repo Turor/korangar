@@ -2007,6 +2007,7 @@ impl Client {
                         .follow_mut(client_state().companion_window())
                         .apply_elemental_parameter(variable, value);
                     self.interface.open_window(CompanionWindow::new());
+                }
                 NetworkEvent::MvpMinimap { flags, markers } => {
                     self.client_state.follow_mut(client_state().mvp_minimap()).replace(flags, markers);
                 }
