@@ -2,6 +2,7 @@
 #![cfg_attr(feature = "interface", feature(negative_impls))]
 
 mod entity;
+mod equip_switch;
 mod event;
 mod hotkey;
 mod inventory_lists;
@@ -29,6 +30,9 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 
 pub use self::entity::EntityData;
+#[cfg(feature = "interface")]
+pub use self::equip_switch::EquipSwitchSlotPathExt;
+pub use self::equip_switch::{EquipSwitchSlot, assign_slot, position_label, replace_slots};
 pub use self::event::{DisconnectReason, NetworkEvent, StatusChangeState};
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
@@ -892,6 +896,24 @@ where
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(CloseStoragePacket::new())
+            }
+        }
+    }
+
+    /// Ask the map server to swap the worn equipment with the alternate set.
+    pub fn request_equip_switch(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(RequestEquipSwitchPacket::new())
+            }
+        }
+    }
+
+    /// Remove one item from the alternate equipment set.
+    pub fn request_equip_switch_remove(&mut self, item_index: InventoryIndex) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(RequestEquipSwitchRemovePacket::new(item_index))
             }
         }
     }

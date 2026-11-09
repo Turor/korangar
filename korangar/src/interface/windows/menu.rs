@@ -43,6 +43,10 @@ impl CustomWindow<ClientState> for MenuWindow {
                     text: client_state().localization().audio_settings_button_text(),
                     event: InputEvent::ToggleAudioSettingsWindow,
                 },
+                button! {
+                    text: "Switch equipment",
+                    event: InputEvent::ToggleSwitchEquipWindow,
+                },
                 #[cfg(feature = "debug")]
                 button! {
                     text: "Render options",

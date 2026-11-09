@@ -39,6 +39,7 @@ mod server_selection;
 mod skill_tree;
 mod stats;
 mod storage;
+mod switch_equip;
 #[cfg(feature = "debug")]
 mod theme_inspector;
 mod trade;
@@ -86,6 +87,7 @@ pub use self::server_selection::ServerSelectionWindow;
 pub use self::skill_tree::{SkillTreeWindow, SkillTreeWindowState, SkillTreeWindowStatePathExt};
 pub use self::stats::StatsWindow;
 pub use self::storage::StorageWindow;
+pub use self::switch_equip::SwitchEquipWindow;
 #[cfg(feature = "debug")]
 pub use self::theme_inspector::{ThemeInspectorWindow, ThemeInspectorWindowState};
 pub use self::trade::{TradeRequestWindow, TradeWindow};
@@ -108,6 +110,7 @@ pub enum WindowClass {
     Inventory,
     Storage,
     Equipment,
+    SwitchEquip,
     SkillTree,
     Stats,
     FriendList,
