@@ -189,6 +189,8 @@ pub struct ClientState {
     stable_window: crate::interface::windows::StableWindowState,
     /// Internal state of the Turoran Eden Group board.
     eden_window: crate::interface::windows::EdenWindowState,
+    /// Internal state of the Turoran Warpra menu.
+    warpra_window: crate::interface::windows::WarpraWindowState,
     /// Internal state of the skill tree window.
     skill_tree_window: SkillTreeWindowState,
 
@@ -425,6 +427,7 @@ impl ClientState {
             let enchant_window = crate::interface::windows::EnchantWindowState::default();
             let stable_window = crate::interface::windows::StableWindowState::default();
             let eden_window = crate::interface::windows::EdenWindowState::default();
+            let warpra_window = crate::interface::windows::WarpraWindowState::default();
 
             let shop_items = Vec::default();
             let buy_cart = Vec::default();
@@ -512,6 +515,7 @@ impl ClientState {
             enchant_window,
             stable_window,
             eden_window,
+            warpra_window,
             skill_tree_window,
             entities: Vec::new(),
             dead_entities: Vec::new(),

@@ -1549,6 +1549,7 @@ impl Client {
                     }
                     self.interface.close_window_with_class(WindowClass::Stable);
                     self.interface.close_window_with_class(WindowClass::Eden);
+                    self.interface.close_window_with_class(WindowClass::Warpra);
                     if self.interface.is_window_with_class_open(WindowClass::Refine) {
                         let _ = self.networking_system.close_refine();
                         self.client_state.follow_mut(client_state().refine()).close();
@@ -1856,6 +1857,26 @@ impl Client {
                 NetworkEvent::EdenResult { summary, .. } => {
                     self.client_state.follow_mut(client_state().eden_window()).show_result(summary);
                     self.interface.open_window(EdenWindow::new());
+                }
+                NetworkEvent::WarpraList {
+                    zeny,
+                    price,
+                    flags,
+                    total,
+                    destinations,
+                } => {
+                    self.client_state
+                        .follow_mut(client_state().warpra_window())
+                        .apply_list(zeny, price, flags, total, destinations);
+                    self.interface.open_window(WarpraWindow::new());
+                }
+                NetworkEvent::WarpraResult {
+                    result, kind, location_id, ..
+                } => {
+                    self.client_state
+                        .follow_mut(client_state().warpra_window())
+                        .show_result(result, kind, location_id);
+                    self.interface.open_window(WarpraWindow::new());
                 }
                 NetworkEvent::OpenDialog { text, npc_id } => {
                     self.client_state
@@ -3491,6 +3512,28 @@ impl Client {
                         .client_state
                         .follow_mut(client_state().eden_window())
                         .set_status(message.to_owned()),
+                },
+                InputEvent::OpenWarpra | InputEvent::RequestWarpraList => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        let _ = self.networking_system.request_warpra(WarpraWindowState::list_action(), 0, 0);
+                        self.interface.open_window(WarpraWindow::new());
+                    }
+                }
+                InputEvent::RequestWarpraWarp => match self.client_state.follow(client_state().warpra_window()).warp_request() {
+                    Ok((kind, location_id)) => {
+                        let _ = self
+                            .networking_system
+                            .request_warpra(WarpraWindowState::warp_action(), kind, location_id);
+                    }
+                    Err(message) => self.client_state.follow_mut(client_state().warpra_window()).set_status(message),
+                },
+                InputEvent::RequestWarpraBuy => match self.client_state.follow(client_state().warpra_window()).buy_request() {
+                    Ok((kind, location_id)) => {
+                        let _ = self
+                            .networking_system
+                            .request_warpra(WarpraWindowState::buy_action(), kind, location_id);
+                    }
+                    Err(message) => self.client_state.follow_mut(client_state().warpra_window()).set_status(message),
                 },
                 InputEvent::CloseEnchant => {
                     if self.interface.is_window_with_class_open(WindowClass::Enchant) {

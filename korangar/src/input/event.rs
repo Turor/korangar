@@ -187,6 +187,14 @@ pub enum InputEvent {
     EdenAbandon,
     /// Buy the typed Eden shop slot (`0x0EF3`, action 4).
     EdenBuy,
+    /// Open the Warpra menu and ask for the destination list (`0x0EF4`).
+    OpenWarpra,
+    /// Ask for the Warpra destination list again.
+    RequestWarpraList,
+    /// Warp to the kind and location id typed in the Warpra window.
+    RequestWarpraWarp,
+    /// Unlock the kind and location id typed in the Warpra window.
+    RequestWarpraBuy,
     /// Action for the "Close"-button in a dialog.
     CloseDialog {
         /// Id of the NPC the player is in a dialog with.

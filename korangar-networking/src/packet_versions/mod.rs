@@ -9,6 +9,7 @@ pub mod stable;
 pub mod version_20190530;
 pub mod version_20220406;
 pub mod version_20250716;
+pub mod warpra;
 
 /// All supported packet versions.
 #[derive(Debug, Clone, Copy)]

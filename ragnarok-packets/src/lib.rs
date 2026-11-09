@@ -4199,6 +4199,158 @@ pub struct EdenShopPacket {
     pub items: Vec<EdenShopEntry>,
 }
 
+/// `0x0EF4` action: ask for the destination catalog.
+pub const WARPRA_ACTION_LIST: i16 = 0;
+/// `0x0EF4` action: warp to an unlocked destination.
+pub const WARPRA_ACTION_WARP: i16 = 1;
+/// `0x0EF4` action: spend zeny to unlock a destination.
+pub const WARPRA_ACTION_BUY: i16 = 2;
+
+/// One Warpra catalog row. 89 bytes, matching the Turoran destination list.
+#[derive(Debug, Clone, PartialEq, Eq, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct WarpraDestinationEntry {
+    pub kind: u8,
+    pub id: i16,
+    pub unlocked: u8,
+    pub x: i16,
+    pub y: i16,
+    pub group: u8,
+    #[length(16)]
+    pub map: String,
+    #[length(40)]
+    pub name: String,
+    #[length(24)]
+    pub group_name: String,
+}
+
+/// Turoran Warpra request (`0x0EF4`, 8 bytes).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EF4)]
+pub struct RequestWarpraPacket {
+    pub action: i16,
+    pub kind: i16,
+    pub location_id: i16,
+}
+
+/// Turoran Warpra destination list (`0x0EFE`, variable).
+///
+/// After zeny and price, a chunked catalog is `flags:u8 total:u16 count:u16`.
+/// An older catalog is only `count:i16`. Each row is
+/// [`WarpraDestinationEntry`]. `flags` bit 0 means another chunk follows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct WarpraDestinationListPacket {
+    pub zeny: i32,
+    pub price: i32,
+    pub flags: u8,
+    pub total: u16,
+    pub destinations: Vec<WarpraDestinationEntry>,
+}
+
+const WARPRA_ENTRY_BYTES: usize = 89;
+
+impl Packet for WarpraDestinationListPacket {
+    const HEADER: PacketHeader = PacketHeader(0x0EFE);
+    const IS_PING: bool = false;
+
+    fn payload_from_bytes(byte_reader: &mut ByteReader) -> ConversionResult<Self> {
+        let packet_length = u16::from_bytes(byte_reader).trace::<Self>()? as usize;
+        if packet_length < 4 {
+            return Err(ConversionError::from_message("warpra list shorter than its header"));
+        }
+        let body = byte_reader.slice::<Self>(packet_length - 4).trace::<Self>()?;
+        if body.len() < 10 {
+            return Err(ConversionError::from_message("warpra list is missing zeny, price, and a count"));
+        }
+        let mut inner = ByteReader::without_metadata(body);
+        let zeny = i32::from_bytes(&mut inner).trace::<Self>()?;
+        let price = i32::from_bytes(&mut inner).trace::<Self>()?;
+        let remain = body.len() - 8;
+        let chunked = remain >= 5 && (remain - 5).is_multiple_of(WARPRA_ENTRY_BYTES);
+        let (flags, total, count) = if chunked {
+            let flags = u8::from_bytes(&mut inner).trace::<Self>()?;
+            let total = u16::from_bytes(&mut inner).trace::<Self>()?;
+            let count = u16::from_bytes(&mut inner).trace::<Self>()?;
+            (flags, total, count)
+        } else if remain >= 2 && (remain - 2).is_multiple_of(WARPRA_ENTRY_BYTES) {
+            let count = i16::from_bytes(&mut inner).trace::<Self>()?;
+            if count < 0 {
+                return Err(ConversionError::from_message("warpra list count is negative"));
+            }
+            (0, count as u16, count as u16)
+        } else {
+            return Err(ConversionError::from_message("warpra list length does not match its rows"));
+        };
+        if count > 4096 {
+            return Err(ConversionError::from_message("warpra list count is too large"));
+        }
+        let prefix = if chunked { 5 } else { 2 };
+        if count as usize * WARPRA_ENTRY_BYTES != remain - prefix {
+            return Err(ConversionError::from_message("warpra list count does not match its rows"));
+        }
+        let mut destinations = Vec::with_capacity(count as usize);
+        for _ in 0..count {
+            destinations.push(WarpraDestinationEntry::from_bytes(&mut inner).trace::<Self>()?);
+        }
+        if !inner.is_empty() {
+            return Err(ConversionError::from_message("warpra list has trailing bytes"));
+        }
+        Ok(Self {
+            zeny,
+            price,
+            flags,
+            total,
+            destinations,
+        })
+    }
+
+    fn payload_to_bytes(&self, byte_writer: &mut ByteWriter) -> ConversionResult<usize> {
+        if self.destinations.len() > u16::MAX as usize {
+            return Err(ConversionError::from_message("warpra list is too long to encode"));
+        }
+        let start_position = byte_writer.len();
+        0u16.to_bytes(byte_writer)?;
+        self.zeny.to_bytes(byte_writer)?;
+        self.price.to_bytes(byte_writer)?;
+        self.flags.to_bytes(byte_writer)?;
+        self.total.to_bytes(byte_writer)?;
+        (self.destinations.len() as u16).to_bytes(byte_writer)?;
+        for entry in &self.destinations {
+            entry.to_bytes(byte_writer)?;
+        }
+        let written = byte_writer.len() - start_position;
+        let packet_length = (written + 2) as u16;
+        byte_writer.overwrite_at(start_position, packet_length.to_le_bytes())?;
+        Ok(written)
+    }
+
+    #[cfg(feature = "packet-to-state-element")]
+    fn to_element<App: korangar_interface::application::Application>(
+        self_path: impl rust_state::Path<App, Self>,
+        name: String,
+    ) -> Box<dyn korangar_interface::element::Element<App, LayoutInfo = ()>> {
+        korangar_interface::element::ErasedElement::new(<Self as korangar_interface::element::StateElement<App>>::to_element(
+            self_path, name,
+        ))
+    }
+}
+
+impl ServerPacket for WarpraDestinationListPacket {}
+impl MapServerPacket for WarpraDestinationListPacket {}
+
+/// Turoran Warpra result (`0x0EFF`, 8 bytes).
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EFF)]
+pub struct WarpraResultPacket {
+    pub result: i16,
+    pub kind: i16,
+    pub location_id: i16,
+}
+
+
 #[derive(Debug, Clone, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub enum RequestUnequipItemStatus {
