@@ -546,7 +546,25 @@ where
         heal_amount: packet.heal_amount as usize,
     })?;
     packet_handler.register_noop::<DisplayPlayerHealEffect>()?;
-    packet_handler.register_noop::<StatusChangePacket>()?;
+    packet_handler.register(|packet: StatusChangePacket| {
+        let StatusChangePacket {
+            index,
+            entity_id,
+            state,
+            duration_in_milliseconds,
+            remaining_in_milliseconds,
+            value,
+        } = packet;
+
+        NetworkEvent::StatusChange {
+            status_index: index,
+            entity_id,
+            state: crate::event::StatusChangeState::from_wire(state),
+            total_duration_milliseconds: duration_in_milliseconds,
+            remaining_milliseconds: remaining_in_milliseconds,
+            values: value,
+        }
+    })?;
     packet_handler.register_noop::<QuestNotificationPacket1>()?;
     packet_handler.register_noop::<HuntingQuestNotificationPacket>()?;
     packet_handler.register_noop::<HuntingQuestUpdateObjectivePacket>()?;
@@ -865,7 +883,11 @@ where
         character_id: packet.character_id,
     })?;
     packet_handler.register_noop::<PartyInvitePacket>()?;
-    packet_handler.register_noop::<StatusChangeSequencePacket>()?;
+    packet_handler.register(|packet: StatusChangeSequencePacket| NetworkEvent::StatusChangeSequence {
+        status_index: packet.index,
+        entity_id: EntityId(packet.id),
+        state: crate::event::StatusChangeState::from_wire(packet.state),
+    })?;
     packet_handler.register_noop::<ReputationPacket>()?;
     packet_handler.register_noop::<ClanInfoPacket>()?;
     packet_handler.register_noop::<ClanOnlineCountPacket>()?;

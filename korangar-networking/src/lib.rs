@@ -29,7 +29,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 
 pub use self::entity::EntityData;
-pub use self::event::{DisconnectReason, NetworkEvent};
+pub use self::event::{DisconnectReason, NetworkEvent, StatusChangeState};
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
 pub use self::message::MessageColor;
@@ -1024,9 +1024,11 @@ where
 mod packet_handlers {
     use ragnarok_bytes::{ByteReader, ByteWriter};
     use ragnarok_packets::handler::{HandlerResult, NoPacketCallback};
-    use ragnarok_packets::{DisplayEmotionPacket, EntityId, PacketExt, RequestEmotionPacket};
+    use ragnarok_packets::{
+        DisplayEmotionPacket, EntityId, PacketExt, RequestEmotionPacket, StatusChangePacket, StatusChangeSequencePacket,
+    };
 
-    use crate::{NetworkEvent, NetworkingSystem, SupportedPacketVersion};
+    use crate::{NetworkEvent, NetworkingSystem, StatusChangeState, SupportedPacketVersion};
 
     #[test]
     fn login_server() {
@@ -1082,6 +1084,18 @@ mod packet_handlers {
         let mut handler = NetworkingSystem::create_map_server_packet_handler(NoPacketCallback, version).unwrap();
         let mut reader = ByteReader::without_metadata(bytes);
         handler.process_one(&mut reader)
+    }
+
+    fn handle_map_packet<Packet: PacketExt>(version: SupportedPacketVersion, packet: Packet) -> crate::event::NetworkEventList {
+        let mut handler = NetworkingSystem::create_map_server_packet_handler(NoPacketCallback, version).unwrap();
+        let mut writer = ByteWriter::new();
+        packet.packet_to_bytes(&mut writer).unwrap();
+        let mut reader = ByteReader::without_metadata(writer.as_slice());
+
+        let HandlerResult::Ok(events) = handler.process_one(&mut reader) else {
+            panic!("packet was not handled");
+        };
+        events
     }
 
     #[test]
@@ -1192,7 +1206,94 @@ mod packet_handlers {
             assert!(events.0.is_empty(), "{version:?} should keep the packet as a noop");
         }
     }
+
+    #[test]
+    fn packetver_20250716_status_change_emits_typed_event() {
+        let events = handle_map_packet(SupportedPacketVersion::_20250716, StatusChangePacket {
+            index: 12,
+            entity_id: EntityId(0x0102_0304),
+            state: 1,
+            duration_in_milliseconds: 30_000,
+            remaining_in_milliseconds: 12_500,
+            value: [7, 8, 9],
+        });
+
+        assert!(matches!(events.0.as_slice(), [NetworkEvent::StatusChange {
+            status_index: 12,
+            entity_id: EntityId(0x0102_0304),
+            state: StatusChangeState::Active,
+            total_duration_milliseconds: 30_000,
+            remaining_milliseconds: 12_500,
+            values: [7, 8, 9],
+        }]));
+    }
+
+    #[test]
+    fn packetver_20250716_status_change_preserves_end_and_unknown_state() {
+        let ended = handle_map_packet(SupportedPacketVersion::_20250716, StatusChangePacket {
+            index: 1,
+            entity_id: EntityId(2),
+            state: 0,
+            duration_in_milliseconds: 0,
+            remaining_in_milliseconds: 0,
+            value: [0, 0, 0],
+        });
+        assert!(matches!(ended.0.as_slice(), [NetworkEvent::StatusChange {
+            state: StatusChangeState::Ended,
+            ..
+        }]));
+
+        let unknown = handle_map_packet(SupportedPacketVersion::_20250716, StatusChangePacket {
+            index: 1,
+            entity_id: EntityId(2),
+            state: 9,
+            duration_in_milliseconds: 0,
+            remaining_in_milliseconds: 0,
+            value: [0, 0, 0],
+        });
+        assert!(matches!(unknown.0.as_slice(), [NetworkEvent::StatusChange {
+            state: StatusChangeState::Other(9),
+            ..
+        }]));
+    }
+
+    #[test]
+    fn packetver_20250716_status_change_sequence_emits_typed_event() {
+        let events = handle_map_packet(SupportedPacketVersion::_20250716, StatusChangeSequencePacket {
+            index: 44,
+            id: 0xAABB_CCDD,
+            state: 2,
+        });
+
+        assert!(matches!(events.0.as_slice(), [NetworkEvent::StatusChangeSequence {
+            status_index: 44,
+            entity_id: EntityId(0xAABB_CCDD),
+            state: StatusChangeState::StillActive,
+        }]));
+    }
+
+    #[test]
+    fn older_packetvers_keep_status_change_noop() {
+        for version in [SupportedPacketVersion::_20190530, SupportedPacketVersion::_20220406] {
+            let timed = handle_map_packet(version, StatusChangePacket {
+                index: 12,
+                entity_id: EntityId(1),
+                state: 1,
+                duration_in_milliseconds: 1,
+                remaining_in_milliseconds: 1,
+                value: [1, 2, 3],
+            });
+            assert!(timed.0.is_empty(), "{version:?} must keep StatusChangePacket as a noop");
+
+            let sequence = handle_map_packet(version, StatusChangeSequencePacket { index: 3, id: 4, state: 0 });
+            assert!(
+                sequence.0.is_empty(),
+                "{version:?} must keep StatusChangeSequencePacket as a noop"
+            );
+        }
+    }
 }
+
 
 #[cfg(test)]
 mod transport_tests {

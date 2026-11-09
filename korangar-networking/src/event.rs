@@ -312,6 +312,47 @@ pub enum NetworkEvent {
         position: TilePosition,
         start_time: ClientTick,
     },
+    /// Timed status effect on an entity (`StatusChangePacket`, header
+    /// `0x0983`).
+    StatusChange {
+        status_index: u16,
+        entity_id: EntityId,
+        state: StatusChangeState,
+        total_duration_milliseconds: u32,
+        remaining_milliseconds: u32,
+        values: [u32; 3],
+    },
+    /// Status on/off without durations (`StatusChangeSequencePacket`, header
+    /// `0x0196`).
+    StatusChangeSequence {
+        status_index: u16,
+        entity_id: EntityId,
+        state: StatusChangeState,
+    },
+}
+
+/// Wire `state` byte of the status-change packets.
+///
+/// `0` ends the status. `1` starts or refreshes it. `2` is the extra non-zero
+/// flag some servers send for a status that stays active. Any other value is
+/// kept so it is not dropped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusChangeState {
+    Ended,
+    Active,
+    StillActive,
+    Other(u8),
+}
+
+impl StatusChangeState {
+    pub(crate) fn from_wire(state: u8) -> Self {
+        match state {
+            0 => Self::Ended,
+            1 => Self::Active,
+            2 => Self::StillActive,
+            other => Self::Other(other),
+        }
+    }
 }
 
 /// New-type so we can implement some `From` traits. This will help when

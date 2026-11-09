@@ -2041,6 +2041,8 @@ impl Client {
                 NetworkEvent::UseSkillSuccess { .. } => {}
                 NetworkEvent::ToUseSkillSuccess { .. } => {}
                 NetworkEvent::NotifyGroundSkill { .. } => {}
+                // Status icons are intentionally not drawn here. The events stay available for later UI.
+                NetworkEvent::StatusChange { .. } | NetworkEvent::StatusChangeSequence { .. } => {}
             }
         }
     }
