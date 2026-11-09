@@ -1145,6 +1145,9 @@ impl Client {
                     self.client_state.follow_mut(client_state().guild_window()).clear();
                     self.client_state.follow_mut(client_state().warpra_window()).clear_catalog();
                     self.client_state.follow_mut(client_state().companion_window()).clear();
+                    self.client_state.follow_mut(client_state().mvp_minimap()).clear_markers();
+                    self.client_state.follow_mut(client_state().mvp_minimap()).set_map_size(0, 0);
+                    self.interface.close_window_with_class(WindowClass::MvpMinimap);
 
                     self.audio_engine.play_background_music_track(None);
 
@@ -1539,6 +1542,8 @@ impl Client {
                     self.client_state.follow_mut(client_state().dead_entities()).clear();
                     self.client_state.follow_mut(client_state().ground_items()).clear();
                     self.client_state.follow_mut(client_state().player_shops()).clear();
+                    self.client_state.follow_mut(client_state().mvp_minimap()).clear_markers();
+                    self.client_state.follow_mut(client_state().mvp_minimap()).set_map_size(0, 0);
                     *self.client_state.follow_mut(client_state().buffered_action()) = None;
 
                     // Close any remaining dialogs.
@@ -2002,6 +2007,9 @@ impl Client {
                         .follow_mut(client_state().companion_window())
                         .apply_elemental_parameter(variable, value);
                     self.interface.open_window(CompanionWindow::new());
+                }
+                NetworkEvent::MvpMinimap { flags, markers } => {
+                    self.client_state.follow_mut(client_state().mvp_minimap()).replace(flags, markers);
                 }
                 NetworkEvent::OpenDialog { text, npc_id } => {
                     self.client_state
@@ -3685,6 +3693,14 @@ impl Client {
                     }
                     Err(message) => self.client_state.follow_mut(client_state().warpra_window()).set_status(message),
                 },
+                InputEvent::ToggleMvpMinimap => {
+                    if self.map.is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::MvpMinimap) {
+                            true => self.interface.close_window_with_class(WindowClass::MvpMinimap),
+                            false => self.interface.open_window(MvpMinimapWindow),
+                        }
+                    }
+                }
                 InputEvent::CloseEnchant => {
                     if self.interface.is_window_with_class_open(WindowClass::Enchant) {
                         let _ = self.networking_system.close_ui_enchant();
@@ -4384,6 +4400,10 @@ impl Client {
                             }
 
                             self.directional_shadow_camera.set_level_bound(map.get_level_bound());
+                            let (width, height) = map.tile_size();
+                            self.client_state
+                                .follow_mut(client_state().mvp_minimap())
+                                .set_map_size(width, height);
                             let _ = self.networking_system.map_loaded();
                         }
                     }

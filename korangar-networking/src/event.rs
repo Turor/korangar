@@ -455,6 +455,11 @@ pub enum NetworkEvent {
         x: i16,
         y: i16,
     },
+    /// Alive MVPs on the current map (`0x0EF5`). Replaces the previous list.
+    MvpMinimap {
+        flags: u8,
+        markers: Vec<ragnarok_packets::MvpMinimapEntry>,
+    },
     /// The refine UI opened (`ZC_OPEN_REFINING_UI`).
     RefineOpened,
     /// Ores and chances for the item the player selected.

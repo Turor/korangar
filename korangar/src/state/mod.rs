@@ -193,6 +193,8 @@ pub struct ClientState {
     warpra_window: crate::interface::windows::WarpraWindowState,
     /// Homunculus, pet, mercenary, and elemental info.
     companion_window: crate::interface::windows::CompanionWindowState,
+    /// Alive MVPs from `0x0EF5` and the loaded map size used to plot them.
+    mvp_minimap: crate::interface::windows::MvpMinimapState,
     /// Internal state of the skill tree window.
     skill_tree_window: SkillTreeWindowState,
 
@@ -431,6 +433,7 @@ impl ClientState {
             let eden_window = crate::interface::windows::EdenWindowState::default();
             let warpra_window = crate::interface::windows::WarpraWindowState::default();
             let companion_window = crate::interface::windows::CompanionWindowState::default();
+            let mvp_minimap = crate::interface::windows::MvpMinimapState::default();
 
             let shop_items = Vec::default();
             let buy_cart = Vec::default();
@@ -520,6 +523,7 @@ impl ClientState {
             eden_window,
             warpra_window,
             companion_window,
+            mvp_minimap,
             skill_tree_window,
             entities: Vec::new(),
             dead_entities: Vec::new(),

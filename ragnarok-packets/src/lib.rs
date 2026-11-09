@@ -3983,6 +3983,29 @@ pub struct EnchantResponsePacket {
 #[header(0x0BA0)]
 pub struct CloseUiEnchantPacket {}
 
+/// One alive MVP on the Turoran minimap (`0x0EF5`).
+#[derive(Debug, Clone, PartialEq, Eq, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct MvpMinimapEntry {
+    pub entity_id: EntityId,
+    pub class_id: u16,
+    pub position: TilePosition,
+}
+
+/// Alive MVP positions (`0x0EF5`, variable). `flags` is the server byte that
+/// precedes the count. Each snapshot replaces the previous list.
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EF5)]
+#[variable_length]
+pub struct MvpMinimapPacket {
+    pub flags: u8,
+    #[new_derive]
+    pub count: u16,
+    #[repeating(count)]
+    pub markers: Vec<MvpMinimapEntry>,
+}
+
 /// Turoran stable open (`0x0EF0`, 2 bytes, no payload).
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]

@@ -861,6 +861,7 @@ where
     crate::packet_versions::eden::register_eden_packets(packet_handler)?;
     crate::packet_versions::warpra::register_warpra_packets(packet_handler)?;
     crate::packet_versions::companions::register_companion_packets(packet_handler, false)?;
+    crate::packet_versions::mvp_minimap::register_mvp_minimap_packets(packet_handler)?;
     packet_handler.register(|packet: BuyOrSellPacket| NetworkEvent::AskBuyOrSell { shop_id: packet.shop_id })?;
     packet_handler.register(|packet: ShopItemListPacket| {
         let items = packet
