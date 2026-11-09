@@ -33,6 +33,7 @@ mod maps;
 mod menu;
 mod mvp_minimap;
 mod navigation;
+mod placement;
 #[cfg(feature = "debug")]
 mod packet_inspector;
 mod party_invite;

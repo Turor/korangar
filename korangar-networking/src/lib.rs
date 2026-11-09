@@ -1053,6 +1053,22 @@ where
         }
     }
 
+    /// Add one item to the alternate equipment set (`0x0A97`).
+    pub fn request_equip_switch_add(
+        &mut self,
+        item_index: InventoryIndex,
+        equip_position: EquipPosition,
+    ) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(RequestEquipSwitchAddPacket {
+                    inventory_index: item_index,
+                    equip_position,
+                })
+            }
+        }
+    }
+
     /// Remove one item from the alternate equipment set.
     pub fn request_equip_switch_remove(&mut self, item_index: InventoryIndex) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {

@@ -81,7 +81,7 @@ use rust_state::{VecIndexExt, VecLookupExt};
 use settings::{
     AudioSettings, AudioSettingsPathExt, GraphicsSettingsCapabilities, GraphicsSettingsPathExt, InterfaceSettings, InterfaceSettingsPathExt,
 };
-use state::equip_switch::EquipSwitchPathExt;
+use state::equip_switch::{EquipSwitchPathExt, switch_delta};
 use state::hotbar::HotbarPathExt;
 use state::inventory::InventoryPathExt;
 use state::localization::Localization;
@@ -3317,6 +3317,32 @@ impl Client {
                 }
                 InputEvent::RemoveEquipSwitchItem { index } => {
                     let _ = self.networking_system.request_equip_switch_remove(index);
+                }
+                InputEvent::SaveEquipLoadout => {
+                    self.client_state.follow_mut(client_state().equip_switch()).save_loadout();
+                }
+                InputEvent::RenameEquipLoadout => {
+                    self.client_state.follow_mut(client_state().equip_switch()).rename_selected();
+                }
+                InputEvent::ApplyEquipLoadout { index, wear } => {
+                    self.client_state.follow_mut(client_state().equip_switch()).select(index);
+                    let (current, desired) = {
+                        let equip = self.client_state.follow(client_state().equip_switch());
+                        let Some(loadout) = equip.loadout(index) else {
+                            continue;
+                        };
+                        (equip.slots().to_vec(), loadout.slots().to_vec())
+                    };
+                    let delta = switch_delta(&current, &desired);
+                    for index in delta.remove {
+                        let _ = self.networking_system.request_equip_switch_remove(index);
+                    }
+                    for (index, position) in delta.add {
+                        let _ = self.networking_system.request_equip_switch_add(index, position);
+                    }
+                    if wear {
+                        let _ = self.networking_system.request_equip_switch();
+                    }
                 }
                 InputEvent::ToggleSkillTreeWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {

@@ -925,6 +925,30 @@ pub struct Player {
     pub luck: i32,
     pub bonus_luck: i32,
     pub luck_stat_points_cost: u8,
+    /// Status `Attack1` (base attack).
+    pub attack_base: u32,
+    /// Status `Attack2` (weapon attack).
+    pub attack_bonus: u32,
+    /// Status `MagicAttack1`.
+    pub magic_attack_base: u32,
+    /// Status `MagicAttack2`.
+    pub magic_attack_bonus: u32,
+    /// Status `Defense1`.
+    pub defense_base: u32,
+    /// Status `Defense2`.
+    pub defense_bonus: u32,
+    /// Status `MagicDefense1`.
+    pub magic_defense_base: u32,
+    /// Status `MagicDefense2`.
+    pub magic_defense_bonus: u32,
+    /// Status `Hit`.
+    pub hit: u32,
+    /// Status `Flee1`.
+    pub flee_base: u32,
+    /// Status `Flee2`.
+    pub flee_bonus: u32,
+    /// Status `Critical`.
+    pub critical: u32,
     pub attack_speed: u32,
     pub skill_points: u32,
 }
@@ -979,6 +1003,18 @@ impl Player {
             luck: character_information.luck as i32,
             bonus_luck: 0,
             luck_stat_points_cost: 0,
+            attack_base: 0,
+            attack_bonus: 0,
+            magic_attack_base: 0,
+            magic_attack_bonus: 0,
+            defense_base: 0,
+            defense_bonus: 0,
+            magic_defense_base: 0,
+            magic_defense_bonus: 0,
+            hit: 0,
+            flee_base: 0,
+            flee_bonus: 0,
+            critical: 0,
             attack_speed: 0,
             skill_points: 0,
         }
@@ -1034,6 +1070,18 @@ impl Player {
             StatType::IntelligenceStatPointCost(cost) => self.intelligence_stat_points_cost = cost,
             StatType::DexterityStatPointCost(cost) => self.dexterity_stat_points_cost = cost,
             StatType::LuckStatPointCost(cost) => self.luck_stat_points_cost = cost,
+            StatType::Attack1(value) => self.attack_base = value,
+            StatType::Attack2(value) => self.attack_bonus = value,
+            StatType::MagicAttack1(value) => self.magic_attack_base = value,
+            StatType::MagicAttack2(value) => self.magic_attack_bonus = value,
+            StatType::Defense1(value) => self.defense_base = value,
+            StatType::Defense2(value) => self.defense_bonus = value,
+            StatType::MagicDefense1(value) => self.magic_defense_base = value,
+            StatType::MagicDefense2(value) => self.magic_defense_bonus = value,
+            StatType::Hit(value) => self.hit = value,
+            StatType::Flee1(value) => self.flee_base = value,
+            StatType::Flee2(value) => self.flee_bonus = value,
+            StatType::Critical(value) => self.critical = value,
             StatType::AttackSpeed(attack_speed) => self.attack_speed = attack_speed,
             StatType::SkillPoints(skill_points) => self.skill_points = skill_points,
             _ => {}

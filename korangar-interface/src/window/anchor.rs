@@ -73,6 +73,11 @@ where
         }
     }
 
+    /// A finished anchor. First layout will not overwrite the offset.
+    pub fn at(anchor_point: AnchorPoint, offset: App::Position) -> Self {
+        Self::initialized(anchor_point, offset)
+    }
+
     pub fn is_initializing(&self) -> bool {
         self.initializing
     }
