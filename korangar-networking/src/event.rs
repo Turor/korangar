@@ -375,7 +375,6 @@ pub enum NetworkEvent {
     },
 }
 
-
 /// Wire `state` byte of the status-change packets.
 ///
 /// `0` ends the status. `1` starts or refreshes it. `2` is the extra non-zero

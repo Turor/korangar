@@ -5,8 +5,8 @@ use korangar_debug::profiling::FrameMeasurement;
 use korangar_interface::event::{ClickHandler, Event, EventQueue};
 use korangar_networking::{InventoryItem, ShopItem};
 use ragnarok_packets::{
-    AccountId, BuyOrSellOption, CharacterId, CharacterServerInformation, EntityId, HotbarSlot, ShopId, SkillId, SoldItemInformation,
-    StatUpType, TilePosition,
+    AccountId, BuyOrSellOption, CharacterId, CharacterServerInformation, EntityId, HotbarSlot, PartyId, ShopId, SkillId,
+    SoldItemInformation, StatUpType, TilePosition,
 };
 use rust_state::State;
 
@@ -205,6 +205,12 @@ pub enum InputEvent {
         /// Character id of the requestor.
         character_id: CharacterId,
     },
+    RejectPartyInvite {
+        party_id: PartyId,
+    },
+    AcceptPartyInvite {
+        party_id: PartyId,
+    },
     /// Buy items from a shop.
     BuyItems {
         /// Items to buy.
@@ -225,7 +231,9 @@ pub enum InputEvent {
         items: Vec<SoldItemInformation>,
     },
     /// Up a stat.
-    StatUp { stat_type: StatUpType },
+    StatUp {
+        stat_type: StatUpType,
+    },
     /// Distribute skill points to meet all requirements for a given skill and
     /// put a single point into the provided skill. If the player does not
     /// have enough skill points, this will skill as much of the
@@ -317,7 +325,9 @@ pub enum InputEvent {
     CameraDecelerate,
     /// Open a window to inspect a frame.
     #[cfg(feature = "debug")]
-    InspectFrame { measurement: FrameMeasurement },
+    InspectFrame {
+        measurement: FrameMeasurement,
+    },
 }
 
 impl From<InputEvent> for Event<ClientState> {

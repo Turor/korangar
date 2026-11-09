@@ -1775,9 +1775,28 @@ impl Client {
                         .follow_mut(client_state().friend_list())
                         .retain(|friend| !(friend.account_id == account_id && friend.character_id == character_id));
                 }
-                NetworkEvent::FriendOnlineStatus { .. } | NetworkEvent::PartyInvite { .. } | NetworkEvent::PartyInvitationState { .. } => {}
+                NetworkEvent::FriendOnlineStatus {
+                    account_id,
+                    character_id,
+                    online,
+                    ..
+                } => {
+                    let friends = self.client_state.follow_mut(client_state().friend_list());
+                    if let Some(entry) = friends
+                        .iter_mut()
+                        .find(|entry| entry.account_id == account_id && entry.character_id == character_id)
+                    {
+                        entry.set_online(online);
+                    }
+                }
+                NetworkEvent::PartyInvite { party_id, party_name } => {
+                    self.interface.open_window(PartyInviteWindow::new(party_id, party_name));
+                }
+                NetworkEvent::PartyInvitationState { .. } => {}
                 NetworkEvent::FriendAdded { friend } => {
-                    self.client_state.follow_mut(client_state().friend_list()).push(friend);
+                    self.client_state
+                        .follow_mut(client_state().friend_list())
+                        .push(crate::state::friends::FriendListEntry::from_friend(friend, false));
                 }
                 NetworkEvent::VisualEffect { effect_path, entity_id } => {
                     let effect = self.effect_loader.get_or_load(effect_path, &self.texture_loader).unwrap();
@@ -1867,7 +1886,10 @@ impl Client {
                     self.effect_holder.remove_unit(entity_id);
                 }
                 NetworkEvent::SetFriendList { friend_list } => {
-                    *self.client_state.follow_mut(client_state().friend_list()) = friend_list;
+                    *self.client_state.follow_mut(client_state().friend_list()) = friend_list
+                        .into_iter()
+                        .map(|friend| crate::state::friends::FriendListEntry::from_friend(friend, false))
+                        .collect();
                 }
                 NetworkEvent::SetHotkeyData { tab, hotkeys } => {
                     // FIX: Since we only have one hotbar at the moment, we ignore
@@ -2504,6 +2526,14 @@ impl Client {
                 InputEvent::AcceptFriendRequest { account_id, character_id } => {
                     let _ = self.networking_system.accept_friend_request(account_id, character_id);
                     self.interface.close_window_with_class(WindowClass::FriendRequest);
+                }
+                InputEvent::RejectPartyInvite { party_id } => {
+                    let _ = self.networking_system.reject_party_invite(party_id);
+                    self.interface.close_window_with_class(WindowClass::PartyInvite);
+                }
+                InputEvent::AcceptPartyInvite { party_id } => {
+                    let _ = self.networking_system.accept_party_invite(party_id);
+                    self.interface.close_window_with_class(WindowClass::PartyInvite);
                 }
                 InputEvent::BuyItems { items } => {
                     let _ = self.networking_system.purchase_items(items);
