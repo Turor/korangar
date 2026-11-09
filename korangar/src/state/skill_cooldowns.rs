@@ -19,7 +19,6 @@ impl SkillCooldowns {
         }
     }
 
-    #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.until_by_skill.clear();
     }

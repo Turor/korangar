@@ -1129,6 +1129,9 @@ impl Client {
                     self.client_state.follow_mut(client_state().dead_entities()).clear();
                     self.client_state.follow_mut(client_state().ground_items()).clear();
                     *self.client_state.follow_mut(client_state().buffered_action()) = None;
+                    self.client_state.follow_mut(client_state().status_effects()).clear();
+                    self.client_state.follow_mut(client_state().skill_cooldowns()).clear();
+                    self.client_state.follow_mut(client_state().quest_log()).clear();
 
                     self.audio_engine.play_background_music_track(None);
 
@@ -1209,6 +1212,9 @@ impl Client {
                         #[cfg(feature = "debug")]
                         self.interface.close_all_windows_except(DEBUG_WINDOWS);
 
+                        self.client_state.follow_mut(client_state().status_effects()).clear();
+                        self.client_state.follow_mut(client_state().skill_cooldowns()).clear();
+                        self.client_state.follow_mut(client_state().quest_log()).clear();
                         self.interface.open_window(CharacterSelectionWindow::new(
                             client_state().character_slots(),
                             client_state().switch_request(),
