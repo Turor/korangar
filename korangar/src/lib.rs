@@ -1765,6 +1765,113 @@ impl Client {
                             .spawn_particle(Box::new(HealNumber::new(entity.get_position(), heal_amount.to_string())));
                     }
                 }
+                NetworkEvent::BankOpened { .. } => {
+                    self.client_state.follow_mut(client_state().bank_window()).note_open();
+                    self.interface.open_window(BankWindow::new());
+                }
+                NetworkEvent::BankBalance { money, reason } => {
+                    self.client_state
+                        .follow_mut(client_state().bank_window())
+                        .note_balance(money, reason);
+                    self.interface.open_window(BankWindow::new());
+                }
+                NetworkEvent::BankDeposit { reason, money, zeny } => {
+                    self.client_state
+                        .follow_mut(client_state().bank_window())
+                        .note_deposit(reason, money, zeny);
+                }
+                NetworkEvent::BankWithdraw { reason, money, zeny } => {
+                    self.client_state
+                        .follow_mut(client_state().bank_window())
+                        .note_withdraw(reason, money, zeny);
+                }
+                NetworkEvent::BankClosed { .. } => {
+                    self.client_state.follow_mut(client_state().bank_window()).note_closed();
+                    self.interface.close_window_with_class(WindowClass::Bank);
+                }
+                NetworkEvent::CashShopOpened {
+                    cash_points,
+                    kafra_points,
+                    tab,
+                } => {
+                    self.client_state
+                        .follow_mut(client_state().cash_shop_window())
+                        .note_open(cash_points, kafra_points, tab);
+                    if self.client_state.follow(client_state().game_settings()).enable_cash_shop {
+                        self.interface.open_window(CashShopWindow::new());
+                    }
+                }
+                NetworkEvent::CashShopItems { tab, items } => {
+                    self.client_state
+                        .follow_mut(client_state().cash_shop_window())
+                        .note_items(tab, &items);
+                }
+                NetworkEvent::CashShopBuyResult {
+                    item_id,
+                    result,
+                    cash_points,
+                    kafra_points,
+                } => {
+                    self.client_state
+                        .follow_mut(client_state().cash_shop_window())
+                        .note_buy(item_id, result, cash_points, kafra_points);
+                }
+                NetworkEvent::RouletteOpened {
+                    result,
+                    step,
+                    index,
+                    bonus_item_id,
+                    gold,
+                    silver,
+                    bronze,
+                    ..
+                } => {
+                    self.client_state.follow_mut(client_state().roulette_window()).note_open(
+                        &crate::state::bank_cash_roulette::RouletteSpinView {
+                            result: i32::from(result),
+                            step: i32::from(step),
+                            index: i32::from(index),
+                            bonus_item_id,
+                            gold,
+                            silver,
+                            bronze,
+                        },
+                    );
+                    self.interface.open_window(RouletteWindow::new());
+                }
+                NetworkEvent::RoulettePrizes { prizes, .. } => {
+                    self.client_state.follow_mut(client_state().roulette_window()).note_prizes(&prizes);
+                }
+                NetworkEvent::RouletteGenerated {
+                    result,
+                    step,
+                    index,
+                    bonus_item_id,
+                    gold,
+                    silver,
+                    bronze,
+                } => {
+                    self.client_state.follow_mut(client_state().roulette_window()).note_spin(
+                        &crate::state::bank_cash_roulette::RouletteSpinView {
+                            result: i32::from(result),
+                            step: i32::from(step),
+                            index: i32::from(index),
+                            bonus_item_id,
+                            gold,
+                            silver,
+                            bronze,
+                        },
+                    );
+                }
+                NetworkEvent::RouletteClaimed { result, item_id } => {
+                    self.client_state
+                        .follow_mut(client_state().roulette_window())
+                        .note_claim(result, item_id);
+                }
+                NetworkEvent::RouletteClosed { result } => {
+                    self.client_state.follow_mut(client_state().roulette_window()).note_closed(result);
+                    self.interface.close_window_with_class(WindowClass::Roulette);
+                }
                 NetworkEvent::GainedExperience {
                     amount,
                     experience_type,
@@ -4022,6 +4129,105 @@ impl Client {
                 InputEvent::CloseMail => {
                     let _ = self.networking_system.close_rodex();
                     self.interface.close_window_with_class(WindowClass::Mail);
+                }
+                InputEvent::OpenBank => {
+                    if let Some(account_id) = self.saved_login_data.as_ref().map(|login| login.account_id) {
+                        let _ = self.networking_system.open_bank(account_id);
+                        let _ = self.networking_system.check_bank(account_id);
+                        self.interface.open_window(BankWindow::new());
+                    }
+                }
+                InputEvent::RefreshBank => {
+                    if let Some(account_id) = self.saved_login_data.as_ref().map(|login| login.account_id) {
+                        let _ = self.networking_system.check_bank(account_id);
+                    }
+                }
+                InputEvent::DepositBank => match self.client_state.follow(client_state().bank_window()).amount() {
+                    Ok(zeny) => {
+                        if let Some(account_id) = self.saved_login_data.as_ref().map(|login| login.account_id) {
+                            let _ = self.networking_system.deposit_bank(account_id, zeny);
+                        }
+                    }
+                    Err(message) => self.client_state.follow_mut(client_state().bank_window()).status = message.to_owned(),
+                },
+                InputEvent::WithdrawBank => match self.client_state.follow(client_state().bank_window()).amount() {
+                    Ok(zeny) => {
+                        if let Some(account_id) = self.saved_login_data.as_ref().map(|login| login.account_id) {
+                            let _ = self.networking_system.withdraw_bank(account_id, zeny);
+                        }
+                    }
+                    Err(message) => self.client_state.follow_mut(client_state().bank_window()).status = message.to_owned(),
+                },
+                InputEvent::CloseBank => {
+                    if let Some(account_id) = self.saved_login_data.as_ref().map(|login| login.account_id) {
+                        let _ = self.networking_system.close_bank(account_id);
+                    }
+                    self.interface.close_window_with_class(WindowClass::Bank);
+                }
+                InputEvent::OpenCashShop => {
+                    if self.client_state.follow(client_state().game_settings()).enable_cash_shop {
+                        let tab = self.client_state.follow(client_state().cash_shop_window()).tab().unwrap_or(0);
+                        let _ = self.networking_system.open_cash_shop(u32::from(tab));
+                        self.interface.open_window(CashShopWindow::new());
+                    } else {
+                        self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
+                            "Cash shop is off. Turn it on in Game settings.".to_owned(),
+                            MessageColor::Information,
+                        ));
+                    }
+                }
+                InputEvent::RequestCashShopTab => {
+                    if self.client_state.follow(client_state().game_settings()).enable_cash_shop {
+                        match self.client_state.follow(client_state().cash_shop_window()).tab() {
+                            Ok(tab) => {
+                                let _ = self.networking_system.request_cash_shop_tab(tab as i16);
+                            }
+                            Err(message) => {
+                                self.client_state.follow_mut(client_state().cash_shop_window()).status = message.to_owned();
+                            }
+                        }
+                    }
+                }
+                InputEvent::BuyCashShopItem => {
+                    if self.client_state.follow(client_state().game_settings()).enable_cash_shop {
+                        let purchase = {
+                            let shop = self.client_state.follow(client_state().cash_shop_window());
+                            (shop.item_id(), shop.amount(), shop.tab(), shop.kafra_spend())
+                        };
+                        match purchase {
+                            (Ok(item_id), Ok(amount), Ok(tab), Ok(kafra)) => {
+                                let _ = self.networking_system.buy_cash_shop_item(item_id, amount, tab, kafra);
+                            }
+                            _ => {
+                                self.client_state.follow_mut(client_state().cash_shop_window()).status =
+                                    "Enter an item id, amount, tab, and kafra points.".to_owned();
+                            }
+                        }
+                    }
+                }
+                InputEvent::CloseCashShop => {
+                    if self.client_state.follow(client_state().game_settings()).enable_cash_shop {
+                        let _ = self.networking_system.close_cash_shop();
+                    }
+                    self.interface.close_window_with_class(WindowClass::CashShop);
+                }
+                InputEvent::OpenRoulette => {
+                    let _ = self.networking_system.open_roulette();
+                    let _ = self.networking_system.request_roulette_info();
+                    self.interface.open_window(RouletteWindow::new());
+                }
+                InputEvent::RequestRouletteInfo => {
+                    let _ = self.networking_system.request_roulette_info();
+                }
+                InputEvent::SpinRoulette => {
+                    let _ = self.networking_system.generate_roulette();
+                }
+                InputEvent::ClaimRoulette => {
+                    let _ = self.networking_system.claim_roulette();
+                }
+                InputEvent::CloseRoulette => {
+                    let _ = self.networking_system.close_roulette();
+                    self.interface.close_window_with_class(WindowClass::Roulette);
                 }
                 InputEvent::ToggleMvpMinimap => {
                     if self.map.is_some() {

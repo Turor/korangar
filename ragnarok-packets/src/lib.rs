@@ -863,8 +863,8 @@ pub struct NewMailStatusPacket {
     pub new_available: u8,
 }
 
-/// `CZ_OPEN_MAILBOX2` (`0x0AC0`, 26 bytes). `mail_id` 0 opens at the newest mail.
-/// The trailing 16 bytes are unused by the 2017-04-19+ map server.
+/// `CZ_OPEN_MAILBOX2` (`0x0AC0`, 26 bytes). `mail_id` 0 opens at the newest
+/// mail. The trailing 16 bytes are unused by the 2017-04-19+ map server.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0AC0)]
@@ -874,7 +874,8 @@ pub struct OpenRodexPacket {
 }
 
 /// `CZ_REQ_REFRESH_MAIL_LIST2` (`0x0AC1`, 26 bytes). Reloads the inbox.
-/// `0x09E8` only replays the in-memory list, which stays empty until this packet.
+/// `0x09E8` only replays the in-memory list, which stays empty until this
+/// packet.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0AC1)]
@@ -934,7 +935,8 @@ pub struct RodexZenyAckPacket {
     pub result: u8,
 }
 
-/// Body of `ZC_ACK_READ_MAIL` (`0x09EB` and, on the 2025-07-16 profile, `0x0B63`).
+/// Body of `ZC_ACK_READ_MAIL` (`0x09EB` and, on the 2025-07-16 profile,
+/// `0x0B63`).
 ///
 /// The item block after the text changes size between profiles. It is kept so
 /// the frame is consumed; the window shows the count, zeny, and text.
@@ -955,7 +957,8 @@ pub struct RodexReadPacket {
     pub items: Vec<u8>,
 }
 
-/// `ZC_ACK_READ_RODEX` on packetver 2025-07-16 (`0x0B63`). Same prefix as `0x09EB`.
+/// `ZC_ACK_READ_RODEX` on packetver 2025-07-16 (`0x0B63`). Same prefix as
+/// `0x09EB`.
 #[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0B63)]
@@ -6357,4 +6360,307 @@ pub struct UpdateSkillPacket {
 #[header(0x0441)]
 pub struct RemoveSkillPacket {
     pub skill_id: SkillId,
+}
+
+/// Open the bank (`CZ_REQ_OPEN_BANKING`, 0x09B6).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09B6)]
+pub struct OpenBankPacket {
+    pub account_id: AccountId,
+}
+
+/// Close the bank (`CZ_REQ_CLOSE_BANKING`, 0x09B8).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09B8)]
+pub struct CloseBankPacket {
+    pub account_id: AccountId,
+}
+
+/// Ask for the vault balance (`CZ_REQ_BANKING_CHECK`, 0x09AB).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09AB)]
+pub struct CheckBankPacket {
+    pub account_id: AccountId,
+}
+
+/// Deposit zeny (`CZ_REQ_BANKING_DEPOSIT`, 0x09A7).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09A7)]
+pub struct DepositBankPacket {
+    pub account_id: AccountId,
+    pub zeny: i32,
+}
+
+/// Withdraw zeny (`CZ_REQ_BANKING_WITHDRAW`, 0x09A9).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09A9)]
+pub struct WithdrawBankPacket {
+    pub account_id: AccountId,
+    pub zeny: i32,
+}
+
+/// The bank UI may open (`ZC_ACK_OPEN_BANKING`, 0x09B7).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09B7)]
+pub struct BankOpenAckPacket {
+    pub unknown: i16,
+}
+
+/// The bank UI closed (`ZC_ACK_CLOSE_BANKING`, 0x09B9).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09B9)]
+pub struct BankCloseAckPacket {
+    pub unknown: i16,
+}
+
+/// Vault balance (`ZC_BANKING_CHECK`, 0x09A6).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09A6)]
+pub struct BankCheckPacket {
+    pub money: i64,
+    pub reason: i16,
+}
+
+/// Deposit result (`ZC_ACK_BANKING_DEPOSIT`, 0x09A8).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09A8)]
+pub struct BankDepositAckPacket {
+    pub reason: i16,
+    pub money: i64,
+    pub zeny: i32,
+}
+
+/// Withdraw result (`ZC_ACK_BANKING_WITHDRAW`, 0x09AA).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09AA)]
+pub struct BankWithdrawAckPacket {
+    pub reason: i16,
+    pub money: i64,
+    pub zeny: i32,
+}
+
+/// Cash shop button on clients before 2019-12-24 (`CZ_SE_CASHSHOP_OPEN`,
+/// 0x0844).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0844)]
+pub struct CashShopOpenRequestPacket {}
+
+/// Cash shop button from 2019-12-24 (`CZ_SE_CASHSHOP_OPEN2`, 0x0B6D).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B6D)]
+pub struct CashShopOpenRequestV2Packet {
+    pub tab: u32,
+}
+
+/// Close the cash shop (`CZ_SE_CASHSHOP_CLOSE`, 0x084A).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x084A)]
+pub struct CashShopClosePacket {}
+
+/// Ask for one cash-shop tab (`CZ_REQ_SE_CASH_TAB_CODE`, 0x0846).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0846)]
+pub struct CashShopTabRequestPacket {
+    pub tab: i16,
+}
+
+/// One line in a cash-shop purchase (`CZ_SE_PC_BUY_CASHITEM_LIST`, 0x0848).
+#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct CashShopBuyItem {
+    pub item_id: u32,
+    pub amount: u32,
+    pub tab: u16,
+}
+
+/// Buy from the cash shop (`CZ_SE_PC_BUY_CASHITEM_LIST`, 0x0848).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0848)]
+#[variable_length]
+pub struct CashShopBuyPacket {
+    pub count: u16,
+    pub kafra_points: u32,
+    #[repeating_remaining]
+    pub items: Vec<CashShopBuyItem>,
+}
+
+/// Cash shop opened without a tab (`ZC_SE_CASHSHOP_OPEN`, 0x0845).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0845)]
+pub struct CashShopOpenLegacyPacket {
+    pub cash_points: u32,
+    pub kafra_points: u32,
+}
+
+/// Cash shop opened with a tab, 2014-07-30 through 2019 (`ZC_SE_CASHSHOP_OPEN`,
+/// 0x0A2B).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A2B)]
+pub struct CashShopOpenPacket {
+    pub cash_points: u32,
+    pub kafra_points: u32,
+    pub tab: u32,
+}
+
+/// Cash shop opened with a tab from 2020-01-29 (`ZC_SE_CASHSHOP_OPEN`, 0x0B6E).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B6E)]
+pub struct CashShopOpenV2Packet {
+    pub cash_points: u32,
+    pub kafra_points: u32,
+    pub tab: u32,
+}
+
+/// One catalog row (`ZC_ACK_SE_CASH_ITEM_LIST`, 0x08C0). Item ids are 32-bit
+/// on the 20190530, 20220406, and 20250716 layouts.
+#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct CashShopItemEntry {
+    pub item_id: u32,
+    pub price: i32,
+}
+
+/// Catalog for one tab (`ZC_ACK_SE_CASH_ITEM_LIST`, 0x08C0).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x08C0)]
+#[variable_length]
+pub struct CashShopItemListPacket {
+    pub tab: u32,
+    pub count: i16,
+    #[repeating_remaining]
+    pub items: Vec<CashShopItemEntry>,
+}
+
+/// Purchase result (`ZC_SE_PC_BUY_CASHITEM_RESULT`, 0x0849).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0849)]
+pub struct CashShopBuyResultPacket {
+    pub item_id: u32,
+    pub result: u16,
+    pub cash_points: u32,
+    pub kafra_points: u32,
+}
+
+/// Open the roulette (`CZ_REQ_OPEN_ROULETTE`, 0x0A19).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A19)]
+pub struct RouletteOpenPacket {}
+
+/// Ask for the prize table (`CZ_REQ_ROULETTE_INFO`, 0x0A1B).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A1B)]
+pub struct RouletteInfoRequestPacket {}
+
+/// Close the roulette (`CZ_REQ_CLOSE_ROULETTE`, 0x0A1D).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A1D)]
+pub struct RouletteClosePacket {}
+
+/// Spin (`CZ_REQ_GENERATE_ROULETTE`, 0x0A1F).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A1F)]
+pub struct RouletteGeneratePacket {}
+
+/// Claim or give up the pending prize (`CZ_RECV_ROULETTE_ITEM`, 0x0A21).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A21)]
+pub struct RouletteClaimPacket {
+    /// 0 claims the prize. Other values are server-defined give-up codes.
+    pub condition: u8,
+}
+
+/// Roulette opened (`ZC_ACK_OPEN_ROULETTE`, 0x0A1A). 25 bytes with a 32-bit
+/// bonus item.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A1A)]
+pub struct RouletteOpenAckPacket {
+    pub result: i8,
+    pub serial: i32,
+    pub step: i8,
+    pub index: i8,
+    pub bonus_item_id: u32,
+    pub gold: i32,
+    pub silver: i32,
+    pub bronze: i32,
+}
+
+/// One prize cell inside [`RouletteInfoPacket`]. 12 bytes from 2018-05-11.
+#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct RoulettePrizeEntry {
+    pub row: u16,
+    pub position: u16,
+    pub item_id: u32,
+    pub count: u16,
+    pub unused: u16,
+}
+
+/// Prize table (`ZC_ACK_ROULETTE_INFO`, 0x0A1C).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A1C)]
+#[variable_length]
+pub struct RouletteInfoPacket {
+    pub serial: u32,
+    #[repeating_remaining]
+    pub prizes: Vec<RoulettePrizeEntry>,
+}
+
+/// Roulette closed (`ZC_ACK_CLOSE_ROULETTE`, 0x0A1E).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A1E)]
+pub struct RouletteCloseAckPacket {
+    pub result: u8,
+}
+
+/// Spin result (`ZC_ACK_GENERATE_ROULETTE`, 0x0A20). 23 bytes with a 32-bit
+/// bonus item.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A20)]
+pub struct RouletteGenerateAckPacket {
+    pub result: u8,
+    pub step: u16,
+    pub index: u16,
+    pub bonus_item_id: u32,
+    pub gold: i32,
+    pub silver: i32,
+    pub bronze: i32,
+}
+
+/// Claim result (`ZC_RECV_ROULETTE_ITEM`, 0x0A22). 7 bytes with a 32-bit item
+/// id.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A22)]
+pub struct RouletteClaimAckPacket {
+    pub result: u8,
+    pub item_id: u32,
 }

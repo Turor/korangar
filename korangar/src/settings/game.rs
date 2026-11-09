@@ -11,6 +11,9 @@ pub struct GameSettings {
     /// When false, signboard and town-info rows are not loaded.
     #[serde(default)]
     pub enable_signboards: bool,
+    /// Cash shop requests stay off until the player turns this on.
+    #[serde(default)]
+    pub enable_cash_shop: bool,
 }
 
 impl Default for GameSettings {
@@ -18,6 +21,7 @@ impl Default for GameSettings {
         Self {
             auto_attack: true,
             enable_signboards: false,
+            enable_cash_shop: false,
         }
     }
 }

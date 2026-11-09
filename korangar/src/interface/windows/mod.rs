@@ -1,10 +1,12 @@
 mod achievements;
 mod audio_settings;
+mod bank;
 mod buy;
 mod buy_cart;
 mod buy_or_sell;
 mod cache;
 mod cart;
+mod cash_shop;
 mod character_creation;
 mod character_overview;
 mod character_selection;
@@ -48,6 +50,7 @@ mod refine;
 #[cfg(feature = "debug")]
 mod render_options;
 mod respawn;
+mod roulette;
 mod search_store;
 mod sell;
 mod sell_cart;
@@ -68,11 +71,13 @@ use serde::{Deserialize, Serialize};
 
 pub use self::achievements::AchievementsWindow;
 pub use self::audio_settings::AudioSettingsWindow;
+pub use self::bank::BankWindow;
 pub use self::buy::BuyWindow;
 pub use self::buy_cart::BuyCartWindow;
 pub use self::buy_or_sell::BuyOrSellWindow;
 pub use self::cache::WindowCache;
 pub use self::cart::CartWindow;
+pub use self::cash_shop::CashShopWindow;
 pub use self::character_creation::CharacterCreationWindow;
 pub use self::character_overview::CharacterOverviewWindow;
 pub use self::character_selection::CharacterSelectionWindow;
@@ -117,6 +122,7 @@ pub use self::refine::RefineWindow;
 #[cfg(feature = "debug")]
 pub use self::render_options::RenderOptionsWindow;
 pub use self::respawn::RespawnWindow;
+pub use self::roulette::RouletteWindow;
 pub use self::search_store::SearchStoreWindow;
 pub use self::sell::SellWindow;
 pub use self::sell_cart::SellCartWindow;
@@ -136,6 +142,8 @@ pub use self::warpra::{WarpraWindow, WarpraWindowState};
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WindowClass {
     AudioSettings,
+    Bank,
+    CashShop,
     Buy,
     BuyCart,
     Cart,
@@ -174,6 +182,7 @@ pub enum WindowClass {
     Mail,
     MvpMinimap,
     Respawn,
+    Roulette,
     SelectServer,
     Sell,
     SellCart,

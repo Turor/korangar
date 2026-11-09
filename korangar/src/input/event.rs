@@ -252,6 +252,34 @@ pub enum InputEvent {
     DeleteMail,
     /// Tell the map server the mailbox closed (`0x09E9`).
     CloseMail,
+    /// Open the bank and ask for the vault (`0x09B6`, `0x09AB`).
+    OpenBank,
+    /// Ask for the vault again (`0x09AB`).
+    RefreshBank,
+    /// Deposit the typed zeny (`0x09A7`).
+    DepositBank,
+    /// Withdraw the typed zeny (`0x09A9`).
+    WithdrawBank,
+    /// Close the bank (`0x09B8`).
+    CloseBank,
+    /// Open the cash shop. Ignored while the game setting is off.
+    OpenCashShop,
+    /// Request the typed cash-shop tab (`0x0846`).
+    RequestCashShopTab,
+    /// Buy the typed cash-shop item (`0x0848`).
+    BuyCashShopItem,
+    /// Close the cash shop (`0x084A`).
+    CloseCashShop,
+    /// Open the roulette and ask for the prize table (`0x0A19`, `0x0A1B`).
+    OpenRoulette,
+    /// Ask for the prize table again (`0x0A1B`).
+    RequestRouletteInfo,
+    /// Spin the roulette (`0x0A1F`).
+    SpinRoulette,
+    /// Claim the pending prize (`0x0A21`).
+    ClaimRoulette,
+    /// Close the roulette (`0x0A1D`).
+    CloseRoulette,
     /// Action for the "Close"-button in a dialog.
     CloseDialog {
         /// Id of the NPC the player is in a dialog with.

@@ -79,6 +79,18 @@ impl CustomWindow<ClientState> for MenuWindow {
                     text: "Item Finder",
                     event: InputEvent::ToggleItemFinderWindow,
                 },
+                button! {
+                    text: "Bank",
+                    event: InputEvent::OpenBank,
+                },
+                button! {
+                    text: "Roulette",
+                    event: InputEvent::OpenRoulette,
+                },
+                button! {
+                    text: "Cash shop",
+                    event: InputEvent::OpenCashShop,
+                },
                 #[cfg(feature = "debug")]
                 button! {
                     text: "Render options",
