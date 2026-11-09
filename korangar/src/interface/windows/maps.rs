@@ -2,6 +2,7 @@ use korangar_interface::window::{CustomWindow, Window};
 use ragnarok_packets::TilePosition;
 
 use crate::input::InputEvent;
+use super::mvp_minimap::MvpMinimapView;
 use crate::interface::windows::WindowClass;
 use crate::state::ClientState;
 use crate::state::theme::InterfaceThemeType;
@@ -48,18 +49,24 @@ impl CustomWindow<ClientState> for MapsWindow {
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
             closable: true,
-            elements: std::array::from_fn::<_, MAP_COUNT, _>(|index| {
-                let warp = MAP_WARPS[index];
+            elements: (
+                MvpMinimapView::new(),
+                fragment! {
+                    gaps: theme().window().gaps(),
+                    children: std::array::from_fn::<_, MAP_COUNT, _>(|index| {
+                        let warp = MAP_WARPS[index];
 
-                button! {
-                    text: warp.0,
-                    tooltip: format!("Map: {}\nCoordinates: {}, {}", warp.0, warp.1.x, warp.1.y),
-                    event: InputEvent::WarpToMap {
-                        map_name: format!("{}.gat", warp.0),
-                        position: warp.1,
-                    },
-                }
-            }),
+                        button! {
+                            text: warp.0,
+                            tooltip: format!("Map: {}\nCoordinates: {}, {}", warp.0, warp.1.x, warp.1.y),
+                            event: InputEvent::WarpToMap {
+                                map_name: format!("{}.gat", warp.0),
+                                position: warp.1,
+                            },
+                        }
+                    }),
+                },
+            ),
         }
     }
 }

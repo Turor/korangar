@@ -31,6 +31,7 @@ mod login;
 #[cfg(feature = "debug")]
 mod maps;
 mod menu;
+mod mvp_minimap;
 #[cfg(feature = "debug")]
 mod packet_inspector;
 mod party_invite;
@@ -93,6 +94,7 @@ pub use self::login::{LoginWindow, LoginWindowState, LoginWindowStatePathExt};
 #[cfg(feature = "debug")]
 pub use self::maps::MapsWindow;
 pub use self::menu::MenuWindow;
+pub use self::mvp_minimap::{MvpMinimapState, MvpMinimapWindow};
 #[cfg(feature = "debug")]
 pub use self::packet_inspector::PacketInspectorWindow;
 pub use self::party_invite::PartyInviteWindow;
@@ -154,6 +156,7 @@ pub enum WindowClass {
     PartyInvite,
     Login,
     Menu,
+    MvpMinimap,
     Respawn,
     SelectServer,
     Sell,

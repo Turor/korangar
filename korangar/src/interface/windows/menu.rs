@@ -63,6 +63,10 @@ impl CustomWindow<ClientState> for MenuWindow {
                     text: "Companions",
                     event: InputEvent::OpenCompanions,
                 },
+                button! {
+                    text: "MVP map",
+                    event: InputEvent::ToggleMvpMinimap,
+                },
                 #[cfg(feature = "debug")]
                 button! {
                     text: "Render options",

@@ -45,6 +45,7 @@ pub use self::packet_versions::eden::{
     EDEN_ACTION_ABANDON, EDEN_ACTION_ACCEPT, EDEN_ACTION_BUY, EDEN_ACTION_COMPLETE, EDEN_ACTION_LIST, format_eden_result, parse_eden_id,
 };
 pub use self::packet_versions::enchant::{format_enchant_result, parse_enchant_index, parse_enchant_item_id, parse_enchant_slot};
+pub use self::packet_versions::mvp_minimap::{format_mvp_markers, minimap_point};
 pub use self::packet_versions::stable::{format_stable_result, parse_stable_action, parse_stable_id};
 pub use self::packet_versions::companions::{
     EL_VAR_HP, EL_VAR_MAX_HP, EL_VAR_MAX_SP, EL_VAR_SP, HOM_ACT_DELETE, HOM_ACT_FEED, MERC_ACT_DISMISS, MERC_VAR_ATTACK, MERC_VAR_ATTACK_SPEED,
@@ -2614,6 +2615,58 @@ mod packet_handlers {
             id: 9,
             ..
         }]));
+    }
+
+    #[test]
+    fn mvp_minimap_packet_replaces_marker_list() {
+        use ragnarok_packets::{EntityId, MvpMinimapEntry, MvpMinimapPacket, TilePosition};
+
+        use crate::minimap_point;
+
+        let packet = MvpMinimapPacket {
+            flags: 0,
+            count: 1,
+            markers: vec![MvpMinimapEntry {
+                entity_id: EntityId(42),
+                class_id: 1039,
+                position: TilePosition { x: 100, y: 50 },
+            }],
+        };
+        let mut writer = ByteWriter::new();
+        packet.packet_to_bytes(&mut writer).unwrap();
+        // opcode + length + flags + count + 10-byte row.
+        assert_eq!(writer.as_slice().len(), 2 + 2 + 1 + 2 + 10);
+        assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0EF5);
+
+        for version in [
+            SupportedPacketVersion::_20250716,
+            SupportedPacketVersion::_20220406,
+            SupportedPacketVersion::_20190530,
+        ] {
+            let events = process_one(version, writer.as_slice());
+            assert!(matches!(events.as_slice(), [NetworkEvent::MvpMinimap { flags: 0, markers }]
+                if markers.len() == 1
+                    && markers[0].class_id == 1039
+                    && markers[0].position == TilePosition { x: 100, y: 50 }
+                    && markers[0].entity_id == EntityId(42)));
+        }
+
+        let empty = MvpMinimapPacket {
+            flags: 1,
+            count: 0,
+            markers: Vec::new(),
+        };
+        let mut writer = ByteWriter::new();
+        empty.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 7);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::MvpMinimap { flags: 1, markers }] if markers.is_empty()));
+
+        let point = minimap_point(200, 100, TilePosition { x: 100, y: 50 }, 100.0).unwrap();
+        assert!((point.0 - 50.25).abs() < 0.01);
+        assert!((point.1 - 49.5).abs() < 0.01);
+        assert!(minimap_point(0, 100, TilePosition { x: 0, y: 0 }, 100.0).is_none());
+        assert!(minimap_point(200, 100, TilePosition { x: 200, y: 0 }, 100.0).is_none());
     }
 
     #[test]

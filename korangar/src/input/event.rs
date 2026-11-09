@@ -211,6 +211,8 @@ pub enum InputEvent {
     HomunculusRelease,
     /// `CZ_MER_COMMAND` dismiss.
     MercenaryDismiss,
+    /// Open or close the alive-MVP minimap.
+    ToggleMvpMinimap,
     /// Action for the "Close"-button in a dialog.
     CloseDialog {
         /// Id of the NPC the player is in a dialog with.
