@@ -208,8 +208,8 @@ pub struct ClientState {
     mail_window: crate::interface::windows::MailWindowState,
     /// Kafra bank vault.
     bank_window: crate::state::bank_cash_roulette::BankWindowState,
-    /// Cash shop catalog. The menu entry stays hidden until the game setting is
-    /// on.
+    /// Cash shop catalog. The menu still shows "Cash shop". Open, tab, and buy
+    /// requests run only while `GameSettings.enable_cash_shop` is on.
     cash_shop_window: crate::state::bank_cash_roulette::CashShopWindowState,
     /// Roulette points and prize table.
     roulette_window: crate::state::bank_cash_roulette::RouletteWindowState,

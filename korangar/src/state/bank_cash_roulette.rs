@@ -8,12 +8,24 @@ pub fn parse_positive_u32(text: &str) -> Option<u32> {
     (value > 0).then_some(value)
 }
 
+/// Deposit ack and `ZC_BANKING_CHECK`: 0 ok, 1 failed, 2 not enough zeny, 3
+/// vault full.
 pub fn bank_reason_label(reason: i16) -> &'static str {
     match reason {
         0 => "ok",
         1 => "failed",
         2 => "not enough zeny",
         3 => "vault is full",
+        _ => "unknown",
+    }
+}
+
+/// Withdraw ack: 0 ok, 1 not enough vault zeny, 2 unknown error.
+pub fn withdraw_reason_label(reason: i16) -> &'static str {
+    match reason {
+        0 => "ok",
+        1 => "not enough zeny",
+        2 => "failed",
         _ => "unknown",
     }
 }
@@ -43,6 +55,32 @@ pub fn roulette_generate_label(result: u8) -> &'static str {
     }
 }
 
+/// Claim ack (`ZC_RECV_ROULETTE_ITEM`): 0 received, 1 failed, 2 too many items,
+/// 3 overweight.
+pub fn roulette_claim_label(result: u8) -> &'static str {
+    match result {
+        0 => "received",
+        1 => "failed",
+        2 => "too many items",
+        3 => "overweight",
+        _ => "unknown",
+    }
+}
+
+/// Prize granted by the last spin. The claim packet's item id is the next
+/// bonus, not this prize. The count doubles when the cell item matches the
+/// bonus that was showing before the claim.
+pub fn claimed_spin_prize(prizes: &[RoulettePrize], stage: i32, cell: i32, previous_bonus_item_id: u32) -> Option<(u32, u32)> {
+    let row = u16::try_from(stage).ok()?;
+    let position = u16::try_from(cell).ok()?;
+    let prize = prizes.iter().find(|prize| prize.row == row && prize.position == position)?;
+    let mut count = u32::from(prize.count);
+    if previous_bonus_item_id != 0 && prize.item_id == previous_bonus_item_id {
+        count = count.saturating_mul(2);
+    }
+    Some((prize.item_id, count))
+}
+
 fn format_prizes(prizes: &[RoulettePrize]) -> String {
     if prizes.is_empty() {
         return "No prizes.".to_owned();
@@ -58,6 +96,28 @@ fn format_prizes(prizes: &[RoulettePrize]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn encode_prize_table(prizes: &[RoulettePrize]) -> String {
+    prizes
+        .iter()
+        .map(|prize| format!("{} {} {} {}", prize.row, prize.position, prize.item_id, prize.count))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn decode_prize_table(text: &str) -> Vec<RoulettePrize> {
+    text.lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            Some(RoulettePrize {
+                row: parts.next()?.parse().ok()?,
+                position: parts.next()?.parse().ok()?,
+                item_id: parts.next()?.parse().ok()?,
+                count: parts.next()?.parse().ok()?,
+            })
+        })
+        .collect()
 }
 
 fn format_offers(items: &[CashShopOffer]) -> String {
@@ -107,7 +167,7 @@ impl BankWindowState {
     }
 
     pub fn note_withdraw(&mut self, reason: i16, money: i64, zeny: i32) {
-        self.status = format!("Withdraw {} — vault {money}, pocket {zeny}", bank_reason_label(reason));
+        self.status = format!("Withdraw {} — vault {money}, pocket {zeny}", withdraw_reason_label(reason));
     }
 
     pub fn note_closed(&mut self) {
@@ -198,6 +258,18 @@ impl CashShopWindowState {
 pub struct RouletteWindowState {
     pub status: String,
     pub prizes: String,
+    /// `row position item_id count` lines. The claim ack does not repeat the
+    /// granted item.
+    #[hidden_element]
+    prize_table: String,
+    #[hidden_element]
+    last_stage: i32,
+    #[hidden_element]
+    last_cell: i32,
+    #[hidden_element]
+    last_bonus_item_id: u32,
+    #[hidden_element]
+    has_spin: bool,
 }
 
 impl Default for RouletteWindowState {
@@ -205,6 +277,11 @@ impl Default for RouletteWindowState {
         Self {
             status: "Open the roulette to load points.".to_owned(),
             prizes: String::new(),
+            prize_table: String::new(),
+            last_stage: 0,
+            last_cell: 0,
+            last_bonus_item_id: 0,
+            has_spin: false,
         }
     }
 }
@@ -220,7 +297,15 @@ pub struct RouletteSpinView {
 }
 
 impl RouletteWindowState {
+    fn remember_spin(&mut self, spin: &RouletteSpinView) {
+        self.last_stage = spin.step;
+        self.last_cell = spin.index;
+        self.last_bonus_item_id = spin.bonus_item_id;
+        self.has_spin = true;
+    }
+
     pub fn note_open(&mut self, spin: &RouletteSpinView) {
+        self.remember_spin(spin);
         self.status = format!(
             "Roulette result {}, stage {}, cell {}, bonus {}. Gold {}, silver {}, bronze {}.",
             spin.result, spin.step, spin.index, spin.bonus_item_id, spin.gold, spin.silver, spin.bronze
@@ -228,10 +313,12 @@ impl RouletteWindowState {
     }
 
     pub fn note_prizes(&mut self, prizes: &[RoulettePrize]) {
+        self.prize_table = encode_prize_table(prizes);
         self.prizes = format_prizes(prizes);
     }
 
     pub fn note_spin(&mut self, spin: &RouletteSpinView) {
+        self.remember_spin(spin);
         self.status = format!(
             "Spin {} — stage {}, cell {}, bonus {}. Gold {}, silver {}, bronze {}.",
             roulette_generate_label(spin.result as u8),
@@ -244,9 +331,23 @@ impl RouletteWindowState {
         );
     }
 
-    pub fn note_claim(&mut self, result: u8, item_id: u32) {
-        let outcome = if result == 0 { "received" } else { "not received" };
-        self.status = format!("Prize {item_id} {outcome} (code {result}).");
+    /// `next_bonus_item_id` is `AdditionItemID` on the claim ack. The granted
+    /// item is the last spin cell.
+    pub fn note_claim(&mut self, result: u8, next_bonus_item_id: u32) {
+        let outcome = roulette_claim_label(result);
+        let table = decode_prize_table(&self.prize_table);
+        let prize = if self.has_spin {
+            claimed_spin_prize(&table, self.last_stage, self.last_cell, self.last_bonus_item_id)
+        } else {
+            None
+        };
+        self.last_bonus_item_id = next_bonus_item_id;
+        self.status = match prize {
+            Some((item_id, count)) => {
+                format!("Prize item {item_id} x{count} {outcome}. Next bonus {next_bonus_item_id}.")
+            }
+            None => format!("Prize {outcome}. Next bonus {next_bonus_item_id}."),
+        };
     }
 
     pub fn note_closed(&mut self, result: u8) {
@@ -272,5 +373,60 @@ mod tests {
         assert!(shop.status.contains("off"));
         assert_eq!(shop.tab().unwrap(), 0);
         assert!(shop.item_id().is_err());
+    }
+
+    #[test]
+    fn withdraw_reasons_are_not_the_deposit_table() {
+        assert_eq!(bank_reason_label(1), "failed");
+        assert_eq!(bank_reason_label(2), "not enough zeny");
+        assert_eq!(withdraw_reason_label(1), "not enough zeny");
+        assert_eq!(withdraw_reason_label(2), "failed");
+
+        let mut bank = BankWindowState::default();
+        bank.note_withdraw(1, 0, 100);
+        assert!(bank.status.contains("not enough zeny"));
+        assert!(!bank.status.contains("failed"));
+        bank.note_withdraw(2, 50, 100);
+        assert!(bank.status.starts_with("Withdraw failed"));
+        bank.note_deposit(1, 50, 100);
+        assert!(bank.status.starts_with("Deposit failed"));
+    }
+
+    #[test]
+    fn claim_names_the_spin_cell_and_keeps_result_codes() {
+        let mut roulette = RouletteWindowState::default();
+        roulette.note_prizes(&[
+            RoulettePrize {
+                row: 2,
+                position: 4,
+                item_id: 501,
+                count: 3,
+            },
+            RoulettePrize {
+                row: 1,
+                position: 0,
+                item_id: 909,
+                count: 1,
+            },
+        ]);
+        roulette.note_spin(&RouletteSpinView {
+            result: 0,
+            step: 2,
+            index: 4,
+            bonus_item_id: 501,
+            gold: 1,
+            silver: 2,
+            bronze: 3,
+        });
+        roulette.note_claim(0, 777);
+        assert!(roulette.status.contains("Prize item 501 x6 received"));
+        assert!(roulette.status.contains("Next bonus 777"));
+
+        roulette.note_claim(1, 1);
+        assert!(roulette.status.contains("failed"));
+        roulette.note_claim(2, 1);
+        assert!(roulette.status.contains("too many items"));
+        roulette.note_claim(3, 1);
+        assert!(roulette.status.contains("overweight"));
     }
 }

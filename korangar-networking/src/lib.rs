@@ -1590,7 +1590,6 @@ where
         self.send_map_server_packet(LaphineUpgradeClosePacket {})
     }
 
-    /// Tell the server the refine UI closed so the character can move again.
     pub fn open_bank(&mut self, account_id: AccountId) -> Result<(), NotConnectedError> {
         self.send_map_server_packet(OpenBankPacket { account_id })
     }
@@ -1658,6 +1657,7 @@ where
         self.send_map_server_packet(RouletteClosePacket {})
     }
 
+    /// Tell the server the refine UI closed so the character can move again.
     pub fn close_refine(&mut self) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
