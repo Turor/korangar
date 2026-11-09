@@ -54,7 +54,6 @@ impl StatusEffects {
         self.effects.retain(|effect| effect.status_index != status_index);
     }
 
-    #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.effects.clear();
     }

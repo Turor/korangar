@@ -148,7 +148,6 @@ impl QuestLog {
         self.quests.retain(|quest| quest.quest_id != quest_id);
     }
 
-    #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.quests.clear();
     }
