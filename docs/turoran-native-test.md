@@ -111,6 +111,14 @@ child directory inside this installation, including after junction/symlink
 resolution. Unmarked Windows developer builds opt in with this sidecar; Linux
 startup remains unchanged.
 
+Set `KORANGAR_REMOTE_PREFETCH=1` to finish the already configured pinned
+snapshot during archive setup (`download_all`, then `is_complete`). This does
+not select a base URL, stage a manifest, or enable a live asset service. One
+failed object is named by its virtual path and does not discard objects that
+already verified; startup continues and later reads stay on demand. Leave the
+variable unset to keep the previous on-demand behavior. Synthetic TCP fixtures
+cover this path; do not point it at production.
+
 Explicit `KORANGAR_REMOTE_*` settings and `WGPU_BACKEND` overrides still win.
 Relative explicit cache overrides are anchored to the portable runtime, never
 an arbitrary Explorer launch directory; absolute explicit cache paths remain

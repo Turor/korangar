@@ -144,6 +144,16 @@ fn resolve_remote(paths: Option<&PortablePaths>, overrides: RemoteOverrides) -> 
         allow_http: overrides.allow_http.is_some_and(|v| v == "1"),
     })
 }
+/// `KORANGAR_REMOTE_PREFETCH=1` asks startup to finish the pinned snapshot
+/// before play. Any other value, including unset, leaves retrieval on demand.
+pub(crate) fn remote_prefetch_enabled_value(value: Option<&str>) -> bool {
+    value == Some("1")
+}
+
+pub(crate) fn remote_prefetch_enabled() -> bool {
+    remote_prefetch_enabled_value(std::env::var("KORANGAR_REMOTE_PREFETCH").ok().as_deref())
+}
+
 pub(crate) fn remote_config() -> Option<RemoteConfig> {
     resolve_remote(PORTABLE.get(), RemoteOverrides {
         base: std::env::var("KORANGAR_REMOTE_BASE_URL").ok(),
@@ -329,6 +339,14 @@ mod tests {
         })
         .unwrap();
         assert_eq!(c.cache_dir, absolute);
+    }
+    #[test]
+    fn remote_prefetch_is_opt_in() {
+        assert!(!remote_prefetch_enabled_value(None));
+        assert!(!remote_prefetch_enabled_value(Some("")));
+        assert!(!remote_prefetch_enabled_value(Some("0")));
+        assert!(!remote_prefetch_enabled_value(Some("true")));
+        assert!(remote_prefetch_enabled_value(Some("1")));
     }
     #[test]
     fn legacy_nonportable_remote_behavior_preserved() {
