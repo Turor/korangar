@@ -1106,8 +1106,9 @@ mod tests {
         use crate::state::theme::{InterfaceTheme, ThemeTokens};
 
         let theme = InterfaceTheme::from_tokens(&ThemeTokens::verdant_rune());
-        let glassy = theme.window.background_color;
-        assert!(glassy.alpha_as_u8() < 255);
+        // Windows are opaque by default now; a user theme may still lower
+        // `window_alpha`.
+        let glassy = theme.window.background_color.with_alpha_u8(200);
         let fill = opaque_color(glassy);
         assert_eq!(fill.alpha_as_u8(), 255);
         assert_eq!(fill.red_as_u8(), theme.tokens.panel.red_as_u8());

@@ -540,7 +540,7 @@ impl InterfaceTheme {
 
     /// Original Turoran dark in-game HUD theme.
     ///
-    /// Charcoal translucent panels, orange accents, and compact chrome intended
+    /// Charcoal opaque panels, orange accents, and compact chrome intended
     /// for existing chat/hotbar/inventory/equipment/stats windows. This is an
     /// original Turoran palette inspired by modern dark HUD conventions, not a
     /// copy of any third-party artwork, logo, or proprietary theme assets.
@@ -1084,11 +1084,8 @@ mod turoran_dark_theme_tests {
         assert_eq!(decoded.window.highlight_color.green_as_u8(), 152);
         assert_eq!(decoded.window.highlight_color.blue_as_u8(), 48);
         assert_eq!(decoded.chat.window_color.alpha_as_u8(), theme.chat.window_color.alpha_as_u8());
-        assert!(
-            decoded.window.background_color.alpha_as_u8() < 255,
-            "window should stay translucent"
-        );
-        assert!(decoded.chat.window_color.alpha_as_u8() < 255, "chat should stay translucent");
+        assert_eq!(decoded.window.background_color.alpha_as_u8(), 255, "windows are opaque (t249u)");
+        assert_eq!(decoded.chat.window_color.alpha_as_u8(), 255, "chat is opaque (t249u)");
         assert_ne!(decoded.chat.error_color, decoded.chat.server_color);
         assert_ne!(decoded.chat.broadcast_color, decoded.chat.information_color);
         assert_eq!(decoded.chat.party_color.red_as_u8(), 230);
@@ -1181,8 +1178,8 @@ mod verdant_rune_theme_tests {
             decoded.window.background_color.alpha_as_u8(),
             theme.window.background_color.alpha_as_u8()
         );
-        assert!(decoded.window.background_color.alpha_as_u8() < 255);
-        assert!(decoded.chat.window_color.alpha_as_u8() < 255);
+        assert_eq!(decoded.window.background_color.alpha_as_u8(), 255);
+        assert_eq!(decoded.chat.window_color.alpha_as_u8(), 255);
         assert_ne!(decoded.chat.error_color, decoded.chat.server_color);
     }
 
