@@ -86,26 +86,45 @@ pub enum MarkerTone {
 
 /// Fill and stroke for one square. This does not look at whether the region
 /// texture has loaded, so markers stay visible on the opaque panel.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// `square` tints the whole square: unlocked squares get a light accent wash
+/// and locked squares are dimmed with the panel color. `stroke_width` is
+/// thicker for the current map and hover than for a plain unlocked square.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MarkerPaint {
     pub fill: MarkerTone,
     pub stroke: MarkerTone,
+    pub square: MarkerTone,
+    pub stroke_width: f32,
 }
 
+/// Alpha of the accent wash on an unlocked square.
+pub const UNLOCKED_WASH_ALPHA: f32 = 0.22;
+/// Alpha of the panel color over a locked square.
+pub const LOCKED_DIM_ALPHA: f32 = 0.62;
+const _: () = assert!(UNLOCKED_WASH_ALPHA > 0.0 && UNLOCKED_WASH_ALPHA < LOCKED_DIM_ALPHA && LOCKED_DIM_ALPHA < 1.0);
+
 pub fn marker_paint(class: OverlayClass, is_current: bool, hovered: bool) -> MarkerPaint {
-    let fill = match class {
-        OverlayClass::Unlocked => MarkerTone::Accent,
-        OverlayClass::Locked => MarkerTone::Dim,
-        OverlayClass::Missing => MarkerTone::None,
+    let (fill, square) = match class {
+        OverlayClass::Unlocked => (MarkerTone::Accent, MarkerTone::Accent),
+        OverlayClass::Locked => (MarkerTone::Dim, MarkerTone::Dim),
+        OverlayClass::Missing => (MarkerTone::None, MarkerTone::None),
     };
-    let stroke = if hovered {
-        MarkerTone::Gold
+    let (stroke, stroke_width) = if hovered {
+        (MarkerTone::Gold, 2.0)
     } else if is_current {
-        MarkerTone::Accent
+        (MarkerTone::Accent, 3.0)
+    } else if class == OverlayClass::Unlocked {
+        (MarkerTone::Accent, 1.5)
     } else {
-        MarkerTone::None
+        (MarkerTone::None, 0.0)
     };
-    MarkerPaint { fill, stroke }
+    MarkerPaint {
+        fill,
+        stroke,
+        square,
+        stroke_width,
+    }
 }
 
 /// `true` when `episode` is inside `[ep_from, ep_to)`.
@@ -964,15 +983,37 @@ mod tests {
     fn markers_stay_classified_without_a_region_texture() {
         assert_eq!(marker_paint(OverlayClass::Unlocked, false, false), MarkerPaint {
             fill: MarkerTone::Accent,
-            stroke: MarkerTone::None,
+            stroke: MarkerTone::Accent,
+            square: MarkerTone::Accent,
+            stroke_width: 1.5,
         });
-        assert_eq!(marker_paint(OverlayClass::Locked, false, false).fill, MarkerTone::Dim);
+        let locked = marker_paint(OverlayClass::Locked, false, false);
+        assert_eq!(locked.fill, MarkerTone::Dim);
+        assert_eq!(locked.square, MarkerTone::Dim);
+        assert_eq!(locked.stroke, MarkerTone::None);
         assert_eq!(marker_paint(OverlayClass::Unlocked, true, false).stroke, MarkerTone::Accent);
         // Gold is hover only. The current map keeps the accent stroke.
         assert_eq!(marker_paint(OverlayClass::Unlocked, true, true).stroke, MarkerTone::Gold);
         assert_eq!(marker_paint(OverlayClass::Missing, true, false).fill, MarkerTone::None);
         assert_eq!(marker_paint(OverlayClass::Missing, true, false).stroke, MarkerTone::Accent);
         assert_eq!(marker_paint(OverlayClass::Locked, true, true).stroke, MarkerTone::Gold);
+    }
+
+    #[test]
+    fn unlocked_locked_and_current_squares_read_differently() {
+        let unlocked = marker_paint(OverlayClass::Unlocked, false, false);
+        let locked = marker_paint(OverlayClass::Locked, false, false);
+        let current = marker_paint(OverlayClass::Unlocked, true, false);
+        let locked_current = marker_paint(OverlayClass::Locked, true, false);
+        assert_ne!(unlocked.square, locked.square);
+        assert_ne!(unlocked.fill, locked.fill);
+        // The current map is outlined in the accent, thicker than a plain unlocked
+        // square.
+        assert_eq!(current.stroke, MarkerTone::Accent);
+        assert!(current.stroke_width > unlocked.stroke_width);
+        // A locked current map is still dimmed, but outlined.
+        assert_eq!(locked_current.square, MarkerTone::Dim);
+        assert_eq!(locked_current.stroke, MarkerTone::Accent);
     }
 
     fn section_center(map: BaseRect, section: &super::super::data::WorldMapSection) -> (f32, f32) {

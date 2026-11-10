@@ -47,6 +47,7 @@ pub(crate) enum CompositeStep {
 
 impl CompositeStep {
     /// Steps that belong to the 3D world and must stay under every window.
+    #[cfg(test)]
     pub(crate) fn is_world(self) -> bool {
         matches!(self, Self::BottomRectangles | Self::Effects | Self::MiddleRectangles)
     }
@@ -1726,7 +1727,11 @@ mod tests {
             }
         }
         assert_eq!(&COMPOSITE_ORDER[interface + 1..], &[CompositeStep::TopRectangles]);
-        for step in [CompositeStep::BottomRectangles, CompositeStep::Effects, CompositeStep::MiddleRectangles] {
+        for step in [
+            CompositeStep::BottomRectangles,
+            CompositeStep::Effects,
+            CompositeStep::MiddleRectangles,
+        ] {
             assert_eq!(COMPOSITE_ORDER.iter().filter(|other| **other == step).count(), 1);
         }
     }
