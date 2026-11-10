@@ -397,14 +397,6 @@ pub enum InputEvent {
     BankSetMax,
     /// Close the bank (`0x09B8`).
     CloseBank,
-    /// Open the cash shop. Ignored while the game setting is off.
-    OpenCashShop,
-    /// Request the typed cash-shop tab (`0x0846`).
-    RequestCashShopTab,
-    /// Buy the typed cash-shop item (`0x0848`).
-    BuyCashShopItem,
-    /// Close the cash shop (`0x084A`).
-    CloseCashShop,
     /// Open the roulette and ask for the prize table (`0x0A19`, `0x0A1B`).
     OpenRoulette,
     /// Ask for the prize table again (`0x0A1B`).
@@ -432,7 +424,7 @@ pub enum InputEvent {
         option: i8,
     },
     /// Use the inventory item at `index`. Healing, usable, delayed-consume, and
-    /// cash items are sent as `CZ_USE_ITEM2`. Equippable types equip. The
+    /// item type 18 are sent as `CZ_USE_ITEM2`. Equippable types equip. The
     /// hotbar (G07) sends this without opening the bag.
     UseItem {
         /// Inventory index.

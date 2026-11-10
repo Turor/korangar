@@ -99,10 +99,6 @@ impl CustomWindow<ClientState> for MenuWindow {
                     text: "Roulette",
                     event: InputEvent::OpenRoulette,
                 },
-                button! {
-                    text: "Cash shop",
-                    event: InputEvent::OpenCashShop,
-                },
                 #[cfg(feature = "debug")]
                 button! {
                     text: "Render options",

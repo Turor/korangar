@@ -17,9 +17,6 @@ pub struct GameSettings {
     /// overrides this.
     #[serde(default = "default_enable_signboards")]
     pub enable_signboards: bool,
-    /// Cash shop requests stay off until the player turns this on.
-    #[serde(default)]
-    pub enable_cash_shop: bool,
 }
 
 impl Default for GameSettings {
@@ -27,7 +24,6 @@ impl Default for GameSettings {
         Self {
             auto_attack: true,
             enable_signboards: default_enable_signboards(),
-            enable_cash_shop: false,
         }
     }
 }

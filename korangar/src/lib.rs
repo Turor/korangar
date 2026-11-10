@@ -2076,33 +2076,6 @@ impl Client {
                     self.client_state.follow_mut(client_state().bank_window()).note_closed();
                     self.interface.close_window_with_class(WindowClass::Bank);
                 }
-                NetworkEvent::CashShopOpened {
-                    cash_points,
-                    kafra_points,
-                    tab,
-                } => {
-                    self.client_state
-                        .follow_mut(client_state().cash_shop_window())
-                        .note_open(cash_points, kafra_points, tab);
-                    if self.client_state.follow(client_state().game_settings()).enable_cash_shop {
-                        self.interface.open_window(CashShopWindow::new());
-                    }
-                }
-                NetworkEvent::CashShopItems { tab, items } => {
-                    self.client_state
-                        .follow_mut(client_state().cash_shop_window())
-                        .note_items(tab, &items);
-                }
-                NetworkEvent::CashShopBuyResult {
-                    item_id,
-                    result,
-                    cash_points,
-                    kafra_points,
-                } => {
-                    self.client_state
-                        .follow_mut(client_state().cash_shop_window())
-                        .note_buy(item_id, result, cash_points, kafra_points);
-                }
                 NetworkEvent::RouletteOpened {
                     result,
                     step,
@@ -2114,7 +2087,7 @@ impl Client {
                     ..
                 } => {
                     self.client_state.follow_mut(client_state().roulette_window()).note_open(
-                        &crate::state::bank_cash_roulette::RouletteSpinView {
+                        &crate::state::bank_roulette::RouletteSpinView {
                             result: i32::from(result),
                             step: i32::from(step),
                             index: i32::from(index),
@@ -2139,7 +2112,7 @@ impl Client {
                     bronze,
                 } => {
                     self.client_state.follow_mut(client_state().roulette_window()).note_spin(
-                        &crate::state::bank_cash_roulette::RouletteSpinView {
+                        &crate::state::bank_roulette::RouletteSpinView {
                             result: i32::from(result),
                             step: i32::from(step),
                             index: i32::from(index),
@@ -5506,53 +5479,6 @@ impl Client {
                         let _ = self.networking_system.close_bank(account_id);
                     }
                     self.interface.close_window_with_class(WindowClass::Bank);
-                }
-                InputEvent::OpenCashShop => {
-                    if self.client_state.follow(client_state().game_settings()).enable_cash_shop {
-                        let tab = self.client_state.follow(client_state().cash_shop_window()).tab().unwrap_or(0);
-                        let _ = self.networking_system.open_cash_shop(u32::from(tab));
-                        self.interface.open_window(CashShopWindow::new());
-                    } else {
-                        self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
-                            "Cash shop is off. Turn it on in Game settings.".to_owned(),
-                            MessageColor::Information,
-                        ));
-                    }
-                }
-                InputEvent::RequestCashShopTab => {
-                    if self.client_state.follow(client_state().game_settings()).enable_cash_shop {
-                        match self.client_state.follow(client_state().cash_shop_window()).tab() {
-                            Ok(tab) => {
-                                let _ = self.networking_system.request_cash_shop_tab(tab as i16);
-                            }
-                            Err(message) => {
-                                self.client_state.follow_mut(client_state().cash_shop_window()).status = message.to_owned();
-                            }
-                        }
-                    }
-                }
-                InputEvent::BuyCashShopItem => {
-                    if self.client_state.follow(client_state().game_settings()).enable_cash_shop {
-                        let purchase = {
-                            let shop = self.client_state.follow(client_state().cash_shop_window());
-                            (shop.item_id(), shop.amount(), shop.tab(), shop.kafra_spend())
-                        };
-                        match purchase {
-                            (Ok(item_id), Ok(amount), Ok(tab), Ok(kafra)) => {
-                                let _ = self.networking_system.buy_cash_shop_item(item_id, amount, tab, kafra);
-                            }
-                            _ => {
-                                self.client_state.follow_mut(client_state().cash_shop_window()).status =
-                                    "Enter an item id, amount, tab, and kafra points.".to_owned();
-                            }
-                        }
-                    }
-                }
-                InputEvent::CloseCashShop => {
-                    if self.client_state.follow(client_state().game_settings()).enable_cash_shop {
-                        let _ = self.networking_system.close_cash_shop();
-                    }
-                    self.interface.close_window_with_class(WindowClass::CashShop);
                 }
                 InputEvent::OpenRoulette => {
                     let _ = self.networking_system.open_roulette();
