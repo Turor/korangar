@@ -3760,10 +3760,13 @@ impl Client {
         }
     }
 
-    /// Load world-map images from the GRF while the window is open.
+    /// Load world-map images while the window is open.
     ///
-    /// Paths match the interface texture loader (`data/texture/` + region id).
-    /// A missing file stays blank instead of the placeholder texture.
+    /// The logical path is the Hangul interface directory. A folder extract that
+    /// still uses the CP949 Latin-1 directory is the fallback. `file_exists`
+    /// does not fetch, so a cache miss still calls `get` (local archive, then
+    /// the asset host). A missing file stays empty instead of the placeholder
+    /// texture; the window paints an opaque theme panel underneath.
     fn sync_world_map_textures(&mut self) {
         if !self.interface.is_window_with_class_open(WindowClass::WorldMap) {
             if self.client_state.follow(client_state().world_map_window()).holds_textures() {
@@ -3772,43 +3775,46 @@ impl Client {
             return;
         }
 
-        let (region_path, hover_path, loaded_region, loaded_hover) = {
+        let (region_path, hover_path, region_file, hover_file, loaded_region, loaded_hover) = {
             let window = self.client_state.follow(client_state().world_map_window());
             (
                 window.desired_region_texture(),
                 window.desired_hover_texture(),
+                window.desired_region_file(),
+                window.desired_hover_file(),
                 window.loaded_region().to_owned(),
                 window.loaded_hover().to_owned(),
             )
         };
 
         if region_path != loaded_region {
-            let archive_path = format!("data\\texture\\{region_path}");
-            let texture = if self.game_file_loader.file_exists(&archive_path) {
-                self.texture_loader.get_or_load(&region_path, ImageType::Color).ok()
-            } else {
-                None
-            };
+            let texture = self.load_interface_texture(&region_file);
             self.client_state
                 .follow_mut(client_state().world_map_window())
                 .install_region_texture(region_path, texture);
         }
 
         if hover_path != loaded_hover {
-            let texture = if hover_path.is_empty() {
+            let texture = if hover_file.is_empty() {
                 None
             } else {
-                let archive_path = format!("data\\texture\\{hover_path}");
-                if self.game_file_loader.file_exists(&archive_path) {
-                    self.texture_loader.get_or_load(&hover_path, ImageType::Color).ok()
-                } else {
-                    None
-                }
+                self.load_interface_texture(&hover_file)
             };
             self.client_state
                 .follow_mut(client_state().world_map_window())
                 .install_hover_texture(hover_path, texture);
         }
+    }
+
+    /// Resolve one interface texture. Local hits win, including the CP949
+    /// directory, before any asset-host fetch.
+    fn load_interface_texture(&self, file: &str) -> Option<Arc<Texture>> {
+        let relative = choose_interface_texture(file, |archive| self.game_file_loader.file_exists(archive)).or_else(|| {
+            choose_interface_texture(file, |archive| {
+                korangar_loaders::FileLoader::get(self.game_file_loader.as_ref(), archive).is_ok()
+            })
+        })?;
+        self.texture_loader.get_or_load(&relative, ImageType::Color).ok()
     }
 
     /// Returns whether or not the interface is focused.
@@ -6172,6 +6178,7 @@ impl Client {
         let render_options = *self.client_state.follow(client_state().render_options());
 
         let screen_size = self.graphics_engine.get_window_size().into();
+        *self.client_state.follow_mut(client_state().window_size()) = screen_size;
         let currently_playing = self.client_state.try_follow(this_player()).is_some();
 
         self.mouse_cursor.update(client_tick);

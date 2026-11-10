@@ -1,5 +1,6 @@
-//! World map window. Textures load from the GRF
-//! (`data/texture/유저인터페이스/…`) while the window is open.
+//! World map window. Textures load from the GRF or the asset host
+//! (`data/texture/유저인터페이스/…`, with a CP949 Latin-1 directory fallback)
+//! while the window is open. The panel stays opaque when the art is missing.
 
 mod data;
 mod logic;
@@ -14,14 +15,14 @@ use korangar_interface::layout::area::Area;
 use korangar_interface::layout::{MouseButton, Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::prelude::{ButtonThemePathExt, HorizontalAlignment, TextThemePathExt, VerticalAlignment, WindowThemePathExt};
 use korangar_interface::window::{CustomWindow, Window};
-pub use logic::should_close_after_result;
-use rust_state::{Path, RustState, State};
+pub use logic::{choose_interface_texture, should_close_after_result};
+use rust_state::{Path, PathExt, RustState, State};
 
 use self::data::WorldMapSection;
 use self::logic::{
-    BASE_HEIGHT, BASE_WIDTH, ClickDecision, DEFAULT_EPISODE, FloorChoice, OverlayClass, entry_for_map, floor_click, hover_caption,
-    map_thumbnail_path, overlay_class, region_texture_path, regions_for_episode, scale_rect, section_click, section_rect, section_ref,
-    visible_sections,
+    BASE_HEIGHT, BASE_WIDTH, CAPTION_HEIGHT, ClickDecision, DEFAULT_EPISODE, FloorChoice, MarkerTone, OverlayClass, RAIL_GAP, RAIL_WIDTH,
+    entry_for_map, floor_click, hover_caption, map_thumbnail_path, marker_paint, overlay_class, region_texture_path, regions_for_episode,
+    scale_rect, section_click, section_rect, section_ref, visible_sections,
 };
 use super::WindowClass;
 use super::warpra::WarpraWindowStatePathExt;
@@ -29,16 +30,36 @@ use crate::graphics::{Color, CornerDiameter, ShadowPadding, Texture};
 use crate::input::InputEvent;
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::renderer::LayoutExt;
+use crate::settings::InterfaceSettingsPathExt;
 use crate::state::navigation::NavigationPathExt;
 use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType};
 use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme, this_player};
 
-const RAIL_WIDTH: f32 = 168.0;
-const RAIL_GAP: f32 = 8.0;
-const CAPTION_HEIGHT: f32 = 72.0;
 const REGION_BUTTON_HEIGHT: f32 = 28.0;
-const WINDOW_WIDTH: f32 = 1080.0;
-const WINDOW_HEIGHT: f32 = 900.0;
+
+/// Theme window fills use alpha 215 so other windows stay glassy. The world
+/// map must not show the 3D scene through that glass.
+fn opaque_color(mut color: Color) -> Color {
+    color.alpha = 1.0;
+    color
+}
+
+fn world_map_fit(state: &ClientState) -> logic::WorldMapFit {
+    let screen = client_state().window_size().follow_safe(state);
+    let theme = client_theme().window().follow_safe(state);
+    let scaling = client_state().interface_settings().scaling().follow_safe(state);
+    logic::fit_world_map(
+        screen.width,
+        screen.height,
+        logic::WorldMapChrome {
+            title_height: theme.title_height,
+            title_gap: theme.title_gap,
+            border: theme.border,
+            margin: logic::VIEWPORT_MARGIN,
+            scaling: scaling.get_factor(),
+        },
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClickTarget {
@@ -137,14 +158,18 @@ impl WorldMapWindowState {
         }
     }
 
-    pub fn desired_region_texture(&self) -> String {
+    fn region_file(&self) -> String {
         let regions = regions_for_episode(self.episode);
-        let region = regions
+        regions
             .get(usize::from(self.region_index))
             .or_else(|| regions.first())
             .map(|region| region.id)
-            .unwrap_or("worldmap.jpg");
-        region_texture_path(region)
+            .unwrap_or("worldmap.jpg")
+            .to_owned()
+    }
+
+    pub fn desired_region_texture(&self) -> String {
+        region_texture_path(&self.region_file())
     }
 
     pub fn desired_hover_texture(&self) -> String {
@@ -152,6 +177,20 @@ impl WorldMapWindowState {
             String::new()
         } else {
             map_thumbnail_path(&self.hover_map_id)
+        }
+    }
+
+    /// File under the interface directory, for example `worldmap.jpg` or
+    /// `map\\prontera.bmp`.
+    pub fn desired_region_file(&self) -> String {
+        self.region_file()
+    }
+
+    pub fn desired_hover_file(&self) -> String {
+        if self.hover_map_id.is_empty() {
+            String::new()
+        } else {
+            format!("map\\{}.bmp", self.hover_map_id)
         }
     }
 
@@ -419,7 +458,7 @@ where
         let accent = *state.get(&client_theme().window().highlight_color());
         let text_color = *state.get(&client_theme().text().color());
         let muted = *state.get(&client_theme().button().disabled_foreground_color());
-        let panel = *state.get(&client_theme().window().background_color());
+        let panel = opaque_color(*state.get(&client_theme().window().background_color()));
         let raised = *state.get(&client_theme().button().background_color());
 
         let regions = regions_for_episode(window.episode);
@@ -477,9 +516,36 @@ where
             }
             let current = logic::maps_match(section.id, current_map);
             let hovered = hovered_section == Some(index);
-            if hovered || current {
-                let color = if hovered { gold } else { accent };
-                stroke(layout, area, color, 2.0);
+            let paint = marker_paint(class, current, hovered);
+            let marker = marker_area(area);
+            match paint.fill {
+                MarkerTone::Accent => layout.add_rectangle(
+                    marker,
+                    CornerDiameter::uniform(2.0),
+                    accent,
+                    Color::TRANSPARENT,
+                    ShadowPadding::default(),
+                ),
+                MarkerTone::Dim => layout.add_rectangle(
+                    marker,
+                    CornerDiameter::uniform(2.0),
+                    muted,
+                    Color::TRANSPARENT,
+                    ShadowPadding::default(),
+                ),
+                MarkerTone::Gold => layout.add_rectangle(
+                    marker,
+                    CornerDiameter::uniform(2.0),
+                    gold,
+                    Color::TRANSPARENT,
+                    ShadowPadding::default(),
+                ),
+                MarkerTone::None => {}
+            }
+            match paint.stroke {
+                MarkerTone::Gold => stroke(layout, area, gold, 2.0),
+                MarkerTone::Accent => stroke(layout, area, accent, 3.0),
+                MarkerTone::Dim | MarkerTone::None => {}
             }
             if hovered {
                 let catalog_name = entry_for_map(entries, section.id).map(|entry| entry.name.as_str());
@@ -578,6 +644,16 @@ where
         if click != ClickTarget::None {
             layout.register_click_handler(MouseButton::Left, self);
         }
+    }
+}
+
+fn marker_area(section: Area) -> Area {
+    let size = (section.width.min(section.height) * 0.34).clamp(8.0, 18.0);
+    Area {
+        left: section.left + (section.width - size) * 0.5,
+        top: section.top + (section.height - size) * 0.5,
+        width: size,
+        height: size,
     }
 }
 
@@ -752,16 +828,25 @@ impl CustomWindow<ClientState> for WorldMapWindow {
     fn to_window<'a>(self) -> impl Window<ClientState> + 'a {
         use korangar_interface::prelude::*;
 
+        let fitted_width = ComputedSelector::new_default(|state: &ClientState| world_map_fit(state).window_width);
+        let fitted_width_max = ComputedSelector::new_default(|state: &ClientState| world_map_fit(state).window_width);
+        let fitted_height = ComputedSelector::new_default(|state: &ClientState| world_map_fit(state).window_height);
+        let fitted_height_max = ComputedSelector::new_default(|state: &ClientState| world_map_fit(state).window_height);
+        let opaque_background = ComputedSelector::new_default(|state: &ClientState| {
+            opaque_color(*client_theme().window().background_color().follow_safe(state))
+        });
+
         window! {
             title: "World Map",
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
             closable: true,
             resizable: false,
-            minimum_width: WINDOW_WIDTH,
-            maximum_width: WINDOW_WIDTH,
-            minimum_height: WINDOW_HEIGHT,
-            maximum_height: WINDOW_HEIGHT,
+            background_color: opaque_background,
+            minimum_width: fitted_width,
+            maximum_width: fitted_width_max,
+            minimum_height: fitted_height,
+            maximum_height: fitted_height_max,
             elements: (WorldMapView::new(client_state().world_map_window()),),
         }
     }
@@ -891,5 +976,26 @@ mod tests {
         assert_eq!(hovered_section_index(&mut layout, map, &alone), None);
         place_pointer(&mut layout, &mouse_mode, 99.0, 10.0);
         assert_eq!(hovered_section_index(&mut layout, map, &alone), Some(0));
+    }
+
+    #[test]
+    fn map_fill_uses_an_opaque_theme_panel() {
+        use crate::state::theme::{InterfaceTheme, ThemeTokens};
+
+        let theme = InterfaceTheme::from_tokens(&ThemeTokens::verdant_rune());
+        let glassy = theme.window.background_color;
+        assert!(glassy.alpha_as_u8() < 255);
+        let fill = opaque_color(glassy);
+        assert_eq!(fill.alpha_as_u8(), 255);
+        assert_eq!(fill.red_as_u8(), theme.tokens.panel.red_as_u8());
+        assert_eq!(fill.green_as_u8(), theme.tokens.panel.green_as_u8());
+        assert_eq!(fill.blue_as_u8(), theme.tokens.panel.blue_as_u8());
+        assert_eq!(theme.window.title_height, logic::WorldMapChrome::stock().title_height);
+        assert_eq!(theme.window.title_gap, logic::WorldMapChrome::stock().title_gap);
+        assert_eq!(theme.window.border, logic::WorldMapChrome::stock().border);
+        assert_eq!(theme.tokens.accent.red_as_u8(), 0x4C);
+        assert_eq!(theme.tokens.accent.green_as_u8(), 0xC3);
+        assert_eq!(theme.tokens.accent.blue_as_u8(), 0xA0);
+        assert_eq!(theme.window.closest_anchor_color.red_as_u8(), 0xCF);
     }
 }

@@ -74,6 +74,40 @@ pub enum OverlayClass {
     Locked,
 }
 
+/// Marker color role. Gold is the hover accent only. The current map uses the
+/// theme highlight (accent). Locked destinations stay dim.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MarkerTone {
+    None,
+    Accent,
+    Dim,
+    Gold,
+}
+
+/// Fill and stroke for one square. This does not look at whether the region
+/// texture has loaded, so markers stay visible on the opaque panel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MarkerPaint {
+    pub fill: MarkerTone,
+    pub stroke: MarkerTone,
+}
+
+pub fn marker_paint(class: OverlayClass, is_current: bool, hovered: bool) -> MarkerPaint {
+    let fill = match class {
+        OverlayClass::Unlocked => MarkerTone::Accent,
+        OverlayClass::Locked => MarkerTone::Dim,
+        OverlayClass::Missing => MarkerTone::None,
+    };
+    let stroke = if hovered {
+        MarkerTone::Gold
+    } else if is_current {
+        MarkerTone::Accent
+    } else {
+        MarkerTone::None
+    };
+    MarkerPaint { fill, stroke }
+}
+
 /// `true` when `episode` is inside `[ep_from, ep_to)`.
 pub fn episode_includes(episode: f32, ep_from: f32, ep_to: f32) -> bool {
     episode >= ep_from && episode < ep_to
@@ -122,13 +156,151 @@ pub fn maps_match(left: &str, right: &str) -> bool {
     normalize_map_id(left) == normalize_map_id(right)
 }
 
+/// Hangul interface directory. GRF names decode to this, and the asset host
+/// serves `data/texture/유저인터페이스/…` as UTF-8.
+pub const INTERFACE_DIR_HANGUL: &str = "유저인터페이스";
+
+/// CP949 bytes of [`INTERFACE_DIR_HANGUL`]. Folder extracts and roBrowser's
+/// `DB.INTERFACE_PATH` keep those bytes as Latin-1 (`À¯ÀúÀÎÅÍÆäÀÌ½º`).
+pub const INTERFACE_DIR_CP949: &[u8] = &[0xC0, 0xAF, 0xC0, 0xFA, 0xC0, 0xCE, 0xC5, 0xCD, 0xC6, 0xE4, 0xC0, 0xCC, 0xBD, 0xBA];
+
+pub fn interface_dir_latin1() -> String {
+    INTERFACE_DIR_CP949.iter().copied().map(char::from).collect()
+}
+
+/// Hangul path first, then the CP949 Latin-1 directory. `file` is the region
+/// id (`worldmap.jpg`) or a thumbnail (`map\\prontera.bmp`).
+pub fn interface_texture_candidates(file: &str) -> [String; 2] {
+    [
+        format!("{INTERFACE_DIR_HANGUL}\\{file}"),
+        format!("{}\\{file}", interface_dir_latin1()),
+    ]
+}
+
 /// GRF path relative to `data/texture/`, matching the interface texture loader.
 pub fn region_texture_path(region_id: &str) -> String {
-    format!("유저인터페이스\\{region_id}")
+    interface_texture_candidates(region_id)[0].clone()
 }
 
 pub fn map_thumbnail_path(map_id: &str) -> String {
-    format!("유저인터페이스\\map\\{map_id}.bmp")
+    interface_texture_candidates(&format!("map\\{map_id}.bmp"))[0].clone()
+}
+
+/// First candidate whose `data\\texture\\…` path `available` accepts.
+pub fn choose_interface_texture(file: &str, mut available: impl FnMut(&str) -> bool) -> Option<String> {
+    interface_texture_candidates(file)
+        .into_iter()
+        .find(|candidate| available(&format!("data\\texture\\{candidate}")))
+}
+
+/// Left rail, gap, and the caption row under the map. Shared with the window
+/// so hit testing uses the same rectangles the layout draws.
+pub const RAIL_WIDTH: f32 = 168.0;
+pub const RAIL_GAP: f32 = 8.0;
+pub const CAPTION_HEIGHT: f32 = 72.0;
+
+/// Gap between the window and the viewport edge.
+pub const VIEWPORT_MARGIN: f32 = 12.0;
+
+/// `Anchor::initialize` places a new window's top a quarter of the way down
+/// the screen. The fit keeps the caption above the bottom margin from there.
+pub const DEFAULT_ANCHOR_TOP_RATIO: f32 = 0.25;
+
+/// Window chrome from `InterfaceTheme::from_tokens` (title 22, gap 2, border 8).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WorldMapChrome {
+    pub title_height: f32,
+    pub title_gap: f32,
+    pub border: f32,
+    pub margin: f32,
+    pub scaling: f32,
+}
+
+impl WorldMapChrome {
+    #[cfg(test)]
+    pub const fn stock() -> Self {
+        Self {
+            title_height: 22.0,
+            title_gap: 2.0,
+            border: 8.0,
+            margin: VIEWPORT_MARGIN,
+            scaling: 1.0,
+        }
+    }
+}
+
+/// Placed world-map frame in layout pixels. `map` is the art rectangle.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WorldMapFit {
+    pub window_width: f32,
+    pub window_height: f32,
+    pub window_left: f32,
+    pub window_top: f32,
+    pub map: BaseRect,
+    pub caption_bottom: f32,
+}
+
+/// Scale the 1280×1024 art so the window, rail, caption, and hover label sit
+/// on screen. Interface scaling grows the painted size from the window's
+/// top-left, so a scale above 1 shrinks the layout size to match.
+pub fn fit_world_map(viewport_w: f32, viewport_h: f32, chrome: WorldMapChrome) -> WorldMapFit {
+    let scale = if chrome.scaling.is_finite() && chrome.scaling >= 0.5 {
+        chrome.scaling
+    } else {
+        1.0
+    };
+    let (viewport_w, viewport_h) = if viewport_w < 64.0 || viewport_h < 64.0 {
+        (1024.0, 576.0)
+    } else {
+        (viewport_w, viewport_h)
+    };
+    let margin = chrome.margin;
+    let max_window_h = ((viewport_h * (1.0 - DEFAULT_ANCHOR_TOP_RATIO) - margin) / scale).max(180.0);
+    let max_window_w = if scale <= 1.0 {
+        (viewport_w - margin * 2.0).max(320.0)
+    } else {
+        ((viewport_w * 0.5 - margin) / (scale - 0.5)).max(320.0)
+    };
+
+    let max_content_w = (max_window_w - chrome.border * 2.0).max(RAIL_WIDTH + RAIL_GAP + 80.0);
+    let max_content_h = (max_window_h - chrome.title_height - chrome.title_gap - chrome.border).max(CAPTION_HEIGHT + RAIL_GAP + 80.0);
+    let map_w_from_w = max_content_w - RAIL_WIDTH - RAIL_GAP;
+    let map_w_from_h = (max_content_h - RAIL_GAP - CAPTION_HEIGHT) * (BASE_WIDTH / BASE_HEIGHT);
+    let map_width = map_w_from_w.min(map_w_from_h).max(64.0);
+    let map_height = map_width * (BASE_HEIGHT / BASE_WIDTH);
+    let content_width = map_width + RAIL_WIDTH + RAIL_GAP;
+    let content_height = map_height + RAIL_GAP + CAPTION_HEIGHT;
+    let window_width = content_width + chrome.border * 2.0;
+    let window_height = chrome.title_height + chrome.title_gap + content_height + chrome.border;
+    let window_left = (viewport_w - window_width) * 0.5;
+    let window_top = viewport_h * DEFAULT_ANCHOR_TOP_RATIO;
+    let map = BaseRect {
+        left: window_left + chrome.border + RAIL_WIDTH + RAIL_GAP,
+        top: window_top + chrome.title_height + chrome.title_gap,
+        width: map_width,
+        height: map_height,
+    };
+    let caption_bottom = map.top + map_height + RAIL_GAP + CAPTION_HEIGHT;
+    WorldMapFit {
+        window_width,
+        window_height,
+        window_left,
+        window_top,
+        map,
+        caption_bottom,
+    }
+}
+
+/// Painted right edge. Scaling grows the window from its top-left.
+#[cfg(test)]
+pub fn rendered_right(fit: WorldMapFit, scale: f32) -> f32 {
+    fit.window_left + fit.window_width * scale
+}
+
+/// Painted bottom edge, including the caption row.
+#[cfg(test)]
+pub fn rendered_bottom(fit: WorldMapFit, scale: f32) -> f32 {
+    fit.window_top + fit.window_height * scale
 }
 
 /// World-map section id → catalog map. Identity aliases are omitted; those
@@ -163,6 +335,11 @@ pub fn contains(rect: BaseRect, x: f32, y: f32) -> bool {
 /// Later rectangles win. The window click path uses this so a shared border is
 /// not inside two tiles.
 pub fn hit_section(map: BaseRect, sections: &[BaseRect], x: f32, y: f32) -> Option<usize> {
+    // Squares authored past the 1024-tall image must not steal caption or rail
+    // clicks. A region switch only changes `sections`; the map rectangle stays.
+    if !contains(map, x, y) {
+        return None;
+    }
     sections
         .iter()
         .enumerate()
@@ -607,5 +784,115 @@ mod tests {
         assert!(!should_close_after_result(2, WARPRA_ACTION_WARP));
         assert_eq!(region_texture_path("worldmap.jpg"), "유저인터페이스\\worldmap.jpg");
         assert_eq!(map_thumbnail_path("prontera"), "유저인터페이스\\map\\prontera.bmp");
+    }
+
+    #[test]
+    fn texture_paths_prefer_hangul_and_fall_back_to_the_cp949_directory() {
+        assert_eq!(INTERFACE_DIR_HANGUL, "유저인터페이스");
+        assert_eq!(interface_dir_latin1(), "À¯ÀúÀÎÅÍÆäÀÌ½º");
+        let candidates = interface_texture_candidates("worldmap_localizing1.bmp");
+        assert_eq!(candidates[0], "유저인터페이스\\worldmap_localizing1.bmp");
+        assert_eq!(candidates[1], "À¯ÀúÀÎÅÍÆäÀÌ½º\\worldmap_localizing1.bmp");
+        // Archive lookup lowercases. The Latin-1 directory still matches itself.
+        assert_eq!(candidates[1].to_lowercase(), interface_dir_latin1().to_lowercase() + "\\worldmap_localizing1.bmp");
+
+        let hangul = choose_interface_texture("worldmap.jpg", |path| path.contains(INTERFACE_DIR_HANGUL));
+        assert_eq!(hangul.as_deref(), Some("유저인터페이스\\worldmap.jpg"));
+
+        let fallback = choose_interface_texture("WorldMap_Isgard.jpg", |path| path.contains('À'));
+        assert_eq!(fallback.as_deref(), Some("À¯ÀúÀÎÅÍÆäÀÌ½º\\WorldMap_Isgard.jpg"));
+        assert!(choose_interface_texture("worldmap_mob.bmp", |_| false).is_none());
+
+        let thumb = choose_interface_texture("map\\prontera.bmp", |path| !path.contains('À'));
+        assert_eq!(thumb.as_deref(), Some("유저인터페이스\\map\\prontera.bmp"));
+    }
+
+    #[test]
+    fn markers_stay_classified_without_a_region_texture() {
+        assert_eq!(
+            marker_paint(OverlayClass::Unlocked, false, false),
+            MarkerPaint {
+                fill: MarkerTone::Accent,
+                stroke: MarkerTone::None,
+            }
+        );
+        assert_eq!(marker_paint(OverlayClass::Locked, false, false).fill, MarkerTone::Dim);
+        assert_eq!(marker_paint(OverlayClass::Unlocked, true, false).stroke, MarkerTone::Accent);
+        // Gold is hover only. The current map keeps the accent stroke.
+        assert_eq!(marker_paint(OverlayClass::Unlocked, true, true).stroke, MarkerTone::Gold);
+        assert_eq!(marker_paint(OverlayClass::Missing, true, false).fill, MarkerTone::None);
+        assert_eq!(marker_paint(OverlayClass::Missing, true, false).stroke, MarkerTone::Accent);
+        assert_eq!(marker_paint(OverlayClass::Locked, true, true).stroke, MarkerTone::Gold);
+    }
+
+    fn section_center(map: BaseRect, section: &super::super::data::WorldMapSection) -> (f32, f32) {
+        let scaled = scale_rect(map, section_rect(section));
+        (scaled.left + scaled.width * 0.5, scaled.top + scaled.height * 0.5)
+    }
+
+    #[test]
+    fn fitted_window_keeps_caption_and_squares_inside_1024_and_1280() {
+        let chrome = WorldMapChrome::stock();
+        for (width, height) in [(1024.0_f32, 576.0_f32), (1280.0, 720.0)] {
+            let fit = fit_world_map(width, height, chrome);
+            assert!(fit.window_left + 0.51 >= chrome.margin, "{width}x{height} left {}", fit.window_left);
+            assert!(fit.window_top >= 0.0);
+            assert!(rendered_right(fit, 1.0) <= width - chrome.margin + 0.51);
+            assert!(rendered_bottom(fit, 1.0) <= height - chrome.margin + 0.51);
+            assert!(fit.caption_bottom <= fit.window_top + fit.window_height + 0.51);
+            assert!(fit.caption_bottom <= height - chrome.margin + 0.51);
+            let aspect = fit.map.width / fit.map.height;
+            assert!((aspect - (BASE_WIDTH / BASE_HEIGHT)).abs() < 0.01);
+        }
+
+        // A zero viewport (state not yet resized) uses the smaller required size.
+        let unknown = fit_world_map(0.0, 0.0, chrome);
+        let small = fit_world_map(1024.0, 576.0, chrome);
+        assert_eq!(unknown.window_width, small.window_width);
+        assert_eq!(unknown.window_height, small.window_height);
+
+        let wide = fit_world_map(1280.0, 720.0, WorldMapChrome { scaling: 2.0, ..chrome });
+        assert!(rendered_right(wide, 2.0) <= 1280.0 - chrome.margin + 0.51);
+        assert!(rendered_bottom(wide, 2.0) <= 720.0 - chrome.margin + 0.51);
+    }
+
+    #[test]
+    fn scaled_hit_testing_follows_the_region_switch() {
+        let chrome = WorldMapChrome::stock();
+        let fit = fit_world_map(1024.0, 576.0, chrome);
+        let regions = regions_for_episode(DEFAULT_EPISODE);
+        let midgard = regions.iter().copied().find(|region| region.name == "Midgard").unwrap();
+        let eastern = regions.iter().copied().find(|region| region.name == "Eastern Kingdoms").unwrap();
+        let midgard_sections = visible_sections(midgard, DEFAULT_EPISODE);
+        let eastern_sections = visible_sections(eastern, DEFAULT_EPISODE);
+        let midgard_rects: Vec<_> = midgard_sections.iter().copied().map(section_rect).collect();
+        let eastern_rects: Vec<_> = eastern_sections.iter().copied().map(section_rect).collect();
+
+        let prontera = midgard_sections.iter().position(|section| section.id == "prontera").unwrap();
+        let (px, py) = section_center(fit.map, midgard_sections[prontera]);
+        assert!(contains(fit.map, px, py));
+        assert!(py <= 576.0 - chrome.margin);
+        assert_eq!(hit_section(fit.map, &midgard_rects, px, py), Some(prontera));
+
+        let amatsu = eastern_sections.iter().position(|section| section.id == "amatsu").unwrap();
+        let (ax, ay) = section_center(fit.map, eastern_sections[amatsu]);
+        assert!(contains(fit.map, ax, ay));
+        assert!(ax >= chrome.margin && ax <= 1024.0 - chrome.margin);
+        assert!(ay <= 576.0 - chrome.margin);
+        assert_eq!(hit_section(fit.map, &eastern_rects, ax, ay), Some(amatsu));
+        // The same point is not Prontera, and it is not the rail.
+        assert_ne!(hit_section(fit.map, &midgard_rects, ax, ay), Some(prontera));
+        let rail_x = fit.window_left + chrome.border + 4.0;
+        assert_eq!(hit_section(fit.map, &eastern_rects, rail_x, fit.map.top + 8.0), None);
+
+        let views: Vec<_> = eastern_sections.iter().copied().map(section_ref).collect();
+        let entries = [entry(0, 9, 1, 0, "amatsu", "Amatsu", "")];
+        assert!(matches!(
+            section_click(&views, &entries, amatsu),
+            ClickDecision::Warp { location_id: 9, .. }
+        ));
+        // A locked eastern square still does not warp after the switch.
+        let entries = [entry(0, 9, 0, 0, "amatsu", "Amatsu", "")];
+        assert!(matches!(section_click(&views, &entries, amatsu), ClickDecision::Ignore { .. }));
     }
 }
