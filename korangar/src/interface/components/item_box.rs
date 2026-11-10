@@ -124,7 +124,9 @@ where
         with_single_resolver(resolvers, |resolver| {
             let area = if self.side > 0.0 {
                 let row = resolver.with_height(self.side);
-                let side = self.side.min(row.width);
+                // Requested side is the socket. A narrower parent used to shrink Gear
+                // slots (44 became ~36 when the window was scaled to 1024).
+                let side = self.side;
                 Area {
                     left: row.left + (row.width - side) / 2.0,
                     top: row.top,

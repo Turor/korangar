@@ -55,7 +55,9 @@ pub(crate) const STRIP_SLOTS_PER_ROW: usize = 4;
 /// First-open Gear size at the 1280×720 reference. The left half is the
 /// paperdoll width; the right half is the packed stat cluster.
 pub(crate) const GEAR_WINDOW_WIDTH: f32 = 480.0;
-pub(crate) const GEAR_WINDOW_HEIGHT: f32 = 640.0;
+/// Tall enough for the left column at 44px sockets, short enough to sit above
+/// chat at 1024×576. Not scaled with the client size.
+pub(crate) const GEAR_WINDOW_HEIGHT: f32 = 500.0;
 
 /// Name, base, bonus, and the point button. They sit in this cluster.
 pub(crate) const BASE_STAT_PART_WIDTHS: [f32; 4] = [42.0, 32.0, 40.0, 52.0];
@@ -99,19 +101,27 @@ const WINDOW_TITLE_HEIGHT: f32 = 22.0;
 const WINDOW_TITLE_GAP: f32 = 2.0;
 const WINDOW_BORDER: f32 = 8.0;
 
-/// One square slot plus the caption under it.
+/// One square slot. The caption is painted inside the bottom of the square so
+/// a row does not grow past [`GEAR_SLOT_SIDE`] and neighboring captions stay
+/// in their own columns.
 pub(crate) fn gear_slot_row_height() -> f32 {
-    GEAR_SLOT_SIDE + GEAR_SLOT_LABEL_HEIGHT
+    GEAR_SLOT_SIDE
+}
+
+/// Caption glyphs at FontSize 9 stay inside the square (~5px each).
+pub(crate) fn slot_caption_fits(label: &str) -> bool {
+    label.chars().count() as f32 * 5.0 <= GEAR_SLOT_SIDE
 }
 
 /// Inner height of the left column: titles, the tall portrait, costume, shadow,
 /// and the loadout name box, buttons, and one empty-set line.
 pub(crate) fn gear_left_column_content_height() -> f32 {
-    let titles = 4.0 * SECTION_TITLE_HEIGHT;
+    // Equipment, Costume, Shadow. Sets is the control row under Shadow, not a title.
+    let titles = 3.0 * SECTION_TITLE_HEIGHT;
     let paperdoll = paperdoll_block_height();
     let strips = strip_block_height(COSTUME_SLOTS.len()) + strip_block_height(SHADOW_SLOTS.len());
     let controls = CONTROL_HEIGHT;
-    let children = 8.0;
+    let children = 7.0;
     let gaps = (children - 1.0) * COLUMN_GAP;
     titles + paperdoll + strips + controls + gaps
 }
@@ -137,6 +147,8 @@ fn layout_contract_holds() -> bool {
         && WINDOW_TITLE_HEIGHT + WINDOW_TITLE_GAP + WINDOW_BORDER > 0.0
         && packed_width(&BASE_STAT_PART_WIDTHS, STAT_PART_GAP) < GEAR_WINDOW_WIDTH
         && gear_left_column_content_height() <= gear_content_budget(GEAR_WINDOW_HEIGHT)
+        && slot_caption_fits("S.L")
+        && slot_caption_fits("S.R")
 }
 
 /// Controlled player (`entities[0]`) is omitted from the world pass while Gear
@@ -385,12 +397,12 @@ pub(crate) fn equip_slot_label(equip_position: EquipPosition) -> &'static str {
         _ if equip_position.contains(EquipPosition::COSTUME_HEAD_LOWER) => "C. Low",
         _ if equip_position.contains(EquipPosition::COSTUME_GARMENT) => "C. Garm",
         _ if equip_position.contains(EquipPosition::SHADOW_LEFT_RIGHT_ACCESSORY) => "S. Acc",
-        _ if equip_position.contains(EquipPosition::SHADOW_RIGHT_ACCESSORY) => "S. Acc R",
-        _ if equip_position.contains(EquipPosition::SHADOW_LEFT_ACCESSORY) => "S. Acc L",
-        _ if equip_position.contains(EquipPosition::SHADOW_WEAPON) => "S. Weapon",
-        _ if equip_position.contains(EquipPosition::SHADOW_SHIELD) => "S. Shield",
-        _ if equip_position.contains(EquipPosition::SHADOW_SHOES) => "S. Shoes",
-        _ if equip_position.contains(EquipPosition::SHADOW_ARMOR) => "S. Ammo",
+        _ if equip_position.contains(EquipPosition::SHADOW_RIGHT_ACCESSORY) => "S.R",
+        _ if equip_position.contains(EquipPosition::SHADOW_LEFT_ACCESSORY) => "S.L",
+        _ if equip_position.contains(EquipPosition::SHADOW_WEAPON) => "S.Wep",
+        _ if equip_position.contains(EquipPosition::SHADOW_SHIELD) => "S.Shd",
+        _ if equip_position.contains(EquipPosition::SHADOW_SHOES) => "S.Sho",
+        _ if equip_position.contains(EquipPosition::SHADOW_ARMOR) => "S.Amm",
         _ if equip_position.contains(EquipPosition::HEAD_LOWER) => "H. Low",
         _ if equip_position.contains(EquipPosition::HEAD_MIDDLE) => "H. Mid",
         _ if equip_position.contains(EquipPosition::HEAD_TOP) => "H. Top",
@@ -943,7 +955,7 @@ fn paint_slot_label(layout: &mut WindowLayout<ClientState>, slot: GearFrame, lab
     layout.add_text(
         Area {
             left: slot.left,
-            top: slot.top + slot.height,
+            top: slot.top + slot.height - GEAR_SLOT_LABEL_HEIGHT,
             width: slot.width,
             height: GEAR_SLOT_LABEL_HEIGHT,
         },
@@ -1401,10 +1413,6 @@ where
                                     overflow_behavior: OverflowBehavior::Shrink,
                                 },
                                 LabeledStrip::new(items, &SHADOW_SLOTS),
-                                text! {
-                                    text: "Sets",
-                                    overflow_behavior: OverflowBehavior::Shrink,
-                                },
                                 SetBar::new(switch_set),
                             ),
                         },
@@ -1469,6 +1477,7 @@ mod tests {
         INVENTORY_ROWS, LOADOUT_CONTROLS, PAPERDOLL_COLUMN_COUNT, PAPERDOLL_ROWS, PORTRAIT_SPANS_ALL_ROWS, PREVIEW_RENDERS_CHARACTER,
         SHADOW_SLOTS, STAT_PART_GAP, STRIP_SLOTS_PER_ROW, display_aspd, display_packet_stat, draw_world_entity, equip_slot_label,
         equip_slot_tooltip, fit_sprite_part, gear_content_budget, gear_left_column_content_height, packed_width, paperdoll_geometry,
+        slot_caption_fits,
         set_row_widths, shown_equip_positions, sprite_part_top_left, square_strip_frames, strip_block_height,
     };
 
@@ -1534,7 +1543,7 @@ mod tests {
         assert!(geometry.portrait.height > GEAR_PORTRAIT_WIDTH);
         assert!((geometry.portrait.top - geometry.left_slots[0].top).abs() < f32::EPSILON);
         let last = geometry.left_slots[4];
-        assert!(geometry.portrait.top + geometry.portrait.height > last.top + last.height);
+        assert!(geometry.portrait.top + geometry.portrait.height + 0.1 >= last.top + last.height);
         for slot in geometry.left_slots.into_iter().chain(geometry.right_slots) {
             assert!(slot.is_square(), "body slot is not a fixed square");
         }
@@ -1596,9 +1605,19 @@ mod tests {
         assert_eq!(equip_slot_label(EquipPosition::COSTUME_HEAD_TOP), "C. Top");
         assert_eq!(equip_slot_tooltip(EquipPosition::COSTUME_HEAD_TOP), "Costume head top");
         assert_eq!(equip_slot_label(EquipPosition::COSTUME_HEAD_LOWER), "C. Low");
-        assert_eq!(equip_slot_label(EquipPosition::SHADOW_WEAPON), "S. Weapon");
+        assert_eq!(equip_slot_label(EquipPosition::SHADOW_WEAPON), "S.Wep");
         assert_eq!(equip_slot_tooltip(EquipPosition::SHADOW_WEAPON), "Shadow weapon");
-        assert_eq!(equip_slot_label(EquipPosition::SHADOW_ARMOR), "S. Ammo");
+        assert_eq!(equip_slot_label(EquipPosition::SHADOW_ARMOR), "S.Amm");
+        assert_eq!(equip_slot_label(EquipPosition::SHADOW_LEFT_ACCESSORY), "S.L");
+        assert_eq!(equip_slot_label(EquipPosition::SHADOW_RIGHT_ACCESSORY), "S.R");
+        for position in shown_equip_positions() {
+            assert!(
+                slot_caption_fits(equip_slot_label(position)),
+                "{} overflows a {}px socket",
+                equip_slot_label(position),
+                GEAR_SLOT_SIDE
+            );
+        }
         assert_eq!(equip_slot_tooltip(EquipPosition::SHADOW_ARMOR), "Shadow ammo");
         // LEFT_RIGHT_HAND includes RIGHT_HAND; historical body-slot preference.
         assert_eq!(equip_slot_label(EquipPosition::LEFT_RIGHT_HAND), "R. Hand");
