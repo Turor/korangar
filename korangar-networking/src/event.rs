@@ -28,6 +28,14 @@ pub struct GradeMaterialOffer {
     pub breakable: bool,
 }
 
+/// One weapon or armor the Whitesmith refine skill can select.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WeaponRefineOffer {
+    pub index: InventoryIndex,
+    pub item_id: ItemId,
+    pub refine: u8,
+}
+
 /// One ore the refine UI can spend (`ZC_REFINING_MATERIAL_LIST`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RefineMaterialOffer {
@@ -752,6 +760,66 @@ pub enum NetworkEvent {
         result: u16,
         index: InventoryIndex,
         refine_level: u16,
+    },
+    /// Unidentified items a Magnifier can select (`ZC_ITEMIDENTIFY_LIST`).
+    ItemIdentifyList {
+        indexes: Vec<InventoryIndex>,
+    },
+    /// `ZC_ACK_ITEMIDENTIFY`. `index` is the raw wire value (`0xFFFF` on cancel).
+    ItemIdentifyResult {
+        index: u16,
+        result: u8,
+    },
+    /// Equipment that can receive the card the player just used.
+    ItemCompositionList {
+        indexes: Vec<InventoryIndex>,
+    },
+    /// `ZC_ACK_ITEMCOMPOSITION`. `result` 0 inserted the card.
+    ItemCompositionResult {
+        equip_index: InventoryIndex,
+        card_index: InventoryIndex,
+        result: u8,
+    },
+    /// Warp Portal or Teleport destinations (`0x011C` or `0x0ABE`).
+    WarpList {
+        skill_id: SkillId,
+        maps: Vec<String>,
+    },
+    /// Sage Auto Spell choices (`0x01CD` or `0x0AFB`).
+    AutoSpellList {
+        skill_ids: Vec<i32>,
+    },
+    /// Auto Shadow Spell (`ZC_SKILL_SELECT_REQUEST`).
+    SkillSelectList {
+        flag: i32,
+        skill_ids: Vec<i16>,
+    },
+    /// Arrow crafting choices (`ZC_MAKINGARROW_LIST`).
+    MakingArrowList {
+        item_ids: Vec<ItemId>,
+    },
+    /// Pharmacy, forging, and poison mixes (`ZC_MAKABLEITEMLIST`).
+    MakableItemList {
+        items: Vec<(ItemId, [ItemId; 3])>,
+    },
+    /// `ZC_ACK_REQMAKINGITEM`. Even results succeed.
+    ProduceResult {
+        result: u16,
+        item_id: ItemId,
+    },
+    /// Cooking, bombs, and the newer making list (`ZC_MAKINGITEM_LIST`).
+    MakingItemList {
+        make_type: u16,
+        item_ids: Vec<ItemId>,
+    },
+    /// Whitesmith weapon or armor refine (`ZC_NOTIFY_WEAPONITEMLIST`).
+    WeaponRefineList {
+        items: Vec<WeaponRefineOffer>,
+    },
+    /// `ZC_ACK_WEAPONREFINE`.
+    WeaponRefineResult {
+        result: i32,
+        item_id: ItemId,
     },
     /// `ZC_UI_OPEN` type 8 opened the grade enchant UI.
     EnchantGradeOpened {

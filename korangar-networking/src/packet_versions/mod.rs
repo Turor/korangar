@@ -9,6 +9,7 @@ pub mod eden;
 pub mod enchant;
 pub mod framing_20190530;
 pub mod framing_20250716;
+pub mod item_skill_selection;
 pub mod item_use;
 pub mod item_workshop;
 pub mod mvp_minimap;
