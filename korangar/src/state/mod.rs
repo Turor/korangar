@@ -21,6 +21,7 @@ pub mod item_workshop;
 pub mod localization;
 pub mod navigation;
 pub mod npc_dialog;
+pub mod npc_dismiss;
 pub mod party;
 pub mod pincode;
 pub mod player_shops;

@@ -398,6 +398,7 @@ pub struct Client {
     effect_holder: EffectHolder,
     cast_bars: effects::CastBars,
     path_finder: PathFinder,
+    npc_dismissed: crate::state::npc_dismiss::DismissedScript,
     long_walk: crate::world::long_walk::LongWalk,
 
     point_light_set_buffer: ResourceSetBuffer<LightSourceKey>,
@@ -958,6 +959,7 @@ impl Client {
             effect_holder,
             cast_bars,
             path_finder,
+            npc_dismissed: Default::default(),
             long_walk: Default::default(),
             point_light_set_buffer,
             directional_shadow_object_set_buffer,
@@ -2650,6 +2652,13 @@ impl Client {
                     self.interface.open_window(MailWindow::new());
                 }
                 NetworkEvent::OpenDialog { text, npc_id } => {
+                    if let Some(reply) =
+                        self.npc_dismissed
+                            .intercept(Some(npc_id), crate::state::npc_dismiss::ScriptEvent::Text, client_tick.0)
+                    {
+                        self.answer_dismissed_npc(npc_id, reply);
+                        continue;
+                    }
                     self.client_state
                         .follow_mut(client_state().dialog_window())
                         .initialize(npc_id)
@@ -2658,6 +2667,13 @@ impl Client {
                     self.interface.open_window(DialogWindow::new(client_state().dialog_window()));
                 }
                 NetworkEvent::AddNextButton { npc_id } => {
+                    if let Some(reply) =
+                        self.npc_dismissed
+                            .intercept(Some(npc_id), crate::state::npc_dismiss::ScriptEvent::Next, client_tick.0)
+                    {
+                        self.answer_dismissed_npc(npc_id, reply);
+                        continue;
+                    }
                     self.client_state
                         .follow_mut(client_state().dialog_window())
                         // An NPCs could start the dialog with this packet so we want to make sure it's initialized.
@@ -2667,6 +2683,13 @@ impl Client {
                     self.interface.open_window(DialogWindow::new(client_state().dialog_window()));
                 }
                 NetworkEvent::AddCloseButton { npc_id } => {
+                    if let Some(reply) =
+                        self.npc_dismissed
+                            .intercept(Some(npc_id), crate::state::npc_dismiss::ScriptEvent::Close, client_tick.0)
+                    {
+                        self.answer_dismissed_npc(npc_id, reply);
+                        continue;
+                    }
                     // Some NPCs send the `CloseButtonPacket` after the dialog
                     // has been closed. We want to filter these out because otherwise we get a
                     // close button at the start of the next dialog.
@@ -2680,6 +2703,13 @@ impl Client {
                     }
                 }
                 NetworkEvent::AddChoiceButtons { choices, npc_id } => {
+                    if let Some(reply) =
+                        self.npc_dismissed
+                            .intercept(Some(npc_id), crate::state::npc_dismiss::ScriptEvent::Menu, client_tick.0)
+                    {
+                        self.answer_dismissed_npc(npc_id, reply);
+                        continue;
+                    }
                     self.client_state
                         .follow_mut(client_state().dialog_window())
                         // Some NPCs start the dialog with this packet so we need to make sure it's initialized.
@@ -2689,6 +2719,13 @@ impl Client {
                     self.interface.open_window(DialogWindow::new(client_state().dialog_window()));
                 }
                 NetworkEvent::NpcNumberInput { npc_id } => {
+                    if let Some(reply) =
+                        self.npc_dismissed
+                            .intercept(Some(npc_id), crate::state::npc_dismiss::ScriptEvent::NumberInput, client_tick.0)
+                    {
+                        self.answer_dismissed_npc(npc_id, reply);
+                        continue;
+                    }
                     self.client_state
                         .follow_mut(client_state().dialog_window())
                         .initialize(npc_id)
@@ -2696,6 +2733,13 @@ impl Client {
                     self.interface.open_window(NpcInputWindow::new());
                 }
                 NetworkEvent::NpcTextInput { npc_id } => {
+                    if let Some(reply) =
+                        self.npc_dismissed
+                            .intercept(Some(npc_id), crate::state::npc_dismiss::ScriptEvent::TextInput, client_tick.0)
+                    {
+                        self.answer_dismissed_npc(npc_id, reply);
+                        continue;
+                    }
                     self.client_state
                         .follow_mut(client_state().dialog_window())
                         .initialize(npc_id)
@@ -2703,6 +2747,13 @@ impl Client {
                     self.interface.open_window(NpcInputWindow::new());
                 }
                 NetworkEvent::NpcCutin { image_name, location } => {
+                    if let Some(reply) = self
+                        .npc_dismissed
+                        .intercept(None, crate::state::npc_dismiss::ScriptEvent::Cutin, client_tick.0)
+                    {
+                        self.answer_dismissed_npc(EntityId(0), reply);
+                        continue;
+                    }
                     let anchor = cutin_anchor(location);
                     let path = existing_cutin_texture(&image_name, |full| self.game_file_loader.file_exists(full));
                     let presentation = self.client_state.follow_mut(client_state().npc_presentation());
@@ -4468,6 +4519,12 @@ impl Client {
 
         let capturing_keybind = self.client_state.follow(client_state().keybinds()).is_capturing();
         let mut cancel_keybind_capture = false;
+        // Escape still follows the window stack while a window has focus (for
+        // example after clicking the NPC dialog). The handler unfocuses first
+        // unless an NPC script is open, which it closes.
+        if interface_has_focus && !capturing_keybind && self.input_system.key_pressed(KeyCode::Escape) {
+            self.input_event_buffer.push(InputEvent::Escape);
+        }
         if !interface_has_focus || capturing_keybind {
             cancel_keybind_capture = self.input_system.handle_keyboard_input(
                 &mut self.input_event_buffer,
@@ -5063,11 +5120,15 @@ impl Client {
                 }
                 InputEvent::CloseTopWindow => self.on_close_top_window(),
                 InputEvent::Escape => {
-                    if crate::interface::npc_flow::try_close_npc_script(
+                    let npc_escape = crate::interface::npc_flow::try_close_npc_script(
                         &mut self.client_state,
                         &mut self.interface,
                         &mut self.networking_system,
-                    ) {
+                    );
+                    if let crate::interface::npc_flow::NpcEscape::Dismissed(npc_id) = npc_escape {
+                        self.npc_dismissed.dismiss(npc_id, client_tick.0);
+                    }
+                    if npc_escape != crate::interface::npc_flow::NpcEscape::NotOpen {
                     } else if self.interface.is_window_with_class_open(WindowClass::WorldMap) {
                         self.interface.close_window_with_class(WindowClass::WorldMap);
                         self.client_state.follow_mut(client_state().world_map_window()).close_floors();
@@ -6916,6 +6977,21 @@ impl Client {
         }
     }
 
+    /// Answers a packet of a script whose dialog the player closed early.
+    fn answer_dismissed_npc(&mut self, npc_id: EntityId, reply: crate::state::npc_dismiss::DismissedReply) {
+        use crate::state::npc_dismiss::DismissedReply;
+        let _ = match reply {
+            DismissedReply::Swallow => Ok(()),
+            DismissedReply::Next => self.networking_system.next_dialog(npc_id),
+            DismissedReply::Close => self.networking_system.close_dialog(npc_id),
+            DismissedReply::MenuCancel => self
+                .networking_system
+                .choose_dialog_option(npc_id, crate::state::vn_dialog::MENU_CANCEL_OPTION),
+            DismissedReply::NumberCancel => self.networking_system.npc_number_input(npc_id, 0),
+            DismissedReply::TextCancel => self.networking_system.npc_text_input(npc_id, String::new()),
+        };
+    }
+
     /// Requests a walk to within `range` of `destination`. Paths longer than
     /// the server accepts are split into segments (see
     /// [`crate::world::long_walk`]). Returns `false` when the player is already
@@ -7252,7 +7328,13 @@ impl Client {
             #[cfg(feature = "debug")]
             (delta_time as f32),
         );
-        crate::interface::npc_flow::recover_dismissed_npc_windows(&mut self.client_state, &mut self.interface, &mut self.networking_system);
+        if let Some(npc_id) = crate::interface::npc_flow::recover_dismissed_npc_windows(
+            &mut self.client_state,
+            &mut self.interface,
+            &mut self.networking_system,
+        ) {
+            self.npc_dismissed.dismiss(npc_id, client_tick.0);
+        }
 
         // Some debug windows, such as the packet history or cache statistics, require
         // special update logic.

@@ -7,10 +7,11 @@
 //! `ColorSpanIterator`: six hex digits set the color, `^000000` returns to
 //! the caller color, and `^000001` is the highlight token.
 
-/// Idle action slot that faces screen-right (East).
-pub const FACING_RIGHT: usize = 2;
-/// Idle action slot that faces screen-left (West).
-pub const FACING_LEFT: usize = 6;
+/// Idle action slot for a three-quarter view facing screen-right. ACT
+/// directions run clockwise from south: 0 S, 1 SW, 2 W, ..., 6 E, 7 SE.
+pub const FACING_RIGHT: usize = 7;
+/// Idle action slot for a three-quarter view facing screen-left (SW).
+pub const FACING_LEFT: usize = 1;
 
 /// Hercules `MAX_MENU_OPTIONS`. Wire byte `0xFF`, which is `-1` as `i8`.
 pub const MENU_CANCEL_OPTION: i8 = -1;
@@ -461,7 +462,7 @@ mod tests {
         assert_eq!(parts.hair_palette, 3);
         assert_eq!(parts.body_palette, 2);
         assert_eq!(parts.facing, FACING_RIGHT as u8);
-        assert_eq!(FACING_LEFT, 6);
+        assert_eq!(FACING_LEFT, 1);
     }
 
     #[test]
@@ -532,7 +533,7 @@ mod tests {
         assert!((side_alpha(false, 0.45) - 0.45).abs() < 0.001);
         assert_eq!(typewriter_rate(0.0), DEFAULT_CHARS_PER_SECOND);
         assert!((portrait_dim_amount(0.45) - 0.45).abs() < 0.001);
-        assert_eq!(idle_animation_index(FACING_RIGHT, 8), Some(2));
+        assert_eq!(idle_animation_index(FACING_RIGHT, 8), Some(7));
         assert_eq!(idle_animation_index(FACING_LEFT, 0), None);
     }
 }

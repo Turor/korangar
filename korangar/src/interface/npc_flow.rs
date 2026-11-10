@@ -133,11 +133,15 @@ where
 
 /// The window X button removes the window without a callback. Answer the script
 /// when that drops an input or a Close dialog, and reopen a Next-only dialog.
+///
+/// Returns the NPC whose script keeps running after the window closed, so the
+/// caller can answer its remaining pages without showing them.
 pub(crate) fn recover_dismissed_npc_windows<Callback>(
     state: &mut State<ClientState>,
     interface: &mut Interface<'static, ClientState>,
     networking: &mut NetworkingSystem<Callback>,
-) where
+) -> Option<EntityId>
+where
     Callback: PacketCallback + Send,
 {
     let (input_open, awaiting_next, awaiting_close, awaiting_choice, npc_id) = {
@@ -156,7 +160,7 @@ pub(crate) fn recover_dismissed_npc_windows<Callback>(
     }
 
     if interface.is_window_with_class_open(WindowClass::Dialog) {
-        return;
+        return None;
     }
 
     // The title-bar X is the same as Escape: cancel a menu, or end a plain page.
@@ -164,9 +168,24 @@ pub(crate) fn recover_dismissed_npc_windows<Callback>(
     if awaiting_choice {
         let _ = networking.choose_dialog_option(npc_id, MENU_CANCEL_OPTION);
         dismiss_npc_dialog_ui(state, interface);
+        None
     } else if awaiting_next || awaiting_close {
         finish_npc_dialog(state, interface, networking, npc_id);
+        (!awaiting_close).then_some(npc_id)
+    } else {
+        None
     }
+}
+
+/// Result of Escape on the NPC script.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NpcEscape {
+    /// No script window is open; Escape goes to the window stack.
+    NotOpen,
+    /// The packet sent ends the script on Hercules.
+    Ended,
+    /// The dialog is hidden but the script continues on the server.
+    Dismissed(EntityId),
 }
 
 /// Pin the dialog to the bottom and advance the typewriter before layout.
@@ -252,36 +271,48 @@ pub(crate) fn npc_script_captures_pointer(state: &State<ClientState>, dialog_ope
 }
 
 /// Escape ends the current script state with the packet Hercules expects.
-/// Returns false when no script is open so the generic window stack can run.
+/// Returns [`NpcEscape::NotOpen`] when no script is open so the generic
+/// window stack can run.
 pub(crate) fn try_close_npc_script<Callback>(
     state: &mut State<ClientState>,
     interface: &mut Interface<'static, ClientState>,
     networking: &mut NetworkingSystem<Callback>,
-) -> bool
+) -> NpcEscape
 where
     Callback: PacketCallback + Send,
 {
     let window_open = interface.is_window_with_class_open(WindowClass::Dialog);
-    let (menu, input, plain, npc_id) = {
+    let (menu, input, plain, awaiting_close, npc_id) = {
         let dialog = state.follow(client_state().dialog_window());
         let plain = window_open && (dialog.is_awaiting_next() || dialog.is_awaiting_close() || dialog.has_page() || dialog.is_revealing());
-        (dialog.is_awaiting_choice(), dialog.input_is_open(), plain, dialog.npc_id())
+        (
+            dialog.is_awaiting_choice(),
+            dialog.input_is_open(),
+            plain,
+            dialog.is_awaiting_close(),
+            dialog.npc_id(),
+        )
     };
 
     match vn_dialog::escape_action(menu, input, plain) {
         Some(EscapeKind::MenuCancel) => {
             let _ = networking.choose_dialog_option(npc_id, MENU_CANCEL_OPTION);
             dismiss_npc_dialog_ui(state, interface);
-            true
+            NpcEscape::Ended
         }
         Some(EscapeKind::InputCancel) => {
+            // The empty reply resumes the script; hide the rest of it too.
             reply_npc_input(state, interface, networking, true);
-            true
+            dismiss_npc_dialog_ui(state, interface);
+            NpcEscape::Dismissed(npc_id)
         }
         Some(EscapeKind::CloseDialog) => {
             finish_npc_dialog(state, interface, networking, npc_id);
-            true
+            match awaiting_close {
+                true => NpcEscape::Ended,
+                false => NpcEscape::Dismissed(npc_id),
+            }
         }
-        None => false,
+        None => NpcEscape::NotOpen,
     }
 }
