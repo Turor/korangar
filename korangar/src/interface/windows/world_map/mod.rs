@@ -808,11 +808,12 @@ mod tests {
     }
 
     fn picker_window(floors: Vec<FloorChoice>) -> WorldMapWindowState {
-        let mut window = WorldMapWindowState::default();
-        window.show_floors = true;
-        window.floor_title = "Byalan".to_owned();
-        window.floors = floors;
-        window
+        WorldMapWindowState {
+            show_floors: true,
+            floor_title: "Byalan".to_owned(),
+            floors,
+            ..WorldMapWindowState::default()
+        }
     }
 
     fn paint_picker<'a>(layout: &mut WindowLayout<'a, ClientState>, map: Area, window: &'a WorldMapWindowState) -> ClickTarget {
