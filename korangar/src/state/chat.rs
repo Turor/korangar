@@ -15,6 +15,11 @@ use super::ChatMessage;
 
 pub const BUBBLE_LIFETIME_MS: u32 = 5_000;
 pub const ANNOUNCE_LIFETIME_MS: u32 = 12_000;
+/// Gap between stacked chat lines. The message pane and its tests share this.
+pub const CHAT_LINE_SPACING: f32 = 5.0;
+/// How close to the bottom (pixels) still counts as pinned, matching
+/// roBrowser's `shouldScrollDownBeforeAdd` tolerance.
+pub const LIST_FOLLOW_SLOP: f32 = 5.0;
 const MAX_RECENT_WHISPER_TARGETS: usize = 8;
 const MAX_BUBBLES: usize = 32;
 
@@ -164,6 +169,11 @@ impl Display for ChatTab {
 }
 
 impl ChatTab {
+    /// Chat window title for this tab, such as `Chat - Party`.
+    pub fn window_title(self) -> String {
+        format!("Chat - {}", self.label())
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::All => "All",
@@ -249,10 +259,135 @@ pub enum OutgoingChat {
     Guild(String),
 }
 
-/// `/w` and `/whisper`, then `/g` and `/guild`, then `name : text`, then the
-/// whisper-target box. A guild chat tab sends guild chat when the text is not
-/// a command and no whisper target is set. `@` commands stay public.
-pub fn parse_outgoing_chat(raw: &str, whisper_target: &str, send_to_guild: bool) -> OutgoingChat {
+/// Scroll position of the chat message pane.
+///
+/// `offset` is the distance from the top of the stacked lines. `pinned` follows
+/// roBrowser: new lines jump to the bottom until the player scrolls up, and
+/// scrolling back to the bottom starts following again.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ListScroll {
+    pub offset: f32,
+    pub pinned: bool,
+}
+
+impl Default for ListScroll {
+    fn default() -> Self {
+        Self { offset: 0.0, pinned: true }
+    }
+}
+
+pub fn list_maximum(content_height: f32, viewport: f32) -> f32 {
+    (content_height - viewport).max(0.0)
+}
+
+pub fn stacked_content_height(heights: &[f32], spacing: f32) -> f32 {
+    if heights.is_empty() {
+        return 0.0;
+    }
+    let gaps = spacing * (heights.len() - 1) as f32;
+    heights.iter().sum::<f32>() + gaps
+}
+
+/// Snap to the newest lines while pinned, and clamp after the pane resizes.
+pub fn sync_list_scroll(mut scroll: ListScroll, content_height: f32, viewport: f32) -> ListScroll {
+    let maximum = list_maximum(content_height, viewport);
+    if scroll.pinned || maximum <= LIST_FOLLOW_SLOP {
+        return ListScroll {
+            offset: maximum,
+            pinned: true,
+        };
+    }
+    scroll.offset = scroll.offset.clamp(0.0, maximum);
+    if maximum - scroll.offset <= LIST_FOLLOW_SLOP {
+        scroll.offset = maximum;
+        scroll.pinned = true;
+    }
+    scroll
+}
+
+/// `delta` uses the interface wheel sign: positive moves toward older lines.
+pub fn scroll_list(scroll: ListScroll, delta: f32, content_height: f32, viewport: f32) -> ListScroll {
+    let maximum = list_maximum(content_height, viewport);
+    if maximum <= LIST_FOLLOW_SLOP {
+        return ListScroll { offset: 0.0, pinned: true };
+    }
+    if delta > 0.0 && scroll.offset <= 0.0 {
+        return ListScroll {
+            offset: 0.0,
+            pinned: false,
+        };
+    }
+    if delta < 0.0 && scroll.offset >= maximum - LIST_FOLLOW_SLOP {
+        return ListScroll {
+            offset: maximum,
+            pinned: true,
+        };
+    }
+    let offset = (scroll.offset - delta).clamp(0.0, maximum);
+    let pinned = delta <= 0.0 && maximum - offset <= LIST_FOLLOW_SLOP;
+    ListScroll {
+        offset: if pinned { maximum } else { offset },
+        pinned,
+    }
+}
+
+/// Indexes whose line box overlaps the viewport. `offset` is the top of the
+/// pane.
+#[cfg(test)]
+fn indexes_in_view(heights: &[f32], spacing: f32, offset: f32, viewport: f32) -> Vec<usize> {
+    if viewport <= 0.0 {
+        return Vec::new();
+    }
+    let mut start = 0.0;
+    let mut visible = Vec::new();
+    for (index, height) in heights.iter().copied().enumerate() {
+        if index > 0 {
+            start += spacing;
+        }
+        let end = start + height;
+        if end > offset && start < offset + viewport {
+            visible.push(index);
+        }
+        start = end;
+    }
+    visible
+}
+
+/// The whisper-to box routes plain chat only while the player is in whisper
+/// mode. `/w` fills the box but stamps it disarmed, so the next plain line
+/// stays public until the player edits that field (roBrowser treats the
+/// username box as the mode, and does not arm it from a one-shot command).
+pub fn whisper_target_armed(target: &str, disarm_stamp: &str) -> bool {
+    let target = target.trim();
+    !target.is_empty() && target != disarm_stamp.trim()
+}
+
+/// Remember `command_target` in the box without arming sticky whispers.
+pub fn disarm_sticky_whisper(target_field: &mut String, disarm_stamp: &mut String, command_target: &str) {
+    let command_target = command_target.trim();
+    if command_target.is_empty() {
+        return;
+    }
+    target_field.clear();
+    target_field.push_str(command_target);
+    disarm_stamp.clone_from(target_field);
+}
+
+pub fn note_whisper_field_edit(disarm_stamp: &mut String) {
+    disarm_stamp.clear();
+}
+
+/// `/w name text`, `/whisper name text`, `name : text`, or an armed whisper
+/// box.
+///
+/// `/w` and `/whisper`, then `/g` and `/guild`, then `name : text`, then an
+/// armed whisper box. `/w` fills the box but does not arm it. A guild chat tab
+/// sends guild chat when the text is not a command and whisper mode is off.
+/// `@` commands stay public.
+///
+/// `whisper_armed` is the roBrowser username-field mode: the box is filled
+/// because the player typed or picked a name.
+pub fn parse_outgoing_chat(raw: &str, whisper_target: &str, whisper_armed: bool, send_to_guild: bool) -> OutgoingChat {
     let trimmed = raw.trim();
     if let Some(whisper) = parse_whisper_command(trimmed) {
         return whisper;
@@ -272,7 +407,7 @@ pub fn parse_outgoing_chat(raw: &str, whisper_target: &str, send_to_guild: bool)
     }
 
     let target = whisper_target.trim();
-    if !target.is_empty() && !trimmed.starts_with('/') && !trimmed.starts_with('@') {
+    if whisper_armed && !target.is_empty() && !trimmed.starts_with('/') && !trimmed.starts_with('@') {
         return OutgoingChat::Whisper {
             target: target.to_string(),
             text: trimmed.to_string(),
@@ -466,6 +601,19 @@ pub fn record_broadcast(
     messages.push(ChatMessage::with_channel(text, color, ChatChannel::Announce));
 }
 
+/// 0x008E carries both server notices and the echo of the player's own
+/// public line (`"<name> : text"`). roBrowser shows that echo as public chat,
+/// so it is filed under Public, not System, and follows the Pub filter.
+pub fn own_chat_echo_color(text: &str, player_name: &str, color: MessageColor) -> MessageColor {
+    if !matches!(color, MessageColor::Server) || player_name.is_empty() {
+        return color;
+    }
+    match text.strip_prefix(player_name) {
+        Some(rest) if rest.starts_with(" : ") => MessageColor::Public,
+        _ => color,
+    }
+}
+
 pub fn record_whisper(messages: &mut Vec<ChatMessage>, recent: &mut Vec<String>, sender: &str, text: &str) {
     let sender = sender.trim();
     let text = strip_whisper_code(text).trim();
@@ -503,6 +651,38 @@ pub fn record_whisper_ack(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn window_title_names_the_active_tab() {
+        assert_eq!(ChatTab::All.window_title(), "Chat - All");
+        assert_eq!(ChatTab::Party.window_title(), "Chat - Party");
+    }
+
+    #[test]
+    fn own_public_echo_is_public_chat() {
+        use super::own_chat_echo_color;
+        assert!(matches!(
+            own_chat_echo_color("kgap04 : hello", "kgap04", MessageColor::Server),
+            MessageColor::Public
+        ));
+        assert!(matches!(
+            own_chat_echo_color("kgap04x : hello", "kgap04", MessageColor::Server),
+            MessageColor::Server
+        ));
+        assert!(matches!(
+            own_chat_echo_color("Party created.", "kgap04", MessageColor::Server),
+            MessageColor::Server
+        ));
+        assert!(matches!(
+            own_chat_echo_color("kgap04 : hello", "", MessageColor::Server),
+            MessageColor::Server
+        ));
+        assert!(matches!(
+            own_chat_echo_color("kgap04 : hi", "kgap04", MessageColor::Party),
+            MessageColor::Party
+        ));
+    }
+
     use super::*;
 
     fn message(color: MessageColor) -> ChatMessage {
@@ -562,43 +742,155 @@ mod tests {
     #[test]
     fn outgoing_chat_routes_whispers() {
         assert!(matches!(
-            parse_outgoing_chat("hello", "", false),
+            parse_outgoing_chat("hello", "", false, false),
             OutgoingChat::Public(text) if text == "hello"
         ));
         assert!(matches!(
-            parse_outgoing_chat("/w Bob hi there", "", false),
+            parse_outgoing_chat("/w Bob hi there", "", false, false),
             OutgoingChat::Whisper { target, text } if target == "Bob" && text == "hi there"
         ));
         assert!(matches!(
-            parse_outgoing_chat("/whisper Cara ping", "", false),
+            parse_outgoing_chat("/whisper Cara ping", "", false, false),
             OutgoingChat::Whisper { target, text } if target == "Cara" && text == "ping"
         ));
         assert!(matches!(
-            parse_outgoing_chat("Dana : secret", "", false),
+            parse_outgoing_chat("/W Bob hi", "", false, false),
+            OutgoingChat::Whisper { target, text } if target == "Bob" && text == "hi"
+        ));
+        assert!(matches!(
+            parse_outgoing_chat("Dana : secret", "", false, false),
             OutgoingChat::Whisper { target, text } if target == "Dana" && text == "secret"
         ));
         assert!(matches!(
-            parse_outgoing_chat("hello", "Eve", true),
+            parse_outgoing_chat("hello", "Eve", true, true),
             OutgoingChat::Whisper { target, text } if target == "Eve" && text == "hello"
         ));
         assert!(matches!(
-            parse_outgoing_chat("@broadcast hi", "Eve", true),
+            parse_outgoing_chat("@broadcast hi", "Eve", true, true),
             OutgoingChat::Public(_)
         ));
-        assert!(matches!(parse_outgoing_chat("@guild", "", true), OutgoingChat::Public(_)));
         assert!(matches!(
-            parse_outgoing_chat("/g rally at the castle", "", false),
+            parse_outgoing_chat("@guild", "", false, true),
+            OutgoingChat::Public(_)
+        ));
+        assert!(matches!(
+            parse_outgoing_chat("/g rally at the castle", "", false, false),
             OutgoingChat::Guild(text) if text == "rally at the castle"
         ));
         assert!(matches!(
-            parse_outgoing_chat("/guild on my way", "", false),
+            parse_outgoing_chat("/guild on my way", "", false, false),
             OutgoingChat::Guild(text) if text == "on my way"
         ));
         assert!(matches!(
-            parse_outgoing_chat("hello guild", "", true),
+            parse_outgoing_chat("hello guild", "", false, true),
             OutgoingChat::Guild(text) if text == "hello guild"
         ));
-        assert!(matches!(parse_outgoing_chat("/where", "", true), OutgoingChat::Public(_)));
+        assert!(matches!(
+            parse_outgoing_chat("hello guild", "Eve", false, true),
+            OutgoingChat::Guild(text) if text == "hello guild"
+        ));
+        assert!(matches!(
+            parse_outgoing_chat("/where", "", false, true),
+            OutgoingChat::Public(_)
+        ));
+        assert!(matches!(
+            parse_outgoing_chat("/where", "Eve", true, false),
+            OutgoingChat::Public(_)
+        ));
+    }
+
+    #[test]
+    fn whisper_command_does_not_hijack_the_next_plain_line() {
+        let mut field = String::new();
+        let mut stamp = String::new();
+        let sent = parse_outgoing_chat("/w kgap01 hello from B", &field, whisper_target_armed(&field, &stamp), false);
+        assert!(matches!(
+            sent,
+            OutgoingChat::Whisper { target, text } if target == "kgap01" && text == "hello from B"
+        ));
+
+        disarm_sticky_whisper(&mut field, &mut stamp, "kgap01");
+        assert_eq!(field, "kgap01");
+        assert!(!whisper_target_armed(&field, &stamp));
+        assert!(matches!(
+            parse_outgoing_chat("public bubble from B", &field, whisper_target_armed(&field, &stamp), false),
+            OutgoingChat::Public(text) if text == "public bubble from B"
+        ));
+
+        note_whisper_field_edit(&mut stamp);
+        assert!(whisper_target_armed(&field, &stamp));
+        assert!(matches!(
+            parse_outgoing_chat("secret", &field, whisper_target_armed(&field, &stamp), false),
+            OutgoingChat::Whisper { target, text } if target == "kgap01" && text == "secret"
+        ));
+    }
+
+    #[test]
+    fn filled_box_without_whisper_mode_stays_public() {
+        assert!(!whisper_target_armed("kgap01", "kgap01"));
+        assert!(whisper_target_armed("kgap01", ""));
+        assert!(whisper_target_armed("Cara", "kgap01"));
+        assert!(!whisper_target_armed("  ", ""));
+        assert!(matches!(
+            parse_outgoing_chat("hello", "kgap01", false, false),
+            OutgoingChat::Public(_)
+        ));
+    }
+
+    #[test]
+    fn pinned_list_shows_newest_lines_until_the_player_scrolls_up() {
+        let heights = vec![16.0, 16.0, 16.0];
+        let content = stacked_content_height(&heights, CHAT_LINE_SPACING);
+        let viewport = 16.0;
+        let pinned = sync_list_scroll(ListScroll::default(), content, viewport);
+        assert!(pinned.pinned);
+        assert_eq!(indexes_in_view(&heights, CHAT_LINE_SPACING, pinned.offset, viewport), vec![2]);
+
+        let wider = sync_list_scroll(ListScroll::default(), content, 40.0);
+        let shown = indexes_in_view(&heights, CHAT_LINE_SPACING, wider.offset, 40.0);
+        assert_eq!(shown, vec![1, 2]);
+        assert!(!shown.contains(&0));
+
+        let reading_history = scroll_list(pinned, 30.0, content, viewport);
+        assert!(!reading_history.pinned);
+        assert!(reading_history.offset < pinned.offset);
+
+        let grew = stacked_content_height(&[16.0, 16.0, 16.0, 16.0], CHAT_LINE_SPACING);
+        let stayed = sync_list_scroll(reading_history, grew, viewport);
+        assert!(!stayed.pinned);
+        assert!((stayed.offset - reading_history.offset).abs() < 0.01);
+
+        let back = scroll_list(stayed, -10_000.0, grew, viewport);
+        assert!(back.pinned);
+        let followed = sync_list_scroll(back, grew + 21.0, viewport);
+        assert!(followed.pinned);
+        assert!(followed.offset > back.offset);
+        let newest = indexes_in_view(&[16.0; 5], CHAT_LINE_SPACING, followed.offset, viewport);
+        assert_eq!(newest, vec![4]);
+    }
+
+    #[test]
+    fn all_tab_pinned_view_keeps_the_welcome_line_above_new_lines() {
+        let filters = ChatFilterState::default();
+        let messages = [
+            ChatMessage::new("Welcome to Korangar".to_string(), MessageColor::Server),
+            ChatMessage::new("kgap02 : hello bubble from B".to_string(), MessageColor::Public),
+            ChatMessage::with_channel("kgap01 is offline.".to_string(), MessageColor::Error, ChatChannel::Whisper),
+        ];
+        let shown: Vec<_> = messages.iter().filter(|message| filters.allows_message(message)).collect();
+        assert_eq!(shown.len(), 3);
+        let heights = vec![16.0; shown.len()];
+        let content = stacked_content_height(&heights, CHAT_LINE_SPACING);
+        let scroll = sync_list_scroll(ListScroll::default(), content, 18.0);
+        let visible = indexes_in_view(&heights, CHAT_LINE_SPACING, scroll.offset, 18.0);
+        assert_eq!(visible, vec![2]);
+        assert_eq!(shown[2].text, "kgap01 is offline.");
+
+        let mut whisper_tab = ChatFilterState::default();
+        whisper_tab.select(ChatTab::Whisper);
+        let whisper_lines: Vec<_> = messages.iter().filter(|message| whisper_tab.allows_message(message)).collect();
+        assert_eq!(whisper_lines.len(), 1);
+        assert_eq!(whisper_lines[0].text, "kgap01 is offline.");
     }
 
     #[test]

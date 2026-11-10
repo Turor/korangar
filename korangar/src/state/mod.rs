@@ -750,6 +750,7 @@ impl ClientState {
         chat::parse_outgoing_chat(
             text,
             self.chat_window.whisper_target_text(),
+            self.chat_window.whisper_target_armed(),
             self.chat_window.sends_guild_chat(),
         )
     }
