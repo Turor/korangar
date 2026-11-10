@@ -671,6 +671,7 @@ where
         index: packet.index,
         amount: packet.amount,
     })?;
+    crate::packet_versions::item_use::register_item_use_packets(packet_handler)?;
     packet_handler.register(|packet: ServerTickPacket| NetworkEvent::UpdateClientTick {
         client_tick: packet.client_tick,
         received_at: Instant::now(),
