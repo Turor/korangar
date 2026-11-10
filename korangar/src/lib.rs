@@ -1080,8 +1080,7 @@ impl Client {
 
                     self.saved_login_data = Some(login_data);
 
-                    // Clone before the state write. `follow_mut` applies later, so moving
-                    // the vec first would leave Select Server with nothing to click.
+                    // `SelectServer` must not alias the vec moved into client state.
                     let auto_server = character_servers.first().cloned();
                     *self.client_state.follow_mut(client_state().character_servers()) = character_servers;
 
@@ -3600,6 +3599,9 @@ impl Client {
                 }
                 InputEvent::RenameEquipLoadout => {
                     self.client_state.follow_mut(client_state().equip_switch()).rename_selected();
+                }
+                InputEvent::CancelRenameLoadout => {
+                    self.client_state.follow_mut(client_state().equip_switch()).cancel_rename();
                 }
                 InputEvent::ApplyEquipLoadout { index, wear } => {
                     self.client_state.follow_mut(client_state().equip_switch()).select(index);

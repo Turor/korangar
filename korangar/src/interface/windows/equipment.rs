@@ -10,10 +10,9 @@
 use std::cell::{Cell, UnsafeCell};
 
 use korangar_interface::application::Application;
-use korangar_interface::components::text_box::DefaultHandler;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::{Element, ElementBox, ErasedElement};
-use korangar_interface::event::{ClickHandler, EventQueue};
+use korangar_interface::event::{ClickHandler, Event, EventQueue, InputHandler};
 use korangar_interface::layout::area::{Area, PartialArea};
 use korangar_interface::layout::{MouseButton, Resolver, Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
@@ -704,6 +703,42 @@ impl ClickHandler<ClientState> for BeginRenameClick {
     }
 }
 
+/// Enter applies the draft. Escape drops it. Both leave the text box.
+struct GearSetNameHandler<P> {
+    path: P,
+}
+
+impl<P> GearSetNameHandler<P> {
+    fn new(path: P) -> Self {
+        Self { path }
+    }
+}
+
+impl<P> InputHandler<ClientState> for GearSetNameHandler<P>
+where
+    P: Path<ClientState, String>,
+{
+    fn handle_character(&self, state: &State<ClientState>, queue: &mut EventQueue<ClientState>, character: char) {
+        if character == '\t' || character == '\r' {
+            queue.queue(InputEvent::RenameEquipLoadout);
+            queue.queue(Event::Unfocus);
+        } else if character == '\x1b' {
+            queue.queue(InputEvent::CancelRenameLoadout);
+            queue.queue(Event::Unfocus);
+        } else if character == '\x08' {
+            state.update_value_with(self.path, move |current_text| {
+                current_text.pop();
+            });
+        } else if !character.is_control() {
+            state.update_value_with(self.path, move |current_text| {
+                if current_text.len().saturating_add(character.len_utf8()) <= 24 {
+                    current_text.push(character);
+                }
+            });
+        }
+    }
+}
+
 /// One row: set dropdown, +, −. The menu lists saved names. Double-click the
 /// name to edit it inline.
 struct SetBar<A> {
@@ -757,9 +792,7 @@ where
                     self.elements.push(ErasedElement::new(text_box! {
                         ghost_text: "Set name",
                         state: switch_path.draft_name(),
-                        input_handler: DefaultHandler::<_, _, 24>::new(switch_path.draft_name(), |_state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
-                            queue.queue(InputEvent::RenameEquipLoadout);
-                        }),
+                        input_handler: GearSetNameHandler::new(switch_path.draft_name()),
                         focus_id: GearSetName,
                     }));
                 } else {

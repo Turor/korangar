@@ -75,11 +75,20 @@ impl EquipSwitch {
     }
 
     pub fn begin_rename(&mut self) {
+        if self.renaming {
+            return;
+        }
         if let Some(set) = self.loadouts.get(self.selected) {
             self.draft_name.clone_from(&set.name);
             self.renaming = true;
             self.sets_open = false;
         }
+    }
+
+    /// Leave edit mode and drop the in-progress name.
+    pub fn cancel_rename(&mut self) {
+        self.renaming = false;
+        self.draft_name.clear();
     }
 
     /// Drop the selected snapshot. No-op when nothing is selected.
@@ -104,18 +113,15 @@ impl EquipSwitch {
         }
     }
 
-    /// Store the live switch set under the draft name, or `Set N` when blank.
-    /// A matching name is replaced.
+    /// Store the live switch set under the draft name.
+    ///
+    /// A blank draft takes the smallest unused `Set N` and never replaces a set.
+    /// A name the user typed replaces a set that already has that name.
     pub fn save_loadout(&mut self) {
-        let name = {
-            let trimmed = self.draft_name.trim();
-            if trimmed.is_empty() {
-                format!("Set {}", self.loadouts.len() + 1)
-            } else {
-                trimmed.to_string()
-            }
-        };
-        if let Some(existing) = self.loadouts.iter_mut().find(|set| set.name == name) {
+        let trimmed = self.draft_name.trim().to_string();
+        let name = if trimmed.is_empty() { self.next_automatic_name() } else { trimmed };
+        let explicit = !self.draft_name.trim().is_empty();
+        if explicit && let Some(existing) = self.loadouts.iter_mut().find(|set| set.name == name) {
             existing.slots.clone_from(&self.slots);
         } else {
             self.loadouts.push(EquipLoadout {
@@ -131,15 +137,28 @@ impl EquipSwitch {
         self.sets_open = false;
     }
 
-    /// Rename the selected set from the draft. Blank drafts are ignored.
+    fn next_automatic_name(&self) -> String {
+        let mut number = 1;
+        loop {
+            let candidate = format!("Set {number}");
+            if !self.loadouts.iter().any(|set| set.name == candidate) {
+                return candidate;
+            }
+            number += 1;
+        }
+    }
+
+    /// Rename the selected set from the draft and leave edit mode.
+    /// A blank draft is discarded and the saved name stays as it is.
     pub fn rename_selected(&mut self) {
         let trimmed = self.draft_name.trim();
-        if trimmed.is_empty() {
-            return;
-        }
-        if let Some(set) = self.loadouts.get_mut(self.selected) {
+        if !trimmed.is_empty()
+            && let Some(set) = self.loadouts.get_mut(self.selected)
+        {
             set.name = trimmed.to_string();
         }
+        self.renaming = false;
+        self.draft_name.clear();
     }
 
     pub fn loadout(&self, index: usize) -> Option<&EquipLoadout> {
@@ -203,9 +222,20 @@ mod tests {
         assert_eq!(equip.loadouts[0].slots.len(), 1);
 
         equip.select(0);
+        equip.begin_rename();
         equip.draft_name = "Town".to_string();
+        equip.begin_rename();
+        assert_eq!(equip.draft_name, "Town");
         equip.rename_selected();
         assert_eq!(equip.loadouts[0].name, "Town");
+        assert!(!equip.renaming_set());
+
+        equip.begin_rename();
+        equip.draft_name = "Discarded".to_string();
+        equip.cancel_rename();
+        assert_eq!(equip.loadouts[0].name, "Town");
+        assert!(equip.draft_name.is_empty());
+        assert!(!equip.renaming_set());
 
         equip.slots = vec![slot(9, EquipPosition::SHOES)];
         equip.draft_name = "Town".to_string();
@@ -217,6 +247,30 @@ mod tests {
         assert!(equip.delete_selected());
         assert!(equip.loadouts.is_empty());
         assert!(!equip.delete_selected());
+    }
+
+    #[test]
+    fn automatic_name_fills_the_smallest_gap() {
+        let mut equip = EquipSwitch {
+            slots: vec![slot(1, EquipPosition::ARMOR)],
+            ..EquipSwitch::default()
+        };
+        equip.save_loadout();
+        equip.save_loadout();
+        assert_eq!(equip.loadouts[0].name, "Set 1");
+        assert_eq!(equip.loadouts[1].name, "Set 2");
+
+        equip.select(0);
+        assert!(equip.delete_selected());
+        equip.draft_name.clear();
+        equip.slots = vec![slot(4, EquipPosition::SHOES)];
+        equip.save_loadout();
+
+        assert_eq!(equip.loadouts.len(), 2);
+        assert_eq!(equip.loadouts[0].name, "Set 2");
+        assert_eq!(equip.loadouts[0].slots[0].index, InventoryIndex(1));
+        assert_eq!(equip.loadouts[1].name, "Set 1");
+        assert_eq!(equip.loadouts[1].slots[0].index, InventoryIndex(4));
     }
 
     #[test]

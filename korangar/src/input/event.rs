@@ -82,6 +82,8 @@ pub enum InputEvent {
     DeleteEquipLoadout,
     /// Rename the selected Gear loadout from the draft name.
     RenameEquipLoadout,
+    /// Leave inline rename and drop the draft name.
+    CancelRenameLoadout,
     /// Write a saved loadout back to the switch set.
     ///
     /// `wear` also asks the server to swap that set onto the character.
