@@ -1113,6 +1113,7 @@ where
         character_id: packet.character_id,
     })?;
     crate::packet_versions::clan::register_clan_packets(packet_handler)?;
+    crate::packet_versions::chat_room::register_chat_room_packets(packet_handler)?;
     crate::packet_versions::party::register_party_packets(packet_handler)?;
     crate::packet_versions::guild::register_guild_action_packets(packet_handler)?;
     packet_handler.register_noop::<ChangeMapCellPacket>()?;

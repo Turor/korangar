@@ -1,4 +1,6 @@
 pub mod chat_overlay;
+pub mod chat_room_boards;
+pub mod chat_room_flow;
 pub mod components;
 pub(crate) mod context_menu_flow;
 pub mod cursor;
