@@ -397,4 +397,64 @@ mod tests {
         let mut reader = ByteReader::without_metadata(&one_own);
         assert_eq!(OwnVendingListPacket::packet_from_bytes(&mut reader).unwrap().items.len(), 1);
     }
+
+    #[test]
+    fn search_store_hits_include_three_forge_options() {
+        use ragnarok_bytes::FixedByteSize;
+
+        assert_eq!(SearchStoreHitInformation::size_in_bytes(), 157);
+
+        fn hit(store_id: u32, forge_index: u16, refine: u8) -> Vec<u8> {
+            let mut row = Vec::new();
+            row.extend(store_id.to_le_bytes());
+            row.extend(4u32.to_le_bytes());
+            let mut name = b"Arrow shop".to_vec();
+            name.resize(80, 0);
+            row.extend(name);
+            row.extend(1750u32.to_le_bytes());
+            row.push(0);
+            row.extend(10u32.to_le_bytes());
+            row.extend(99u16.to_le_bytes());
+            row.extend([0u8; 16]);
+            row.extend([0u8; 25]);
+            row.extend(forge_index.to_le_bytes());
+            row.extend([0u8; 3]);
+            row.extend([0u8; 10]);
+            row.push(refine);
+            row.push(1);
+            assert_eq!(row.len(), 157);
+            row
+        }
+
+        fn frame(hits: &[Vec<u8>]) -> Vec<u8> {
+            let len = 7 + hits.iter().map(Vec::len).sum::<usize>();
+            let mut bytes = Vec::new();
+            bytes.extend(0x0B64u16.to_le_bytes());
+            bytes.extend((len as u16).to_le_bytes());
+            bytes.push(1);
+            bytes.push(0);
+            bytes.push(2);
+            for hit in hits {
+                bytes.extend(hit);
+            }
+            bytes
+        }
+
+        let one = frame(&[hit(15, 100, 7)]);
+        assert_eq!(one.len(), 7 + 157);
+        let two = frame(&[hit(15, 100, 7), hit(16, 101, 6)]);
+        assert_eq!(two.len(), 7 + 157 * 2);
+        let mut reader = ByteReader::without_metadata(&two);
+        let parsed = SearchStoreResultPacket::packet_from_bytes(&mut reader).unwrap();
+        assert!(reader.is_empty());
+        assert_eq!(parsed.hits.len(), 2);
+        assert_eq!(parsed.hits[0].forge_data[0].index, 100);
+        assert_eq!(parsed.hits[0].refine, 7);
+        assert_eq!(parsed.hits[0].shop_name, "Arrow shop");
+        assert_eq!(parsed.hits[1].store_id, 16);
+        assert_eq!(parsed.hits[1].forge_data[0].index, 101);
+        assert_eq!(parsed.hits[1].refine, 6);
+        let mut reader = ByteReader::without_metadata(&one);
+        assert_eq!(SearchStoreResultPacket::packet_from_bytes(&mut reader).unwrap().hits.len(), 1);
+    }
 }

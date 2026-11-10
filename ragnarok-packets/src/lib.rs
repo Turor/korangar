@@ -5755,7 +5755,9 @@ pub struct SearchStoreFailedPacket {
 }
 
 /// One search-store hit for PACKETVER main >= 20200916
-/// (`ZC_SEARCH_STORE_INFO_ACK`, 0x0B64).
+/// (`ZC_SEARCH_STORE_INFO_ACK`, 0x0B64). Hercules
+/// `PACKET_ZC_SEARCH_STORE_INFO_ACK_sub` is 157 bytes: the five item options
+/// are followed by `forge_data[MAX_FORGE_OPTIONS]`.
 #[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct SearchStoreHitInformation {
@@ -5769,6 +5771,8 @@ pub struct SearchStoreHitInformation {
     pub amount: u16,
     pub cards: [u32; 4],
     pub options: [ItemOptions; 5],
+    /// `ItemOptions forge_data[MAX_FORGE_OPTIONS]` (3 × 5 bytes) on 20250716.
+    pub forge_data: [ItemOptions; 3],
     pub refine: u8,
     pub grade: u8,
 }

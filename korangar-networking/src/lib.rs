@@ -110,8 +110,19 @@ impl TimeSynchronization {
     }
 }
 
+/// Last-resort cut so `packet_to_bytes` cannot panic on `DataTooBig`.
+/// The setup window rejects a title that does not fit this UTF-8 budget
+/// before it asks to send. Map packets use `ByteWriter::with_encoding(UTF_8)`.
 fn shop_title(shop_name: &str) -> String {
-    shop_name.chars().take(79).collect()
+    let mut title = String::new();
+    for character in shop_name.chars() {
+        let next = title.len() + character.len_utf8();
+        if next > 79 {
+            break;
+        }
+        title.push(character);
+    }
+    title
 }
 
 fn open_vending_shop_packet(shop_name: &str, result: u8, items: &[(u16, u16, u32)]) -> OpenVendingShop2Packet {
@@ -4190,48 +4201,95 @@ mod packet_handlers {
     #[test]
     fn search_store_result_is_typed() {
         use ragnarok_bytes::FixedByteSize;
-        use ragnarok_packets::{AccountId, ItemId, ItemOptions, Price, SearchStoreHitInformation, SearchStoreResultPacket};
+        use ragnarok_packets::{AccountId, ItemId, Price, SearchStoreHitInformation, SearchStoreResultPacket};
 
-        assert_eq!(SearchStoreHitInformation::size_in_bytes(), 142);
+        // Hercules `PACKET_ZC_SEARCH_STORE_INFO_ACK_sub` (20200916+): 157 bytes,
+        // with `forge_data[3]` between the five item options and refine.
+        assert_eq!(SearchStoreHitInformation::size_in_bytes(), 157);
 
-        let packet = SearchStoreResultPacket {
-            first_page: 1,
-            next_page: 0,
-            uses_remaining: 2,
-            hits: vec![SearchStoreHitInformation {
-                store_id: 15,
-                account_id: AccountId(4),
-                shop_name: "Arrow shop".to_owned(),
-                item_id: ItemId(1750),
-                item_type: 0,
-                price: Price(10),
-                amount: 99,
-                cards: [0; 4],
-                options: std::array::from_fn(|_| ItemOptions {
-                    index: 0,
-                    value: 0,
-                    parameter: 0,
-                }),
-                refine: 0,
-                grade: 0,
-            }],
-        };
-        let mut writer = ByteWriter::new();
-        packet.packet_to_bytes(&mut writer).unwrap();
-        assert_eq!(&writer.as_slice()[..2], &[0x64, 0x0B]);
+        fn hit(store_id: u32, forge_index: u16, refine: u8) -> Vec<u8> {
+            let mut row = Vec::new();
+            row.extend(store_id.to_le_bytes());
+            row.extend(4u32.to_le_bytes());
+            let mut name = b"Arrow shop".to_vec();
+            name.resize(80, 0);
+            row.extend(name);
+            row.extend(1750u32.to_le_bytes());
+            row.push(0);
+            row.extend(10u32.to_le_bytes());
+            row.extend(99u16.to_le_bytes());
+            row.extend([0u8; 16]);
+            row.extend([0u8; 25]);
+            row.extend(forge_index.to_le_bytes());
+            row.extend([0u8; 3]);
+            row.extend([0u8; 10]);
+            row.push(refine);
+            row.push(1);
+            assert_eq!(row.len(), 157);
+            row
+        }
 
-        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
-        assert!(matches!(events.as_slice(), [NetworkEvent::SearchStoreResults {
-            first_page: true,
-            next_page: false,
-            uses_remaining: 2,
-            hits,
-        }] if hits.len() == 1
-            && hits[0].store_id == 15
-            && hits[0].account_id == AccountId(4)
-            && hits[0].shop_name == "Arrow shop"
-            && hits[0].item_id == ItemId(1750)
-            && hits[0].amount == 99));
+        fn frame(next_page: u8, hits: &[Vec<u8>]) -> Vec<u8> {
+            let len = 7 + hits.iter().map(Vec::len).sum::<usize>();
+            let mut bytes = Vec::new();
+            bytes.extend(0x0B64u16.to_le_bytes());
+            bytes.extend((len as u16).to_le_bytes());
+            bytes.push(1);
+            bytes.push(next_page);
+            bytes.push(2);
+            for hit in hits {
+                bytes.extend(hit);
+            }
+            bytes
+        }
+
+        let one = frame(0, &[hit(15, 100, 7)]);
+        assert_eq!(one.len(), 7 + 157);
+        let two = frame(1, &[hit(15, 100, 7), hit(16, 101, 6)]);
+        assert_eq!(two.len(), 7 + 157 * 2);
+
+        let mut reader = ByteReader::without_metadata(&two);
+        let parsed = SearchStoreResultPacket::packet_from_bytes(&mut reader).unwrap();
+        assert!(reader.is_empty());
+        assert_eq!(parsed.hits.len(), 2);
+        assert_eq!(parsed.hits[0].store_id, 15);
+        assert_eq!(parsed.hits[0].account_id, AccountId(4));
+        assert_eq!(parsed.hits[0].shop_name, "Arrow shop");
+        assert_eq!(parsed.hits[0].item_id, ItemId(1750));
+        assert_eq!(parsed.hits[0].price, Price(10));
+        assert_eq!(parsed.hits[0].amount, 99);
+        assert_eq!(parsed.hits[0].forge_data[0].index, 100);
+        assert_eq!(parsed.hits[0].refine, 7);
+        assert_eq!(parsed.hits[0].grade, 1);
+        assert_eq!(parsed.hits[1].store_id, 16);
+        assert_eq!(parsed.hits[1].forge_data[0].index, 101);
+        assert_eq!(parsed.hits[1].refine, 6);
+
+        for version in [SupportedPacketVersion::_20250716, SupportedPacketVersion::_20220406] {
+            let events = process_one(version, &one);
+            assert!(matches!(events.as_slice(), [NetworkEvent::SearchStoreResults {
+                first_page: true,
+                next_page: false,
+                uses_remaining: 2,
+                hits,
+            }] if hits.len() == 1
+                && hits[0].store_id == 15
+                && hits[0].account_id == AccountId(4)
+                && hits[0].shop_name == "Arrow shop"
+                && hits[0].item_id == ItemId(1750)
+                && hits[0].amount == 99));
+            let events = process_one(version, &two);
+            assert!(matches!(events.as_slice(), [NetworkEvent::SearchStoreResults {
+                first_page: true,
+                next_page: true,
+                uses_remaining: 2,
+                hits,
+            }] if hits.len() == 2 && hits[1].store_id == 16));
+        }
+        assert!(matches!(
+            map_handler(SupportedPacketVersion::_20190530).process_one(&mut ByteReader::without_metadata(&one)),
+            HandlerResult::UnhandledPacket
+        ));
     }
 
     #[test]

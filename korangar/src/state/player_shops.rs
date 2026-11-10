@@ -26,7 +26,7 @@ pub const BUYING_STORE_MAX_PRICE: u32 = 99_990_000;
 pub const BUYING_STORE_MAX_AMOUNT: u16 = 9999;
 /// Name-search item cap. The search packet count is a single byte.
 pub const SEARCH_ITEM_LIMIT: usize = 10;
-/// Shop title bytes on the wire, excluding the trailing NUL inside the 80.
+/// Shop title content bytes on the wire. The field is 80 bytes and keeps a NUL.
 pub const SHOP_TITLE_LIMIT: usize = 79;
 /// `selected_line` value when no row is selected.
 pub const NO_SELECTION: u16 = u16::MAX;
@@ -230,19 +230,6 @@ pub fn match_item_names<'a>(items: impl IntoIterator<Item = (u32, &'a str)>, que
     out
 }
 
-/// Append name hits that are not already present, stopping at `limit`.
-pub fn extend_name_matches(picks: &mut Vec<(u32, String)>, extra: impl IntoIterator<Item = (u32, String)>, limit: usize) {
-    for (id, name) in extra {
-        if picks.len() >= limit {
-            break;
-        }
-        if picks.iter().any(|(existing, _)| *existing == id) {
-            continue;
-        }
-        picks.push((id, name));
-    }
-}
-
 impl ShopSetupState {
     pub fn start_vending(&mut self, item_count: u16, candidates: Vec<ShopCandidate>) {
         self.start(false, usize::from(item_count).min(VENDING_MAX_ITEMS), candidates);
@@ -383,8 +370,8 @@ impl ShopSetupState {
         if title.is_empty() {
             return self.fail("Enter a shop title.");
         }
-        if title.chars().count() > SHOP_TITLE_LIMIT {
-            return self.fail("The shop title is too long.");
+        if let Err(message) = shop_title_encodes(title) {
+            return self.fail(message);
         }
         let listed: Vec<&ShopDraftLine> = self.lines.iter().filter(|line| line.listed).collect();
         if listed.is_empty() {
@@ -548,6 +535,24 @@ impl ShopReportState {
     }
 }
 
+/// Map packets are written with UTF-8 (`ByteWriter::with_encoding(UTF_8)`).
+/// `to_n_bytes` into the 80-byte name drops the NUL when the content is
+/// exactly 80 bytes, and returns `DataTooBig` when it is longer. Both lose
+/// the title the player typed, so the setup window rejects them.
+fn shop_title_encodes(title: &str) -> Result<(), String> {
+    use ragnarok_bytes::encoding::UTF_8;
+    use ragnarok_bytes::{ByteWriter, ToBytesExt};
+
+    let mut writer = ByteWriter::with_encoding(UTF_8);
+    let encoded = title.to_owned().to_n_bytes(&mut writer, SHOP_TITLE_LIMIT + 1);
+    let terminated = encoded.is_ok() && writer.as_slice().last() == Some(&0);
+    if terminated {
+        Ok(())
+    } else {
+        Err("The shop title could not be encoded into the 79-byte field.".to_owned())
+    }
+}
+
 fn refresh_line(line: &mut ShopDraftLine, buying: bool) {
     let place = if buying { "Bag" } else { "Cart" };
     line.label = if line.listed {
@@ -680,6 +685,41 @@ mod tests {
         );
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].item_id, 501);
+    }
+
+    #[test]
+    fn vending_title_must_fit_the_utf8_wire_field() {
+        let mut setup = ShopSetupState::default();
+        setup.start_vending(2, vec![candidate("Potion", 4, 501, 2)]);
+        assert!(list_line(&mut setup, 0, "1", "10").is_ok());
+
+        setup.title = "가".repeat(40);
+        let error = setup.open_request().unwrap_err();
+        assert!(error.contains("encoded"));
+        assert_eq!(setup.status, error);
+
+        setup.title = "가".repeat(27);
+        assert!(setup.open_request().is_err());
+        assert!(setup.status.contains("encoded"));
+
+        setup.title = "가".repeat(26);
+        assert!(setup.open_request().is_ok());
+
+        setup.title = "a".repeat(79);
+        assert!(setup.open_request().is_ok());
+
+        setup.title = "a".repeat(80);
+        let error = setup.open_request().unwrap_err();
+        assert!(error.contains("encoded"));
+        assert_eq!(setup.status, error);
+
+        setup.start_buying(5, vec![candidate("Potion", 1, 501, 10)]);
+        assert!(list_line(&mut setup, 0, "1", "10").is_ok());
+        setup.zeny_text = "5000".to_owned();
+        setup.title = "가".repeat(40);
+        let error = setup.open_request().unwrap_err();
+        assert!(error.contains("encoded"));
+        assert_eq!(setup.status, error);
     }
 
     #[test]

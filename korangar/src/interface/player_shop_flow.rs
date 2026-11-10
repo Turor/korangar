@@ -101,6 +101,7 @@ impl Client {
     }
 
     pub(crate) fn on_search_store_open(&mut self, remaining_uses: u8) {
+        self.ensure_shop_search_catalog();
         self.client_state.follow_mut(client_state().shop_search()).begin(remaining_uses);
         self.open_search_store_window();
         self.shop_chat(
@@ -147,23 +148,20 @@ impl Client {
     }
 
     pub(crate) fn submit_shop_setup(&mut self) {
-        let request = {
-            let setup = self.client_state.follow_mut(client_state().shop_setup());
-            let request = setup.open_request();
-            if request.is_ok() {
-                setup.status = "Opening the shop.".to_owned();
-            }
-            request
-        };
-        match request {
-            Ok(ShopOpenRequest::Vending { title, items }) => {
-                let _ = self.networking_system.open_vending_shop(&title, &items);
-            }
+        let request = self.client_state.follow_mut(client_state().shop_setup()).open_request();
+        let sent = match request {
+            Ok(ShopOpenRequest::Vending { title, items }) => self.networking_system.open_vending_shop(&title, &items),
             Ok(ShopOpenRequest::Buying { title, zeny_limit, items }) => {
-                let _ = self.networking_system.open_buying_store(&title, zeny_limit, &items);
+                self.networking_system.open_buying_store(&title, zeny_limit, &items)
             }
-            Err(_) => {}
-        }
+            Err(_) => return,
+        };
+        let status = if sent.is_ok() {
+            "Opening the shop.".to_owned()
+        } else {
+            "The shop opening was not sent.".to_owned()
+        };
+        self.client_state.follow_mut(client_state().shop_setup()).status = status;
     }
 
     pub(crate) fn cancel_shop_setup(&mut self) {
@@ -211,15 +209,17 @@ impl Client {
     }
 
     pub(crate) fn suggest_shop_search(&mut self) {
+        self.ensure_shop_search_catalog();
         let query = self.client_state.follow(client_state().shop_search().query()).clone();
         let catalog_empty = self.client_state.follow(client_state().item_finder()).catalog_is_empty();
-        let mut picks = self
-            .client_state
-            .follow(client_state().item_finder())
-            .name_matches(&query, SEARCH_ITEM_LIMIT);
-        let bag = self.bag_name_pairs();
-        let bag_hits = player_shops::match_item_names(bag.iter().map(|(id, name)| (*id, name.as_str())), &query, SEARCH_ITEM_LIMIT);
-        player_shops::extend_name_matches(&mut picks, bag_hits, SEARCH_ITEM_LIMIT);
+        let picks = if catalog_empty {
+            let bag = self.bag_name_pairs();
+            player_shops::match_item_names(bag.iter().map(|(id, name)| (*id, name.as_str())), &query, SEARCH_ITEM_LIMIT)
+        } else {
+            self.client_state
+                .follow(client_state().item_finder())
+                .name_matches(&query, SEARCH_ITEM_LIMIT)
+        };
         let trimmed = query.trim();
         let short_text = trimmed.chars().count() < 2 && !trimmed.bytes().all(|byte| byte.is_ascii_digit());
         let status = if picks.is_empty() && catalog_empty {
@@ -290,6 +290,15 @@ impl Client {
                 client_state().search_store_hits(),
                 client_state().shop_search(),
             ));
+        }
+    }
+
+    /// Load the item catalog the first time shop search needs names.
+    /// Bag and cart names are used only when that load still leaves the catalog
+    /// empty.
+    fn ensure_shop_search_catalog(&mut self) {
+        if self.client_state.follow(client_state().item_finder()).catalog_is_empty() {
+            crate::load_item_finder(self.game_file_loader.as_ref(), &mut self.client_state);
         }
     }
 
