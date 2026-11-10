@@ -17,9 +17,9 @@
 //! ```
 //!
 //! `version` is `[0-9A-Za-z._+-]{1,64}`. Paths are relative, slash-separated,
-//! with no `.` or `..` components. `url` is either that same relative path, an
-//! `http://` loopback URL, or a `file://` URL. Non-loopback and `https` URLs
-//! are rejected so this build cannot phone a CDN.
+//! with no `.` or `..` components. `url` is that same relative path, an
+//! `http://` loopback URL, a `file://` URL, or `https://ro.turoran.com/...`.
+//! Every other host, including other `https` hosts, is rejected.
 //!
 //! # Envelope
 //!
@@ -29,9 +29,8 @@
 //! <canonical payload, which itself starts with KRUP1\n>
 //! ```
 //!
-//! The public key is [`EMBEDDED_UPDATE_PUBLIC_KEY`] (all zeros until a release
-//! build pastes the const from `korangar-sign-release public-key`). The private
-//! seed stays outside the git tree. See `docs/signed-auto-update.md`.
+//! The public key is [`EMBEDDED_UPDATE_PUBLIC_KEY`]. The private seed stays on
+//! the signing controller, outside the git tree. See `docs/signed-auto-update.md`.
 
 pub mod cli;
 pub mod manifest;
@@ -333,10 +332,10 @@ pub fn join_url(base: &str, url: &str) -> Result<String, String> {
         return Err("unsafe artifact url".into());
     }
     if url.contains("://") {
-        if url.starts_with("http://") || url.starts_with("file://") {
+        if url.starts_with("http://") || url.starts_with("file://") || is_allowed_https(url) {
             return Ok(url.to_string());
         }
-        return Err("only http loopback and file URLs are enabled".into());
+        return Err("only http loopback, file, and https://ro.turoran.com URLs are enabled".into());
     }
     if url.starts_with("//") {
         return Err("unsafe artifact url".into());
@@ -358,13 +357,28 @@ fn fetch_url(url: &str, max_bytes: u64) -> Result<Vec<u8>, String> {
         return Ok(bytes);
     }
     if let Some(rest) = url.strip_prefix("http://") {
-        let (host, port, path) = split_http(rest)?;
+        let (host, port, path) = split_http(rest, 80)?;
         if !is_loopback(&host) {
             return Err("remote update hosts are disabled".into());
         }
-        return http_get(&host, port, &path, max_bytes);
+        let mut stream = connect_tcp(&host, port)?;
+        return read_http(&mut stream, &host, &path, max_bytes);
     }
-    Err("only http loopback and file URLs are enabled".into())
+    if let Some(rest) = url.strip_prefix("https://") {
+        let (host, port, path) = split_http(rest, 443)?;
+        if !is_release_host(&host) {
+            return Err("https updates are limited to ro.turoran.com".into());
+        }
+        return https_get(&host, port, &path, max_bytes);
+    }
+    Err("only http loopback, file, and https://ro.turoran.com URLs are enabled".into())
+}
+
+fn is_allowed_https(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
+    split_http(rest, 443).is_ok_and(|(host, _, _)| is_release_host(&host))
 }
 
 fn file_url_path(rest: &str) -> Result<PathBuf, String> {
@@ -379,7 +393,11 @@ fn is_loopback(host: &str) -> bool {
     matches!(host, "127.0.0.1" | "localhost" | "::1")
 }
 
-fn split_http(rest: &str) -> Result<(String, u16, String), String> {
+fn is_release_host(host: &str) -> bool {
+    host == "ro.turoran.com"
+}
+
+fn split_http(rest: &str, default_port: u16) -> Result<(String, u16, String), String> {
     if rest.contains('@') {
         return Err("userinfo in update urls is rejected".into());
     }
@@ -392,12 +410,12 @@ fn split_http(rest: &str) -> Result<(String, u16, String), String> {
     }
     let (host, port) = if let Some(host) = authority.strip_prefix('[') {
         let (host, tail) = host.split_once(']').ok_or("bad ipv6 url")?;
-        let port = parse_port(tail)?;
+        let port = parse_port(tail, default_port)?;
         (host.to_string(), port)
     } else if let Some((host, port)) = authority.rsplit_once(':') {
         (host.to_string(), port.parse::<u16>().map_err(|_| "bad port")?)
     } else {
-        (authority.to_string(), 80)
+        (authority.to_string(), default_port)
     };
     if host.is_empty() {
         return Err("missing host".into());
@@ -405,27 +423,46 @@ fn split_http(rest: &str) -> Result<(String, u16, String), String> {
     Ok((host, port, path))
 }
 
-fn parse_port(tail: &str) -> Result<u16, String> {
+fn parse_port(tail: &str, default_port: u16) -> Result<u16, String> {
     if tail.is_empty() {
-        return Ok(80);
+        return Ok(default_port);
     }
     let port = tail.strip_prefix(':').ok_or("bad port")?;
     port.parse::<u16>().map_err(|_| "bad port".to_string())
 }
 
-fn http_get(host: &str, port: u16, path: &str, max_bytes: u64) -> Result<Vec<u8>, String> {
+fn connect_tcp(host: &str, port: u16) -> Result<TcpStream, String> {
     let address = if host.contains(':') {
         format!("[{host}]:{port}")
     } else {
         format!("{host}:{port}")
     };
-    let mut stream = TcpStream::connect(address).map_err(|error| error.to_string())?;
+    let stream = TcpStream::connect(address).map_err(|error| error.to_string())?;
     stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
+        .set_read_timeout(Some(Duration::from_secs(15)))
         .map_err(|error| error.to_string())?;
     stream
-        .set_write_timeout(Some(Duration::from_secs(5)))
+        .set_write_timeout(Some(Duration::from_secs(15)))
         .map_err(|error| error.to_string())?;
+    Ok(stream)
+}
+
+fn https_get(host: &str, port: u16, path: &str, max_bytes: u64) -> Result<Vec<u8>, String> {
+    use std::sync::Arc;
+
+    let mut roots = rustls::RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let config = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    let name = rustls::pki_types::ServerName::try_from(host.to_string()).map_err(|_| "bad https server name")?;
+    let mut connection = rustls::ClientConnection::new(Arc::new(config), name).map_err(|error| error.to_string())?;
+    let mut tcp = connect_tcp(host, port)?;
+    let mut tls = rustls::Stream::new(&mut connection, &mut tcp);
+    read_http(&mut tls, host, path, max_bytes)
+}
+
+fn read_http<S: Read + Write>(stream: &mut S, host: &str, path: &str, max_bytes: u64) -> Result<Vec<u8>, String> {
     let request = format!("GET {path} HTTP/1.0\r\nHost: {host}\r\nConnection: close\r\n\r\n");
     stream.write_all(request.as_bytes()).map_err(|error| error.to_string())?;
     let mut raw = Vec::new();
