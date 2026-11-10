@@ -59,6 +59,11 @@ pub enum Effect {
         sex: u8,
     },
     Input(InputEvent),
+    /// Talk to the NPC standing on or next to this tile.
+    TalkAt {
+        x: u16,
+        y: u16,
+    },
     Window {
         class: WindowClass,
         open: bool,
@@ -411,6 +416,11 @@ impl Autopilot {
                 effects.push(Effect::Input(InputEvent::PlayerMove {
                     destination: TilePosition { x, y },
                 }));
+                false
+            }
+            Command::Talk { x, y } => {
+                effects.push(log_ok(line));
+                effects.push(Effect::TalkAt { x, y });
                 false
             }
             Command::Click { x, y, kind } => {

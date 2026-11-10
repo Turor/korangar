@@ -55,6 +55,7 @@ Each line is logged as `AUTOPILOT_CMD ok|err <line>`. Blank lines and `#` commen
 `chat @where <name>` reports a tile (`Server: <name> <map> <x> <y>`). A bare `@where` fails with `Please enter a player name`.
 
 A left `click` on an NPC sprite box walks within three cells and then opens its dialog.
+`talk <x> <y>` does the same for the NPC standing on that tile (or one cell away) without screen coordinates.
 
 `InputEvent` does not implement serde. `event` therefore uses a curated table:
 

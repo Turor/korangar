@@ -7610,6 +7610,21 @@ impl Client {
                     }
                     self.input_event_buffer.push(event);
                 }
+                autopilot::Effect::TalkAt { x, y } => {
+                    let npc = self
+                        .client_state
+                        .follow(client_state().entities())
+                        .iter()
+                        .filter(|entity| entity.get_entity_type() == EntityType::Npc)
+                        .map(|entity| (entity.get_entity_id(), entity.get_tile_position()))
+                        .filter(|(_, tile)| tile.x.abs_diff(x) <= 1 && tile.y.abs_diff(y) <= 1)
+                        .min_by_key(|(_, tile)| tile.x.abs_diff(x) + tile.y.abs_diff(y))
+                        .map(|(entity_id, _)| entity_id);
+                    match npc {
+                        Some(entity_id) => self.input_event_buffer.push(InputEvent::PlayerInteract { entity_id }),
+                        None => println!("AUTOPILOT_TALK no NPC at {x} {y}"),
+                    }
+                }
                 autopilot::Effect::Window { class, open, event } => {
                     if self.interface.is_window_with_class_open(class) != open {
                         self.input_event_buffer.push(event);
