@@ -72,6 +72,10 @@ impl CustomWindow<ClientState> for MenuWindow {
                     event: InputEvent::ToggleMvpMinimap,
                 },
                 button! {
+                    text: "Status panel",
+                    event: InputEvent::ToggleStatusPanelWindow,
+                },
+                button! {
                     text: "Reload theme",
                     event: InputEvent::ReloadTheme,
                 },

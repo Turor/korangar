@@ -127,6 +127,18 @@ pub enum InputEvent {
     },
     /// Open or close the quest journal. Only works while playing.
     ToggleQuestJournalWindow,
+    /// Ask the map server to mark a quest active or inactive
+    /// (`CZ_ACTIVE_QUEST`).
+    SetQuestActive {
+        quest_id: u32,
+        active: bool,
+    },
+    /// Open or close the skill description for one skill-tree slot.
+    ToggleSkillDescription {
+        skill_id: SkillId,
+        title: String,
+        body: String,
+    },
     /// Open or close the achievement and attendance list.
     ToggleAchievementsWindow,
     /// Ask the map server for the attendance period.
@@ -140,6 +152,7 @@ pub enum InputEvent {
     ToggleNavigationWindow,
     /// Open or close the status effects strip. Only works while playing.
     ToggleStatusEffectsWindow,
+    ToggleStatusPanelWindow,
     /// Close the most recently opened or clicked closable window.
     CloseTopWindow,
     /// Escape closes the world map when it is open. Otherwise unfocus, close
@@ -239,10 +252,16 @@ pub enum InputEvent {
     CloseEnchant,
     /// Ask the map server for the Turoran stable board (`0x0EF0`).
     OpenStable,
-    /// Request one stored homunculus (`0x0EF1`).
-    RequestStableHomunculus,
-    /// Request one stored pet (`0x0EF2`).
-    RequestStablePet,
+    /// Request one stored homunculus (`0x0EF1`). Id 0 stores the active one.
+    RequestStableHomunculus {
+        homunculus_id: i32,
+    },
+    /// Pet stable action (`0x0EF2`). `id` is a pet id, an evolution egg, or an
+    /// inventory index.
+    RequestStablePet {
+        action: i16,
+        id: i32,
+    },
     /// Ask the map server for the Turoran Eden board (`0x0EF3`, action 0).
     OpenEden,
     /// Accept the typed Eden quest (`0x0EF3`, action 1).
@@ -340,6 +359,10 @@ pub enum InputEvent {
     ClaimRoulette,
     /// Close the roulette (`0x0A1D`).
     CloseRoulette,
+    /// OK on the NPC number or string input.
+    SubmitNpcInput,
+    /// Cancel on the NPC number or string input. Still answers the script.
+    CancelNpcInput,
     /// Action for the "Close"-button in a dialog.
     CloseDialog {
         /// Id of the NPC the player is in a dialog with.
@@ -433,6 +456,39 @@ pub enum InputEvent {
     },
     AcceptPartyInvite {
         party_id: PartyId,
+    },
+    /// Accept the invite stored on [`crate::state::party::PartyState::pending_invite`].
+    AcceptPendingPartyInvite,
+    /// `CZ_MAKE_GROUP2`.
+    CreateParty {
+        name: String,
+        item_pickup: bool,
+        item_division: bool,
+    },
+    /// `CZ_REQ_LEAVE_GROUP`.
+    LeaveParty,
+    /// `CZ_PARTY_JOIN_REQ`.
+    InviteToParty {
+        character_name: String,
+    },
+    /// `CZ_REQ_EXPEL_GROUP_MEMBER`.
+    KickPartyMember {
+        account_id: AccountId,
+        name: String,
+    },
+    /// `CZ_CHANGE_GROUP_MASTER`.
+    ChangePartyLeader {
+        account_id: AccountId,
+    },
+    /// `CZ_GROUPINFO_CHANGE_V2`.
+    SetPartyOptions {
+        experience_share: u32,
+        item_pickup: bool,
+        item_division: bool,
+    },
+    /// `CZ_PARTY_CONFIG`. `refuse` true blocks incoming party invites.
+    SetPartyInviteBlock {
+        refuse: bool,
     },
     /// Buy one vend slot, or sell one matching inventory item into a buying
     /// store.
@@ -553,6 +609,41 @@ pub enum InputEvent {
     StylingShopReset,
     /// Close the styling shop and tell the server.
     StylingShopClose,
+    /// Select one cart or bag row in the shop setup window.
+    SelectShopDraft {
+        index: usize,
+    },
+    /// Write the amount and price boxes onto the selected shop row.
+    CommitShopDraft,
+    /// Take the selected row back off the shop.
+    UnlistShopDraft,
+    /// Send the open-shop packet when the draft is valid.
+    SubmitShopSetup,
+    /// Tell the server the shop setup was cancelled.
+    CancelShopSetup,
+    /// Close this client's open vend or buying store.
+    CloseOwnShop,
+    /// Fill the shop-search picker from the item name query.
+    SuggestShopSearch,
+    /// Add one picker row to the search.
+    AddShopSearchItem {
+        index: usize,
+    },
+    /// Remove one selected search item.
+    RemoveShopSearchItem {
+        index: usize,
+    },
+    /// Send the search-store query.
+    SubmitShopSearch,
+    /// Ask for the next search-store page.
+    ShopSearchNextPage,
+    /// Close the search store.
+    CloseShopSearch,
+    /// `buying` selects buying stores. Otherwise the search looks at vending
+    /// shops.
+    SetShopSearchBuying {
+        buying: bool,
+    },
     /// Level up a skill.
     LevelUpSkills {
         /// List of skills to level up by one. This list is allowed to contain

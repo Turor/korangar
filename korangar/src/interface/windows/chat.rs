@@ -16,24 +16,44 @@ use crate::input::InputEvent;
 use crate::loaders::OverflowBehavior;
 use crate::state::chat::{ChannelMaskPathExt, ChatChannel, ChatFilterState, ChatFilterStatePathExt, ChatTab};
 use crate::state::localization::LocalizationPathExt;
-use crate::state::theme::{ChatThemePathExt, InterfaceThemePathExt, InterfaceThemeType};
+use crate::state::theme::{ChatThemePathExt, InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
 use crate::state::{ChatMessage, ClientState, ClientStatePathExt, client_state, client_theme};
 
 const MAXIMUM_CHAT_MESSAGE_LENGTH: usize = 80;
 const MAXIMUM_WHISPER_NAME_LENGTH: usize = 23;
 
-fn themed_message_color(state: &State<ClientState>, color: MessageColor) -> Color {
-    match color {
-        MessageColor::Rgb { red, green, blue } => Color::rgb_u8(red, green, blue),
-        MessageColor::Broadcast => *state.get(&client_theme().chat().broadcast_color()),
-        MessageColor::Server => *state.get(&client_theme().chat().server_color()),
-        MessageColor::Error => *state.get(&client_theme().chat().error_color()),
-        MessageColor::Information => *state.get(&client_theme().chat().information_color()),
-        MessageColor::Public => *state.get(&client_theme().chat().public_color()),
-        MessageColor::Whisper => *state.get(&client_theme().chat().whisper_color()),
-        MessageColor::Party => *state.get(&client_theme().chat().party_color()),
-        MessageColor::Guild => *state.get(&client_theme().chat().guild_color()),
+fn ensure_readable(color: Color, panel: Color, text: Color) -> Color {
+    fn luminance(color: Color) -> f32 {
+        0.2126 * color.red + 0.7152 * color.green + 0.0722 * color.blue
     }
+    let contrast = {
+        let (hi, lo) = if luminance(color) > luminance(panel) {
+            (luminance(color), luminance(panel))
+        } else {
+            (luminance(panel), luminance(color))
+        };
+        (hi + 0.05) / (lo + 0.05)
+    };
+    if contrast >= 4.5 {
+        color
+    } else {
+        // Lift toward the theme text color so inherited RGB (old default blues
+        // included) stays readable on every panel.
+        Color::rgb(
+            color.red * 0.35 + text.red * 0.65,
+            color.green * 0.35 + text.green * 0.65,
+            color.blue * 0.35 + text.blue * 0.65,
+        )
+    }
+}
+
+fn themed_message_color(state: &State<ClientState>, color: MessageColor) -> Color {
+    let raw = state.get(&client_theme().chat()).message_color(color);
+    ensure_readable(
+        raw,
+        *state.get(&client_theme().tokens().panel()),
+        *state.get(&client_theme().tokens().text()),
+    )
 }
 
 /// ZST for getting the focus id of the chat text box. This is only needed to

@@ -59,7 +59,8 @@ pub struct ChatTheme {
     public_color: Color,
     /// Whisper lines.
     whisper_color: Color,
-    /// Party chat. G04 pushes `MessageColor::Party`.
+    /// Party chat. roBrowser uses rgb(230, 215, 200) for other members.
+    #[serde(default = "default_party_chat_color")]
     party_color: Color,
     /// Guild chat.
     guild_color: Color,
@@ -101,6 +102,10 @@ impl ChatTheme {
     pub(crate) fn announce_background_color(&self) -> Color {
         self.announce_background_color
     }
+}
+
+fn default_party_chat_color() -> Color {
+    Color::rgb_u8(230, 215, 200)
 }
 
 #[derive(Serialize, Deserialize, RustState, StateElement)]
@@ -155,6 +160,39 @@ pub struct GlobalTheme {
     drop_area_outline: ShadowPadding,
 }
 
+/// Colors for the basic-info HUD, inventory footer, and experience bars.
+#[derive(Serialize, Deserialize, RustState, StateElement, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct BasicInfoTheme {
+    pub base_exp_color: Color,
+    pub job_exp_color: Color,
+    pub exp_track_color: Color,
+    pub zeny_color: Color,
+    pub weight_color: Color,
+    pub weight_caution_color: Color,
+    pub weight_over_color: Color,
+}
+
+impl Default for BasicInfoTheme {
+    fn default() -> Self {
+        Self::from_tokens(&crate::state::theme::ThemeTokens::turoran_dark())
+    }
+}
+
+impl BasicInfoTheme {
+    pub fn from_tokens(tokens: &crate::state::theme::ThemeTokens) -> Self {
+        Self {
+            base_exp_color: tokens.sp,
+            job_exp_color: tokens.gold,
+            exp_track_color: tokens.raised.with_alpha_u8(230),
+            zeny_color: tokens.gold,
+            weight_color: tokens.text,
+            weight_caution_color: tokens.hover,
+            weight_over_color: tokens.accent2,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, RustState, StateElement, StateWindow)]
 #[window_title("Theme Inspector")]
 pub struct InterfaceTheme {
@@ -184,6 +222,9 @@ pub struct InterfaceTheme {
     pub chat: ChatTheme,
     pub skill_tree: SkillTreeTheme,
     pub global: GlobalTheme,
+    /// Experience bars, zeny, and weight. Missing from older theme files.
+    #[serde(default)]
+    pub basic_info: BasicInfoTheme,
 }
 
 impl InterfaceTheme {
@@ -400,7 +441,7 @@ impl InterfaceTheme {
                 information_color: accent,
                 public_color: text,
                 whisper_color: sp,
-                party_color: gold,
+                party_color: Color::rgb_u8(230, 215, 200),
                 guild_color: accent,
                 bubble_color: text,
                 bubble_background_color: panel.with_alpha_u8(180),
@@ -433,6 +474,7 @@ impl InterfaceTheme {
                 fill_alpha: 0.12,
                 drop_area_outline: ShadowPadding::uniform(3.0),
             },
+            basic_info: BasicInfoTheme::from_tokens(tokens),
         }
     }
 
@@ -705,7 +747,7 @@ impl InterfaceTheme {
                 information_color: Color::rgb_u8(200, 230, 180),
                 public_color: Color::rgb_u8(235, 236, 240),
                 whisper_color: Color::rgb_u8(181, 222, 239),
-                party_color: Color::rgb_u8(255, 180, 96),
+                party_color: Color::rgb_u8(230, 215, 200),
                 guild_color: Color::rgb_u8(170, 220, 140),
                 bubble_color: Color::rgb_u8(235, 236, 240),
                 bubble_background_color: Color::rgba_u8(0, 0, 0, 150),
@@ -738,6 +780,7 @@ impl InterfaceTheme {
                 fill_alpha: 0.1,
                 drop_area_outline: ShadowPadding::uniform(4.0),
             },
+            basic_info: BasicInfoTheme::default(),
         }
     }
 
@@ -928,7 +971,7 @@ impl InterfaceTheme {
                 information_color: Color::rgb_u8(200, 230, 180),
                 public_color: Color::rgb_u8(235, 236, 240),
                 whisper_color: Color::rgb_u8(181, 222, 239),
-                party_color: Color::rgb_u8(255, 180, 96),
+                party_color: Color::rgb_u8(230, 215, 200),
                 guild_color: Color::rgb_u8(170, 220, 140),
                 bubble_color: Color::rgb_u8(235, 236, 240),
                 bubble_background_color: Color::rgba_u8(0, 0, 0, 160),
@@ -961,6 +1004,7 @@ impl InterfaceTheme {
                 fill_alpha: 0.1,
                 drop_area_outline: ShadowPadding::uniform(4.0),
             },
+            basic_info: BasicInfoTheme::default(),
         }
     }
 }
@@ -991,6 +1035,9 @@ mod turoran_dark_theme_tests {
         assert!(decoded.chat.window_color.alpha_as_u8() < 255, "chat should stay translucent");
         assert_ne!(decoded.chat.error_color, decoded.chat.server_color);
         assert_ne!(decoded.chat.broadcast_color, decoded.chat.information_color);
+        assert_eq!(decoded.chat.party_color.red_as_u8(), 230);
+        assert_eq!(decoded.chat.party_color.green_as_u8(), 215);
+        assert_eq!(decoded.chat.party_color.blue_as_u8(), 200);
     }
 
     #[test]

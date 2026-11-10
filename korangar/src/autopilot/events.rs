@@ -66,8 +66,6 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
         "RequestResetEnchant" => Some(InputEvent::RequestResetEnchant),
         "CloseEnchant" => Some(InputEvent::CloseEnchant),
         "OpenStable" => Some(InputEvent::OpenStable),
-        "RequestStableHomunculus" => Some(InputEvent::RequestStableHomunculus),
-        "RequestStablePet" => Some(InputEvent::RequestStablePet),
         "OpenEden" => Some(InputEvent::OpenEden),
         "EdenAccept" => Some(InputEvent::EdenAccept),
         "EdenComplete" => Some(InputEvent::EdenComplete),
@@ -113,6 +111,8 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
         "ClaimRoulette" => Some(InputEvent::ClaimRoulette),
         "CloseRoulette" => Some(InputEvent::CloseRoulette),
         "CloseShop" => Some(InputEvent::CloseShop),
+        "LeaveParty" => Some(InputEvent::LeaveParty),
+        "AcceptPendingPartyInvite" => Some(InputEvent::AcceptPendingPartyInvite),
         "AcceptTrade" => Some(InputEvent::AcceptTrade),
         "DeclineTrade" => Some(InputEvent::DeclineTrade),
         "TradeConfirm" => Some(InputEvent::TradeConfirm),
@@ -137,7 +137,7 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
     }
     #[cfg(feature = "debug")]
     {
-        return match name {
+        match name {
             "ReloadLanguage" => Some(InputEvent::ReloadLanguage),
             "SaveLanguage" => Some(InputEvent::SaveLanguage),
             "ToggleRenderOptionsWindow" => Some(InputEvent::ToggleRenderOptionsWindow),
@@ -157,7 +157,7 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
             "CameraAccelerate" => Some(InputEvent::CameraAccelerate),
             "CameraDecelerate" => Some(InputEvent::CameraDecelerate),
             _ => None,
-        };
+        }
     }
     #[cfg(not(feature = "debug"))]
     {
@@ -191,6 +191,10 @@ enum ScriptedEvent {
     StatUpIntelligence(u8),
     StatUpDexterity(u8),
     StatUpLuck(u8),
+    RequestStableHomunculus { homunculus_id: i32 },
+    RequestStablePet { action: i16, id: i32 },
+    CreateParty { name: String, item_pickup: bool, item_division: bool },
+    InviteToParty(String),
 }
 
 pub fn scripted_event(spec: &str) -> Result<InputEvent, String> {
@@ -241,6 +245,18 @@ pub fn scripted_event(spec: &str) -> Result<InputEvent, String> {
         ScriptedEvent::StatUpLuck(amount) => InputEvent::StatUp {
             stat_type: StatUpType::Luck { amount },
         },
+        ScriptedEvent::RequestStableHomunculus { homunculus_id } => InputEvent::RequestStableHomunculus { homunculus_id },
+        ScriptedEvent::RequestStablePet { action, id } => InputEvent::RequestStablePet { action, id },
+        ScriptedEvent::CreateParty {
+            name,
+            item_pickup,
+            item_division,
+        } => InputEvent::CreateParty {
+            name,
+            item_pickup,
+            item_division,
+        },
+        ScriptedEvent::InviteToParty(character_name) => InputEvent::InviteToParty { character_name },
     })
 }
 

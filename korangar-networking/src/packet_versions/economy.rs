@@ -5,16 +5,15 @@
 
 use ragnarok_packets::handler::{DuplicateHandlerError, PacketCallback, PacketHandler};
 use ragnarok_packets::{
-    BuyingStoreClosedPacket, BuyingStoreListPacket, BuyingStoreOpenFailedPacket, BuyingStoreSignPacket, BuyingStoreTradeFailedPacket,
-    OpenMarketPacket,
-    OwnBuyingStoreListPacket, OwnVendingListPacket, SearchStoreFailedPacket, SearchStoreOpenPacket, SearchStoreResultPacket,
-    SearchStoreSelectResultPacket, VendingPreparePacket, VendingPurchaseResultPacket, VendingShopClosedPacket, VendingShopListPacket,
-    VendingShopSignPacket,
+    BuyingStoreClosedPacket, BuyingStoreListPacket, BuyingStoreOpenFailedPacket, BuyingStorePreparePacket, BuyingStoreSignPacket,
+    BuyingStoreTradeFailedPacket, OpenMarketPacket, OpenVendingAckPacket, OwnBuyingStoreListPacket, OwnVendingListPacket,
+    SearchStoreFailedPacket, SearchStoreOpenPacket, SearchStoreResultPacket, SearchStoreSelectResultPacket, VendingPreparePacket,
+    VendingPurchaseResultPacket, VendingShopClosedPacket, VendingShopListPacket, VendingShopSignPacket, VendingSoldReportPacket,
 };
 
 use crate::event::NetworkEventList;
 use crate::items::{ItemQuantity, NoMetadata, ShopItem};
-use crate::{NetworkEvent, SearchStoreHit};
+use crate::{NetworkEvent, OwnShopLine, SearchStoreHit};
 
 pub fn open_market_event(packet: OpenMarketPacket) -> NetworkEvent {
     let items = packet
@@ -99,9 +98,31 @@ where
         amount: packet.amount,
         result: packet.result,
     })?;
-    packet_handler.register(|packet: OwnVendingListPacket| NetworkEvent::OwnPlayerShopOpened {
-        item_count: packet.items.len(),
-        buying_store: false,
+    packet_handler.register(|packet: OwnVendingListPacket| {
+        let lines = packet
+            .items
+            .into_iter()
+            .map(|item| OwnShopLine {
+                index: item.index.max(0) as u16,
+                item_id: item.item_id,
+                amount: item.amount.max(0) as u16,
+                price: item.price.0,
+            })
+            .collect();
+        NetworkEvent::OwnPlayerShopOpened {
+            buying_store: false,
+            lines,
+        }
+    })?;
+    packet_handler.register(|packet: OpenVendingAckPacket| NetworkEvent::VendingOpenResult { result: packet.result })?;
+    packet_handler.register(|packet: VendingSoldReportPacket| NetworkEvent::VendingSold {
+        index: packet.index,
+        amount: packet.amount,
+        zeny: packet.zeny,
+        date: packet.date,
+    })?;
+    packet_handler.register(|packet: BuyingStorePreparePacket| NetworkEvent::BuyingStorePrepare {
+        item_count: packet.item_count,
     })?;
     packet_handler.register(|packet: BuyingStoreListPacket| {
         let items = packet
@@ -117,9 +138,18 @@ where
             indexes: Vec::new(),
         }
     })?;
-    packet_handler.register(|packet: OwnBuyingStoreListPacket| NetworkEvent::OwnPlayerShopOpened {
-        item_count: packet.items.len(),
-        buying_store: true,
+    packet_handler.register(|packet: OwnBuyingStoreListPacket| {
+        let lines = packet
+            .items
+            .into_iter()
+            .map(|item| OwnShopLine {
+                index: 0,
+                item_id: item.item_id,
+                amount: item.amount,
+                price: item.price.0,
+            })
+            .collect();
+        NetworkEvent::OwnPlayerShopOpened { buying_store: true, lines }
     })?;
     packet_handler.register(|packet: BuyingStoreOpenFailedPacket| NetworkEvent::BuyingStoreOpenFailed {
         result: packet.result,

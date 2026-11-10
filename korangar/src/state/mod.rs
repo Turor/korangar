@@ -15,11 +15,16 @@ pub mod item_finder;
 pub mod item_workshop;
 pub mod localization;
 pub mod navigation;
+pub mod npc_dialog;
+pub mod party;
 pub mod pincode;
+pub mod player_shops;
 pub mod quest_log;
 pub mod refine;
 pub mod skill_cooldowns;
 pub mod skills;
+pub mod stable;
+pub mod stable_catalog;
 pub mod status_effects;
 pub mod status_names;
 pub mod styling_catalog;
@@ -58,6 +63,8 @@ use self::clan::ClanState;
 use self::friends::FriendListEntry;
 use self::guild::GuildState;
 use self::item_finder::ItemFinderState;
+use self::party::PartyState;
+use self::player_shops::{ShopReportState, ShopSearchState, ShopSetupState};
 #[cfg(feature = "debug")]
 use crate::PacketHistory;
 #[cfg(feature = "debug")]
@@ -84,6 +91,7 @@ use crate::state::inventory::Inventory;
 use crate::state::item_drop::ItemDropPrompt;
 use crate::state::item_workshop::{EnchantGradeState, ItemReformState, LaphineSynthesisState, LaphineUpgradeState};
 use crate::state::navigation::Navigation;
+use crate::state::npc_dialog::NpcPresentation;
 use crate::state::pincode::PincodeWindowState;
 use crate::state::quest_log::QuestLog;
 use crate::state::refine::RefineState;
@@ -106,6 +114,7 @@ use crate::{AudioSettings, GraphicsSettings};
 #[derive(Clone, Debug, RustState, StateElement)]
 pub struct ShopSign {
     pub account_id: AccountId,
+    pub shop_name: String,
     pub buying_store: bool,
 }
 
@@ -211,6 +220,8 @@ pub struct ClientState {
     friend_list_window: FriendListWindowState,
     /// Internal state of the dialog window.
     dialog_window: DialogWindowState,
+    /// Cutin, progress bar, and NPC background music for the open script.
+    npc_presentation: NpcPresentation,
     /// Internal state of the enchant window.
     enchant_window: crate::interface::windows::EnchantWindowState,
     /// Internal state of the Turoran stable board.
@@ -258,6 +269,8 @@ pub struct ClientState {
     guild_window: GuildWindowState,
     /// Clan info and online counts for the local character.
     clan: ClanState,
+    /// Party roster, options, and member positions for the minimap.
+    party: PartyState,
     /// Local Item Finder catalog, query, and result rows.
     item_finder: ItemFinderState,
     /// List of items offered in the shop.
@@ -294,6 +307,12 @@ pub struct ClientState {
     vendor_rows: Vec<VendorRow>,
     /// Rows shown in the shop-search window.
     search_store_hits: Vec<SearchStoreRow>,
+    /// Cart or bag rows for the shop this client is opening.
+    shop_setup: ShopSetupState,
+    /// Search-store query, price range, and picked item ids.
+    shop_search: ShopSearchState,
+    /// This client's open shop and the sales log.
+    shop_report: ShopReportState,
     /// The name of the active character. This information is not available
     /// while playing if we don't save it here.
     player_name: String,
@@ -487,11 +506,13 @@ impl ClientState {
             let guild = GuildState::default();
             let guild_window = GuildWindowState::default();
             let clan = ClanState::default();
+            let party = PartyState::default();
             let item_finder = ItemFinderState::default();
         });
 
         time_phase!("create player resources", {
             let dialog_window = DialogWindowState::default();
+            let npc_presentation = NpcPresentation::default();
             let enchant_window = crate::interface::windows::EnchantWindowState::default();
             let stable_window = crate::interface::windows::StableWindowState::default();
             let eden_window = crate::interface::windows::EdenWindowState::default();
@@ -516,6 +537,9 @@ impl ClientState {
             let vendor_item_ids = Vec::default();
             let vendor_rows = Vec::default();
             let search_store_hits = Vec::default();
+            let shop_setup = ShopSetupState::default();
+            let shop_search = ShopSearchState::default();
+            let shop_report = ShopReportState::default();
             let player_name = String::new();
             let hotbar = Hotbar::default();
             let inventory = Inventory::default();
@@ -591,6 +615,7 @@ impl ClientState {
             chat_window,
             friend_list_window,
             dialog_window,
+            npc_presentation,
             enchant_window,
             stable_window,
             eden_window,
@@ -613,6 +638,7 @@ impl ClientState {
             guild,
             guild_window,
             clan,
+            party,
             item_finder,
             shop_items,
             buy_cart,
@@ -626,6 +652,9 @@ impl ClientState {
             vendor_item_ids,
             vendor_rows,
             search_store_hits,
+            shop_setup,
+            shop_search,
+            shop_report,
             player_name,
             hotbar,
             inventory,

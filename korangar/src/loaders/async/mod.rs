@@ -306,6 +306,37 @@ impl AsyncLoader {
         ShopItem { metadata, ..item }
     }
 
+    /// Name and inventory icon for an identified item. A missing texture is
+    /// requested and arrives later on [`LoaderId::ItemSprite`].
+    pub fn identified_item_face(&self, item_id: i32) -> (String, Option<Arc<Texture>>) {
+        if item_id <= 0 {
+            return ("None".to_owned(), None);
+        }
+        let item_id = ItemId(u32::try_from(item_id).unwrap_or(0));
+        let resource = <crate::world::ItemResource as crate::world::Table>::try_get(&self.library, ItemResourceKey {
+            item_id,
+            is_identified: true,
+        });
+        let texture = match resource {
+            Some(resource) => match crate::world::inventory_icon_texture_path(resource.as_str()) {
+                Ok(full_path) => self.request_item_sprite_load(item_id, resource.as_str(), &full_path, ImageType::Color),
+                Err(_) => None,
+            },
+            None => None,
+        };
+        let mut name = self
+            .library
+            .get::<ItemName>(ItemNameKey {
+                item_id,
+                is_identified: true,
+            })
+            .to_string();
+        if name.is_empty() || name == "NOTFOUND" {
+            name = format!("Item {}", item_id.0);
+        }
+        (name, texture)
+    }
+
     pub fn request_learnable_skill_load(&self, job_id: JobId, skill_id: SkillId, client_tick: ClientTick) -> LearnableSkill {
         let skill_information = self.library.get::<SkillListInformation>(skill_id);
         let skill_requirements = self.library.get::<SkillListRequirements>(SkillListKey::with_job(job_id, skill_id));
@@ -314,11 +345,14 @@ impl AsyncLoader {
         let sprite = self.request_skill_sprite_load(skill_id, &path);
         let actions = self.request_skill_actions_load(skill_id, &path);
 
+        let description = self.library.skill_description_body(skill_id, job_id);
         LearnableSkill {
             skill_id,
             maximum_level: skill_information.maximum_level,
             file_name: skill_information.file_name.clone(),
             skill_name: skill_information.name.clone(),
+            description,
+            spell_point_costs: skill_information.sp_amounts.clone(),
             can_select_level: skill_information.can_select_level,
             acquisition: skill_information.acquisition,
             required_skills: skill_requirements.required_skills.clone(),

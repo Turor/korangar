@@ -64,15 +64,16 @@ use korangar_debug::profiling::Profiler;
 use korangar_interface::Interface;
 use korangar_interface::layout::MouseButton;
 use korangar_networking::{
-    DisconnectReason, HotkeyState, InventoryItemDetails, ItemQuantity, LoginServerLoginData, MessageColor, NetworkEvent,
-    NetworkEventBuffer, NetworkingSystem, NoMetadata, SellItem, ShopItem, StatusChangeState, SupportedPacketVersion,
+    DialogHotkey, DisconnectReason, HotkeyState, InventoryItemDetails, ItemQuantity, LoginServerLoginData, MessageColor, NetworkEvent,
+    NetworkEventBuffer, NetworkingSystem, PartyUpdate, SellItem, StatusChangeState, SupportedPacketVersion, cutin_anchor,
+    dialog_hotkey, existing_cutin_texture,
 };
 #[cfg(feature = "debug")]
 use networking::{PacketHistory, PacketHistoryCallback};
 #[cfg(not(feature = "debug"))]
 use ragnarok_packets::handler::NoPacketCallback;
 use ragnarok_packets::{
-    AccountId, AttackRange, BuyShopItemsResult, CharacterServerInformation, ClientTick, Direction, DisappearanceReason, EffectId,
+    AccountId, AttackRange, BuyShopItemsResult, CharacterServerInformation, ClientTick, Direction, DisappearanceReason, EffectId, EntityId,
     EquipPosition, EquippableItemFlags, ExperienceSource, ExperienceType, HealType, HotbarSlot, InventoryIndex, SellItemsResult, SkillId,
     SkillLevel, SkillType, TilePosition, UnitId, WorldPosition,
 };
@@ -1113,7 +1114,10 @@ impl Client {
         let mut autopilot_slot_occupied: Option<bool> = None;
         let mut pincode_effects = Vec::new();
         let mut autopilot_effects = Vec::new();
-        for event in self.network_event_buffer.drain() {
+        // Own the events before matching. Shop handlers borrow `self`, which cannot
+        // overlap the buffer drain.
+        let network_events: Vec<_> = self.network_event_buffer.drain().collect();
+        for event in network_events {
             match event {
                 NetworkEvent::LoginServerConnected {
                     character_servers,
@@ -1254,6 +1258,7 @@ impl Client {
                     self.client_state.follow_mut(client_state().navigation()).clear();
                     self.client_state.follow_mut(client_state().guild()).clear();
                     self.client_state.follow_mut(client_state().guild_window()).clear();
+                    self.client_state.follow_mut(client_state().party()).clear();
                     self.client_state.follow_mut(client_state().clan()).clear();
                     self.client_state.follow_mut(client_state().warpra_window()).clear_catalog();
                     self.client_state.follow_mut(client_state().world_map_window()).on_catalog_cleared();
@@ -1360,16 +1365,18 @@ impl Client {
                             client_state().character_slots(),
                             client_state().switch_request(),
                         ));
-                        if self.autopilot.is_some() {
-                            let slot = self.autopilot.as_ref().map(|auto| auto.slot()).unwrap_or(0);
-                            autopilot_slot_occupied = Some(
-                                self.client_state
-                                    .try_follow(client_state().character_slots().in_slot(slot))
-                                    .is_some(),
-                            );
-                        } else if headless_auto() {
-                            defer_headless_character = true;
-                        }
+                    }
+                    // The menu map opens this window before the list arrives. Selecting only
+                    // when the window was closed skips the character on a slow first frame.
+                    if self.autopilot.is_some() {
+                        let slot = self.autopilot.as_ref().map(|auto| auto.slot()).unwrap_or(0);
+                        autopilot_slot_occupied = Some(
+                            self.client_state
+                                .try_follow(client_state().character_slots().in_slot(slot))
+                                .is_some(),
+                        );
+                    } else if headless_auto() && self.interface.is_window_with_class_open(WindowClass::CharacterSelection) {
+                        defer_headless_character = true;
                     }
                 }
                 NetworkEvent::Pincode { notice } => {
@@ -1474,13 +1481,18 @@ impl Client {
                     }
                     self.interface
                         .open_window(ChatWindow::new(client_state().chat_window(), client_state().chat_messages()));
+                    self.interface.open_window(StatusPanelWindow::new(
+                        client_state().player_name(),
+                        this_player().manually_asserted(),
+                        client_state().status_effects(),
+                    ));
                     self.interface.open_window(HotbarWindow::new(
                         client_state().hotbar().skills(),
                         client_state().skill_tree().skills(),
                     ));
 
                     // Put the dialog system in a well-defined state.
-                    self.client_state.follow_mut(client_state().dialog_window()).end();
+                    crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
 
                     self.map = None;
 
@@ -1735,8 +1747,9 @@ impl Client {
                     self.client_state.follow_mut(client_state().mvp_minimap()).set_map_size(0, 0);
                     *self.client_state.follow_mut(client_state().buffered_action()) = None;
 
-                    // Close any remaining dialogs.
-                    self.interface.close_window_with_class(WindowClass::Dialog);
+                    // Close any remaining dialogs. The new map restores its own BGM.
+                    crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
+                    self.client_state.follow_mut(client_state().npc_presentation()).clear_map();
                     if self.interface.is_window_with_class_open(WindowClass::Storage) {
                         let _ = self.networking_system.close_storage();
                         self.interface.close_window_with_class(WindowClass::Storage);
@@ -2161,6 +2174,13 @@ impl Client {
                         player.update_stat(stat_type);
                     }
                 }
+                NetworkEvent::StatUpResult { success, .. } => {
+                    if let Some(notice) = crate::world::stat_up_feedback(success) {
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(notice.to_owned(), MessageColor::Error));
+                    }
+                }
                 NetworkEvent::OpenEnchant { enchant_group } => {
                     self.client_state.follow_mut(client_state().enchant_window()).open(enchant_group);
                     self.interface.open_window(EnchantWindow::new());
@@ -2170,20 +2190,31 @@ impl Client {
                         .follow_mut(client_state().enchant_window())
                         .show_result(message_id, item_id);
                 }
-                NetworkEvent::StableHomunculusList { summary, .. } => {
-                    self.client_state.follow_mut(client_state().stable_window()).show_homunculi(summary);
+                NetworkEvent::StableHomunculusList { active_id, homunculi, .. } => {
+                    self.client_state
+                        .follow_mut(client_state().stable_window())
+                        .show_homunculi(active_id, &homunculi);
                     self.interface.open_window(StableWindow::new());
                 }
-                NetworkEvent::StablePetList { summary, .. } => {
-                    self.client_state.follow_mut(client_state().stable_window()).show_pets(summary);
+                NetworkEvent::StablePetList { active_id, pets, .. } => {
+                    let faces = crate::interface::windows::stable::pet_face_list(&self.async_loader, &pets);
+                    self.client_state
+                        .follow_mut(client_state().stable_window())
+                        .show_pets(active_id, &pets, &faces);
                     self.interface.open_window(StableWindow::new());
                 }
-                NetworkEvent::StableOwnedList { summary } => {
-                    self.client_state.follow_mut(client_state().stable_window()).show_owned(summary);
+                NetworkEvent::StableOwnedList { items, .. } => {
+                    let ids: Vec<i32> = items.iter().map(|item| item.item_id).collect();
+                    let faces = crate::interface::windows::stable::item_faces(&self.async_loader, &ids);
+                    self.client_state
+                        .follow_mut(client_state().stable_window())
+                        .show_owned(&items, &faces);
                     self.interface.open_window(StableWindow::new());
                 }
-                NetworkEvent::StableResult { summary, .. } => {
-                    self.client_state.follow_mut(client_state().stable_window()).show_result(summary);
+                NetworkEvent::StableResult { result, id, .. } => {
+                    self.client_state
+                        .follow_mut(client_state().stable_window())
+                        .show_result(result, id);
                     self.interface.open_window(StableWindow::new());
                 }
                 NetworkEvent::EdenQuestList { summary, .. } => {
@@ -2446,6 +2477,64 @@ impl Client {
 
                     self.interface.open_window(DialogWindow::new(client_state().dialog_window()));
                 }
+                NetworkEvent::NpcNumberInput { npc_id } => {
+                    self.client_state
+                        .follow_mut(client_state().dialog_window())
+                        .initialize(npc_id)
+                        .open_number_input();
+                    self.interface.open_window(NpcInputWindow::new());
+                }
+                NetworkEvent::NpcTextInput { npc_id } => {
+                    self.client_state
+                        .follow_mut(client_state().dialog_window())
+                        .initialize(npc_id)
+                        .open_text_input();
+                    self.interface.open_window(NpcInputWindow::new());
+                }
+                NetworkEvent::NpcCutin { image_name, location } => {
+                    let anchor = cutin_anchor(location);
+                    let path = existing_cutin_texture(&image_name, |full| self.game_file_loader.file_exists(full));
+                    let presentation = self.client_state.follow_mut(client_state().npc_presentation());
+                    match (anchor, path) {
+                        (Some(anchor), Some(path)) => presentation.show_cutin(anchor, path),
+                        _ => presentation.clear_cutin(),
+                    }
+                }
+                NetworkEvent::NpcProgress { color, seconds } => {
+                    self.client_state
+                        .follow_mut(client_state().npc_presentation())
+                        .start_progress(color, seconds, client_tick.0);
+                }
+                NetworkEvent::NpcProgressCancel => {
+                    if self
+                        .client_state
+                        .follow_mut(client_state().npc_presentation())
+                        .cancel_from_server()
+                    {
+                        let _ = self.networking_system.npc_progress_complete();
+                    }
+                }
+                NetworkEvent::NpcSound {
+                    file_name,
+                    action,
+                    npc_id,
+                    ..
+                } => crate::interface::npc_flow::play_npc_sound(
+                    &self.audio_engine,
+                    &self.client_state,
+                    &file_name,
+                    action,
+                    npc_id,
+                ),
+                NetworkEvent::NpcBgm { track, play_type } => {
+                    crate::interface::npc_flow::play_npc_bgm(
+                        &self.audio_engine,
+                        &mut self.client_state,
+                        self.map.as_ref(),
+                        &track,
+                        play_type,
+                    );
+                }
                 NetworkEvent::AddQuestEffect { quest_effect } => {
                     if let Some(map) = &self.map {
                         self.particle_holder.add_quest_icon(&self.texture_loader, map, quest_effect)
@@ -2653,6 +2742,7 @@ impl Client {
                     );
                 }
                 NetworkEvent::LoggedOut => {
+                    self.client_state.follow_mut(client_state().party()).clear();
                     self.networking_system.disconnect_from_map_server();
                 }
                 NetworkEvent::FriendRequest { requestee } => {
@@ -2678,9 +2768,47 @@ impl Client {
                     }
                 }
                 NetworkEvent::PartyInvite { party_id, party_name } => {
+                    self.client_state
+                        .follow_mut(client_state().party())
+                        .set_pending_invite(party_id);
                     self.interface.open_window(PartyInviteWindow::new(party_id, party_name));
                 }
-                NetworkEvent::PartyInvitationState { .. } => {}
+                NetworkEvent::PartyInvitationState { invitations_allowed } => {
+                    self.client_state
+                        .follow_mut(client_state().party())
+                        .set_invitations_allowed(invitations_allowed);
+                }
+                NetworkEvent::Party(update) => {
+                    if let PartyUpdate::Health {
+                        account_id,
+                        health,
+                        maximum,
+                    } = &update
+                        && *maximum > 0
+                    {
+                        let entity_id = EntityId(account_id.0);
+                        let health = (*health).max(0) as usize;
+                        let maximum = *maximum as usize;
+                        if let Some(entity) = self
+                            .client_state
+                            .follow_mut(client_state().entities())
+                            .iter_mut()
+                            .find(|entity| entity.get_entity_id() == entity_id)
+                        {
+                            entity.update_health(health, maximum);
+                        }
+                    }
+                    let account_id = self.saved_login_data.as_ref().map(|login| login.account_id).unwrap_or(AccountId(0));
+                    if let Some(notice) = self.client_state.follow_mut(client_state().party()).apply(update, account_id) {
+                        let color = match notice.error {
+                            true => MessageColor::Error,
+                            false => MessageColor::Information,
+                        };
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(notice.text, color));
+                    }
+                }
                 NetworkEvent::GuildAffiliation {
                     guild_id,
                     name,
@@ -2925,15 +3053,8 @@ impl Client {
                 NetworkEvent::PlayerShopSign {
                     account_id,
                     buying_store,
-                    shop_name: _,
-                } => {
-                    let shops = self.client_state.follow_mut(client_state().player_shops());
-                    if let Some(existing) = shops.iter_mut().find(|shop| shop.account_id == account_id) {
-                        existing.buying_store = buying_store;
-                    } else {
-                        shops.push(crate::state::ShopSign { account_id, buying_store });
-                    }
-                }
+                    shop_name,
+                } => self.on_player_shop_sign(account_id, shop_name, buying_store),
                 NetworkEvent::PlayerShopClosed { account_id, buying_store } => {
                     self.client_state
                         .follow_mut(client_state().player_shops())
@@ -2975,19 +3096,11 @@ impl Client {
                     *self.client_state.follow_mut(client_state().vendor_rows()) = rows;
                     self.interface.open_window(VendorWindow::new(client_state().vendor_rows()));
                 }
-                NetworkEvent::VendingPrepare { item_count } => {
-                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
-                        format!("You can list {item_count} items in a vending shop."),
-                        MessageColor::Information,
-                    ));
-                }
-                NetworkEvent::OwnPlayerShopOpened { item_count, buying_store } => {
-                    let kind = if buying_store { "buying store" } else { "vending shop" };
-                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
-                        format!("Opened {kind} with {item_count} items."),
-                        MessageColor::Information,
-                    ));
-                }
+                NetworkEvent::VendingPrepare { item_count } => self.on_vending_prepare(item_count),
+                NetworkEvent::BuyingStorePrepare { item_count } => self.on_buying_prepare(item_count),
+                NetworkEvent::VendingOpenResult { result } => self.on_vending_open_result(result),
+                NetworkEvent::OwnPlayerShopOpened { buying_store, lines } => self.on_own_shop_opened(buying_store, lines),
+                NetworkEvent::VendingSold { index, amount, zeny, date } => self.on_vending_sold(index, amount, zeny, date),
                 NetworkEvent::VendingPurchaseResult { index, amount, result } => {
                     if result == 0 {
                         let position = self
@@ -3021,12 +3134,7 @@ impl Client {
                         MessageColor::Error,
                     ));
                 }
-                NetworkEvent::SearchStoreOpen { remaining_uses, .. } => {
-                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
-                        format!("Shop search is available ({remaining_uses} uses left)."),
-                        MessageColor::Information,
-                    ));
-                }
+                NetworkEvent::SearchStoreOpen { remaining_uses, .. } => self.on_search_store_open(remaining_uses),
                 NetworkEvent::SearchStoreFailed { reason } => {
                     self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
                         format!("Shop search failed (code {reason})."),
@@ -3035,39 +3143,10 @@ impl Client {
                 }
                 NetworkEvent::SearchStoreResults {
                     first_page,
+                    next_page,
                     uses_remaining,
                     hits,
-                    ..
-                } => {
-                    if first_page {
-                        self.client_state.follow_mut(client_state().search_store_hits()).clear();
-                    }
-                    let mut rows = Vec::with_capacity(hits.len());
-                    for hit in hits {
-                        let named = self.async_loader.request_shop_item_metadata_load(ShopItem {
-                            metadata: NoMetadata,
-                            item_id: hit.item_id,
-                            item_type: 0,
-                            price: hit.price,
-                            quantity: ItemQuantity::Fixed(u32::from(hit.amount)),
-                            weight: 0,
-                            location: 0,
-                        });
-                        rows.push(crate::state::SearchStoreRow {
-                            label: format!("{} — {}  x{}  {}z", hit.shop_name, named.metadata.name, hit.amount, hit.price.0),
-                            account_id: hit.account_id,
-                            store_id: hit.store_id,
-                            item_id: hit.item_id,
-                        });
-                    }
-                    self.client_state.follow_mut(client_state().search_store_hits()).extend(rows);
-                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
-                        format!("Shop search results ({uses_remaining} uses left)."),
-                        MessageColor::Information,
-                    ));
-                    self.interface
-                        .open_window(SearchStoreWindow::new(client_state().search_store_hits()));
-                }
+                } => self.on_search_store_results(first_page, next_page, uses_remaining, hits),
                 NetworkEvent::SearchStorePosition { x, y } => {
                     self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
                         format!("Searched shop is at {x}, {y}."),
@@ -3078,8 +3157,7 @@ impl Client {
                     // Close the dialog. Some NPCs don't use the `BuyOrSellPacket` and instead use
                     // the regular `DialogMenuPacket`. When opening the shop that dialog should be
                     // closed.
-                    self.client_state.follow_mut(client_state().dialog_window()).end();
-                    self.interface.close_window_with_class(WindowClass::Dialog);
+                    crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
 
                     *self.client_state.follow_mut(client_state().shop_items()) = items
                         .into_iter()
@@ -3113,8 +3191,7 @@ impl Client {
                     // Close the dialog. Some NPCs don't use the `BuyOrSellPacket` and instead use
                     // the regular `DialogMenuPacket`. When opening the shop that dialog should be
                     // closed.
-                    self.client_state.follow_mut(client_state().dialog_window()).end();
-                    self.interface.close_window_with_class(WindowClass::Dialog);
+                    crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
 
                     let inventory_items = self.client_state.follow(client_state().inventory().items());
                     let sell_items = items
@@ -3516,6 +3593,7 @@ impl Client {
                     {
                         let nearest_tile = path.last().unwrap();
 
+                        crate::interface::npc_flow::abort_npc_progress_for_move(&mut self.client_state, &mut self.networking_system);
                         let _ = self.networking_system.player_move(WorldPosition {
                             x: nearest_tile.x,
                             y: nearest_tile.y,
@@ -3596,7 +3674,10 @@ impl Client {
                     }
                 }
                 NetworkEvent::QuestList { quests } => {
-                    self.client_state.follow_mut(client_state().quest_log()).replace_all(quests);
+                    let library = std::sync::Arc::clone(&self.library);
+                    self.client_state
+                        .follow_mut(client_state().quest_log())
+                        .replace_all(quests, library.as_ref());
                 }
                 NetworkEvent::QuestNotification {
                     quest_id,
@@ -3605,18 +3686,32 @@ impl Client {
                     expire_time,
                     objectives,
                 } => {
+                    let library = std::sync::Arc::clone(&self.library);
                     self.client_state.follow_mut(client_state().quest_log()).upsert_notification(
                         quest_id,
                         active,
                         start_time,
                         expire_time,
                         objectives,
+                        library.as_ref(),
                     );
                 }
                 NetworkEvent::HuntingQuestNotification { objectives } | NetworkEvent::HuntingQuestObjectiveUpdate { objectives } => {
+                    let library = std::sync::Arc::clone(&self.library);
                     self.client_state
                         .follow_mut(client_state().quest_log())
-                        .apply_hunting_objectives(&objectives);
+                        .apply_hunting_objectives(&objectives, library.as_ref());
+                }
+                NetworkEvent::HuntingQuestIndexUpdate { updates } => {
+                    let quest_log = self.client_state.follow_mut(client_state().quest_log());
+                    for update in updates {
+                        quest_log.apply_hunt_progress_at_index(
+                            update.quest_id,
+                            update.objective_index,
+                            update.current_count,
+                            update.total_count,
+                        );
+                    }
                 }
                 NetworkEvent::QuestRemoved { quest_id } => {
                     self.client_state.follow_mut(client_state().quest_log()).remove(quest_id);
@@ -3855,6 +3950,29 @@ impl Client {
         crate::loaders::color_image_decodes(relative, &bytes)
     }
 
+    /// A hover on the previous frame asked to show a skill. Run this after
+    /// input so a right-click in the same frame toggles the skill the window
+    /// was actually showing. Opens the window only when it is closed.
+    fn open_pending_skill_description(&mut self) {
+        let window_open = self.interface.is_window_with_class_open(WindowClass::SkillDescription);
+        if !window_open {
+            // Right-click and the close button both remove the window before this runs.
+            // Clearing the committed id lets a later hover open it again. The slot
+            // still suppresses that open while the pointer has not left the slot.
+            self.client_state
+                .follow_mut(client_state().skill_tree_window())
+                .note_description_window_closed();
+        }
+        let should_open = self
+            .client_state
+            .follow_mut(client_state().skill_tree_window())
+            .take_hover_description();
+        if should_open && self.client_state.try_follow(this_entity()).is_some() && !window_open {
+            self.interface
+                .open_window(SkillDescriptionWindow::new(client_state().skill_tree_window()));
+        }
+    }
+
     /// Returns whether or not the interface is focused.
     #[inline(always)]
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
@@ -3864,7 +3982,11 @@ impl Client {
         client_tick: ClientTick,
         #[cfg(feature = "debug")] delta_time: f32,
     ) -> bool {
+        let shop_setup_open = self.interface.is_window_with_class_open(WindowClass::VendingSetup);
+        let shop_search_open = self.interface.is_window_with_class_open(WindowClass::SearchStore);
+        let shop_report_open = self.interface.is_window_with_class_open(WindowClass::VendingReport);
         self.interface.process_events(&mut self.input_event_buffer);
+        self.on_shop_windows_dismissed(shop_setup_open, shop_search_open, shop_report_open);
 
         let interface_has_focus = self.interface.has_focus();
 
@@ -3885,7 +4007,10 @@ impl Client {
         }
 
         let mut pincode_effects = Vec::new();
-        for event in self.input_event_buffer.drain(..) {
+        // Own the events before matching. Shop handlers borrow `self`, which cannot
+        // overlap the buffer drain.
+        let input_events: Vec<_> = self.input_event_buffer.drain(..).collect();
+        for event in input_events {
             match event {
                 InputEvent::LogIn {
                     service_id,
@@ -4125,6 +4250,31 @@ impl Client {
                         .interface
                         .open_window(AudioSettingsWindow::new(client_state().audio_settings())),
                 },
+                InputEvent::SetQuestActive { quest_id, active } => {
+                    self.client_state
+                        .follow_mut(client_state().quest_log())
+                        .set_active_local(quest_id, active);
+                    let _ = self.networking_system.set_quest_active(quest_id, active);
+                }
+                InputEvent::ToggleSkillDescription { skill_id, title, body } => {
+                    if self.client_state.try_follow(this_entity()).is_none() {
+                        continue;
+                    }
+                    let same_skill = *self.client_state.follow(client_state().skill_tree_window().description_skill()) == Some(skill_id);
+                    let window_open = self.interface.is_window_with_class_open(WindowClass::SkillDescription);
+                    if same_skill && window_open {
+                        self.interface.close_window_with_class(WindowClass::SkillDescription);
+                        self.client_state.follow_mut(client_state().skill_tree_window()).cancel_hover_open();
+                    } else {
+                        self.client_state
+                            .follow_mut(client_state().skill_tree_window())
+                            .set_description(skill_id, title, body);
+                        if !window_open {
+                            self.interface
+                                .open_window(SkillDescriptionWindow::new(client_state().skill_tree_window()));
+                        }
+                    }
+                }
                 InputEvent::ToggleQuestJournalWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::QuestJournal) {
@@ -4165,6 +4315,18 @@ impl Client {
                         }
                     }
                 }
+                InputEvent::ToggleStatusPanelWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::StatusPanel) {
+                            true => self.interface.close_window_with_class(WindowClass::StatusPanel),
+                            false => self.interface.open_window(StatusPanelWindow::new(
+                                client_state().player_name(),
+                                this_player().manually_asserted(),
+                                client_state().status_effects(),
+                            )),
+                        }
+                    }
+                }
                 InputEvent::ToggleStatusEffectsWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::StatusEffects) {
@@ -4182,6 +4344,7 @@ impl Client {
                             false => self.interface.open_window(FriendListWindow::new(
                                 client_state().friend_list_window(),
                                 client_state().friend_list(),
+                                client_state().party(),
                             )),
                         }
                     }
@@ -4233,7 +4396,7 @@ impl Client {
                         let _ = self.networking_system.update_guild_notice(guild_id, subject, notice);
                     }
                 }
-                InputEvent::CloseTopWindow => self.interface.close_top_window(&self.client_state),
+                InputEvent::CloseTopWindow => self.on_close_top_window(),
                 InputEvent::Escape => {
                     if self.interface.is_window_with_class_open(WindowClass::WorldMap) {
                         self.interface.close_window_with_class(WindowClass::WorldMap);
@@ -4244,7 +4407,7 @@ impl Client {
                             self.interface.has_closable_window(&self.client_state),
                         ) {
                             crate::input::EscapeAction::Unfocus => self.interface.unfocus(),
-                            crate::input::EscapeAction::CloseTop => self.interface.close_top_window(&self.client_state),
+                            crate::input::EscapeAction::CloseTop => self.on_close_top_window(),
                             crate::input::EscapeAction::ToggleMenu => {
                                 if self.client_state.try_follow(this_entity()).is_some() {
                                     match self.interface.is_window_with_class_open(WindowClass::Menu) {
@@ -4295,6 +4458,8 @@ impl Client {
                     let _ = self.networking_system.switch_character_slot(origin_slot, destination_slot);
                 }
                 InputEvent::PlayerMove { destination } => {
+                    crate::interface::npc_flow::abort_npc_progress_for_move(&mut self.client_state, &mut self.networking_system);
+
                     if self.client_state.try_follow(this_entity()).is_some() {
                         let _ = self.networking_system.player_move(WorldPosition {
                             x: destination.x,
@@ -4341,13 +4506,17 @@ impl Client {
 
                                 self.networking_system.player_attack(entity_id)
                             }
-                            EntityType::Warp => self.networking_system.player_move({
-                                WorldPosition {
+                            EntityType::Warp => {
+                                crate::interface::npc_flow::abort_npc_progress_for_move(
+                                    &mut self.client_state,
+                                    &mut self.networking_system,
+                                );
+                                self.networking_system.player_move(WorldPosition {
                                     x: tile_position.x,
                                     y: tile_position.y,
                                     direction: Direction::North,
-                                }
-                            }),
+                                })
+                            }
                             _ => Ok(()),
                         };
                     }
@@ -4379,6 +4548,10 @@ impl Client {
                                     .find_walkable_path_in_range(&**map, player_position, item_position, ITEM_PICKUP_RANGE)
                                 && let Some(nearest_tile) = path.last()
                             {
+                                crate::interface::npc_flow::abort_npc_progress_for_move(
+                                    &mut self.client_state,
+                                    &mut self.networking_system,
+                                );
                                 let _ = self.networking_system.player_move(WorldPosition {
                                     x: nearest_tile.x,
                                     y: nearest_tile.y,
@@ -4417,6 +4590,15 @@ impl Client {
                         continue;
                     }
 
+                    if let Some(message) = text.strip_prefix('%') {
+                        let message = message.trim();
+                        if !message.is_empty() {
+                            let player_name = self.client_state.follow(client_state().player_name()).clone();
+                            let _ = self.networking_system.send_party_message(&player_name, message);
+                        }
+                        continue;
+                    }
+
                     match self.client_state.follow(client_state()).outgoing_chat(&text) {
                         state::chat::OutgoingChat::Whisper { target, text } => {
                             let (target, text) = self.client_state.follow_mut(client_state()).begin_whisper(target, text);
@@ -4439,15 +4621,34 @@ impl Client {
                     let _ = self.networking_system.next_dialog(npc_id);
                 }
                 InputEvent::CloseDialog { npc_id } => {
-                    let _ = self.networking_system.close_dialog(npc_id);
-                    self.client_state.follow_mut(client_state().dialog_window()).end();
-                    self.interface.close_window_with_class(WindowClass::Dialog);
+                    crate::interface::npc_flow::finish_npc_dialog(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        &mut self.networking_system,
+                        npc_id,
+                    );
+                }
+                InputEvent::SubmitNpcInput => {
+                    crate::interface::npc_flow::reply_npc_input(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        &mut self.networking_system,
+                        false,
+                    );
+                }
+                InputEvent::CancelNpcInput => {
+                    crate::interface::npc_flow::reply_npc_input(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        &mut self.networking_system,
+                        true,
+                    );
                 }
                 InputEvent::ChooseDialogOption { npc_id, option } => {
                     let _ = self.networking_system.choose_dialog_option(npc_id, option);
 
                     if option == -1 {
-                        self.interface.close_window_with_class(WindowClass::Dialog);
+                        crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
                     }
                 }
                 InputEvent::UseItem { index } => {
@@ -4584,26 +4785,12 @@ impl Client {
                         self.interface.open_window(StableWindow::new());
                     }
                 }
-                InputEvent::RequestStableHomunculus => {
-                    match self.client_state.follow(client_state().stable_window()).homunculus_request() {
-                        Ok(homunculus_id) => {
-                            let _ = self.networking_system.request_stable_homunculus(homunculus_id);
-                        }
-                        Err(message) => self
-                            .client_state
-                            .follow_mut(client_state().stable_window())
-                            .set_status(message.to_owned()),
-                    }
+                InputEvent::RequestStableHomunculus { homunculus_id } => {
+                    let _ = self.networking_system.request_stable_homunculus(homunculus_id);
                 }
-                InputEvent::RequestStablePet => match self.client_state.follow(client_state().stable_window()).pet_request() {
-                    Ok((action, pet_id)) => {
-                        let _ = self.networking_system.request_stable_pet(action, pet_id);
-                    }
-                    Err(message) => self
-                        .client_state
-                        .follow_mut(client_state().stable_window())
-                        .set_status(message.to_owned()),
-                },
+                InputEvent::RequestStablePet { action, id } => {
+                    let _ = self.networking_system.request_stable_pet(action, id);
+                }
                 InputEvent::OpenEden => {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         let _ = self.networking_system.request_eden(korangar_networking::EDEN_ACTION_LIST, 0);
@@ -5021,12 +5208,51 @@ impl Client {
                     self.interface.close_window_with_class(WindowClass::FriendRequest);
                 }
                 InputEvent::RejectPartyInvite { party_id } => {
+                    let _ = self.client_state.follow_mut(client_state().party()).take_pending_invite();
                     let _ = self.networking_system.reject_party_invite(party_id);
                     self.interface.close_window_with_class(WindowClass::PartyInvite);
                 }
                 InputEvent::AcceptPartyInvite { party_id } => {
+                    let _ = self.client_state.follow_mut(client_state().party()).take_pending_invite();
                     let _ = self.networking_system.accept_party_invite(party_id);
                     self.interface.close_window_with_class(WindowClass::PartyInvite);
+                }
+                InputEvent::AcceptPendingPartyInvite => {
+                    if let Some(party_id) = self.client_state.follow_mut(client_state().party()).take_pending_invite() {
+                        let _ = self.networking_system.accept_party_invite(party_id);
+                        self.interface.close_window_with_class(WindowClass::PartyInvite);
+                    }
+                }
+                InputEvent::CreateParty {
+                    name,
+                    item_pickup,
+                    item_division,
+                } => {
+                    let _ = self.networking_system.create_party(name, item_pickup, item_division);
+                }
+                InputEvent::LeaveParty => {
+                    let _ = self.networking_system.leave_party();
+                }
+                InputEvent::InviteToParty { character_name } => {
+                    let _ = self.networking_system.invite_to_party(character_name);
+                }
+                InputEvent::KickPartyMember { account_id, name } => {
+                    let _ = self.networking_system.expel_party_member(account_id, name);
+                }
+                InputEvent::ChangePartyLeader { account_id } => {
+                    let _ = self.networking_system.change_party_leader(account_id);
+                }
+                InputEvent::SetPartyOptions {
+                    experience_share,
+                    item_pickup,
+                    item_division,
+                } => {
+                    let _ = self
+                        .networking_system
+                        .set_party_options(experience_share, item_pickup, item_division);
+                }
+                InputEvent::SetPartyInviteBlock { refuse } => {
+                    let _ = self.networking_system.set_party_invite_block(refuse);
                 }
                 InputEvent::VendorTrade { list_index } => {
                     let buying = *self.client_state.follow(client_state().vendor_buying());
@@ -5370,6 +5596,19 @@ impl Client {
                     let _ = self.networking_system.close_styling_shop();
                     self.interface.close_window_with_class(WindowClass::StylingShop);
                 }
+                InputEvent::SelectShopDraft { index } => self.select_shop_draft(index),
+                InputEvent::CommitShopDraft => self.commit_shop_draft(),
+                InputEvent::UnlistShopDraft => self.unlist_shop_draft(),
+                InputEvent::SubmitShopSetup => self.submit_shop_setup(),
+                InputEvent::CancelShopSetup => self.cancel_shop_setup(),
+                InputEvent::CloseOwnShop => self.close_own_shop(),
+                InputEvent::SuggestShopSearch => self.suggest_shop_search(),
+                InputEvent::AddShopSearchItem { index } => self.add_shop_search_item(index),
+                InputEvent::RemoveShopSearchItem { index } => self.remove_shop_search_item(index),
+                InputEvent::SubmitShopSearch => self.submit_shop_search(),
+                InputEvent::ShopSearchNextPage => self.shop_search_next_page(),
+                InputEvent::CloseShopSearch => self.close_shop_search(),
+                InputEvent::SetShopSearchBuying { buying } => self.set_shop_search_buying(buying),
                 InputEvent::LevelUpSkills { skill_ids } => {
                     for skill_id in skill_ids {
                         if self.networking_system.level_up_skill(skill_id).is_err() {
@@ -5531,6 +5770,8 @@ impl Client {
             }
         }
 
+        self.open_pending_skill_description();
+
         for effect in pincode_effects {
             self.apply_pincode_effect(effect);
         }
@@ -5682,6 +5923,11 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().inventory())
                         .update_item_sprite(item_id, texture.clone());
+                    if let Ok(stable_item_id) = i32::try_from(item_id.0) {
+                        self.client_state
+                            .follow_mut(client_state().stable_window())
+                            .set_item_texture(stable_item_id, texture.clone());
+                    }
                     self.client_state
                         .follow_mut(client_state().cart())
                         .update_item_sprite(item_id, texture);
@@ -5713,7 +5959,18 @@ impl Client {
                             let map = self.map.insert(map);
 
                             map.set_ambient_sound_sources(&self.audio_engine);
-                            self.audio_engine.play_background_music_track(map.background_music_track_name());
+                            let npc_track = {
+                                let presentation = self.client_state.follow(client_state().npc_presentation());
+                                if presentation.npc_bgm_active() {
+                                    Some(presentation.npc_bgm().to_owned())
+                                } else {
+                                    None
+                                }
+                            };
+                            match npc_track {
+                                Some(track) => self.audio_engine.play_background_music_track(Some(&track)),
+                                None => self.audio_engine.play_background_music_track(map.background_music_track_name()),
+                            }
 
                             if let Some(position) = position {
                                 // `manually_asserted` is safe because we are in the branch where `this_player`
@@ -6129,26 +6386,28 @@ impl Client {
                 format!("[{}]", rows.join(", "))
             }
             autopilot::DumpPath::Windows => format!("{:?}", self.interface.open_window_classes()),
-            autopilot::DumpPath::Player => self
-                .client_state
-                .try_follow(this_player())
-                .map(|player| {
-                    format!(
-                        "(base_level: {}, job_level: {}, strength: {}, agility: {}, vitality: {}, intelligence: {}, dexterity: {}, luck: \
-                         {}, spell_points: {}, stat_points: {})",
-                        player.base_level,
-                        player.job_level,
-                        player.strength,
-                        player.agility,
-                        player.vitality,
-                        player.intelligence,
-                        player.dexterity,
-                        player.luck,
-                        player.spell_points,
-                        player.stat_points,
-                    )
-                })
-                .unwrap_or_else(|| "none".to_owned()),
+            autopilot::DumpPath::Player => {
+                let name = self.client_state.follow(client_state().player_name()).clone();
+                self.client_state
+                    .try_follow(this_player())
+                    .map(|player| {
+                        format!(
+                            "(name: {name:?}, base_level: {}, job_level: {}, strength: {}, agility: {}, vitality: {}, intelligence: {}, \
+                             dexterity: {}, luck: {}, spell_points: {}, stat_points: {})",
+                            player.base_level,
+                            player.job_level,
+                            player.strength,
+                            player.agility,
+                            player.vitality,
+                            player.intelligence,
+                            player.dexterity,
+                            player.luck,
+                            player.spell_points,
+                            player.stat_points,
+                        )
+                    })
+                    .unwrap_or_else(|| "none".to_owned())
+            }
         }
     }
 
@@ -6194,12 +6453,18 @@ impl Client {
         self.request_entity_details(&input_report);
 
         self.handle_network_events(client_tick);
+        crate::interface::npc_flow::poll_npc_progress(&mut self.client_state, &mut self.networking_system, client_tick.0);
 
         let interface_has_focus = self.process_user_events(
             &input_report,
             client_tick,
             #[cfg(feature = "debug")]
             (delta_time as f32),
+        );
+        crate::interface::npc_flow::recover_dismissed_npc_windows(
+            &mut self.client_state,
+            &mut self.interface,
+            &mut self.networking_system,
         );
 
         // Some debug windows, such as the packet history or cache statistics, require
@@ -6337,7 +6602,6 @@ impl Client {
         let mut indicator_instruction = None;
         let mut water_instruction = None;
 
-        let gear_hides_player = self.interface.is_window_with_class_open(WindowClass::Equipment);
         let mouse_mode = self.interface.get_mouse_mode();
         let is_mouse_mode_default = mouse_mode.is_default();
         let last_walking_destination = mouse_mode.walk_destination();
@@ -6350,6 +6614,24 @@ impl Client {
                     },
             } => Some(item.clone()),
             _ => None,
+        };
+
+        let focus_npc_input = self
+            .client_state
+            .follow_mut(client_state().dialog_window())
+            .take_input_focus();
+        let dialog_npc_id = self.client_state.follow(client_state().dialog_window()).npc_id();
+        let dialog_key = if !interface_has_focus {
+            let dialog = self.client_state.follow(client_state().dialog_window());
+            dialog_hotkey(
+                dialog.is_awaiting_next(),
+                dialog.is_awaiting_close(),
+                dialog.is_awaiting_choice(),
+                dialog.input_is_open(),
+                &input_report.characters,
+            )
+        } else {
+            None
         };
 
         let mut interface_frame = {
@@ -6368,10 +6650,16 @@ impl Client {
             // is hovering a window, so we buffer any actions for the next frame.
 
             let is_interface_hovered = interface_frame.is_interface_hovered();
+            let shop_hit = if is_interface_hovered {
+                None
+            } else {
+                crate::interface::shop_boards::shop_board_hit(current_camera, &self.client_state, screen_size, input_report.mouse_position)
+            };
 
             let cursor_state = match input_report.mouse_target {
                 _ if is_rotating_camera => MouseCursorState::RotateCamera,
                 _ if is_grabbing => MouseCursorState::GrabResource,
+                _ if shop_hit.is_some() => MouseCursorState::Dialog,
                 PickerTarget::Entity(entity_id) if !is_interface_hovered => {
                     if self
                         .client_state
@@ -6405,31 +6693,38 @@ impl Client {
                     interface_frame.unfocus();
 
                     if mouse_button == MouseButton::Left {
-                        match input_report.mouse_target {
-                            PickerTarget::Nothing => {}
-                            PickerTarget::Entity(entity_id) => {
-                                let is_ground_item = self
-                                    .client_state
-                                    .follow(client_state().ground_items())
-                                    .iter()
-                                    .any(|item| item.get_entity_id() == entity_id);
+                        if let Some(hit) = shop_hit {
+                            self.input_event_buffer.push(InputEvent::OpenPlayerShop {
+                                account_id: hit.account_id,
+                                buying_store: hit.buying_store,
+                            });
+                        } else {
+                            match input_report.mouse_target {
+                                PickerTarget::Nothing => {}
+                                PickerTarget::Entity(entity_id) => {
+                                    let is_ground_item = self
+                                        .client_state
+                                        .follow(client_state().ground_items())
+                                        .iter()
+                                        .any(|item| item.get_entity_id() == entity_id);
 
-                                if is_ground_item {
-                                    self.input_event_buffer.push(InputEvent::PickUpItem { entity_id })
-                                } else {
-                                    self.input_event_buffer.push(InputEvent::PlayerInteract { entity_id })
+                                    if is_ground_item {
+                                        self.input_event_buffer.push(InputEvent::PickUpItem { entity_id })
+                                    } else {
+                                        self.input_event_buffer.push(InputEvent::PlayerInteract { entity_id })
+                                    }
                                 }
-                            }
-                            PickerTarget::Tile { x, y } => {
-                                let destination = TilePosition { x, y };
+                                PickerTarget::Tile { x, y } => {
+                                    let destination = TilePosition { x, y };
 
-                                interface_frame.set_mouse_mode(MouseInputMode::Walk { destination });
+                                    interface_frame.set_mouse_mode(MouseInputMode::Walk { destination });
 
-                                self.input_event_buffer.push(InputEvent::PlayerMove { destination });
-                            }
-                            #[cfg(feature = "debug")]
-                            PickerTarget::Marker(marker_identifier) => {
-                                self.input_event_buffer.push(InputEvent::OpenMarkerDetails { marker_identifier })
+                                    self.input_event_buffer.push(InputEvent::PlayerMove { destination });
+                                }
+                                #[cfg(feature = "debug")]
+                                PickerTarget::Marker(marker_identifier) => {
+                                    self.input_event_buffer.push(InputEvent::OpenMarkerDetails { marker_identifier })
+                                }
                             }
                         }
                     } else if mouse_button == MouseButton::Right && currently_playing {
@@ -6468,10 +6763,19 @@ impl Client {
                 }
             }
 
-            // Focus the chat if the interface is not focused, no other element is capturing
-            // the keyboard input, enter was pressed, and the chat
-            // window is open.
-            if (!interface_has_focus || !interface_frame.input_characters(&self.client_state, &input_report.characters))
+            // Focus the NPC input once when it opens, then let Enter submit that box.
+            // Next and Close take Enter and Space before chat does.
+            if focus_npc_input {
+                interface_frame.focus_element(NpcInputBox);
+            }
+
+            if let Some(dialog_key) = dialog_key {
+                let event = match dialog_key {
+                    DialogHotkey::Next => InputEvent::NextDialog { npc_id: dialog_npc_id },
+                    DialogHotkey::Close => InputEvent::CloseDialog { npc_id: dialog_npc_id },
+                };
+                self.input_event_buffer.push(event);
+            } else if (!interface_has_focus || !interface_frame.input_characters(&self.client_state, &input_report.characters))
                 && input_report.characters.contains(&'\x0d')
                 && is_chat_open
             {
@@ -6497,7 +6801,6 @@ impl Client {
                 currently_playing,
                 is_mouse_mode_default,
                 is_interface_hovered: interface_frame.is_interface_hovered(),
-                gear_hides_player,
                 last_walking_destination,
                 buffered_action: *self.client_state.follow(client_state().buffered_action()),
                 #[cfg(feature = "debug")]
@@ -6555,6 +6858,27 @@ impl Client {
             render_context.render_bounding_boxes();
             render_context.render_world_overlays();
         }
+
+        let player_position = self
+            .client_state
+            .try_follow(this_entity())
+            .map(|player| player.get_position());
+        crate::interface::npc_overlay::render_npc_cutin(
+            self.client_state.follow(client_state().npc_presentation()),
+            self.game_file_loader.as_ref(),
+            &self.texture_loader,
+            &self.middle_interface_renderer,
+            screen_size,
+        );
+        crate::interface::npc_overlay::render_npc_progress(
+            self.client_state.follow(client_state().npc_presentation()),
+            &self.middle_interface_renderer,
+            current_camera,
+            self.client_state.follow(client_state().world_theme()),
+            screen_size,
+            player_position,
+            client_tick.0,
+        );
 
         let in_game_theme_path = client_state().in_game_theme().tooltip();
         let menu_theme_path = client_state().menu_theme().tooltip();
@@ -6845,7 +7169,6 @@ struct MapRenderContext<'a, 'm: 'a> {
     currently_playing: bool,
     is_mouse_mode_default: bool,
     is_interface_hovered: bool,
-    gear_hides_player: bool,
     last_walking_destination: Option<TilePosition>,
     buffered_action: Option<BufferedAction>,
     #[cfg(feature = "debug")]
@@ -6984,7 +7307,7 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
 
             #[cfg_attr(feature = "debug", korangar_debug::debug_condition(self.render_options.show_entities))]
             self.map
-                .render_entities(entity_instructions, entities, &partition_camera, self.client_tick, false);
+                .render_entities(entity_instructions, entities, &partition_camera, self.client_tick);
 
             #[cfg_attr(feature = "debug", korangar_debug::debug_condition(self.render_options.show_entities))]
             self.map
@@ -7074,13 +7397,15 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
         self.map
             .render_ground_items(self.entity_instructions, ground_items, entity_camera, self.client_tick);
 
+        // Gear's paperdoll does not replace the world sprite.
+        let _ = crate::interface::windows::draw_player_in_world(true);
+
         #[cfg_attr(feature = "debug", korangar_debug::debug_condition(self.render_options.show_entities))]
         self.map.render_entities(
             self.entity_instructions,
             entities,
             entity_camera,
             self.client_tick,
-            !crate::interface::windows::draw_world_entity(true, self.gear_hides_player),
         );
 
         #[cfg_attr(feature = "debug", korangar_debug::debug_condition(self.render_options.show_entities))]
@@ -7153,6 +7478,26 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
                 self.current_camera,
                 self.client_state.follow(client_state().world_theme()),
                 self.screen_size,
+            );
+        }
+
+        let party_bars = self.client_state.follow(client_state().party()).world_health_bars();
+        for (entity_id, health, maximum) in party_bars {
+            let Some(entity) = self
+                .client_state
+                .follow(client_state().entities())
+                .iter()
+                .find(|entity| entity.get_entity_id() == entity_id)
+            else {
+                continue;
+            };
+            entity.render_party_health(
+                self.middle_interface_renderer,
+                self.current_camera,
+                self.client_state.follow(client_state().world_theme()),
+                self.screen_size,
+                health as f32,
+                maximum as f32,
             );
         }
 
@@ -7246,5 +7591,13 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
             }
             _ => {}
         }
+
+        crate::interface::shop_boards::render_shop_boards(
+            self.middle_interface_renderer,
+            self.current_camera,
+            self.client_state,
+            self.screen_size,
+            self.mouse_position,
+        );
     }
 }

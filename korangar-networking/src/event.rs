@@ -50,6 +50,16 @@ pub struct GuildMemberSnapshot {
     pub contribution: i32,
 }
 
+/// One line of this client's own vend or buying store.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnShopLine {
+    /// Wire cart index for a vend. Buying stores send 0.
+    pub index: u16,
+    pub item_id: ItemId,
+    pub amount: u16,
+    pub price: u32,
+}
+
 /// One row from a shop-search result (`0x0B64`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchStoreHit {
@@ -255,6 +265,13 @@ pub enum NetworkEvent {
     UpdateStat {
         stat_type: StatType,
     },
+    /// `ZC_STATUS_CHANGE_ACK` (`0x00BC`). `success` is false when the server
+    /// rejected a base or trait stat-up.
+    StatUpResult {
+        status_id: u16,
+        success: bool,
+        value: u8,
+    },
     OpenDialog {
         text: String,
         npc_id: EntityId,
@@ -268,6 +285,38 @@ pub enum NetworkEvent {
     AddChoiceButtons {
         choices: Vec<String>,
         npc_id: EntityId,
+    },
+    /// `ZC_OPEN_EDITDLG` (`0x0142`).
+    NpcNumberInput {
+        npc_id: EntityId,
+    },
+    /// `ZC_OPEN_EDITDLGSTR` (`0x01D4`).
+    NpcTextInput {
+        npc_id: EntityId,
+    },
+    /// `ZC_SHOW_IMAGE2` (`0x01B3`). [`ImageLocation::ClearAll`] removes the cutin.
+    NpcCutin {
+        image_name: String,
+        location: ImageLocation,
+    },
+    /// `ZC_PROGRESS` (`0x02F0`). `color` is `0xRRGGBB`. `seconds` is the duration.
+    NpcProgress {
+        color: u32,
+        seconds: u32,
+    },
+    /// `ZC_PROGRESS_CANCEL` (`0x02F2`).
+    NpcProgressCancel,
+    /// `ZC_SOUND` (`0x01D3`).
+    NpcSound {
+        file_name: String,
+        action: u8,
+        term: u32,
+        npc_id: EntityId,
+    },
+    /// `ZC_PLAY_NPC_BGM`. `play_type` is 0 on `0x07FE`. On `0x0B8C`, 2 stops.
+    NpcBgm {
+        track: String,
+        play_type: u8,
     },
     AddQuestEffect {
         quest_effect: QuestEffectPacket,
@@ -404,6 +453,8 @@ pub enum NetworkEvent {
     PartyInvitationState {
         invitations_allowed: bool,
     },
+    /// Party roster, options, HP, position, or an invite result.
+    Party(crate::party::PartyUpdate),
     /// `ZC_UPDATE_GDID`. `guild_id == 0` means this character is not in a
     /// guild.
     GuildAffiliation {
@@ -502,9 +553,27 @@ pub enum NetworkEvent {
         item_count: u16,
     },
     /// The server accepted this client's vend or buying store.
+    ///
+    /// `index` on each line is the wire cart index for a vend (stored index +
+    /// 2). Buying-store lines have no cart index and use 0.
     OwnPlayerShopOpened {
-        item_count: usize,
         buying_store: bool,
+        lines: Vec<OwnShopLine>,
+    },
+    /// The server opened the buying-store setup (`0x0810`).
+    BuyingStorePrepare {
+        item_count: u8,
+    },
+    /// `ZC_ACK_OPENSTORE2` (`0x0A28`). 0 is success.
+    VendingOpenResult {
+        result: u8,
+    },
+    /// One stack left this client's vend (`0x09E5`).
+    VendingSold {
+        index: u16,
+        amount: u16,
+        zeny: u32,
+        date: u32,
     },
     /// Result of buying from a player vend. `result == 0` is success.
     VendingPurchaseResult {
@@ -825,6 +894,11 @@ pub enum NetworkEvent {
     HuntingQuestObjectiveUpdate {
         objectives: Vec<HuntingObjective>,
     },
+    /// Kill-count progress (`ZC_UPDATE_MISSION_HUNT`, 0x0AFE).
+    /// `objective_index` is Hercules `huntIdent2`. The packet has no mob id.
+    HuntingQuestIndexUpdate {
+        updates: Vec<HuntIndexUpdate>,
+    },
     /// A quest was removed from the character (0x02B4).
     QuestRemoved {
         quest_id: u32,
@@ -924,15 +998,18 @@ pub enum NetworkEvent {
     /// Turoran stable homunculus list (`0x0EF8`).
     StableHomunculusList {
         active_id: i32,
+        homunculi: Vec<ragnarok_packets::StableHomunculusEntry>,
         summary: String,
     },
     /// Turoran stable pet list (`0x0EF9`).
     StablePetList {
         active_id: i32,
+        pets: Vec<ragnarok_packets::StablePetEntry>,
         summary: String,
     },
     /// Turoran stable evolution materials (`0x0EF6`).
     StableOwnedList {
+        items: Vec<ragnarok_packets::StableOwnedEntry>,
         summary: String,
     },
     /// Turoran stable result (`0x0EFA`).
@@ -1183,6 +1260,16 @@ pub struct RoulettePrize {
     pub position: u16,
     pub item_id: u32,
     pub count: u16,
+}
+
+/// One `0x0AFE` objective. `objective_index` selects the row stored from the
+/// quest list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HuntIndexUpdate {
+    pub quest_id: u32,
+    pub objective_index: u32,
+    pub total_count: u16,
+    pub current_count: u16,
 }
 
 /// New-type so we can implement some `From` traits. This will help when

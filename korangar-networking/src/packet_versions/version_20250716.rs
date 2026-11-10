@@ -651,6 +651,7 @@ where
     )?;
     packet_handler.register(|packet: QuestRemovedPacket| NetworkEvent::QuestRemoved { quest_id: packet.quest_id })?;
     packet_handler.register(|packet: QuestListPacket| NetworkEvent::QuestList { quests: packet.quests })?;
+    crate::packet_versions::quest_renewal::register_quest_renewal_packets(packet_handler)?;
     packet_handler.register(|packet: VisualEffectPacket| {
         let VisualEffectPacket { entity_id, effect } = packet;
 
@@ -675,7 +676,7 @@ where
         experience_type: packet.experience_type,
         experience_source: packet.experience_source,
     })?;
-    packet_handler.register_noop::<DisplayImagePacket>()?;
+    crate::packet_versions::npc_dialog::register_npc_dialog_packets_20250716(packet_handler)?;
     packet_handler.register_noop::<StateChangePacket>()?;
 
     packet_handler.register(|packet: QuestEffectPacket| match packet.effect {
@@ -1096,6 +1097,7 @@ where
     })?;
     packet_handler.register_noop::<ReputationPacket>()?;
     crate::packet_versions::clan::register_clan_packets(packet_handler)?;
+    crate::packet_versions::party::register_party_packets(packet_handler)?;
     packet_handler.register_noop::<ChangeMapCellPacket>()?;
     packet_handler.register(open_market_event)?;
     crate::packet_versions::enchant::register_enchant_packets(packet_handler)?;
@@ -1133,7 +1135,11 @@ where
     packet_handler.register_noop::<ParameterChangePacket>()?;
     packet_handler.register(|packet: SellListPacket| NetworkEvent::SellItemList { items: packet.items })?;
     packet_handler.register(|packet: SellItemsResultPacket| NetworkEvent::SellingCompleted { result: packet.result })?;
-    packet_handler.register_noop::<RequestStatUpResponsePacket>()?;
+    packet_handler.register(|packet: RequestStatUpResponsePacket| NetworkEvent::StatUpResult {
+        status_id: packet.staus_type,
+        success: packet.success == RequestStatUpResult::Success,
+        value: packet.value,
+    })?;
     packet_handler.register_noop::<EquipAmmunitionPacket>()?;
     packet_handler.register_noop::<AmmunitionActionPacket>()?;
     packet_handler.register(|packet: UpdateSkillPacket| {

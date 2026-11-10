@@ -33,8 +33,8 @@ use crate::renderer::MarkerRenderer;
 use crate::state::ClientState;
 use crate::state::theme::{InterfaceThemeType, WorldTheme};
 use crate::world::{
-    ActionEvent, AnimationData, AnimationState, Camera, FadeDirection, FadeState, IsBabyJob, JobIdentity, Library, MAX_WALK_PATH_SIZE, Map,
-    PathFinder,
+    ActionEvent, AnimationData, AnimationState, BasicInfoStats, Camera, FadeDirection, FadeState, IsBabyJob, JobIdentity, Library,
+    MAX_WALK_PATH_SIZE, Map, PathFinder,
 };
 #[cfg(feature = "debug")]
 use crate::world::{MarkerIdentifier, SubMesh};
@@ -962,6 +962,7 @@ pub struct Player {
     pub critical: u32,
     pub attack_speed: u32,
     pub skill_points: u32,
+    pub basic_info: BasicInfoStats,
 }
 
 impl Player {
@@ -1040,6 +1041,7 @@ impl Player {
             critical: 0,
             attack_speed: 0,
             skill_points: 0,
+            basic_info: BasicInfoStats::default(),
         }
     }
 
@@ -1052,6 +1054,9 @@ impl Player {
     }
 
     pub fn update_stat(&mut self, stat_type: StatType) {
+        if self.basic_info.apply(stat_type.clone()) {
+            return;
+        }
         match stat_type {
             StatType::MaximumHealthPoints(value) => self.common.maximum_health_points = value as usize,
             StatType::MaximumSpellPoints(value) => self.maximum_spell_points = value as usize,
@@ -1274,6 +1279,7 @@ impl Npc {
 }
 
 #[derive(Clone, StateElement)]
+#[allow(clippy::large_enum_variant)] // Player carries BasicInfoStats plus combat fields.
 pub enum Entity {
     Player(Player),
     Npc(Npc),
@@ -1542,6 +1548,49 @@ impl Entity {
             Self::Player(player) => player.render_status(renderer, camera, theme, window_size),
             Self::Npc(npc) => npc.render_status(renderer, camera, theme, window_size),
         }
+    }
+
+    /// One HP bar over a party member. Uses the player health token on the
+    /// enemy bar size.
+    pub fn render_party_health(
+        &self,
+        renderer: &GameInterfaceRenderer,
+        camera: &dyn Camera,
+        theme: &WorldTheme,
+        window_size: ScreenSize,
+        health: f32,
+        maximum: f32,
+    ) {
+        if maximum <= 0.0 {
+            return;
+        }
+
+        let clip_space_position = camera.view_projection_matrix() * self.get_common().world_position.to_homogeneous();
+        let screen_position = camera.clip_to_screen_space(clip_space_position);
+        let final_position = ScreenPosition {
+            left: screen_position.x * window_size.width,
+            top: screen_position.y * window_size.height + 5.0,
+        };
+        let bar_width = theme.status_bar.enemy_bar_width;
+
+        renderer.render_rectangle(
+            final_position - theme.status_bar.border_size - ScreenSize::only_width(bar_width / 2.0),
+            ScreenSize {
+                width: bar_width,
+                height: theme.status_bar.enemy_health_height,
+            } + (theme.status_bar.border_size * 2.0),
+            theme.status_bar.background_color,
+        );
+        renderer.render_bar(
+            final_position,
+            ScreenSize {
+                width: bar_width,
+                height: theme.status_bar.enemy_health_height,
+            },
+            theme.status_bar.player_health_color,
+            maximum,
+            health.max(0.0),
+        );
     }
 }
 

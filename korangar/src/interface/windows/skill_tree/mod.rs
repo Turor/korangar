@@ -32,6 +32,61 @@ pub struct SkillTreeWindowState {
     /// contains skills that have this property.
     #[hidden_element]
     chosen_skill_level: HashMap<SkillId, SkillLevel>,
+    description_title: String,
+    description_body: String,
+    /// Skill the description window was actually showing. A right-click toggles
+    /// against this id, not the skill currently under the cursor.
+    description_skill: Option<SkillId>,
+    /// Hover asked to open or switch. Applied after input so a right-click in
+    /// the same frame commits first.
+    description_open: bool,
+    description_pending_title: String,
+    description_pending_body: String,
+    description_pending_skill: Option<SkillId>,
+    /// Skill whose window was just closed. Hover does not reopen it until the
+    /// pointer leaves that slot.
+    description_dismissed: Option<SkillId>,
+}
+
+impl SkillTreeWindowState {
+    pub fn set_description(&mut self, skill_id: SkillId, title: String, body: String) {
+        self.description_skill = Some(skill_id);
+        self.description_title = title;
+        self.description_body = body;
+        self.description_open = false;
+    }
+
+    /// Drop a hover open recorded for this frame so it cannot reopen a window
+    /// the click just closed.
+    pub fn cancel_hover_open(&mut self) {
+        self.description_open = false;
+    }
+
+    /// The description window is gone. Forget the skill it was showing and
+    /// suppress hover-open for that skill until the pointer leaves its slot.
+    pub fn note_description_window_closed(&mut self) {
+        if let Some(skill_id) = self.description_skill.take() {
+            self.description_dismissed = Some(skill_id);
+        }
+    }
+
+    /// Copy a hover request into the committed description. Returns whether the
+    /// window should be opened. A click that already ran clears
+    /// `description_open`, so this does not replace the skill the click
+    /// committed.
+    pub fn take_hover_description(&mut self) -> bool {
+        if !self.description_open {
+            return false;
+        }
+        self.description_open = false;
+        let Some(skill_id) = self.description_pending_skill else {
+            return false;
+        };
+        self.description_skill = Some(skill_id);
+        self.description_title.clone_from(&self.description_pending_title);
+        self.description_body.clone_from(&self.description_pending_body);
+        true
+    }
 }
 
 pub struct SkillTreeWindow<A, B, C, D> {
@@ -148,5 +203,72 @@ where
                 }
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod description_state_tests {
+    use ragnarok_packets::SkillId;
+
+    use super::SkillTreeWindowState;
+
+    #[test]
+    fn click_commit_cancels_the_hover_open() {
+        let mut state = SkillTreeWindowState {
+            description_pending_skill: Some(SkillId(1)),
+            description_pending_title: "Bash".to_owned(),
+            description_pending_body: "Level: 1 / 10".to_owned(),
+            description_open: true,
+            ..Default::default()
+        };
+
+        state.set_description(SkillId(2), "Magnum".to_owned(), "Level: 4 / 10".to_owned());
+
+        assert!(!state.take_hover_description());
+        assert_eq!(state.description_skill, Some(SkillId(2)));
+        assert_eq!(state.description_body, "Level: 4 / 10");
+    }
+
+    #[test]
+    fn hover_open_commits_the_pending_skill_when_no_click_runs() {
+        let mut state = SkillTreeWindowState {
+            description_pending_skill: Some(SkillId(1)),
+            description_pending_title: "Bash".to_owned(),
+            description_pending_body: "Level: 3 / 10".to_owned(),
+            description_open: true,
+            ..Default::default()
+        };
+
+        assert!(state.take_hover_description());
+        assert_eq!(state.description_skill, Some(SkillId(1)));
+        assert_eq!(state.description_title, "Bash");
+        assert_eq!(state.description_body, "Level: 3 / 10");
+        assert!(!state.description_open);
+        assert!(!state.take_hover_description());
+    }
+
+    #[test]
+    fn closing_clears_the_shown_skill_until_the_pointer_leaves() {
+        let mut state = SkillTreeWindowState {
+            description_pending_skill: Some(SkillId(2)),
+            description_pending_title: "Magnum".to_owned(),
+            description_pending_body: "Level: 4 / 10".to_owned(),
+            description_open: true,
+            ..Default::default()
+        };
+        state.set_description(SkillId(1), "Bash".to_owned(), "Level: 1 / 10".to_owned());
+        state.description_open = true;
+
+        state.cancel_hover_open();
+        state.note_description_window_closed();
+
+        assert!(state.description_skill.is_none());
+        assert_eq!(state.description_dismissed, Some(SkillId(1)));
+        assert!(!state.take_hover_description());
+
+        state.description_open = true;
+        assert!(state.take_hover_description());
+        assert_eq!(state.description_skill, Some(SkillId(2)));
+        assert_eq!(state.description_dismissed, Some(SkillId(1)));
     }
 }

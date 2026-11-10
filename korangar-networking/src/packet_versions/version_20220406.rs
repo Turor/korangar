@@ -558,7 +558,7 @@ where
         NetworkEvent::VisualEffect { effect_path, entity_id }
     })?;
     packet_handler.register_noop::<DisplayGainedExperiencePacket>()?;
-    packet_handler.register_noop::<DisplayImagePacket>()?;
+    crate::packet_versions::npc_dialog::register_npc_dialog_packets(packet_handler)?;
     packet_handler.register_noop::<StateChangePacket>()?;
 
     packet_handler.register(|packet: QuestEffectPacket| match packet.effect {
@@ -875,7 +875,11 @@ where
     packet_handler.register_noop::<ParameterChangePacket>()?;
     packet_handler.register(|packet: SellListPacket| NetworkEvent::SellItemList { items: packet.items })?;
     packet_handler.register(|packet: SellItemsResultPacket| NetworkEvent::SellingCompleted { result: packet.result })?;
-    packet_handler.register_noop::<RequestStatUpResponsePacket>()?;
+    packet_handler.register(|packet: RequestStatUpResponsePacket| NetworkEvent::StatUpResult {
+        status_id: packet.staus_type,
+        success: packet.success == RequestStatUpResult::Success,
+        value: packet.value,
+    })?;
     packet_handler.register_noop::<EquipAmmunitionPacket>()?;
     packet_handler.register_noop::<AmmunitionActionPacket>()?;
     packet_handler.register(|packet: UpdateSkillPacket| {

@@ -1,6 +1,7 @@
 mod achievements;
 mod audio_settings;
 mod bank;
+mod basic_info_view;
 mod buy;
 mod buy_cart;
 mod buy_or_sell;
@@ -41,8 +42,10 @@ mod maps;
 mod menu;
 mod mvp_minimap;
 mod navigation;
+mod npc_input;
 #[cfg(feature = "debug")]
 mod packet_inspector;
+mod party;
 mod party_invite;
 mod pincode;
 mod placement;
@@ -58,16 +61,20 @@ mod search_store;
 mod sell;
 mod sell_cart;
 mod server_selection;
+mod skill_description;
 mod skill_tree;
-mod stable;
+pub(crate) mod stable;
 mod stats;
 mod status_effects;
+mod status_panel;
 mod storage;
 mod styling_shop;
 mod switch_equip;
 #[cfg(feature = "debug")]
 mod theme_inspector;
 mod trade;
+mod vending_report;
+mod vending_setup;
 mod vendor;
 mod warpra;
 mod world_map;
@@ -95,7 +102,7 @@ pub use self::dialog::{DialogWindow, DialogWindowState};
 pub use self::eden::{EdenWindow, EdenWindowState};
 pub use self::enchant::{EnchantWindow, EnchantWindowState};
 pub use self::equipment::EquipmentWindow;
-pub(crate) use self::equipment::draw_world_entity;
+pub(crate) use self::equipment::draw_player_in_world;
 pub use self::error::ErrorWindow;
 #[cfg(feature = "debug")]
 pub use self::frame_inspector::FrameInspectorWindow;
@@ -119,6 +126,7 @@ pub use self::maps::MapsWindow;
 pub use self::menu::MenuWindow;
 pub use self::mvp_minimap::{MvpMinimapState, MvpMinimapWindow};
 pub use self::navigation::NavigationWindow;
+pub use self::npc_input::{NpcInputBox, NpcInputWindow};
 #[cfg(feature = "debug")]
 pub use self::packet_inspector::PacketInspectorWindow;
 pub use self::party_invite::PartyInviteWindow;
@@ -135,16 +143,20 @@ pub use self::search_store::SearchStoreWindow;
 pub use self::sell::SellWindow;
 pub use self::sell_cart::SellCartWindow;
 pub use self::server_selection::ServerSelectionWindow;
+pub use self::skill_description::SkillDescriptionWindow;
 pub use self::skill_tree::{SkillTreeWindow, SkillTreeWindowState, SkillTreeWindowStatePathExt};
 pub use self::stable::{StableWindow, StableWindowState};
 pub use self::stats::StatsWindow;
 pub use self::status_effects::StatusEffectsWindow;
+pub use self::status_panel::StatusPanelWindow;
 pub use self::storage::StorageWindow;
 pub use self::styling_shop::StylingShopWindow;
 pub use self::switch_equip::SwitchEquipWindow;
 #[cfg(feature = "debug")]
 pub use self::theme_inspector::{ThemeInspectorWindow, ThemeInspectorWindowState};
 pub use self::trade::{TradeRequestWindow, TradeWindow};
+pub use self::vending_report::VendingReportWindow;
+pub use self::vending_setup::VendingSetupWindow;
 pub use self::vendor::VendorWindow;
 pub use self::warpra::{WarpraWindow, WarpraWindowState};
 pub use self::world_map::{
@@ -168,6 +180,7 @@ pub enum WindowClass {
     CharacterOverview,
     CharacterSelection,
     Dialog,
+    NpcInput,
     Enchant,
     Eden,
     GameSettings,
@@ -180,11 +193,13 @@ pub enum WindowClass {
     Equipment,
     SwitchEquip,
     SkillTree,
+    SkillDescription,
     Stable,
     Warpra,
     WorldMap,
     Stats,
     StatusEffects,
+    StatusPanel,
     QuestJournal,
     Achievements,
     Navigation,
@@ -207,6 +222,8 @@ pub enum WindowClass {
     TradeRequest,
     Vendor,
     SearchStore,
+    VendingSetup,
+    VendingReport,
     Refine,
     ItemFinder,
     ItemReform,
