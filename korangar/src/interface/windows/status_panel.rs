@@ -33,6 +33,8 @@ const RESOURCE_BAR_INSET: f32 = 2.0;
 /// Base/Job EXP bars carry "Base Lv 48 · 63.2%" inside the fill.
 const EXP_BAR_HEIGHT: f32 = 17.0;
 const EXP_BAR_FONT_SIZE: f32 = 12.0;
+// The level and percent text must fit inside the bar.
+const _: () = assert!(EXP_BAR_HEIGHT >= EXP_BAR_FONT_SIZE + 4.0);
 const FOOTER_ROW_HEIGHT: f32 = 12.0;
 /// Smaller than the Base/Job bar text.
 const FOOTER_FONT_SIZE: f32 = 11.0;
@@ -1002,7 +1004,6 @@ mod tests {
         assert_eq!(exp_bar_label("Job Lv", 12, 75, 1000), "Job Lv 12 · 7.5%");
         assert_eq!(exp_bar_label("Base Lv", 99, 0, 0), "Base Lv 99 · 0.0%");
         assert_eq!(exp_bar_label("Job Lv", 50, 2000, 1000), "Job Lv 50 · 100.0%");
-        assert!(EXP_BAR_HEIGHT >= EXP_BAR_FONT_SIZE + 4.0, "text must fit inside the bar");
     }
 
     #[test]
