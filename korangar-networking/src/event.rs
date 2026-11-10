@@ -277,9 +277,14 @@ pub enum NetworkEvent {
         entity_id: EntityId,
         item_entity_id: EntityId,
     },
+    /// No-damage skill (`DisplaySkillEffectNoDamagePacket`, `0x09CB`): heals,
+    /// buffs, and other `spamSkill` casts. `result == 1` is a success effect.
     HealEffect {
         entity_id: EntityId,
+        source_entity_id: EntityId,
+        skill_id: SkillId,
         heal_amount: usize,
+        result: u8,
     },
     UpdateStat {
         stat_type: StatType,
@@ -985,7 +990,16 @@ pub enum NetworkEvent {
         skill_id: SkillId,
         until: ClientTick,
     },
-    /// A skill cast was acknowledged (`UseSkillSuccessPacket`, 0x07FB).
+    /// A cast was cancelled (`SkillCastCancelPacket` / `ZC_DISPEL`, `0x01B9`).
+    ///
+    /// The client stop packet `0x0B11` is outbound (`CZ_USE_SKILL_END`). The
+    /// server uses `0x01B9` when a cast ends early, including damage interrupt.
+    SkillCastCancelled {
+        entity_id: EntityId,
+    },
+    /// A skill cast was acknowledged. PACKETVER 20250716 sends
+    /// `UseSkillAck3Packet` (`0x0B1A`, 29 bytes). Older profiles that still
+    /// emit `UseSkillSuccessPacket` (`0x07FB`, 25 bytes) do not start a bar.
     UseSkillSuccess {
         source_entity_id: EntityId,
         destination_entity_id: EntityId,
@@ -995,8 +1009,9 @@ pub enum NetworkEvent {
         delay_time: u32,
         disposable: u8,
     },
-    /// The server accepted a skill the client is about to use
-    /// (`ToUseSkillSuccessPacket`, 0x0110).
+    /// Skill use failed (`ToUseSkillSuccessPacket`, `0x0110`). Hercules
+    /// `clif_skill_fail` always sets `flag` to 0. Success STR comes from
+    /// `0x09CB` when `result == 1`, not from this packet.
     ToUseSkillSuccess {
         skill_id: SkillId,
         btype: i32,

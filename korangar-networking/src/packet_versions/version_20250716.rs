@@ -594,7 +594,10 @@ where
     })?;
     packet_handler.register(|packet: DisplaySkillEffectNoDamagePacket| NetworkEvent::HealEffect {
         entity_id: packet.destination_entity_id,
+        source_entity_id: packet.source_entity_id,
+        skill_id: packet.skill_id,
         heal_amount: packet.heal_amount as usize,
+        result: packet.result,
     })?;
     packet_handler.register(|packet: DisplayPlayerHealEffect| NetworkEvent::PlayerHealEffect {
         heal_type: packet.heal_type,
@@ -947,7 +950,12 @@ where
             color: MessageColor::Error,
         },
     })?;
-    packet_handler.register(|packet: UseSkillSuccessPacket| NetworkEvent::UseSkillSuccess {
+    packet_handler.register(|packet: SkillCastCancelPacket| NetworkEvent::SkillCastCancelled {
+        entity_id: packet.entity_id,
+    })?;
+    // 20250716 MAIN emits 0x0B1A. The pre-20181212 0x07FB ack is ignored here.
+    packet_handler.register_noop::<UseSkillSuccessPacket>()?;
+    packet_handler.register(|packet: UseSkillAck3Packet| NetworkEvent::UseSkillSuccess {
         source_entity_id: packet.source_entity,
         destination_entity_id: packet.destination_entity,
         position: packet.position,

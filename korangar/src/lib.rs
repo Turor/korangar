@@ -75,7 +75,7 @@ use ragnarok_packets::handler::NoPacketCallback;
 use ragnarok_packets::{
     AccountId, AttackRange, BuyShopItemsResult, CharacterServerInformation, ClientTick, Direction, DisappearanceReason, EffectId, EntityId,
     EquipPosition, EquippableItemFlags, ExperienceSource, ExperienceType, GuildPositionEdit, HealType, HotbarSlot, InventoryIndex,
-    SellItemsResult, SkillId, SkillLevel, SkillType, TilePosition, UnitId, WorldPosition,
+    SellItemsResult, SkillId, SkillLevel, SkillType, TilePosition, WorldPosition,
 };
 use renderer::InterfaceRenderer;
 use rust_state::{ManuallyAssertExt, State};
@@ -122,6 +122,7 @@ use crate::state::{BufferedAction, SelectedServicePath};
 use crate::system::{FrameTimers, GameTimer};
 #[cfg(feature = "debug")]
 use crate::world::MarkerIdentifier;
+use crate::world::effects::{self, SkillField};
 use crate::world::*;
 
 const CLIENT_NAME: &str = "Korangar";
@@ -308,6 +309,7 @@ pub struct Client {
     particle_holder: ParticleHolder,
     point_light_manager: PointLightManager,
     effect_holder: EffectHolder,
+    cast_bars: effects::CastBars,
     path_finder: PathFinder,
 
     point_light_set_buffer: ResourceSetBuffer<LightSourceKey>,
@@ -348,23 +350,13 @@ pub struct Client {
     client_state: State<ClientState>,
 }
 
-/// Effect files this client already loads for level-up, refine, and pharmacy
-/// feedback.
-fn special_effect_path(effect_id: EffectId) -> Option<&'static str> {
-    match effect_id {
-        EffectId::Lvup
-        | EffectId::Level99
-        | EffectId::Level99_2
-        | EffectId::Level99_3
-        | EffectId::Level99_4
-        | EffectId::Level99_5
-        | EffectId::Level99_6 => Some("angel.str"),
-        EffectId::Joblvup | EffectId::Joblvup50 => Some("joblvup.str"),
-        EffectId::Refineok => Some("bs_refinesuccess.str"),
-        EffectId::Refinefail => Some("bs_refinefailed.str"),
-        EffectId::PharmacyOk => Some("p_success.str"),
-        EffectId::PharmacyFail => Some("p_failed.str"),
-        _ => None,
+fn str_effect_light(path: &str) -> (Color, f32) {
+    if path.starts_with("firewall") {
+        (Color::rgb_u8(255, 30, 0), 60.0)
+    } else if path.starts_with("pneuma") {
+        (Color::rgb_u8(83, 220, 108), 40.0)
+    } else {
+        (Color::WHITE, 50.0)
     }
 }
 
@@ -741,6 +733,7 @@ impl Client {
             let particle_holder = ParticleHolder::default();
             let point_light_manager = PointLightManager::new();
             let effect_holder = EffectHolder::default();
+            let cast_bars = effects::CastBars::default();
             let path_finder = PathFinder::default();
 
             let point_light_set_buffer = ResourceSetBuffer::default();
@@ -875,6 +868,7 @@ impl Client {
             particle_holder,
             point_light_manager,
             effect_holder,
+            cast_bars,
             path_finder,
             point_light_set_buffer,
             directional_shadow_object_set_buffer,
@@ -1109,8 +1103,57 @@ impl Client {
 
     #[inline(always)]
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
+    fn spawn_str_effects(&mut self, paths: &[&str], entity_id: EntityId, position: Option<Point3<f32>>, repeating: bool) {
+        for path in paths {
+            let Ok(effect) = self.effect_loader.get_or_load(path, &self.texture_loader) else {
+                #[cfg(feature = "debug")]
+                print_debug!("[{}] failed to load effect {}", "effect".red(), path.magenta());
+                continue;
+            };
+            let (color, range) = str_effect_light(path);
+            let frame_timer = effect.new_frame_timer();
+            let (center, offset, light_offset) = if let Some(position) = position {
+                (
+                    EffectCenter::Position(position),
+                    Vector3::new(0.0, 0.0, 0.0),
+                    Vector3::new(0.0, 6.0, 0.0),
+                )
+            } else {
+                (
+                    EffectCenter::Entity(entity_id, Point3::new(0.0, 0.0, 0.0)),
+                    Vector3::new(0.0, 9.0, 0.0),
+                    Vector3::new(0.0, 12.0, 0.0),
+                )
+            };
+            let built = Box::new(EffectWithLight::new(
+                effect,
+                frame_timer,
+                center,
+                offset,
+                PointLightId::new(entity_id.0),
+                light_offset,
+                color,
+                range,
+                repeating,
+            ));
+            // Repeating ground units are removed by `RemoveSkillUnit`. One-shot
+            // effects, even when placed on a cell, must not be keyed by the caster.
+            if position.is_some() && repeating {
+                self.effect_holder.add_unit(built, entity_id);
+            } else {
+                self.effect_holder.add_effect(built);
+            }
+        }
+    }
+
+    fn play_skill_field(&mut self, skill_id: SkillId, field: SkillField, entity_id: EntityId, position: Option<Point3<f32>>, repeating: bool) {
+        let paths = effects::collect_str_paths(effects::skill_effect_refs(skill_id.0, field));
+        self.spawn_str_effects(&paths, entity_id, position, repeating);
+    }
+
     fn handle_network_events(&mut self, client_tick: ClientTick) {
         *self.client_state.follow_mut(client_state().client_tick()) = client_tick;
+        self.cast_bars.expire(client_tick.0);
         self.client_state.follow_mut(client_state().navigation()).expire(client_tick.0);
         self.client_state.follow_mut(client_state()).expire_chat_overlays(client_tick.0);
         self.client_state
@@ -1136,8 +1179,8 @@ impl Client {
         let mut autopilot_slot_occupied: Option<bool> = None;
         let mut pincode_effects = Vec::new();
         let mut autopilot_effects = Vec::new();
-        // Own the events before matching. Shop handlers borrow `self`, which cannot
-        // overlap the buffer drain.
+        // Own the events before matching. Shop handlers and effect playback borrow
+        // `self`, which cannot overlap the buffer drain.
         let network_events: Vec<_> = self.network_event_buffer.drain().collect();
         for event in network_events {
             match event {
@@ -1970,7 +2013,19 @@ impl Client {
                         }
                     }
                 }
-                NetworkEvent::HealEffect { entity_id, heal_amount } => {
+                NetworkEvent::HealEffect {
+                    entity_id,
+                    source_entity_id,
+                    skill_id,
+                    heal_amount,
+                    result,
+                } => {
+                    self.play_skill_field(skill_id, SkillField::Effect, entity_id, None, false);
+                    self.play_skill_field(skill_id, SkillField::EffectOnCaster, source_entity_id, None, false);
+                    if result == 1 {
+                        self.play_skill_field(skill_id, SkillField::Success, entity_id, None, false);
+                        self.play_skill_field(skill_id, SkillField::SuccessOnCaster, source_entity_id, None, false);
+                    }
                     if let Some(entity) = self
                         .client_state
                         .follow(client_state().entities())
@@ -2125,39 +2180,30 @@ impl Client {
                     ));
                 }
                 NetworkEvent::SpecialEffect { entity_id, effect_id } => {
-                    if let Some(effect_path) = special_effect_path(effect_id) {
-                        let effect = self.effect_loader.get_or_load(effect_path, &self.texture_loader).unwrap();
-                        let frame_timer = effect.new_frame_timer();
-
-                        self.effect_holder.add_effect(Box::new(EffectWithLight::new(
-                            effect,
-                            frame_timer,
-                            EffectCenter::Entity(entity_id, Point3::new(0.0, 0.0, 0.0)),
-                            Vector3::new(0.0, 9.0, 0.0),
-                            PointLightId::new(entity_id.0),
-                            Vector3::new(0.0, 12.0, 0.0),
-                            Color::WHITE,
-                            50.0,
-                            false,
-                        )));
-                    } else if matches!(effect_id, EffectId::Heal | EffectId::Heal2 | EffectId::Heal3 | EffectId::Heal4) {
-                        if let Some(entity) = self
+                    let effect_value = effects::effect_id_value(effect_id);
+                    // Unmapped effects are skipped. `chat_line_for_special_effect` is the
+                    // single place that could ask for a chat line, and it never does.
+                    if let Some(line) = effects::chat_line_for_special_effect(effect_value) {
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(line.to_string(), MessageColor::Information));
+                    }
+                    let paths = effects::collect_str_paths(&[effects::EffectRef::Id(effect_value)]);
+                    self.spawn_str_effects(&paths, entity_id, None, false);
+                    if matches!(effect_id, EffectId::Heal | EffectId::Heal2 | EffectId::Heal3 | EffectId::Heal4)
+                        && let Some(entity) = self
                             .client_state
                             .follow(client_state().entities())
                             .iter()
                             .find(|entity| entity.get_entity_id() == entity_id)
                             .or_else(|| self.client_state.try_follow(this_entity()))
-                        {
-                            self.particle_holder
-                                .spawn_particle(Box::new(HealNumber::new(entity.get_position(), "+".to_owned())));
-                        }
-                    } else {
-                        self.client_state
-                            .follow_mut(client_state().chat_messages())
-                            .push(ChatMessage::new(format!("Effect: {effect_id:?}"), MessageColor::Information));
+                    {
+                        self.particle_holder
+                            .spawn_particle(Box::new(HealNumber::new(entity.get_position(), "+".to_owned())));
                     }
                 }
                 NetworkEvent::SkillEffectAndDamage {
+                    skill_id,
                     source_entity_id,
                     destination_entity_id,
                     damage,
@@ -2200,6 +2246,15 @@ impl Client {
                     {
                         self.particle_holder
                             .spawn_particle(Box::new(DamageNumber::new(entity.get_position(), damage.to_string(), false)));
+                    }
+
+                    self.play_skill_field(skill_id, SkillField::Effect, destination_entity_id, None, false);
+                    self.play_skill_field(skill_id, SkillField::EffectOnCaster, source_entity_id, None, false);
+                    self.play_skill_field(skill_id, SkillField::BeforeHit, destination_entity_id, None, false);
+                    self.play_skill_field(skill_id, SkillField::BeforeHitOnCaster, source_entity_id, None, false);
+                    if damage > 0 {
+                        self.play_skill_field(skill_id, SkillField::Hit, destination_entity_id, None, false);
+                        self.play_skill_field(skill_id, SkillField::HitOnCaster, source_entity_id, None, false);
                     }
                 }
                 NetworkEvent::UpdateEntityHealth {
@@ -3114,60 +3169,18 @@ impl Client {
                     let Some(map) = &self.map else {
                         continue;
                     };
-
-                    match unit_id {
-                        UnitId::Firewall => {
-                            let Some(position) = map.get_world_position(position) else {
-                                #[cfg(feature = "debug")]
-                                print_debug!("[{}] entity with id {:?} is out of map bounds", "error".red(), entity_id);
-                                continue;
-                            };
-
-                            let effect = self.effect_loader.get_or_load("firewall.str", &self.texture_loader).unwrap();
-                            let frame_timer = effect.new_frame_timer();
-
-                            self.effect_holder.add_unit(
-                                Box::new(EffectWithLight::new(
-                                    effect,
-                                    frame_timer,
-                                    EffectCenter::Position(position),
-                                    Vector3::new(0.0, 0.0, 0.0),
-                                    PointLightId::new(unit_id as u32),
-                                    Vector3::new(0.0, 6.0, 0.0),
-                                    Color::rgb_u8(255, 30, 0),
-                                    60.0,
-                                    true,
-                                )),
-                                entity_id,
-                            );
-                        }
-                        UnitId::Pneuma => {
-                            let Some(position) = map.get_world_position(position) else {
-                                #[cfg(feature = "debug")]
-                                print_debug!("[{}] entity with id {:?} is out of map bounds", "error".red(), entity_id);
-                                continue;
-                            };
-
-                            let effect = self.effect_loader.get_or_load("pneuma1.str", &self.texture_loader).unwrap();
-                            let frame_timer = effect.new_frame_timer();
-
-                            self.effect_holder.add_unit(
-                                Box::new(EffectWithLight::new(
-                                    effect,
-                                    frame_timer,
-                                    EffectCenter::Position(position),
-                                    Vector3::new(0.0, 0.0, 0.0),
-                                    PointLightId::new(unit_id as u32),
-                                    Vector3::new(0.0, 6.0, 0.0),
-                                    Color::rgb_u8(83, 220, 108),
-                                    40.0,
-                                    false,
-                                )),
-                                entity_id,
-                            );
-                        }
-                        _ => {}
-                    }
+                    let Some(position) = map.get_world_position(position) else {
+                        #[cfg(feature = "debug")]
+                        print_debug!("[{}] entity with id {:?} is out of map bounds", "error".red(), entity_id);
+                        continue;
+                    };
+                    let Some(effect_ref) = effects::unit_effect(effects::unit_id_value(unit_id)) else {
+                        #[cfg(feature = "debug")]
+                        print_debug!("[{}] unmapped skill unit {:?}", "effect".red(), unit_id);
+                        continue;
+                    };
+                    let paths = effects::collect_str_paths(&[effect_ref]);
+                    self.spawn_str_effects(&paths, entity_id, Some(position), true);
                 }
                 NetworkEvent::RemoveSkillUnit { entity_id } => {
                     self.effect_holder.remove_unit(entity_id);
@@ -3921,9 +3934,48 @@ impl Client {
                 NetworkEvent::SkillCooldown { skill_id, until } => {
                     self.client_state.follow_mut(client_state().skill_cooldowns()).set(skill_id, until);
                 }
-                NetworkEvent::UseSkillSuccess { .. } => {}
-                NetworkEvent::ToUseSkillSuccess { .. } => {}
-                NetworkEvent::NotifyGroundSkill { .. } => {}
+                NetworkEvent::SkillCastCancelled { entity_id } => {
+                    self.cast_bars.cancel(entity_id.0);
+                }
+                NetworkEvent::UseSkillSuccess {
+                    source_entity_id,
+                    skill_id,
+                    delay_time,
+                    ..
+                } => {
+                    self.cast_bars
+                        .begin(source_entity_id.0, skill_id.0, delay_time, client_tick.0);
+                    self.play_skill_field(skill_id, SkillField::BeginCast, source_entity_id, None, false);
+                }
+                NetworkEvent::ToUseSkillSuccess { flag, .. } => {
+                    // `0x0110` is the failure packet. Hercules always sends `flag == 0`.
+                    // Success STR is `HealEffect` when `result == 1` (`0x09CB`).
+                    if flag != 0 {
+                        continue;
+                    }
+                    let Some(entity_id) = self
+                        .client_state
+                        .try_follow(this_entity())
+                        .map(|player| player.get_entity_id())
+                    else {
+                        continue;
+                    };
+                    self.cast_bars.cancel(entity_id.0);
+                }
+                NetworkEvent::NotifyGroundSkill {
+                    skill_id,
+                    entity_id,
+                    position,
+                    ..
+                } => {
+                    // `0x0117` is the caster's cell, not a skill unit. Play the cast
+                    // STR once there. Persistent zones arrive as `AddSkillUnit`.
+                    let Some(position) = self.map.as_ref().and_then(|map| map.get_world_position(position)) else {
+                        continue;
+                    };
+                    self.play_skill_field(skill_id, SkillField::Effect, entity_id, Some(position), false);
+                    self.play_skill_field(skill_id, SkillField::EffectOnCaster, entity_id, Some(position), false);
+                }
                 NetworkEvent::StatusChange {
                     status_index,
                     entity_id,
@@ -5632,6 +5684,11 @@ impl Client {
                         && skill.skill_id == ROLLING_CUTTER_ID
                     {
                         let _ = self.networking_system.stop_channeling_skill(skill.skill_id);
+                        // `0x0B11` is outbound. The server cancel is `0x01B9`; this clears the local bar.
+                        let player_id = self.client_state.try_follow(this_entity()).map(|player| player.get_entity_id().0);
+                        if let Some(player_id) = player_id {
+                            self.cast_bars.cancel(player_id);
+                        }
                     }
                 }
                 InputEvent::AddFriend { character_name } => {
@@ -7270,6 +7327,8 @@ impl Client {
             interface_frame
         };
 
+        self.cast_bars.expire(client_tick.0);
+
         {
             let mut render_context = MapRenderContext {
                 map: &map,
@@ -7319,6 +7378,7 @@ impl Client {
                 water_instruction: &mut water_instruction,
                 particle_holder: &mut self.particle_holder,
                 effect_holder: &mut self.effect_holder,
+                cast_bars: &self.cast_bars,
                 effect_renderer: &mut self.effect_renderer,
                 bottom_interface_renderer: &self.bottom_interface_renderer,
                 middle_interface_renderer: &mut self.middle_interface_renderer,
@@ -7741,6 +7801,7 @@ struct MapRenderContext<'a, 'm: 'a> {
     water_instruction: &'a mut Option<WaterInstruction<'m>>,
     particle_holder: &'a mut ParticleHolder,
     effect_holder: &'a mut EffectHolder,
+    cast_bars: &'a effects::CastBars,
     effect_renderer: &'a mut EffectRenderer,
     bottom_interface_renderer: &'a GameInterfaceRenderer,
     middle_interface_renderer: &'a mut GameInterfaceRenderer,
@@ -8005,6 +8066,7 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
         );
 
         self.effect_holder.render(self.effect_renderer, self.current_camera);
+        self.render_cast_bars();
 
         if let Some(player) = self.client_state.try_follow(this_entity()) {
             #[cfg(feature = "debug")]
@@ -8160,5 +8222,52 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
             self.screen_size,
             self.mouse_position,
         );
+    }
+
+    fn render_cast_bars(&mut self) {
+        let (bar_width, bar_height, border, background, spell_point_color) = {
+            let theme = self.client_state.follow(client_state().world_theme());
+            (
+                theme.status_bar.enemy_bar_width,
+                theme.status_bar.spell_point_height,
+                theme.status_bar.border_size,
+                theme.status_bar.background_color,
+                theme.status_bar.spell_point_color,
+            )
+        };
+        let entities = self.client_state.follow(client_state().entities());
+        for (entity_id, progress) in self.cast_bars.iter_visible(self.client_tick.0) {
+            let Some(entity) = entities.iter().find(|entity| entity.get_entity_id().0 == entity_id) else {
+                continue;
+            };
+            let head = entity.get_position() + Vector3::new(0.0, 12.0, 0.0);
+            let clip = self.current_camera.view_projection_matrix() * head.to_homogeneous();
+            if clip.w <= 0.1 {
+                continue;
+            }
+            let screen = self.current_camera.clip_to_screen_space(clip);
+            let position = ScreenPosition {
+                left: screen.x * self.screen_size.width,
+                top: screen.y * self.screen_size.height,
+            };
+            self.middle_interface_renderer.render_rectangle(
+                position - border - ScreenSize::only_width(bar_width / 2.0),
+                ScreenSize {
+                    width: bar_width,
+                    height: bar_height,
+                } + border * 2.0,
+                background,
+            );
+            self.middle_interface_renderer.render_bar(
+                position,
+                ScreenSize {
+                    width: bar_width,
+                    height: bar_height,
+                },
+                spell_point_color,
+                1.0,
+                progress,
+            );
+        }
     }
 }

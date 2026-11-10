@@ -2245,8 +2245,8 @@ mod packet_handlers {
     #[test]
     fn packetver_20250716_skill_packets_become_typed_events() {
         use ragnarok_packets::{
-            ClientTick, DisplaySkillCooldownPacket, ItemId, NotifyGroundSkillPacket, SkillId, SkillLevel, TilePosition,
-            ToUseSkillSuccessPacket, UseSkillSuccessPacket,
+            ClientTick, DisplaySkillCooldownPacket, ItemId, NotifyGroundSkillPacket, SkillCastCancelPacket, SkillId, SkillLevel,
+            TilePosition, ToUseSkillSuccessPacket, UseSkillAck3Packet, UseSkillSuccessPacket,
         };
 
         let cooldown = DisplaySkillCooldownPacket {
@@ -2263,7 +2263,7 @@ mod packet_handlers {
             until: ClientTick(1_500),
         }]));
 
-        let use_skill = UseSkillSuccessPacket {
+        let legacy_ack = UseSkillSuccessPacket {
             source_entity: EntityId(11),
             destination_entity: EntityId(22),
             position: TilePosition { x: 3, y: 4 },
@@ -2273,8 +2273,26 @@ mod packet_handlers {
             disposable: 1,
         };
         let mut writer = ByteWriter::new();
-        use_skill.packet_to_bytes(&mut writer).unwrap();
+        legacy_ack.packet_to_bytes(&mut writer).unwrap();
         assert_eq!(writer.as_slice().len(), 25);
+        let HandlerResult::Ok(events) = handle_one(SupportedPacketVersion::_20250716, writer.as_slice()) else {
+            panic!("legacy use-skill packet was not handled");
+        };
+        assert!(events.0.is_empty(), "0x07FB must not start a cast on 20250716");
+
+        let use_skill = UseSkillAck3Packet {
+            source_entity: EntityId(11),
+            destination_entity: EntityId(22),
+            position: TilePosition { x: 3, y: 4 },
+            skill_id: SkillId(28),
+            element: 6,
+            delay_time: 90,
+            disposable: 1,
+            attack_mt: 400,
+        };
+        let mut writer = ByteWriter::new();
+        use_skill.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 29);
         let HandlerResult::Ok(events) = handle_one(SupportedPacketVersion::_20250716, writer.as_slice()) else {
             panic!("use-skill packet was not handled");
         };
@@ -2328,6 +2346,17 @@ mod packet_handlers {
             level: SkillLevel(5),
             position: TilePosition { x: 10, y: 20 },
             start_time: ClientTick(42),
+        }]));
+
+        let cancel = SkillCastCancelPacket { entity_id: EntityId(11) };
+        let mut writer = ByteWriter::new();
+        cancel.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 6);
+        let HandlerResult::Ok(events) = handle_one(SupportedPacketVersion::_20250716, writer.as_slice()) else {
+            panic!("cast-cancel packet was not handled");
+        };
+        assert!(matches!(events.0.as_slice(), [NetworkEvent::SkillCastCancelled {
+            entity_id: EntityId(11),
         }]));
     }
 
