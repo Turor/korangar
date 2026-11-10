@@ -206,8 +206,12 @@ pub(crate) fn prepare_vn_dialog(
         .follow(client_state().entities())
         .iter()
         .find(|entity| entity.get_entity_id() == npc_id)
-        .and_then(|entity| entity.get_details().cloned())
-        .filter(|name| !name.is_empty())
+        .and_then(|entity| {
+            entity
+                .get_details()
+                .and_then(|name| vn_dialog::npc_display_name(name))
+                .map(str::to_owned)
+        })
         .unwrap_or_else(|| "NPC".to_owned());
     let rate = state.follow(client_state().game_settings()).dialog_chars_per_second;
 

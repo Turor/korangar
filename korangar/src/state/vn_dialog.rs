@@ -360,6 +360,14 @@ pub fn headgear_sprite_candidates(view_id: u16, sex_folder: &str, suffix: Option
     paths
 }
 
+/// The name plate text. Hercules hides everything after `#` and after `::`,
+/// so `Captain Carocc#int_land` shows `Captain Carocc`.
+pub fn npc_display_name(raw: &str) -> Option<&str> {
+    let visible = raw.split('#').next().unwrap_or_default();
+    let visible = visible.split("::").next().unwrap_or_default().trim();
+    (!visible.is_empty()).then_some(visible)
+}
+
 pub fn idle_animation_index(direction: usize, animation_count: usize) -> Option<usize> {
     if animation_count == 0 {
         None
@@ -371,6 +379,15 @@ pub fn idle_animation_index(direction: usize, animation_count: usize) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn name_plate_hides_the_unique_suffix() {
+        assert_eq!(npc_display_name("Captain Carocc#int_land"), Some("Captain Carocc"));
+        assert_eq!(npc_display_name("Kafra Employee::kaf_izlude"), Some("Kafra Employee"));
+        assert_eq!(npc_display_name("Wounded Swordsman"), Some("Wounded Swordsman"));
+        assert_eq!(npc_display_name("#hidden"), None);
+        assert_eq!(npc_display_name("  "), None);
+    }
 
     #[test]
     fn typewriter_reveals_then_a_click_completes_then_the_next_advances() {

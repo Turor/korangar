@@ -2755,7 +2755,12 @@ impl Client {
                         continue;
                     }
                     let anchor = cutin_anchor(location);
-                    let path = existing_cutin_texture(&image_name, |full| self.game_file_loader.file_exists(full));
+                    // A loose asset cache only knows a remote file after its first
+                    // fetch, so a never-seen cutin is fetched here (once) instead of
+                    // being dropped.
+                    let path = existing_cutin_texture(&image_name, |full| {
+                        self.game_file_loader.file_exists(full) || korangar_loaders::FileLoader::get(&*self.game_file_loader, full).is_ok()
+                    });
                     let presentation = self.client_state.follow_mut(client_state().npc_presentation());
                     match (anchor, path) {
                         (Some(anchor), Some(path)) => presentation.show_cutin(anchor, path),
