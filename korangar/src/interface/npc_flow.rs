@@ -17,7 +17,7 @@ use crate::graphics::{ScreenPosition, ScreenSize};
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::loaders::GameFileLoader;
-use crate::state::vn_dialog::{self, ClickDecision, EscapeKind, MENU_CANCEL_OPTION, bottom_anchor_offset, dialog_band};
+use crate::state::vn_dialog::{self, ClickDecision, EscapeKind, MENU_CANCEL_OPTION, band_layout, bottom_anchor_offset};
 use crate::state::{ClientState, ClientStatePathExt, client_state};
 use crate::world::Map;
 
@@ -199,8 +199,9 @@ pub(crate) fn prepare_vn_dialog(
         return;
     }
 
-    let band = dialog_band(screen.width, screen.height);
-    let (offset_left, offset_top) = bottom_anchor_offset(screen.width, band);
+    let layout = band_layout(screen.width, screen.height);
+    let band = layout.band;
+    let (offset_left, offset_top) = bottom_anchor_offset(screen.width, layout);
     let npc_id = state.follow(client_state().dialog_window()).npc_id();
     let name = state
         .follow(client_state().entities())
@@ -217,7 +218,8 @@ pub(crate) fn prepare_vn_dialog(
 
     let dialog = state.follow_mut(client_state().dialog_window());
     dialog.set_npc_name(name);
-    dialog.set_band(band.width, band.height);
+    dialog.set_band(layout.window_width, band.height);
+    dialog.set_window_bottom(screen.height - band.margin);
     dialog.tick_typewriter(now_ms, rate);
 
     interface.place_window_class(
@@ -227,7 +229,7 @@ pub(crate) fn prepare_vn_dialog(
             top: offset_top,
         }),
         ScreenSize {
-            width: band.width,
+            width: layout.window_width,
             height: band.height,
         },
     );

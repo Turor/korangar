@@ -2,17 +2,20 @@ use std::cell::UnsafeCell;
 
 use korangar_interface::element::store::ElementStoreMut;
 use korangar_interface::element::{Element, ElementBox, ErasedElement, StateElement};
-use korangar_interface::layout::{Resolvers, with_single_resolver};
+use korangar_interface::layout::area::{Area, PartialArea};
+use korangar_interface::layout::{Resolver, Resolvers, with_single_resolver};
+use korangar_interface::prelude::{ButtonThemePathExt, WindowThemePathExt};
 use korangar_interface::window::{CustomWindow, Window};
 use ragnarok_packets::EntityId;
 use rust_state::{Path, RustState, State};
 
 use super::WindowClass;
+use crate::graphics::{Color, ShadowPadding};
 use crate::input::InputEvent;
 use crate::state::localization::LocalizationPathExt;
-use crate::state::theme::InterfaceThemeType;
-use crate::state::vn_dialog::{self, advance_reveal};
-use crate::state::{ClientState, ClientStatePathExt, client_state};
+use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
+use crate::state::vn_dialog::{self, ChoiceKeys, advance_reveal, choice_grid, choice_key_outcome};
+use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 
 /// A small wrapper struct that serves two purposes:
 /// - Making the elements nicer to construct by putting the [`UnsafeCell::new`]
@@ -82,6 +85,11 @@ pub struct DialogWindowState {
     band_width: f32,
     /// Screen-derived height, including the name plate.
     band_height: f32,
+    /// Bottom edge of the band window, in interface coordinates. The menu row
+    /// stands on it.
+    window_bottom: f32,
+    /// Option the keyboard highlights while a menu is open.
+    choice_focus: usize,
 }
 
 /// Values taken from the input box when the player confirms or cancels.
@@ -173,6 +181,21 @@ impl DialogWindowState {
             && !self.awaiting_choice
             && !self.input_open;
         vn_dialog::blocks_stray_click(self.awaiting_choice, self.input_open, self.prompt_blocks, cutin_without_page)
+    }
+
+    pub fn set_window_bottom(&mut self, bottom: f32) {
+        self.window_bottom = bottom;
+    }
+
+    /// Arrow, Tab, Enter, Space and digit keys on an open menu. Returns the
+    /// option to send (one based, as the server expects).
+    pub fn apply_choice_keys(&mut self, keys: ChoiceKeys) -> Option<i8> {
+        if !self.awaiting_choice || self.elements.is_empty() || !keys.any() {
+            return None;
+        }
+        let (focus, pick) = choice_key_outcome(self.choice_focus, self.elements.len(), keys);
+        self.choice_focus = focus;
+        pick.map(|index| index as i8 + 1)
     }
 
     pub fn set_band(&mut self, width: f32, height: f32) {
@@ -314,6 +337,7 @@ impl DialogWindowState {
         self.elements.retain(|element| !element.is_next_button);
         self.awaiting_next = false;
         self.awaiting_choice = true;
+        self.choice_focus = 0;
 
         let npc_id = self.npc_id;
 
@@ -371,6 +395,8 @@ impl Default for DialogWindowState {
             prompt_blocks: false,
             band_width: 640.0,
             band_height: 180.0,
+            window_bottom: 0.0,
+            choice_focus: 0,
         }
     }
 }
@@ -378,28 +404,84 @@ impl Default for DialogWindowState {
 /// Wrapper struct for collecting all [`DialogElement::element`]s into a single
 /// element.
 struct InnerElement<A> {
-    dialog_elements_path: A,
+    window_state_path: A,
 }
 
 impl<A> Element<ClientState> for InnerElement<A>
 where
-    A: Path<ClientState, Vec<DialogElement>>,
+    A: Path<ClientState, DialogWindowState>,
 {
-    type LayoutInfo = ();
+    /// The keyboard focus ring of an open menu.
+    type LayoutInfo = Option<Area>;
 
-    fn create_layout_info(&mut self, state: &State<ClientState>, mut store: ElementStoreMut, resolvers: &mut dyn Resolvers<ClientState>) {
+    fn create_layout_info(
+        &mut self,
+        state: &State<ClientState>,
+        mut store: ElementStoreMut,
+        resolvers: &mut dyn Resolvers<ClientState>,
+    ) -> Self::LayoutInfo {
         with_single_resolver(resolvers, |resolver| {
-            state
-                .get(&self.dialog_elements_path)
-                .iter()
-                .enumerate()
-                .for_each(|(index, dialog_element)| {
+            let dialog = state.get(&self.window_state_path);
+
+            // Next, Close and menu options all sit in rows along the bottom
+            // of the band. Anything else (number or text input) keeps the
+            // plain stacked layout.
+            let bottom_row = (dialog.awaiting_choice || dialog.awaiting_next || dialog.awaiting_close) && !dialog.input_open;
+            if !bottom_row || dialog.elements.is_empty() {
+                dialog.elements.iter().enumerate().for_each(|(index, dialog_element)| {
                     // We only create this mutable reference for the lifetime of this scope, and
                     // since nothing is captured from the element this is safe.
                     let element = unsafe { &mut *dialog_element.element.get() };
 
                     element.create_layout_info(state, store.child_store(index as u64), resolver)
                 });
+                return None;
+            }
+
+            let (columns, rows) = choice_grid(dialog.elements.len());
+            let button_height: f32 = *state.get(&client_theme().button().height());
+            let gaps: f32 = *state.get(&client_theme().window().gaps());
+            let border: f32 = *state.get(&client_theme().window().border());
+            let rows_height = rows as f32 * button_height + rows.saturating_sub(1) as f32 * gaps;
+
+            let available = resolver.push_available_area();
+            let spacer = (dialog.window_bottom - border - rows_height - available.top).max(0.0);
+            let row_top = available.top + spacer;
+            let cell_width = (available.width - gaps * columns.saturating_sub(1) as f32) / columns as f32;
+            let focus = dialog.choice_focus.min(dialog.elements.len() - 1);
+            let mut focus_area = None;
+
+            {
+                let text_layouter = resolver.get_text_layouter();
+                dialog.elements.iter().enumerate().for_each(|(index, dialog_element)| {
+                    let area = Area {
+                        left: available.left + (index % columns) as f32 * (cell_width + gaps),
+                        top: row_top + (index / columns) as f32 * (button_height + gaps),
+                        width: cell_width,
+                        height: button_height,
+                    };
+                    if dialog.awaiting_choice && index == focus {
+                        focus_area = Some(area);
+                    }
+
+                    let mut cell = Resolver::new(
+                        PartialArea {
+                            left: area.left,
+                            top: area.top,
+                            width: area.width,
+                            height: None,
+                        },
+                        gaps,
+                        text_layouter,
+                    );
+                    // Same safety argument as above.
+                    let element = unsafe { &mut *dialog_element.element.get() };
+                    element.create_layout_info(state, store.child_store(index as u64), &mut cell);
+                });
+            }
+
+            resolver.commit_used_height(spacer + rows_height);
+            focus_area
         })
     }
 
@@ -407,11 +489,30 @@ where
         &'a self,
         state: &'a State<ClientState>,
         store: korangar_interface::element::store::ElementStore<'a>,
-        _: &'a Self::LayoutInfo,
+        focus_area: &'a Self::LayoutInfo,
         layout: &mut korangar_interface::layout::WindowLayout<'a, ClientState>,
     ) {
+        if let Some(area) = focus_area {
+            // A ring in the theme accent, drawn under the button so its fill
+            // leaves only the edge showing.
+            let ring = 2.0;
+            layout.add_rectangle(
+                Area {
+                    left: area.left - ring,
+                    top: area.top - ring,
+                    width: area.width + ring * 2.0,
+                    height: area.height + ring * 2.0,
+                },
+                *state.get(&client_theme().button().corner_diameter()),
+                *state.get(&client_theme().tokens().accent()),
+                Color::TRANSPARENT,
+                ShadowPadding::uniform(0.0),
+            );
+        }
+
         state
-            .get(&self.dialog_elements_path)
+            .get(&self.window_state_path)
+            .elements
             .iter()
             .enumerate()
             .for_each(|(index, dialog_element)| {
@@ -454,6 +555,9 @@ where
             title: self.window_state_path.npc_name(),
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
+            // Opaque panel: the chat and hotbar sit under the band and the
+            // themed window colour is translucent.
+            background_color: client_theme().tokens().panel(),
             closable: true,
             resizable: false,
             minimum_width: self.window_state_path.band_width(),
@@ -465,7 +569,7 @@ where
                     text: self.window_state_path.shown_text(),
                 },
                 InnerElement {
-                    dialog_elements_path: self.window_state_path.elements(),
+                    window_state_path: self.window_state_path,
                 },
             ),
         }

@@ -85,7 +85,29 @@ pub fn session_theme_name(saved: &str) -> &str {
 }
 
 fn theme_name_to_load(saved: &str, headless: bool) -> &str {
-    if headless { VERDANT_RUNE_THEME_NAME } else { saved }
+    theme_name_with_override(saved, headless, theme_override())
+}
+
+fn theme_name_with_override<'a>(saved: &'a str, headless: bool, forced: Option<&'a str>) -> &'a str {
+    match forced {
+        Some(name) => name,
+        None if headless => VERDANT_RUNE_THEME_NAME,
+        None => saved,
+    }
+}
+
+/// `KORANGAR_HEADLESS_THEME` forces one theme for the whole session, so
+/// screenshot runs can cover every theme without touching saved settings.
+fn theme_override() -> Option<&'static str> {
+    static NAME: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| theme_override_from(std::env::var("KORANGAR_HEADLESS_THEME").ok()))
+        .as_deref()
+}
+
+fn theme_override_from(requested: Option<String>) -> Option<String> {
+    requested
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
 }
 
 fn should_persist_interface_settings(headless: bool) -> bool {
@@ -311,6 +333,25 @@ mod interface_settings_theme_tests {
         );
         assert!(!super::should_persist_interface_settings(true));
         assert!(super::should_persist_interface_settings(false));
+    }
+
+    #[test]
+    fn headless_theme_override_is_sanitised() {
+        assert_eq!(super::theme_override_from(None), None);
+        assert_eq!(
+            super::theme_override_from(Some(" ember_forge ".into())).as_deref(),
+            Some("ember_forge")
+        );
+        assert_eq!(super::theme_override_from(Some("../etc".into())), None);
+        assert_eq!(super::theme_override_from(Some(String::new())), None);
+        assert_eq!(
+            super::theme_name_with_override(TURORAN_DARK_THEME_NAME, false, Some("ember_forge")),
+            "ember_forge"
+        );
+        assert_eq!(
+            super::theme_name_with_override(TURORAN_DARK_THEME_NAME, true, None),
+            VERDANT_RUNE_THEME_NAME
+        );
     }
 
     #[test]
