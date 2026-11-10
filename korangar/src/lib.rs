@@ -1393,6 +1393,7 @@ impl Client {
                     }
                 }
                 NetworkEvent::MapServerDisconnected { reason } => {
+                    self.clear_chat_rooms();
                     if reason != DisconnectReason::ClosedByClient {
                         // TODO: Make this an on-screen popup.
                         #[cfg(feature = "debug")]
@@ -1996,6 +1997,7 @@ impl Client {
                 }
                 NetworkEvent::ChangeMap { map_name, position } => {
                     self.map = None;
+                    self.clear_chat_rooms();
                     self.particle_holder.clear();
                     self.effect_holder.clear();
                     self.point_light_manager.clear();
@@ -3270,6 +3272,14 @@ impl Client {
                 NetworkEvent::ClanLeft => {
                     self.client_state.follow_mut(client_state().clan()).clear();
                 }
+                event @ (NetworkEvent::ChatRoomCreateResult { .. }
+                | NetworkEvent::ChatRoomBoard { .. }
+                | NetworkEvent::ChatRoomDestroyed { .. }
+                | NetworkEvent::ChatRoomRefused { .. }
+                | NetworkEvent::ChatRoomEntered { .. }
+                | NetworkEvent::ChatRoomMemberJoined { .. }
+                | NetworkEvent::ChatRoomMemberLeft { .. }
+                | NetworkEvent::ChatRoomRoleChanged { .. }) => self.on_chat_room_network_event(event),
                 NetworkEvent::GuildMemberRemoved { character_id } => {
                     let self_id = *self.client_state.follow(client_state().player_character_id());
                     let left = self
@@ -5624,6 +5634,16 @@ impl Client {
                             .push(ChatMessage::new(message, MessageColor::Error));
                     }
                 }
+                event @ (InputEvent::OpenChatRoomCreate
+                | InputEvent::OpenChatRoomSettings
+                | InputEvent::CloseChatRoomSettings
+                | InputEvent::SubmitChatRoomSettings
+                | InputEvent::LeaveChatRoom
+                | InputEvent::KickChatRoomMember
+                | InputEvent::GiveChatRoomOwnership
+                | InputEvent::ConfirmChatRoomPassword
+                | InputEvent::CancelChatRoomPassword
+                | InputEvent::ClickChatRoomBoard { .. }) => self.on_chat_room_input(event),
                 InputEvent::CancelItemDrop => {
                     self.interface.close_window_with_class(WindowClass::ItemDrop);
                 }
@@ -7825,11 +7845,20 @@ impl Client {
             } else {
                 crate::interface::shop_boards::shop_board_hit(current_camera, &self.client_state, screen_size, input_report.mouse_position)
             };
+            let room_hit = match is_interface_hovered || shop_hit.is_some() {
+                true => None,
+                false => crate::interface::chat_room_boards::chat_room_board_hit(
+                    current_camera,
+                    &self.client_state,
+                    screen_size,
+                    input_report.mouse_position,
+                ),
+            };
 
             let cursor_state = match input_report.mouse_target {
                 _ if is_rotating_camera => MouseCursorState::RotateCamera,
                 _ if is_grabbing => MouseCursorState::GrabResource,
-                _ if shop_hit.is_some() => MouseCursorState::Dialog,
+                _ if shop_hit.is_some() || room_hit.is_some() => MouseCursorState::Dialog,
                 PickerTarget::Entity(entity_id) if !is_interface_hovered => {
                     if self
                         .client_state
@@ -7879,6 +7908,8 @@ impl Client {
                                         account_id: hit.account_id,
                                         buying_store: hit.buying_store,
                                     });
+                                } else if let Some(chat_id) = room_hit {
+                                    self.input_event_buffer.push(InputEvent::ClickChatRoomBoard { chat_id });
                                 } else {
                                     match input_report.mouse_target {
                                         PickerTarget::Nothing => {}
@@ -8886,6 +8917,13 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
         }
 
         crate::interface::shop_boards::render_shop_boards(
+            self.middle_interface_renderer,
+            self.current_camera,
+            self.client_state,
+            self.screen_size,
+            self.mouse_position,
+        );
+        crate::interface::chat_room_boards::render_chat_room_boards(
             self.middle_interface_renderer,
             self.current_camera,
             self.client_state,

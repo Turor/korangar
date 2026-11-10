@@ -99,6 +99,13 @@ pub struct ViewedEquipPiece {
     pub identified: bool,
 }
 
+/// One member of the chat room this client is in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatRoomMember {
+    pub name: String,
+    pub owner: bool,
+}
+
 /// An event triggered by one of the Ragnarok Online servers.
 #[derive(Debug)]
 pub enum NetworkEvent {
@@ -660,6 +667,45 @@ pub enum NetworkEvent {
     },
     OpenShop {
         items: Vec<ShopItem<NoMetadata>>,
+    },
+    /// `ZC_ACK_CREATE_CHATROOM`: 0 created, 1 limit, 2 already in a room.
+    ChatRoomCreateResult {
+        result: u8,
+    },
+    /// A chat room board appeared or changed over its owner.
+    ChatRoomBoard {
+        owner_id: AccountId,
+        chat_id: ChatRoomId,
+        limit: u16,
+        users: u16,
+        public: bool,
+        title: String,
+    },
+    ChatRoomDestroyed {
+        chat_id: ChatRoomId,
+    },
+    /// `ZC_REFUSE_ENTER_ROOM` reason.
+    ChatRoomRefused {
+        result: u8,
+    },
+    /// This client joined (or created) a room.
+    ChatRoomEntered {
+        chat_id: ChatRoomId,
+        members: Vec<ChatRoomMember>,
+    },
+    ChatRoomMemberJoined {
+        users: u16,
+        name: String,
+    },
+    /// A member left. When `name` is this character, the client left.
+    ChatRoomMemberLeft {
+        users: u16,
+        name: String,
+        kicked: bool,
+    },
+    ChatRoomRoleChanged {
+        name: String,
+        owner: bool,
     },
     /// A player started a vend or buying store. `buying_store` selects which
     /// click packet opens it.
