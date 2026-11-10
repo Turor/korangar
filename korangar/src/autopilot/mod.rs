@@ -66,6 +66,13 @@ pub enum Effect {
         y: f32,
         kind: ClickKind,
     },
+    /// Press, move, and release across the next frames. Interface pixels.
+    Drag {
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+    },
     Key {
         code: KeyCode,
         alt: bool,
@@ -386,6 +393,11 @@ impl Autopilot {
             Command::Click { x, y, kind } => {
                 effects.push(log_ok(line));
                 effects.push(Effect::Click { x, y, kind });
+                true
+            }
+            Command::Drag { x0, y0, x1, y1 } => {
+                effects.push(log_ok(line));
+                effects.push(Effect::Drag { x0, y0, x1, y1 });
                 true
             }
             Command::Key { code, alt, ctrl, shift } => {

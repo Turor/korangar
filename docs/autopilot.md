@@ -44,6 +44,7 @@ Each line is logged as `AUTOPILOT_CMD ok|err <line>`. Blank lines and `#` commen
 | `wait <ms>` | Pause the command reader. |
 | `move <x> <y>` | Walk to that tile. Walks longer than Hercules accepts in one request (14 cells) are split into segments, like a mouse click. |
 | `click <x> <y>` / `rclick` / `dclick` | Pointer event in interface pixels, fed through the normal input report. |
+| `drag <x0> <y0> <x1> <y1>` | Press, move, and release across the next frames. Interface pixels. |
 | `key <KeyCode>` / `key alt+KeyE` | Physical key. Names are `winit` `KeyCode` variants. Modifiers: `alt`, `ctrl`, `shift`. |
 | `dump <path>` | Print `AUTOPILOT_DUMP <path> …`. Paths: `inventory`, `hotbar`, `chat_messages`, `windows`, `player`. |
 | `quit` | Ask the client to exit. |

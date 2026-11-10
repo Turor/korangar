@@ -394,6 +394,10 @@ pub struct ClientState {
 
     /// Size of the Korangar window.
     window_size: ScreenSize,
+    /// Bit i is set when menu-bar entry i's window is open. Refreshed each
+    /// frame so the bar can highlight open windows.
+    #[hidden_element]
+    menu_bar_open: u64,
 
     /// Buffered player action. For example, attacking a target that is out of
     /// range.
@@ -587,6 +591,7 @@ impl ClientState {
 
         time_phase!("create window resources", {
             let window_size = ScreenSize::default();
+            let menu_bar_open = 0_u64;
             let graphics_settings_capabilities = GraphicsSettingsCapabilities::default();
         });
 
@@ -708,6 +713,7 @@ impl ClientState {
             create_character_name,
             pincode_window,
             window_size,
+            menu_bar_open,
             buffered_action,
             #[cfg(feature = "debug")]
             inspecting_maps,

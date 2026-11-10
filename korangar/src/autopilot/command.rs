@@ -66,6 +66,12 @@ pub enum Command {
         y: f32,
         kind: ClickKind,
     },
+    Drag {
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+    },
     Key {
         code: winit::keyboard::KeyCode,
         alt: bool,
@@ -117,6 +123,7 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
         "click" => parse_click(rest, ClickKind::Left),
         "rclick" => parse_click(rest, ClickKind::Right),
         "dclick" => parse_click(rest, ClickKind::Double),
+        "drag" => parse_drag(rest),
         "key" => {
             let key = parse_key_spec(rest)?;
             Ok(Command::Key {
@@ -171,6 +178,28 @@ fn parse_click(rest: &str, kind: ClickKind) -> Result<Command, String> {
         return Err("click coordinates must be finite".to_owned());
     }
     Ok(Command::Click { x, y, kind })
+}
+
+fn parse_drag(rest: &str) -> Result<Command, String> {
+    let mut parts = rest.split_whitespace();
+    let mut coordinate = |label: &str| {
+        parts
+            .next()
+            .ok_or_else(|| format!("drag needs x0 y0 x1 y1 ({label})"))?
+            .parse::<f32>()
+            .map_err(|_| format!("drag {label} is not a number"))
+    };
+    let x0 = coordinate("x0")?;
+    let y0 = coordinate("y0")?;
+    let x1 = coordinate("x1")?;
+    let y1 = coordinate("y1")?;
+    if parts.next().is_some() {
+        return Err("drag takes x0 y0 x1 y1".to_owned());
+    }
+    if ![x0, y0, x1, y1].into_iter().all(|value| value.is_finite()) {
+        return Err("drag coordinates must be finite".to_owned());
+    }
+    Ok(Command::Drag { x0, y0, x1, y1 })
 }
 
 fn split_head(line: &str) -> (&str, &str) {
@@ -229,6 +258,10 @@ mod tests {
         assert!(matches!(
             parse_command("click 1.5 2").unwrap(),
             Command::Click { x, y, kind: ClickKind::Left } if x == 1.5 && y == 2.0
+        ));
+        assert!(matches!(
+            parse_command("drag 10 20 30 40").unwrap(),
+            Command::Drag { x0, y0, x1, y1 } if x0 == 10.0 && y0 == 20.0 && x1 == 30.0 && y1 == 40.0
         ));
         assert!(matches!(parse_command("rclick 3 4").unwrap(), Command::Click {
             kind: ClickKind::Right,

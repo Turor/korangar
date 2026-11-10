@@ -18,6 +18,7 @@ mod commands;
 mod companions;
 mod dialog;
 mod eden;
+mod emotes;
 mod enchant;
 mod equipment;
 mod error;
@@ -43,6 +44,7 @@ mod mail;
 #[cfg(feature = "debug")]
 mod maps;
 mod menu;
+mod menu_bar;
 mod mvp_minimap;
 mod navigation;
 mod npc_input;
@@ -103,6 +105,7 @@ pub use self::commands::CommandsWindow;
 pub use self::companions::{CompanionWindow, CompanionWindowState, MercenaryPanel, PetPanel};
 pub use self::dialog::{DialogWindow, DialogWindowState};
 pub use self::eden::EdenWindow;
+pub use self::emotes::EmotesWindow;
 pub use self::enchant::{EnchantWindow, EnchantWindowState};
 pub use self::equipment::EquipmentWindow;
 pub(crate) use self::equipment::draw_player_in_world;
@@ -129,6 +132,7 @@ pub use self::mail::{MailWindow, MailWindowState};
 #[cfg(feature = "debug")]
 pub use self::maps::MapsWindow;
 pub use self::menu::MenuWindow;
+pub use self::menu_bar::{MenuBarPress, MenuBarWindow, menu_bar_open_bits, press_menu_bar};
 pub use self::mvp_minimap::{MvpMinimapState, MvpMinimapWindow};
 pub use self::navigation::NavigationWindow;
 pub use self::npc_input::{NpcInputBox, NpcInputWindow};
@@ -239,6 +243,8 @@ pub enum WindowClass {
     LaphineSynthesis,
     LaphineUpgrade,
     StylingShop,
+    MenuBar,
+    Emotes,
     #[cfg(feature = "debug")]
     Maps,
     #[cfg(feature = "debug")]
