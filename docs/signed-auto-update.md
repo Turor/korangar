@@ -109,6 +109,13 @@ merge → build Linux (gha-elastic, unsigned) → controller poller
 4. **Publish**  
    Upload via Garage S3 on garage-1 (`http://127.0.0.1:3900`, jump `root@192.168.11.3` → `root@192.168.11.20`) using a **write-only** (read+write, not owner) key limited to `korangar-releases`. Manifest is written to a temp key and renamed/copied to `main/manifest.jsonup` last. Keep the last 3 SHAs.
 
+### Failures and manual publishes
+
+- A failed Windows build does not hold back Linux: the poller publishes a Linux-only manifest (`--windows` is optional in `scripts/publish-korangar-main-channel.sh`) and logs it. Windows clients skip a release with no Windows binary.
+- Each sha gets 3 publish attempts; the poller then ignores it until `~/Work/korangar-release-publisher/failures/<sha>` is deleted.
+- Manual Linux-only publish of the newest successful run: `SKIP_WINDOWS=1 ~/Work/korangar-release-publisher/poll-and-publish.sh`.
+- `main-release` cancels a superseded in-progress run on `main`; the poller always takes the newest successful run.
+
 ### What stays offline
 
 - Ed25519 **private seed** and passphrase: controller `~/Work/korangar-signing/` only.

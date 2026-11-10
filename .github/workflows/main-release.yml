@@ -8,9 +8,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# One release build per branch: a newer merge supersedes a run that has not
+# finished, so the newest main reaches the publish poller first.
 concurrency:
-  group: main-release-${{ github.sha }}
-  cancel-in-progress: false
+  group: main-release-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
