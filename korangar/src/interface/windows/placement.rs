@@ -77,8 +77,6 @@ pub enum ScreenAnchor {
     Center,
 }
 
-/// Offset from [`ScreenAnchor`] that reproduces `frame` on a screen of this
-/// size.
 /// Pixels kept clear under the chat window.
 ///
 /// The client asks for 1280x720, but a decorated window on a 720px display
@@ -103,6 +101,8 @@ pub fn fit_chat_on_screen(top: f32, height: f32, screen_height: f32) -> (f32, f3
     (top, height)
 }
 
+/// Offset from [`ScreenAnchor`] that reproduces `frame` on a screen of this
+/// size.
 pub fn frame_anchor_offset(anchor: ScreenAnchor, frame: HudFrame, screen_width: f32, screen_height: f32) -> (f32, f32) {
     match anchor {
         ScreenAnchor::TopLeft => (frame.left, frame.top),

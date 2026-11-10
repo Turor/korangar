@@ -232,7 +232,12 @@ fn theme_file_in_dir(dir: &Path, name: &str) -> Option<PathBuf> {
 
 /// Resolve the first token file for `name`, if any.
 pub fn resolve_theme_path(name: &str) -> Option<PathBuf> {
-    theme_search_dirs().into_iter().find_map(|dir| theme_file_in_dir(&dir, name))
+    resolve_theme_path_in(&theme_search_dirs(), name)
+}
+
+/// Resolve the first token file for `name` in `dirs`, searched in order.
+fn resolve_theme_path_in(dirs: &[PathBuf], name: &str) -> Option<PathBuf> {
+    dirs.iter().find_map(|dir| theme_file_in_dir(dir, name))
 }
 
 pub fn load_tokens_from_path(path: &Path) -> Option<ThemeTokens> {
@@ -241,7 +246,14 @@ pub fn load_tokens_from_path(path: &Path) -> Option<ThemeTokens> {
 }
 
 pub fn load_theme_tokens(name: &str) -> Option<ThemeTokens> {
-    if let Some(path) = resolve_theme_path(name)
+    load_theme_tokens_in(&theme_search_dirs(), name)
+}
+
+/// Like [`load_theme_tokens`] with an explicit search path. Tests use this
+/// instead of setting `KORANGAR_THEMES_DIR`, which is process-global and
+/// leaks into tests that run in parallel.
+fn load_theme_tokens_in(dirs: &[PathBuf], name: &str) -> Option<ThemeTokens> {
+    if let Some(path) = resolve_theme_path_in(dirs, name)
         && let Some(tokens) = load_tokens_from_path(&path)
     {
         return Some(tokens);
@@ -468,13 +480,12 @@ font_size = 13.0
             )"###,
         )
         .unwrap();
-        let previous = std::env::var_os("KORANGAR_THEMES_DIR");
-        unsafe { std::env::set_var("KORANGAR_THEMES_DIR", &root) };
-        let loaded = load_theme_tokens(VERDANT_RUNE_THEME_NAME).expect("override");
-        match previous {
-            Some(value) => unsafe { std::env::set_var("KORANGAR_THEMES_DIR", value) },
-            None => unsafe { std::env::remove_var("KORANGAR_THEMES_DIR") },
-        }
+        // Do not set KORANGAR_THEMES_DIR here: env vars are process-global and
+        // made `load_falls_back_to_built_in_verdant_rune` load this override
+        // when the tests ran in parallel.
+        let mut dirs = vec![root.clone()];
+        dirs.extend(theme_search_dirs().into_iter().skip(1));
+        let loaded = load_theme_tokens_in(&dirs, VERDANT_RUNE_THEME_NAME).expect("override");
         let _ = fs::remove_dir_all(&root);
         assert_eq!(loaded.name, "Override");
         assert_eq!(loaded.bg.red_as_u8(), 1);
