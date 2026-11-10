@@ -22,7 +22,7 @@ use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 
 const TITLE_H: f32 = 22.0;
 const NOTE_H: f32 = 36.0;
-const MISSION_H: f32 = 88.0;
+const MISSION_H: f32 = 108.0;
 const CELL_W: f32 = 132.0;
 const CELL_H: f32 = 128.0;
 const GAP: f32 = 6.0;
@@ -373,9 +373,24 @@ fn paint_mission<'a>(
             left: inner.left + 6.0,
             top: inner.top + 22.0,
             width: inner.width - 12.0,
-            height: 16.0,
+            height: 18.0,
         },
         mission.progress.as_str(),
+        FontSize(font),
+        tokens.muted,
+        tokens.muted,
+        HorizontalAlignment::Left { offset: 0.0, border: 0.0 },
+        VerticalAlignment::Center { offset: 0.0 },
+        OverflowBehavior::LineBreak,
+    );
+    layout.add_text(
+        Area {
+            left: inner.left + 6.0,
+            top: inner.top + 42.0,
+            width: inner.width - 12.0,
+            height: 16.0,
+        },
+        mission.hint.as_str(),
         FontSize((font - 1.0).max(11.0)),
         tokens.muted,
         tokens.muted,
@@ -386,7 +401,7 @@ fn paint_mission<'a>(
     layout.add_text(
         Area {
             left: inner.left + 6.0,
-            top: inner.top + 38.0,
+            top: inner.top + 58.0,
             width: inner.width - 12.0,
             height: 16.0,
         },
@@ -667,7 +682,10 @@ impl CustomWindow<ClientState> for EdenWindow {
                                 event: move |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
                                     let decision = state.get(&client_state().eden_window()).confirm_buy();
                                     match decision {
-                                        Ok(packets) => queue.queue(InputEvent::EdenPackets { packets }),
+                                        Ok(packets) => {
+                                            state.update_value_with(client_state().eden_window(), |window| window.clear_buy());
+                                            queue.queue(InputEvent::EdenPackets { packets });
+                                        }
                                         Err(message) => {
                                             let message = message.to_owned();
                                             state.update_value_with(client_state().eden_window(), move |window| {

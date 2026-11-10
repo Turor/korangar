@@ -82,10 +82,6 @@ where
     Ok(())
 }
 
-pub fn parse_eden_id(text: &str) -> Option<i32> {
-    text.trim().parse().ok()
-}
-
 #[cfg(test)]
 pub fn quest_state_label(state: u8) -> &'static str {
     match state {
@@ -155,7 +151,7 @@ mod tests {
     use ragnarok_bytes::ByteWriter;
     use ragnarok_packets::{EdenShopEntry, PacketExt, RequestEdenPacket};
 
-    use super::{EdenButton, eden_button_packets, encode_eden_packet, format_eden_result, format_shop, parse_eden_id, quest_state_label};
+    use super::{EdenButton, eden_button_packets, encode_eden_packet, format_eden_result, format_shop, quest_state_label};
 
     #[test]
     fn each_button_encodes_its_own_packet() {
@@ -185,9 +181,6 @@ mod tests {
 
     #[test]
     fn parsers_and_result_text() {
-        assert_eq!(parse_eden_id(" 12 "), Some(12));
-        assert_eq!(parse_eden_id("-3"), Some(-3));
-        assert_eq!(parse_eden_id("slot"), None);
         assert_eq!(quest_state_label(2), "ready");
         assert!(format_eden_result(9, 4).contains("Merit"));
         assert!(format_eden_result(0, 8).contains("ok"));

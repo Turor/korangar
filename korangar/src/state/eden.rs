@@ -34,6 +34,9 @@ pub struct EdenMission {
     pub min_level: i16,
     pub max_level: i16,
     pub progress: String,
+    /// Server hint, painted under the hunt line so that line keeps the theme
+    /// font size.
+    pub hint: String,
     pub rewards: String,
     pub can_accept: bool,
     pub can_complete: bool,
@@ -307,11 +310,11 @@ pub fn mission_progress(quest: &EdenQuestEntry, item_name: &str) -> String {
             parts.push(map.to_owned());
         }
     }
-    let hint = quest.hint.trim();
-    if !hint.is_empty() {
-        parts.push(hint.to_owned());
-    }
     parts.join(" · ")
+}
+
+pub fn mission_hint(quest: &EdenQuestEntry) -> String {
+    quest.hint.trim().to_owned()
 }
 
 pub fn mission_rewards(quest: &EdenQuestEntry, reward_name: &str) -> String {
@@ -386,6 +389,7 @@ fn mission_from_entry(quest: &EdenQuestEntry, names: &[(i32, String)]) -> EdenMi
         min_level: quest.min_level,
         max_level: quest.max_level,
         progress: mission_progress(quest, named_item(names, quest.item_id)),
+        hint: mission_hint(quest),
         rewards: mission_rewards(quest, named_item(names, quest.reward_item)),
         can_accept,
         can_complete,
@@ -474,6 +478,8 @@ mod tests {
         assert!(rows[0].progress.contains("Hunt 3/10"));
         assert!(rows[0].progress.contains("Bring 1/2 Jellopy"));
         assert!(rows[0].progress.contains("prt_fild08 (4)"));
+        assert!(!rows[0].progress.contains("South of Prontera"));
+        assert_eq!(rows[0].hint, "South of Prontera");
         assert!(rows[0].rewards.contains("100 Base EXP"));
         assert!(rows[0].rewards.contains("1x Red Potion"));
         assert!(rows[0].rewards.contains("2 Merit"));
@@ -531,11 +537,17 @@ mod tests {
         let packets = window.confirm_buy().unwrap();
         assert_eq!(packets.len(), 2);
         assert!(packets.iter().all(|packet| packet.action == 4 && packet.quest_id == 3));
+        window.clear_buy();
+        assert!(!window.buying());
+        assert!(window.confirm_buy().is_err(), "a second confirm does not send another buy");
 
+        window.begin_buy(3);
         window.buy_amount_text = "0".to_owned();
         assert!(window.confirm_buy().is_err());
+        assert!(window.buying(), "a rejected amount leaves the prompt open");
         window.buy_amount_text = "3".to_owned();
         assert!(window.confirm_buy().is_err(), "9 merit cannot buy 3 stacks at 4 each");
+        assert!(window.buying());
         assert!(parse_buy_amount("100").is_err());
 
         window.apply_shop(9, vec![(

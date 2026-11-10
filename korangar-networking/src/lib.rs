@@ -54,7 +54,7 @@ pub use self::packet_versions::companions::{
 };
 pub use self::packet_versions::eden::{
     EDEN_ACTION_ABANDON, EDEN_ACTION_ACCEPT, EDEN_ACTION_BUY, EDEN_ACTION_COMPLETE, EDEN_ACTION_LIST, EdenButton, eden_button_packets,
-    encode_eden_packet, format_eden_result, parse_eden_id,
+    encode_eden_packet, format_eden_result,
 };
 pub use self::packet_versions::enchant::{format_enchant_result, parse_enchant_index, parse_enchant_item_id, parse_enchant_slot};
 pub use self::packet_versions::mvp_minimap::{format_mvp_markers, minimap_point};

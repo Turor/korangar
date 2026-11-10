@@ -2412,7 +2412,6 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().eden_window())
                         .apply_quests(base_level, merit, &quests, &names);
-                    self.interface.open_window(EdenWindow::new());
                 }
                 NetworkEvent::EdenShop { merit, items } => {
                     let presented = items
@@ -2425,13 +2424,11 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().eden_window())
                         .apply_shop(merit, presented);
-                    self.interface.open_window(EdenWindow::new());
                 }
                 NetworkEvent::EdenResult { result, quest_id, .. } => {
                     self.client_state
                         .follow_mut(client_state().eden_window())
                         .apply_result(result, quest_id);
-                    self.interface.open_window(EdenWindow::new());
                 }
                 NetworkEvent::WarpraList {
                     zeny,
