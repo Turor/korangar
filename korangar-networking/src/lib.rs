@@ -56,9 +56,9 @@ pub use self::packet_versions::eden::{
 pub use self::packet_versions::enchant::{format_enchant_result, parse_enchant_index, parse_enchant_item_id, parse_enchant_slot};
 pub use self::packet_versions::mvp_minimap::{format_mvp_markers, minimap_point};
 pub use self::packet_versions::npc_dialog::{
-    DialogHotkey, NpcInputReply, ProgressOutcome, bgm_track_path, cutin_anchor, cutin_texture_candidates, decide_npc_input, dialog_hotkey,
-    npc_input_reply_bytes, packets_for_progress, parse_npc_number, progress_complete, progress_fraction, progress_outcome, sound_effect_path,
-    step_number,
+    DialogHotkey, NpcInputReply, ProgressOutcome, apply_npc_bgm, bgm_track_path, cutin_anchor, cutin_texture_candidates, decide_npc_input,
+    dialog_hotkey, existing_cutin_texture, npc_input_reply_bytes, packets_for_progress, parse_npc_number, progress_complete,
+    progress_fraction, progress_outcome, sound_effect_path, step_number,
 };
 pub use self::packet_versions::rodex::{format_rodex_mails, parse_rodex_mail_id};
 pub use self::packet_versions::stable::{format_stable_result, parse_stable_action, parse_stable_id};
@@ -1030,14 +1030,6 @@ where
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(NpcProgressCompletePacket::new())
-            }
-        }
-    }
-
-    pub fn npc_progress_cancel(&mut self) -> Result<(), NotConnectedError> {
-        match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
-                self.send_map_server_packet(NpcProgressCancelPacket::new())
             }
         }
     }

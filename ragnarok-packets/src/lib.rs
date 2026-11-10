@@ -1135,8 +1135,7 @@ pub struct AttendanceDataPacket {
     pub rewards: Vec<AttendanceReward>,
 }
 
-/// Claim today's attendance reward (`pc_attendance_claim_reward`, 0x0AEF, 2
-/// bytes).
+/// Claim today's attendance reward (`pc_attendance_claim_reward`, 0x0AEF, 2 bytes).
 ///
 /// This is not a request for `0x0AE3`. The map server answers with
 /// `ZC_ATTENDANCE_RESPONSE` (`0x0AF0`).
@@ -3851,10 +3850,9 @@ pub struct NpcProgressPacket {
 #[header(0x02F1)]
 pub struct NpcProgressCompletePacket {}
 
-/// `ZC_PROGRESS_CANCEL` (`0x02F2`) hides the bar. The client also sends it when
-/// the player walks, then still sends [`NpcProgressCompletePacket`] so Hercules
-/// continues the script.
-#[derive(Debug, Clone, Default, Packet, ClientPacket, ServerPacket, MapServer)]
+/// `ZC_PROGRESS_CANCEL` (`0x02F2`). Server to client. Hides the bar.
+/// Hercules does not parse this opcode from the client.
+#[derive(Debug, Clone, Default, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x02F2)]
 pub struct NpcProgressCancelPacket {}
@@ -3871,13 +3869,26 @@ pub struct NpcSoundPacket {
     pub npc_id: EntityId,
 }
 
-/// `ZC_PLAY_NPC_BGM` (`0x07FE`). Fixed 24-byte name. `0x0B8C` is the later
-/// variable form.
+/// `ZC_PLAY_NPC_BGM` (`0x07FE`). Fixed 24-byte name. Packetver before 20220504.
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x07FE)]
 pub struct PlayNpcBgmPacket {
     #[length(24)]
+    pub track: String,
+}
+
+/// `ZC_PLAY_NPC_BGM` (`0x0B8C`) for `PACKETVER_MAIN_NUM >= 20220504`.
+///
+/// `8c 0b <len>.W <playType>.B <name>` with a trailing NUL.
+/// `playType` is 0 loop, 1 once, 2 stop.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B8C)]
+#[variable_length]
+pub struct PlayNpcBgmExPacket {
+    pub play_type: u8,
+    #[length_remaining]
     pub track: String,
 }
 

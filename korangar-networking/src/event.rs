@@ -313,9 +313,10 @@ pub enum NetworkEvent {
         term: u32,
         npc_id: EntityId,
     },
-    /// `ZC_PLAY_NPC_BGM` (`0x07FE`).
+    /// `ZC_PLAY_NPC_BGM`. `play_type` is 0 on `0x07FE`. On `0x0B8C`, 2 stops.
     NpcBgm {
         track: String,
+        play_type: u8,
     },
     AddQuestEffect {
         quest_effect: QuestEffectPacket,

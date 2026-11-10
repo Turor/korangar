@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use korangar_audio::AudioEngine;
 use korangar_interface::Interface;
-use korangar_networking::{NetworkingSystem, NpcInputReply, bgm_track_path, decide_npc_input, sound_effect_path};
+use korangar_networking::{NetworkingSystem, NpcInputReply, apply_npc_bgm, decide_npc_input, sound_effect_path};
 use ragnarok_packets::EntityId;
 use ragnarok_packets::handler::PacketCallback;
 use rust_state::State;
@@ -45,8 +45,14 @@ pub(crate) fn play_npc_sound(
     }
 }
 
-pub(crate) fn play_npc_bgm(audio: &AudioEngine<GameFileLoader>, state: &mut State<ClientState>, map: Option<&Arc<Map>>, track: &str) {
-    match bgm_track_path(track) {
+pub(crate) fn play_npc_bgm(
+    audio: &AudioEngine<GameFileLoader>,
+    state: &mut State<ClientState>,
+    map: Option<&Arc<Map>>,
+    track: &str,
+    play_type: u8,
+) {
+    match apply_npc_bgm(play_type, track) {
         Some(path) => {
             state.follow_mut(client_state().npc_presentation()).set_npc_bgm(path.clone());
             audio.play_background_music_track(Some(&path));
@@ -56,6 +62,16 @@ pub(crate) fn play_npc_bgm(audio: &AudioEngine<GameFileLoader>, state: &mut Stat
             let map_track = map.and_then(|map| map.background_music_track_name().map(str::to_owned));
             audio.play_background_music_track(map_track.as_deref());
         }
+    }
+}
+
+/// A local walk aborts the bar with `0x02F1` only. Hercules ignores a client `0x02F2`.
+pub(crate) fn abort_npc_progress_for_move<Callback>(state: &mut State<ClientState>, networking: &mut NetworkingSystem<Callback>)
+where
+    Callback: PacketCallback + Send,
+{
+    if state.follow_mut(client_state().npc_presentation()).cancel_for_move() {
+        let _ = networking.npc_progress_complete();
     }
 }
 

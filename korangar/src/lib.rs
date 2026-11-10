@@ -66,7 +66,7 @@ use korangar_interface::layout::MouseButton;
 use korangar_networking::{
     DialogHotkey, DisconnectReason, HotkeyState, InventoryItemDetails, ItemQuantity, LoginServerLoginData, MessageColor, NetworkEvent,
     NetworkEventBuffer, NetworkingSystem, PartyUpdate, SellItem, StatusChangeState, SupportedPacketVersion, cutin_anchor,
-    cutin_texture_candidates, dialog_hotkey,
+    dialog_hotkey, existing_cutin_texture,
 };
 #[cfg(feature = "debug")]
 use networking::{PacketHistory, PacketHistoryCallback};
@@ -2485,10 +2485,7 @@ impl Client {
                 }
                 NetworkEvent::NpcCutin { image_name, location } => {
                     let anchor = cutin_anchor(location);
-                    let path = cutin_texture_candidates(&image_name).into_iter().find(|candidate| {
-                        self.game_file_loader
-                            .file_exists(&format!("data\\texture\\{candidate}"))
-                    });
+                    let path = existing_cutin_texture(&image_name, |full| self.game_file_loader.file_exists(full));
                     let presentation = self.client_state.follow_mut(client_state().npc_presentation());
                     match (anchor, path) {
                         (Some(anchor), Some(path)) => presentation.show_cutin(anchor, path),
@@ -2521,8 +2518,14 @@ impl Client {
                     action,
                     npc_id,
                 ),
-                NetworkEvent::NpcBgm { track } => {
-                    crate::interface::npc_flow::play_npc_bgm(&self.audio_engine, &mut self.client_state, self.map.as_ref(), &track);
+                NetworkEvent::NpcBgm { track, play_type } => {
+                    crate::interface::npc_flow::play_npc_bgm(
+                        &self.audio_engine,
+                        &mut self.client_state,
+                        self.map.as_ref(),
+                        &track,
+                        play_type,
+                    );
                 }
                 NetworkEvent::AddQuestEffect { quest_effect } => {
                     if let Some(map) = &self.map {
@@ -3582,6 +3585,7 @@ impl Client {
                     {
                         let nearest_tile = path.last().unwrap();
 
+                        crate::interface::npc_flow::abort_npc_progress_for_move(&mut self.client_state, &mut self.networking_system);
                         let _ = self.networking_system.player_move(WorldPosition {
                             x: nearest_tile.x,
                             y: nearest_tile.y,
@@ -4345,14 +4349,7 @@ impl Client {
                     let _ = self.networking_system.switch_character_slot(origin_slot, destination_slot);
                 }
                 InputEvent::PlayerMove { destination } => {
-                    if self
-                        .client_state
-                        .follow_mut(client_state().npc_presentation())
-                        .cancel_for_move()
-                    {
-                        let _ = self.networking_system.npc_progress_cancel();
-                        let _ = self.networking_system.npc_progress_complete();
-                    }
+                    crate::interface::npc_flow::abort_npc_progress_for_move(&mut self.client_state, &mut self.networking_system);
 
                     if self.client_state.try_follow(this_entity()).is_some() {
                         let _ = self.networking_system.player_move(WorldPosition {
@@ -4400,13 +4397,17 @@ impl Client {
 
                                 self.networking_system.player_attack(entity_id)
                             }
-                            EntityType::Warp => self.networking_system.player_move({
-                                WorldPosition {
+                            EntityType::Warp => {
+                                crate::interface::npc_flow::abort_npc_progress_for_move(
+                                    &mut self.client_state,
+                                    &mut self.networking_system,
+                                );
+                                self.networking_system.player_move(WorldPosition {
                                     x: tile_position.x,
                                     y: tile_position.y,
                                     direction: Direction::North,
-                                }
-                            }),
+                                })
+                            }
                             _ => Ok(()),
                         };
                     }
@@ -4438,6 +4439,10 @@ impl Client {
                                     .find_walkable_path_in_range(&**map, player_position, item_position, ITEM_PICKUP_RANGE)
                                 && let Some(nearest_tile) = path.last()
                             {
+                                crate::interface::npc_flow::abort_npc_progress_for_move(
+                                    &mut self.client_state,
+                                    &mut self.networking_system,
+                                );
                                 let _ = self.networking_system.player_move(WorldPosition {
                                     x: nearest_tile.x,
                                     y: nearest_tile.y,

@@ -62,8 +62,7 @@ impl NpcPresentation {
         }
     }
 
-    /// Player started walking. Caller sends `0x02F2` and then an early
-    /// `0x02F1`.
+    /// Player started walking. Caller sends only an early `0x02F1`.
     pub fn cancel_for_move(&mut self) -> bool {
         self.take_active()
     }

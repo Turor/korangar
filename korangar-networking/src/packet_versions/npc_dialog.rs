@@ -3,10 +3,10 @@
 //!
 //! Layouts follow Hercules `PACKETVER` 20250716 RE and the roBrowser packet
 //! table. `0x0142` / `0x01D4` open an input. The client answers with `0x0143`
-//! or `0x01D5`. `0x02F0` starts a bar; `0x02F1` tells the server it finished.
-//! Walking also sends `0x02F2` first, because this Hercules build does not
-//! abort the script on movement alone, while an early `0x02F1` sets the script
-//! state to `END`.
+//! or `0x01D5`. `0x02F0` starts a bar. `0x02F1` tells the server it finished or
+//! that the player walked. Hercules does not parse a client `0x02F2`. An early
+//! `0x02F1` sets the script state to `END`. `0x07FE` is the fixed BGM packet.
+//! Packetver 20250716 sends `0x0B8C` instead.
 
 #[cfg(test)]
 use ragnarok_bytes::ByteReader;
@@ -15,12 +15,41 @@ use ragnarok_packets::handler::{DuplicateHandlerError, PacketCallback, PacketHan
 use ragnarok_packets::{
     DisplayImagePacket, EntityId, ImageLocation, InputEditDialogPacket, InputEditDialogStringPacket, NpcProgressCancelPacket,
     NpcProgressCompletePacket, NpcProgressPacket, NpcSoundPacket, OpenEditDialogPacket, OpenEditDialogStringPacket, Packet, PacketExt,
-    PlayNpcBgmPacket,
+    PlayNpcBgmExPacket, PlayNpcBgmPacket,
 };
 
 use crate::event::{NetworkEvent, NetworkEventList};
 
 pub fn register_npc_dialog_packets<Callback>(
+    packet_handler: &mut PacketHandler<NetworkEventList, Callback>,
+) -> Result<(), DuplicateHandlerError>
+where
+    Callback: PacketCallback,
+{
+    register_npc_dialog_packets_except_bgm(packet_handler)?;
+    packet_handler.register(|packet: PlayNpcBgmPacket| NetworkEvent::NpcBgm {
+        track: packet.track,
+        play_type: 0,
+    })?;
+    Ok(())
+}
+
+/// Same dialog packets as [`register_npc_dialog_packets`], but BGM is `0x0B8C`.
+pub fn register_npc_dialog_packets_20250716<Callback>(
+    packet_handler: &mut PacketHandler<NetworkEventList, Callback>,
+) -> Result<(), DuplicateHandlerError>
+where
+    Callback: PacketCallback,
+{
+    register_npc_dialog_packets_except_bgm(packet_handler)?;
+    packet_handler.register(|packet: PlayNpcBgmExPacket| NetworkEvent::NpcBgm {
+        track: packet.track,
+        play_type: packet.play_type,
+    })?;
+    Ok(())
+}
+
+fn register_npc_dialog_packets_except_bgm<Callback>(
     packet_handler: &mut PacketHandler<NetworkEventList, Callback>,
 ) -> Result<(), DuplicateHandlerError>
 where
@@ -43,7 +72,6 @@ where
         term: packet.term,
         npc_id: packet.npc_id,
     })?;
-    packet_handler.register(|packet: PlayNpcBgmPacket| NetworkEvent::NpcBgm { track: packet.track })?;
     Ok(())
 }
 
@@ -140,9 +168,9 @@ pub fn progress_fraction(started_ms: u32, duration_ms: u32, now_ms: u32) -> f32 
     (elapsed / duration_ms as f32).clamp(0.0, 1.0)
 }
 
-/// Which progress packets to send. `Moved` is cancel then an early complete.
-/// `ServerCancelled` is only the early complete: the server already sent
-/// `0x02F2`.
+/// Which progress packets to send. Walking and a finished bar both send only
+/// `0x02F1`. The client does not send `0x02F2`. `ServerCancelled` is the same
+/// early complete after the server already sent `0x02F2`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProgressOutcome {
     StillRunning,
@@ -169,12 +197,25 @@ pub fn progress_outcome(active: bool, complete: bool, moved: bool, server_cancel
 
 pub fn packets_for_progress(outcome: ProgressOutcome) -> Vec<Vec<u8>> {
     let complete = wire(&NpcProgressCompletePacket::new());
-    let cancel = wire(&NpcProgressCancelPacket::new());
     match outcome {
         ProgressOutcome::StillRunning => Vec::new(),
-        ProgressOutcome::Finished | ProgressOutcome::ServerCancelled => vec![complete],
-        ProgressOutcome::Moved => vec![cancel, complete],
+        ProgressOutcome::Finished | ProgressOutcome::ServerCancelled | ProgressOutcome::Moved => vec![complete],
     }
+}
+
+/// `PLAY_BGM_STOP` (2) restores the map track. Loop and once play `track`.
+pub fn apply_npc_bgm(play_type: u8, track: &str) -> Option<String> {
+    if play_type == 2 {
+        return None;
+    }
+    bgm_track_path(track)
+}
+
+/// First cutin file that exists. `exists` receives the path under the GRF root.
+pub fn existing_cutin_texture(name: &str, mut exists: impl FnMut(&str) -> bool) -> Option<String> {
+    cutin_texture_candidates(name)
+        .into_iter()
+        .find(|candidate| exists(&format!("data\\texture\\{candidate}")))
 }
 
 /// Texture paths relative to `data\texture\`. A name with an extension is used
@@ -256,13 +297,14 @@ fn read_packet<P: Packet>(bytes: &[u8]) -> P {
 mod tests {
     use ragnarok_packets::{
         DisplayImagePacket, EntityId, ImageLocation, InputEditDialogPacket, InputEditDialogStringPacket, NpcProgressCancelPacket,
-        NpcProgressCompletePacket, NpcProgressPacket, NpcSoundPacket, OpenEditDialogPacket, OpenEditDialogStringPacket, PlayNpcBgmPacket,
+        NpcProgressCompletePacket, NpcProgressPacket, NpcSoundPacket, OpenEditDialogPacket, OpenEditDialogStringPacket, PlayNpcBgmExPacket,
+        PlayNpcBgmPacket,
     };
 
     use super::{
-        DialogHotkey, NpcInputReply, ProgressOutcome, bgm_track_path, cutin_anchor, cutin_texture_candidates, decide_npc_input,
-        dialog_hotkey, npc_input_reply_bytes, packets_for_progress, parse_npc_number, progress_complete, progress_fraction,
-        progress_outcome, read_packet, sound_effect_path, step_number, wire,
+        DialogHotkey, NpcInputReply, ProgressOutcome, apply_npc_bgm, bgm_track_path, cutin_anchor, cutin_texture_candidates,
+        decide_npc_input, dialog_hotkey, existing_cutin_texture, npc_input_reply_bytes, packets_for_progress, parse_npc_number,
+        progress_complete, progress_fraction, progress_outcome, read_packet, sound_effect_path, step_number, wire,
     };
 
     #[test]
@@ -365,10 +407,9 @@ mod tests {
 
         assert_eq!(progress_outcome(true, false, false, false), ProgressOutcome::StillRunning);
         assert_eq!(packets_for_progress(ProgressOutcome::Finished), vec![vec![0xF1, 0x02]]);
-        assert_eq!(packets_for_progress(progress_outcome(true, false, true, false)), vec![
-            vec![0xF2, 0x02],
-            vec![0xF1, 0x02]
-        ]);
+        assert_eq!(packets_for_progress(progress_outcome(true, false, true, false)), vec![vec![
+            0xF1, 0x02
+        ]]);
         assert_eq!(packets_for_progress(progress_outcome(true, true, false, true)), vec![vec![
             0xF1, 0x02
         ]]);
@@ -409,5 +450,25 @@ mod tests {
         assert_eq!(bgm_track_path("town"), Some("bgm\\town.mp3".to_owned()));
         assert_eq!(bgm_track_path("bgm\\01.mp3"), Some("bgm\\01.mp3".to_owned()));
         assert_eq!(bgm_track_path(""), None);
+
+        let modern = wire(&PlayNpcBgmExPacket::new(0, "town".to_owned()));
+        assert_eq!(modern, [0x8C, 0x0B, 10, 0, 0, b't', b'o', b'w', b'n', 0]);
+        let parsed: PlayNpcBgmExPacket = read_packet(&modern);
+        assert_eq!(parsed.play_type, 0);
+        assert_eq!(parsed.track, "town");
+        let stop = wire(&PlayNpcBgmExPacket::new(2, String::new()));
+        assert_eq!(stop, [0x8C, 0x0B, 6, 0, 2, 0]);
+        let parsed: PlayNpcBgmExPacket = read_packet(&stop);
+        assert_eq!(parsed.play_type, 2);
+        assert!(parsed.track.is_empty());
+        assert_eq!(apply_npc_bgm(0, "town"), Some("bgm\\town.mp3".to_owned()));
+        assert_eq!(apply_npc_bgm(1, "town"), Some("bgm\\town.mp3".to_owned()));
+        assert_eq!(apply_npc_bgm(2, "town"), None);
+
+        assert_eq!(
+            existing_cutin_texture("kafra", |path| path.ends_with("kafra.png")),
+            Some("유저인터페이스\\illust\\kafra.png".to_owned())
+        );
+        assert!(existing_cutin_texture("kafra", |_| false).is_none());
     }
 }
