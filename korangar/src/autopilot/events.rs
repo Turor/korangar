@@ -25,6 +25,7 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
         "Exit" => Some(InputEvent::Exit),
         "ResetCameraRotation" => Some(InputEvent::ResetCameraRotation),
         "ToggleMenuWindow" => Some(InputEvent::ToggleMenuWindow),
+        "CycleMenuBarLayout" => Some(InputEvent::CycleMenuBarLayout),
         "ToggleWorldMap" => Some(InputEvent::ToggleWorldMap),
         "ToggleChatWindow" => Some(InputEvent::ToggleChatWindow),
         "ToggleHotbarWindow" => Some(InputEvent::ToggleHotbarWindow),
