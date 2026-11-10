@@ -15,7 +15,9 @@ use korangar_interface::layout::area::Area;
 use korangar_interface::layout::{MouseButton, Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::prelude::{ButtonThemePathExt, HorizontalAlignment, TextThemePathExt, VerticalAlignment, WindowThemePathExt};
 use korangar_interface::window::{CustomWindow, Window};
-pub use logic::{InterfaceTextureAttempt, interface_texture_candidates, select_interface_texture, should_close_after_result};
+pub use logic::{InterfaceTextureAttempt, select_interface_texture, should_close_after_result};
+#[cfg(test)]
+pub use logic::interface_texture_candidates;
 use rust_state::{Path, PathExt, RustState, State};
 
 use self::data::WorldMapSection;

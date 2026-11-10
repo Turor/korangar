@@ -148,9 +148,10 @@ pub use self::trade::{TradeRequestWindow, TradeWindow};
 pub use self::vendor::VendorWindow;
 pub use self::warpra::{WarpraWindow, WarpraWindowState};
 pub use self::world_map::{
-    InterfaceTextureAttempt, WorldMapWindow, WorldMapWindowState, interface_texture_candidates, select_interface_texture,
-    should_close_after_result,
+    InterfaceTextureAttempt, WorldMapWindow, WorldMapWindowState, select_interface_texture, should_close_after_result,
 };
+#[cfg(test)]
+pub use self::world_map::interface_texture_candidates;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WindowClass {

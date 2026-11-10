@@ -187,6 +187,11 @@ pub fn map_thumbnail_path(map_id: &str) -> String {
 }
 
 /// First candidate whose `data\\texture\\…` path `available` accepts.
+///
+/// Production loading uses [`select_interface_texture`], which does not treat
+/// a remote manifest entry as a local file. Tests keep this helper to show
+/// the old `file_exists` order.
+#[cfg(test)]
 pub fn choose_interface_texture(file: &str, mut available: impl FnMut(&str) -> bool) -> Option<String> {
     interface_texture_candidates(file)
         .into_iter()
@@ -290,7 +295,10 @@ pub fn region_buttons(rail_height: f32, region_count: usize) -> Vec<RegionButton
 }
 
 /// Region under a point in the same space as `rail`. Outside the rail,
-/// including the caption row, this is `None`.
+/// including the caption row, this is `None`. The window lays the same rects
+/// out and ignores a button that would leave the rail, so a caption click
+/// cannot select a region.
+#[cfg(test)]
 pub fn region_button_index(rail: BaseRect, region_count: usize, x: f32, y: f32) -> Option<usize> {
     if !contains(rail, x, y) {
         return None;
