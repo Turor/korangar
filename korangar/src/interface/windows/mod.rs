@@ -36,6 +36,7 @@ mod inventory;
 mod item_details;
 mod item_drop;
 mod item_finder;
+pub(crate) mod item_skill_selection;
 mod item_workshop;
 mod login;
 mod mail;
@@ -231,6 +232,7 @@ pub enum WindowClass {
     VendingSetup,
     VendingReport,
     Refine,
+    ItemSkillSelection,
     ItemFinder,
     ItemReform,
     EnchantGrade,

@@ -38,7 +38,7 @@ pub use self::equip_switch::EquipSwitchSlotPathExt;
 pub use self::equip_switch::{EquipSwitchSlot, assign_slot, position_label, replace_slots};
 pub use self::event::{
     CashShopOffer, DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, GuildSkillSnapshot, HuntIndexUpdate,
-    NetworkEvent, OwnShopLine, RefineMaterialOffer, RoulettePrize, SearchStoreHit, StatusChangeState,
+    NetworkEvent, OwnShopLine, RefineMaterialOffer, RoulettePrize, SearchStoreHit, StatusChangeState, WeaponRefineOffer,
 };
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};

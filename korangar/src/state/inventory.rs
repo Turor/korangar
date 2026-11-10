@@ -65,6 +65,61 @@ impl Inventory {
         self.items.remove(position);
     }
 
+    pub fn mark_identified(&mut self, index: InventoryIndex) -> Option<ItemId> {
+        let item = self.items.iter_mut().find(|item| item.index == index)?;
+        match &mut item.details {
+            InventoryItemDetails::Regular { flags, .. } => {
+                flags.insert(RegularItemFlags::IDENTIFIED);
+            }
+            InventoryItemDetails::Equippable { flags, .. } => {
+                flags.insert(EquippableItemFlags::IDENTIFIED);
+            }
+        }
+        Some(item.item_id)
+    }
+
+    /// Replace the unidentified name, description, and icon after a successful identify.
+    pub fn set_identified_presentation(
+        &mut self,
+        index: InventoryIndex,
+        name: String,
+        description: String,
+        texture: Option<Arc<Texture>>,
+    ) {
+        let Some(item) = self.items.iter_mut().find(|item| item.index == index) else {
+            return;
+        };
+        item.metadata.name = name;
+        item.metadata.description = description;
+        if texture.is_some() {
+            item.metadata.texture = texture;
+        }
+    }
+
+    pub fn refinement_level(&self, index: InventoryIndex) -> Option<u8> {
+        let item = self.items.iter().find(|item| item.index == index)?;
+        match &item.details {
+            InventoryItemDetails::Equippable { refinement_level, .. } => Some(*refinement_level),
+            InventoryItemDetails::Regular { .. } => None,
+        }
+    }
+
+    /// `pc_insert_card` writes the card id into the first empty card slot.
+    /// The composition ack does not resend the inventory list.
+    pub fn insert_card(&mut self, equip_index: InventoryIndex, card_item_id: u32) -> bool {
+        if card_item_id == 0 {
+            return false;
+        }
+        let Some(item) = self.items.iter_mut().find(|item| item.index == equip_index) else {
+            return false;
+        };
+        let Some(slot) = item.slot.iter_mut().find(|slot| **slot == 0) else {
+            return false;
+        };
+        *slot = card_item_id;
+        true
+    }
+
     pub fn set_refinement(&mut self, index: InventoryIndex, refine_level: u8) {
         let Some(item) = self.items.iter_mut().find(|item| item.index == index) else {
             return;
@@ -162,6 +217,8 @@ impl Inventory {
 pub enum ItemActivation {
     Use,
     Equip { position: EquipPosition },
+    /// Item type 6. Sends `CZ_REQ_ITEMCOMPOSITION_LIST` instead of `CZ_USE_ITEM`.
+    InsertCard,
     Ignore,
 }
 
@@ -192,6 +249,7 @@ pub fn use_ack_targets_self(our_account: Option<AccountId>, packet_account: Opti
 pub fn item_activation<Meta>(item: &InventoryItem<Meta>) -> ItemActivation {
     match item.item_type {
         0 | 2 | 11 | 18 => ItemActivation::Use,
+        6 => ItemActivation::InsertCard,
         4 | 5 | 8 | 12 => equip_position(item),
         10 => match equip_position(item) {
             ItemActivation::Ignore => {
@@ -388,7 +446,7 @@ mod tests {
         assert_eq!(item_activation(&regular(1, 11, 1, true)), ItemActivation::Use);
         assert_eq!(item_activation(&regular(1, 18, 1, true)), ItemActivation::Use);
         assert_eq!(item_activation(&regular(1, 3, 1, true)), ItemActivation::Ignore);
-        assert_eq!(item_activation(&regular(1, 6, 1, true)), ItemActivation::Ignore);
+        assert_eq!(item_activation(&regular(1, 6, 1, true)), ItemActivation::InsertCard);
 
         let mut weapon = equip(1, 0, 0);
         if let InventoryItemDetails::Equippable { equip_position, flags, .. } = &mut weapon.details {
@@ -430,5 +488,23 @@ mod tests {
         assert!(use_ack_targets_self(ours, Some(AccountId(9))));
         assert!(!use_ack_targets_self(ours, Some(AccountId(4))));
         assert!(!use_ack_targets_self(None, Some(AccountId(9))));
+    }
+
+    #[test]
+    fn insert_card_fills_the_first_empty_slot() {
+        let mut inventory = Inventory::default();
+        let mut weapon = equip(2, 0, 0);
+        weapon.slot = [4001, 0, 0, 0];
+        inventory.items.push(weapon);
+
+        assert!(inventory.insert_card(InventoryIndex(2), 4121));
+        assert_eq!(inventory.items[0].slot, [4001, 4121, 0, 0]);
+        assert!(!inventory.insert_card(InventoryIndex(2), 0));
+        assert_eq!(inventory.items[0].slot, [4001, 4121, 0, 0]);
+
+        inventory.items[0].slot = [1, 2, 3, 4];
+        assert!(!inventory.insert_card(InventoryIndex(2), 5));
+        assert_eq!(inventory.items[0].slot, [1, 2, 3, 4]);
+        assert!(!inventory.insert_card(InventoryIndex(9), 5));
     }
 }

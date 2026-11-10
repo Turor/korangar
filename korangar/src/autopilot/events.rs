@@ -5,7 +5,7 @@
 //! [`scripted_event`]. `toggle` accepts only unit variants whose name starts
 //! with `Toggle` or `Open`. `LogIn` is never constructed here.
 
-use ragnarok_packets::{HotbarSlot, StatUpType, TilePosition};
+use ragnarok_packets::{HotbarSlot, InventoryIndex, StatUpType, TilePosition};
 use serde::Deserialize;
 
 use crate::input::InputEvent;
@@ -121,6 +121,8 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
         "TradeDeal" => Some(InputEvent::TradeDeal),
         "TradeCancel" => Some(InputEvent::TradeCancel),
         "RefineClose" => Some(InputEvent::RefineClose),
+        "ConfirmItemSkillSelection" => Some(InputEvent::ConfirmItemSkillSelection),
+        "CancelItemSkillSelection" => Some(InputEvent::CancelItemSkillSelection),
         "ItemReformSubmit" => Some(InputEvent::ItemReformSubmit),
         "ItemReformClose" => Some(InputEvent::ItemReformClose),
         "GradeEnchantSelect" => Some(InputEvent::GradeEnchantSelect),
@@ -184,6 +186,8 @@ enum ScriptedEvent {
     OpenCharacterCreationWindow(usize),
     CastSkill(u8),
     StopSkill(u8),
+    UseItem(u16),
+    SelectItemSkillRow(u32),
     ZoomCamera(f32),
     RotateCamera(f32),
     SendEmotion(u8),
@@ -226,6 +230,10 @@ pub fn scripted_event(spec: &str) -> Result<InputEvent, String> {
         ScriptedEvent::StopSkill(slot) => InputEvent::StopSkill {
             slot: HotbarSlot(u16::from(slot)),
         },
+        ScriptedEvent::UseItem(index) => InputEvent::UseItem {
+            index: InventoryIndex(index),
+        },
+        ScriptedEvent::SelectItemSkillRow(index) => InputEvent::SelectItemSkillRow { index },
         ScriptedEvent::ZoomCamera(zoom_factor) => InputEvent::ZoomCamera { zoom_factor },
         ScriptedEvent::RotateCamera(rotation) => InputEvent::RotateCamera { rotation },
         ScriptedEvent::SendEmotion(emotion) => InputEvent::SendEmotion { emotion },
@@ -317,6 +325,7 @@ pub fn parse_window_class(name: &str) -> Option<WindowClass> {
         "vendor" => Some(WindowClass::Vendor),
         "searchstore" => Some(WindowClass::SearchStore),
         "refine" => Some(WindowClass::Refine),
+        "itemskillselection" => Some(WindowClass::ItemSkillSelection),
         "itemfinder" => Some(WindowClass::ItemFinder),
         "itemreform" => Some(WindowClass::ItemReform),
         "enchantgrade" => Some(WindowClass::EnchantGrade),
@@ -441,6 +450,12 @@ pub fn window_command(class: WindowClass, open: bool) -> Result<WindowCommand, S
                 return Err("refine opens from the server".to_owned());
             }
             InputEvent::RefineClose
+        }
+        WindowClass::ItemSkillSelection => {
+            if open {
+                return Err("item skill selection opens from the server".to_owned());
+            }
+            InputEvent::CancelItemSkillSelection
         }
         WindowClass::ItemReform => {
             if open {

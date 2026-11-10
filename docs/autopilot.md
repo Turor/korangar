@@ -57,6 +57,9 @@ Each line is logged as `AUTOPILOT_CMD ok|err <line>`. Blank lines and `#` commen
 - `CreateCharacter(slot: 0, name: "Name")`
 - `OpenCharacterCreationWindow(0)`
 - `CastSkill(0)` / `StopSkill(0)` (hotbar slot)
+- `UseItem(0)` (inventory index)
+- `SelectItemSkillRow(0)`
+- `ConfirmItemSkillSelection` / `CancelItemSkillSelection`
 - `ZoomCamera(1.0)` / `RotateCamera(0.1)`
 - `SendEmotion(1)`
 - `StatUpStrength(1)`, `StatUpAgility(1)`, `StatUpVitality(1)`, `StatUpIntelligence(1)`, `StatUpDexterity(1)`, `StatUpLuck(1)`

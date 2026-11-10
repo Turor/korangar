@@ -1806,6 +1806,11 @@ impl Client {
                         self.client_state.follow_mut(client_state().refine()).close();
                         self.interface.close_window_with_class(WindowClass::Refine);
                     }
+                    crate::interface::windows::item_skill_selection::close_for_map_change(
+                        &mut self.client_state,
+                        &mut self.networking_system,
+                        &mut self.interface,
+                    );
                     if self.interface.is_window_with_class_open(WindowClass::ItemReform) {
                         let _ = self.networking_system.close_item_reform();
                         self.interface.close_window_with_class(WindowClass::ItemReform);
@@ -3460,6 +3465,119 @@ impl Client {
                         .follow_mut(client_state().chat_messages())
                         .push(ChatMessage::new(status, MessageColor::Information));
                 }
+                NetworkEvent::ItemIdentifyList { indexes } => {
+                    crate::interface::windows::item_skill_selection::open_identify_list(&mut self.client_state, &mut self.interface, indexes);
+                }
+                NetworkEvent::ItemIdentifyResult { index, result } => {
+                    crate::interface::windows::item_skill_selection::on_identify_result(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        &self.library,
+                        &self.async_loader,
+                        index,
+                        result,
+                    );
+                }
+                NetworkEvent::ItemCompositionList { indexes } => {
+                    crate::interface::windows::item_skill_selection::open_composition_list(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        indexes,
+                    );
+                }
+                NetworkEvent::ItemCompositionResult {
+                    equip_index, result, ..
+                } => {
+                    crate::interface::windows::item_skill_selection::on_composition_result(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        equip_index,
+                        result,
+                    );
+                }
+                NetworkEvent::WarpList { skill_id, maps } => {
+                    crate::interface::windows::item_skill_selection::open_warp_list(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        &self.library,
+                        skill_id,
+                        maps,
+                    );
+                }
+                NetworkEvent::AutoSpellList { skill_ids } => {
+                    crate::interface::windows::item_skill_selection::open_auto_spell_list(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        &self.library,
+                        &self.async_loader,
+                        skill_ids,
+                    );
+                }
+                NetworkEvent::SkillSelectList { flag, skill_ids } => {
+                    crate::interface::windows::item_skill_selection::open_skill_select_list(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        &self.library,
+                        &self.async_loader,
+                        flag,
+                        skill_ids,
+                    );
+                }
+                NetworkEvent::MakingArrowList { item_ids } => {
+                    crate::interface::windows::item_skill_selection::open_arrow_list(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        &self.library,
+                        &self.async_loader,
+                        item_ids,
+                    );
+                }
+                NetworkEvent::MakableItemList { items } => {
+                    crate::interface::windows::item_skill_selection::open_makable_list(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        &self.library,
+                        &self.async_loader,
+                        items,
+                    );
+                }
+                NetworkEvent::ProduceResult { result, item_id } => {
+                    crate::interface::windows::item_skill_selection::on_produce_result(
+                        &mut self.client_state,
+                        &self.library,
+                        &self.async_loader,
+                        result,
+                        item_id,
+                    );
+                }
+                NetworkEvent::MakingItemList { make_type, item_ids } => {
+                    crate::interface::windows::item_skill_selection::open_making_list(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        &self.library,
+                        &self.async_loader,
+                        make_type,
+                        item_ids,
+                    );
+                }
+                NetworkEvent::WeaponRefineList { items } => {
+                    crate::interface::windows::item_skill_selection::open_weapon_refine_list(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        &self.library,
+                        &self.async_loader,
+                        items,
+                    );
+                }
+                NetworkEvent::WeaponRefineResult { result, item_id } => {
+                    crate::interface::windows::item_skill_selection::on_weapon_refine_result(
+                        &mut self.client_state,
+                        &self.library,
+                        &self.async_loader,
+                        result,
+                        item_id,
+                    );
+                }
                 NetworkEvent::EnchantGradeOpened { data } => {
                     self.client_state.follow_mut(client_state().enchant_grade()).open(data);
                     self.interface.open_window(EnchantGradeWindow::new());
@@ -4159,8 +4277,15 @@ impl Client {
         let shop_setup_open = self.interface.is_window_with_class_open(WindowClass::VendingSetup);
         let shop_search_open = self.interface.is_window_with_class_open(WindowClass::SearchStore);
         let shop_report_open = self.interface.is_window_with_class_open(WindowClass::VendingReport);
+        let selection_open = self.interface.is_window_with_class_open(WindowClass::ItemSkillSelection);
         self.interface.process_events(&mut self.input_event_buffer);
         self.on_shop_windows_dismissed(shop_setup_open, shop_search_open, shop_report_open);
+        crate::interface::windows::item_skill_selection::on_window_dismissed(
+            selection_open,
+            &mut self.client_state,
+            &mut self.networking_system,
+            &mut self.interface,
+        );
 
         let interface_has_focus = self.interface.has_focus();
 
@@ -4962,6 +5087,13 @@ impl Client {
                             ItemActivation::Equip { position } => {
                                 let _ = self.networking_system.request_item_equip(index, position);
                             }
+                            ItemActivation::InsertCard => {
+                                crate::interface::windows::item_skill_selection::begin_card_insert(
+                                    &mut self.client_state,
+                                    &mut self.networking_system,
+                                    index,
+                                );
+                            }
                             ItemActivation::Ignore => {}
                         }
                     }
@@ -4997,6 +5129,23 @@ impl Client {
                 }
                 InputEvent::CancelItemDrop => {
                     self.interface.close_window_with_class(WindowClass::ItemDrop);
+                }
+                InputEvent::SelectItemSkillRow { index } => {
+                    crate::interface::windows::item_skill_selection::on_select(&mut self.client_state, index);
+                }
+                InputEvent::ConfirmItemSkillSelection => {
+                    crate::interface::windows::item_skill_selection::on_confirm(
+                        &mut self.client_state,
+                        &mut self.networking_system,
+                        &mut self.interface,
+                    );
+                }
+                InputEvent::CancelItemSkillSelection => {
+                    crate::interface::windows::item_skill_selection::on_cancel(
+                        &mut self.client_state,
+                        &mut self.networking_system,
+                        &mut self.interface,
+                    );
                 }
                 InputEvent::MoveItem { source, destination, item } => match (source, destination) {
                     (ItemSource::Inventory, ItemSource::Equipment { position }) => {
@@ -5413,8 +5562,14 @@ impl Client {
                     _ => {}
                 },
                 InputEvent::CastSkill { slot } => {
-                    if let Some(learnable_skill) = self.client_state.follow(client_state().hotbar()).get_skill_in_slot(slot).as_ref()
-                        && let Some(learned_skill) =
+                    // Copy the cast before Change Cart opens a window. The hotbar borrow cannot
+                    // overlap that mutable client-state update.
+                    let cast = self
+                        .client_state
+                        .follow(client_state().hotbar())
+                        .get_skill_in_slot(slot)
+                        .as_ref()
+                        .and_then(|learnable_skill| {
                             self.client_state
                                 .follow(client_state().skill_tree().skills())
                                 .iter()
@@ -5422,54 +5577,49 @@ impl Client {
                                     learned_skill.skill_id == learnable_skill.skill_id
                                         && learned_skill.skill_level.0 >= learnable_skill.maximum_level.0
                                 })
-                    {
-                        match learned_skill.skill_type {
+                                .map(|learned_skill| (learnable_skill.skill_id, learnable_skill.maximum_level, learned_skill.skill_type))
+                        });
+                    if let Some((skill_id, skill_level, skill_type)) = cast {
+                        if skill_id == SkillId(crate::state::item_skill_selection::CHANGE_CART_SKILL) {
+                            crate::interface::windows::item_skill_selection::open_change_cart(&mut self.client_state, &mut self.interface);
+                        }
+                        match skill_type {
                             SkillType::Passive => {}
                             SkillType::Attack => {
                                 if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
-                                    let _ = self.networking_system.cast_skill(
-                                        learnable_skill.skill_id,
-                                        learnable_skill.maximum_level,
-                                        entity_id,
-                                    );
+                                    let _ = self.networking_system.cast_skill(skill_id, skill_level, entity_id);
                                 }
                             }
                             SkillType::Ground | SkillType::Trap => {
                                 if let PickerTarget::Tile { x, y } = input_report.mouse_target {
-                                    let _ = self.networking_system.cast_ground_skill(
-                                        learnable_skill.skill_id,
-                                        learnable_skill.maximum_level,
-                                        TilePosition { x, y },
-                                    );
+                                    let _ = self
+                                        .networking_system
+                                        .cast_ground_skill(skill_id, skill_level, TilePosition { x, y });
                                 }
                             }
-                            SkillType::SelfCast => match learnable_skill.skill_id == ROLLING_CUTTER_ID {
+                            SkillType::SelfCast => match skill_id == ROLLING_CUTTER_ID {
                                 true => {
                                     let _ = self.networking_system.cast_channeling_skill(
-                                        learnable_skill.skill_id,
-                                        learnable_skill.maximum_level,
+                                        skill_id,
+                                        skill_level,
                                         self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
                                     );
                                 }
                                 false => {
                                     let _ = self.networking_system.cast_skill(
-                                        learnable_skill.skill_id,
-                                        learnable_skill.maximum_level,
+                                        skill_id,
+                                        skill_level,
                                         self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
                                     );
                                 }
                             },
                             SkillType::Support => {
                                 if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
-                                    let _ = self.networking_system.cast_skill(
-                                        learnable_skill.skill_id,
-                                        learnable_skill.maximum_level,
-                                        entity_id,
-                                    );
+                                    let _ = self.networking_system.cast_skill(skill_id, skill_level, entity_id);
                                 } else {
                                     let _ = self.networking_system.cast_skill(
-                                        learnable_skill.skill_id,
-                                        learnable_skill.maximum_level,
+                                        skill_id,
+                                        skill_level,
                                         self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
                                     );
                                 }
@@ -6231,6 +6381,9 @@ impl Client {
                 }
                 (LoaderId::ItemSprite(item_id), LoadableResource::ItemSprite { texture }) => {
                     self.client_state
+                        .follow_mut(client_state().item_skill_selection())
+                        .note_item_texture(item_id.0, texture.clone());
+                    self.client_state
                         .follow_mut(client_state().shop_items())
                         .iter_mut()
                         .filter(|item| item.item_id == item_id)
@@ -6325,6 +6478,11 @@ impl Client {
                     }
                 }
                 (LoaderId::SkillSprite(skill_id), LoadableResource::SkillSprite { sprite }) => {
+                    if let Some(icon) = sprite.textures.first().cloned() {
+                        self.client_state
+                            .follow_mut(client_state().item_skill_selection())
+                            .note_skill_icon(skill_id.0, icon);
+                    }
                     self.client_state
                         .follow_mut(client_state().hotbar().skills())
                         .iter_mut()
