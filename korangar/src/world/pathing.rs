@@ -10,6 +10,12 @@ const MOVE_DIAGONAL_COST: usize = 14;
 const MOVE_ORTHOGONAL_COST: usize = 10;
 /// The maximum size a walkable path can have.
 pub const MAX_WALK_PATH_SIZE: usize = 32;
+/// The maximum size of a client-side path for a long click walk. The client
+/// splits such a path into server-sized segments (see `long_walk`).
+pub const MAX_LONG_WALK_PATH_SIZE: usize = 512;
+/// Upper bound of tiles a long walk search may expand, so an unreachable
+/// click on a large map cannot stall a frame.
+const MAX_LONG_WALK_EXPANDED: usize = 65_536;
 
 /// Essential trait that is needed to be implements for pathfinding.
 pub trait Traversable {
@@ -70,6 +76,31 @@ impl PathFinder {
         goal: TilePosition,
         attack_range: AttackRange,
     ) -> Option<&[TilePosition]> {
+        self.search(map, start, goal, attack_range, MAX_WALK_PATH_SIZE, usize::MAX)
+    }
+
+    /// Like [`Self::find_walkable_path_in_range`], but allows paths up to
+    /// [`MAX_LONG_WALK_PATH_SIZE`] tiles. Used to plan click walks that are
+    /// longer than the server accepts in one request.
+    pub fn find_long_walkable_path(
+        &mut self,
+        map: &impl Traversable,
+        start: TilePosition,
+        goal: TilePosition,
+        attack_range: AttackRange,
+    ) -> Option<&[TilePosition]> {
+        self.search(map, start, goal, attack_range, MAX_LONG_WALK_PATH_SIZE, MAX_LONG_WALK_EXPANDED)
+    }
+
+    fn search(
+        &mut self,
+        map: &impl Traversable,
+        start: TilePosition,
+        goal: TilePosition,
+        attack_range: AttackRange,
+        max_path_size: usize,
+        max_expanded: usize,
+    ) -> Option<&[TilePosition]> {
         self.open_set.clear();
         self.closed_set.clear();
         self.came_from.clear();
@@ -85,7 +116,7 @@ impl PathFinder {
 
         while let Some(current) = self.open_set.pop() {
             if current.position.x.abs_diff(goal.x).max(current.position.y.abs_diff(goal.y)) <= attack_range.0 {
-                return match self.reconstruct_path(start, current.position) {
+                return match self.reconstruct_path(start, current.position, max_path_size) {
                     true => Some(&self.path),
                     false => None,
                 };
@@ -95,6 +126,10 @@ impl PathFinder {
                 continue;
             }
             self.closed_set.insert(current.position);
+
+            if self.closed_set.len() > max_expanded {
+                return None;
+            }
 
             self.find_neighbors(map, current.position);
 
@@ -236,14 +271,14 @@ impl PathFinder {
         }
     }
 
-    fn reconstruct_path(&mut self, start: TilePosition, goal: TilePosition) -> bool {
+    fn reconstruct_path(&mut self, start: TilePosition, goal: TilePosition, max_path_size: usize) -> bool {
         let mut current = goal;
 
         while current != start {
             self.path.push(current);
             current = *self.came_from.get(&current).unwrap();
 
-            if self.path.len() >= MAX_WALK_PATH_SIZE {
+            if self.path.len() >= max_path_size {
                 return false;
             }
         }
@@ -297,6 +332,35 @@ mod tests {
         fn is_snipeable(&self, position: TilePosition) -> bool {
             position.x < self.width && position.y < self.height && !self.not_snipable.contains(&position)
         }
+    }
+
+    #[test]
+    fn long_walk_path_exceeds_the_prediction_limit() {
+        let map = TestMap::new(200, 10);
+        let mut pathfinder = PathFinder::default();
+
+        let start = TilePosition { x: 0, y: 0 };
+        let goal = TilePosition { x: 100, y: 0 };
+
+        assert!(pathfinder.find_walkable_path(&map, start, goal).is_none());
+        let path = pathfinder.find_long_walkable_path(&map, start, goal, AttackRange(0)).unwrap();
+        assert_eq!(path.len(), 101);
+        assert_eq!(path.first(), Some(&start));
+        assert_eq!(path.last(), Some(&goal));
+    }
+
+    #[test]
+    fn long_walk_path_gives_up_past_its_limit() {
+        let map = TestMap::new(1000, 1);
+        let mut pathfinder = PathFinder::default();
+
+        let start = TilePosition { x: 0, y: 0 };
+        let goal = TilePosition {
+            x: (MAX_LONG_WALK_PATH_SIZE + 10) as u16,
+            y: 0,
+        };
+
+        assert!(pathfinder.find_long_walkable_path(&map, start, goal, AttackRange(0)).is_none());
     }
 
     #[test]

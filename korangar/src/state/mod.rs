@@ -167,8 +167,16 @@ impl ChatMessage {
 
 #[derive(Debug, Clone, Copy, RustState, StateElement)]
 pub enum BufferedAction {
-    AttackEntity { entity_id: EntityId },
-    PickUpItem { entity_id: EntityId },
+    AttackEntity {
+        entity_id: EntityId,
+    },
+    PickUpItem {
+        entity_id: EntityId,
+    },
+    /// Talk to an NPC once the walk into range ends.
+    TalkToNpc {
+        entity_id: EntityId,
+    },
 }
 
 impl BufferedAction {

@@ -718,6 +718,17 @@ impl Common {
         }
     }
 
+    pub fn screen_bounds(&self, camera: &dyn Camera, screen_size: crate::graphics::ScreenSize) -> Option<super::entity_pick::ScreenBounds> {
+        self.animation_data.as_ref()?.screen_bounds(
+            camera,
+            self.world_position,
+            &self.animation_state,
+            self.direction,
+            self.scale,
+            screen_size,
+        )
+    }
+
     #[cfg(feature = "debug")]
     pub fn render_debug(&self, instructions: &mut Vec<DebugRectangleInstruction>, camera: &dyn Camera) {
         if let Some(animation_data) = self.animation_data.as_ref() {
@@ -1296,6 +1307,10 @@ impl Entity {
 
     pub fn get_tile_position(&self) -> TilePosition {
         self.get_common().tile_position
+    }
+
+    pub fn screen_bounds(&self, camera: &dyn Camera, screen_size: crate::graphics::ScreenSize) -> Option<super::entity_pick::ScreenBounds> {
+        self.get_common().screen_bounds(camera, screen_size)
     }
 
     pub fn get_position(&self) -> Point3<f32> {
