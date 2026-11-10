@@ -34,9 +34,15 @@ pub struct SkillTreeWindowState {
     chosen_skill_level: HashMap<SkillId, SkillLevel>,
     description_title: String,
     description_body: String,
+    /// Skill the description window was actually showing. A right-click toggles
+    /// against this id, not the skill currently under the cursor.
     description_skill: Option<SkillId>,
-    /// Set while a slot is hovered so the next frame can open the window.
+    /// Hover asked to open or switch. Applied after input so a right-click in
+    /// the same frame commits first.
     description_open: bool,
+    description_pending_title: String,
+    description_pending_body: String,
+    description_pending_skill: Option<SkillId>,
 }
 
 impl SkillTreeWindowState {
@@ -45,6 +51,30 @@ impl SkillTreeWindowState {
         self.description_title = title;
         self.description_body = body;
         self.description_open = false;
+    }
+
+    /// Drop a hover open recorded for this frame. The committed skill stays so
+    /// a pointer that is still on that slot does not immediately ask to reopen.
+    pub fn cancel_hover_open(&mut self) {
+        self.description_open = false;
+    }
+
+    /// Copy a hover request into the committed description. Returns whether the
+    /// window should be opened. A click that already ran clears
+    /// `description_open`, so this does not replace the skill the click
+    /// committed.
+    pub fn take_hover_description(&mut self) -> bool {
+        if !self.description_open {
+            return false;
+        }
+        self.description_open = false;
+        let Some(skill_id) = self.description_pending_skill else {
+            return false;
+        };
+        self.description_skill = Some(skill_id);
+        self.description_title.clone_from(&self.description_pending_title);
+        self.description_body.clone_from(&self.description_pending_body);
+        true
     }
 }
 
@@ -162,5 +192,65 @@ where
                 }
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod description_state_tests {
+    use ragnarok_packets::SkillId;
+
+    use super::SkillTreeWindowState;
+
+    #[test]
+    fn click_commit_cancels_the_hover_open() {
+        let mut state = SkillTreeWindowState {
+            description_pending_skill: Some(SkillId(1)),
+            description_pending_title: "Bash".to_owned(),
+            description_pending_body: "Level: 1 / 10".to_owned(),
+            description_open: true,
+            ..Default::default()
+        };
+
+        state.set_description(SkillId(2), "Magnum".to_owned(), "Level: 4 / 10".to_owned());
+
+        assert!(!state.take_hover_description());
+        assert_eq!(state.description_skill, Some(SkillId(2)));
+        assert_eq!(state.description_body, "Level: 4 / 10");
+    }
+
+    #[test]
+    fn hover_open_commits_the_pending_skill_when_no_click_runs() {
+        let mut state = SkillTreeWindowState {
+            description_pending_skill: Some(SkillId(1)),
+            description_pending_title: "Bash".to_owned(),
+            description_pending_body: "Level: 3 / 10".to_owned(),
+            description_open: true,
+            ..Default::default()
+        };
+
+        assert!(state.take_hover_description());
+        assert_eq!(state.description_skill, Some(SkillId(1)));
+        assert_eq!(state.description_title, "Bash");
+        assert_eq!(state.description_body, "Level: 3 / 10");
+        assert!(!state.description_open);
+        assert!(!state.take_hover_description());
+    }
+
+    #[test]
+    fn closing_cancels_a_hover_open_and_keeps_the_shown_skill() {
+        let mut state = SkillTreeWindowState {
+            description_pending_skill: Some(SkillId(1)),
+            description_pending_body: "Level: 2 / 10".to_owned(),
+            description_open: true,
+            ..Default::default()
+        };
+        state.set_description(SkillId(1), "Bash".to_owned(), "Level: 1 / 10".to_owned());
+        state.description_open = true;
+
+        state.cancel_hover_open();
+
+        assert!(!state.take_hover_description());
+        assert_eq!(state.description_skill, Some(SkillId(1)));
+        assert_eq!(state.description_body, "Level: 1 / 10");
     }
 }

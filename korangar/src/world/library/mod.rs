@@ -35,7 +35,7 @@ pub use self::quest_display::QuestRewardItem;
 use self::quest_display::load_quest_displays;
 pub use self::quest_display::{QuestDisplay, QuestTextSource, format_quest_rewards, format_quest_timer, quest_is_cooldown};
 pub use self::signboard::MapSignboards;
-pub use self::skill_description::{JobParents, compose_skill_description};
+pub use self::skill_description::{JobParents, compose_skill_description, shown_skill_level};
 use self::skill_description::{filter_job_prefixed_lines, load_skill_text};
 pub use self::skill_tree::SkillTreeLayout;
 use crate::loaders::GameFileLoader;

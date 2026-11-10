@@ -207,6 +207,16 @@ fn job_prefix(line: &str) -> Option<u16> {
     line[..end].parse().ok()
 }
 
+/// Level shown on the slot and in the description. Pending points win over a
+/// chosen cast level. Nothing learned, pending, or chosen is level 0.
+pub fn shown_skill_level(learned: Option<u16>, pending_points: u16, chosen: Option<u16>) -> u16 {
+    if pending_points >= 1 {
+        learned.unwrap_or(0).saturating_add(pending_points)
+    } else {
+        chosen.or(learned).unwrap_or(0)
+    }
+}
+
 /// Level line plus the roBrowser SP-cost line, then the description body.
 pub fn compose_skill_description(raw: &str, level: u16, maximum_level: u16, spell_points: &[u32]) -> String {
     let maximum = maximum_level.max(level);
@@ -255,7 +265,10 @@ pub fn parse_sp_amount_table(text: &str) -> Vec<(String, Vec<u32>)> {
 mod tests {
     use mlua::Lua;
 
-    use super::{JobParents, compose_skill_description, filter_job_prefixed_lines, parse_skill_descript_table, parse_sp_amount_table};
+    use super::{
+        JobParents, compose_skill_description, filter_job_prefixed_lines, parse_skill_descript_table, parse_sp_amount_table,
+        shown_skill_level,
+    };
     use crate::world::library::lua::execute_chunk;
 
     #[test]
@@ -302,6 +315,15 @@ mod tests {
         assert!(text.contains("Max Level:^777777 10^000000"));
         let unlearned = compose_skill_description("", 0, 5, &[0]);
         assert_eq!(unlearned, "Level: 0 / 5");
+    }
+
+    #[test]
+    fn shown_level_prefers_pending_points_over_the_chosen_cast_level() {
+        assert_eq!(shown_skill_level(Some(2), 1, Some(1)), 3);
+        assert_eq!(shown_skill_level(None, 2, Some(4)), 2);
+        assert_eq!(shown_skill_level(Some(5), 0, Some(3)), 3);
+        assert_eq!(shown_skill_level(Some(5), 0, None), 5);
+        assert_eq!(shown_skill_level(None, 0, None), 0);
     }
 
     #[test]

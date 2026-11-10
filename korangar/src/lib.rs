@@ -3895,15 +3895,17 @@ impl Client {
         }
     }
 
-    /// Hover sets `description_open` on the previous frame. Open once, then
-    /// clear the flag.
+    /// A hover on the previous frame asked to show a skill. Run this after
+    /// input so a right-click in the same frame toggles the skill the window
+    /// was actually showing. Opens the window only when it is closed.
     fn open_pending_skill_description(&mut self) {
-        let pending = *self.client_state.follow(client_state().skill_tree_window().description_open());
-        if !pending {
-            return;
-        }
-        *self.client_state.follow_mut(client_state().skill_tree_window().description_open()) = false;
-        if self.client_state.try_follow(this_entity()).is_some() && !self.interface.is_window_with_class_open(WindowClass::SkillDescription)
+        let should_open = self
+            .client_state
+            .follow_mut(client_state().skill_tree_window())
+            .take_hover_description();
+        if should_open
+            && self.client_state.try_follow(this_entity()).is_some()
+            && !self.interface.is_window_with_class_open(WindowClass::SkillDescription)
         {
             self.interface
                 .open_window(SkillDescriptionWindow::new(client_state().skill_tree_window()));
@@ -3922,7 +3924,6 @@ impl Client {
         let shop_setup_open = self.interface.is_window_with_class_open(WindowClass::VendingSetup);
         let shop_search_open = self.interface.is_window_with_class_open(WindowClass::SearchStore);
         let shop_report_open = self.interface.is_window_with_class_open(WindowClass::VendingReport);
-        self.open_pending_skill_description();
         self.interface.process_events(&mut self.input_event_buffer);
         self.on_shop_windows_dismissed(shop_setup_open, shop_search_open, shop_report_open);
 
@@ -4202,6 +4203,7 @@ impl Client {
                     let window_open = self.interface.is_window_with_class_open(WindowClass::SkillDescription);
                     if same_skill && window_open {
                         self.interface.close_window_with_class(WindowClass::SkillDescription);
+                        self.client_state.follow_mut(client_state().skill_tree_window()).cancel_hover_open();
                     } else {
                         self.client_state
                             .follow_mut(client_state().skill_tree_window())
@@ -5706,6 +5708,8 @@ impl Client {
                 InputEvent::InspectFrame { measurement } => self.interface.open_window(FrameInspectorWindow::new(measurement)),
             }
         }
+
+        self.open_pending_skill_description();
 
         for effect in pincode_effects {
             self.apply_pincode_effect(effect);
