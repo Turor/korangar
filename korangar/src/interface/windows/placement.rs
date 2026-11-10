@@ -1,10 +1,11 @@
 //! First-open HUD frames, scaled from a 1280×720 reference.
 //!
 //! Gear is the upper left. Inventory is its own window, immediately to the
-//! right of Gear. Stats sit inside Gear's right half. Chat is the bottom-left
-//! corner. The hotbar is bottom-center. The minimap is the top-right, with
-//! status under it. Quest, friends, party, and guild stack on the right, clear
-//! of Gear. The skill tree opens in the center of the screen.
+//! right of Gear. The character menu and standalone Stats stack under
+//! Inventory, clear of Gear (Gear already shows stats). Chat is the
+//! bottom-left corner. The hotbar is bottom-center. The minimap is the
+//! top-right, with status under it. Quest, friends, party, and guild stack
+//! below Stats, clear of Gear. The skill tree opens in the center of the screen.
 
 use super::equipment::{GEAR_WINDOW_HEIGHT, GEAR_WINDOW_WIDTH};
 
@@ -26,6 +27,7 @@ impl HudFrame {
         self.top + self.height
     }
 
+    #[allow(dead_code)]
     pub fn contains(self, inner: HudFrame) -> bool {
         inner.left >= self.left - 0.5
             && inner.top >= self.top - 0.5
@@ -39,6 +41,7 @@ impl HudFrame {
 pub struct FirstOpenHud {
     pub gear: HudFrame,
     pub inventory: HudFrame,
+    pub character: HudFrame,
     pub stats: HudFrame,
     pub chat: HudFrame,
     pub hotbar: HudFrame,
@@ -113,11 +116,25 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
         width: minimap_side,
         height: minimap_side,
     };
+    let column_left = gear.right() + margin;
+    let column_width = (minimap.left - margin - column_left).max(160.0);
     let inventory = HudFrame {
-        left: gear.right() + margin,
+        left: column_left,
         top: gear.top,
-        width: (440.0 * scale).min(minimap.left - margin - (gear.right() + margin)).max(160.0),
-        height: 180.0 * scale,
+        width: column_width,
+        height: 120.0 * scale,
+    };
+    let character = HudFrame {
+        left: column_left,
+        top: inventory.bottom() + margin,
+        width: column_width,
+        height: 150.0 * scale,
+    };
+    let stats = HudFrame {
+        left: column_left,
+        top: character.bottom() + margin,
+        width: column_width,
+        height: 150.0 * scale,
     };
     let status = HudFrame {
         left: minimap.left,
@@ -128,7 +145,7 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
 
     let social_width = (420.0 * scale).min(screen_width - gear.right() - margin * 2.0);
     let social_left = screen_width - social_width - margin;
-    let social_top = inventory.bottom().max(status.bottom()) + margin;
+    let social_top = stats.bottom().max(status.bottom()) + margin;
     let social_bottom = hotbar.top - margin;
     let social_gap = margin;
     let social_height = ((social_bottom - social_top) - social_gap * 3.0) / 4.0;
@@ -138,15 +155,6 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
         width: social_width,
         height: social_height,
     };
-
-    let stats = HudFrame {
-        left: gear.left + gear.width * 0.52,
-        top: gear.top + 28.0 * scale,
-        width: gear.width * 0.42,
-        height: gear.height * 0.70,
-    };
-
-    let _stats_inside_gear = gear.contains(stats);
 
     let skill_tree = HudFrame {
         left: (screen_width - 560.0 * scale) / 2.0,
@@ -158,6 +166,7 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
     FirstOpenHud {
         gear,
         inventory,
+        character,
         stats,
         chat,
         hotbar,
@@ -192,6 +201,8 @@ mod tests {
         let frames = [
             hud.gear,
             hud.inventory,
+            hud.character,
+            hud.stats,
             hud.chat,
             hud.hotbar,
             hud.minimap,
@@ -204,7 +215,6 @@ mod tests {
         for frame in frames {
             on_screen(frame, width, height);
         }
-        on_screen(hud.stats, width, height);
         on_screen(hud.skill_tree, width, height);
 
         for (index, frame) in frames.iter().copied().enumerate() {
@@ -213,8 +223,10 @@ mod tests {
             }
         }
 
-        assert!(hud.gear.contains(hud.stats), "stats belong in Gear's right half");
-        assert!(hud.stats.left >= hud.gear.left + hud.gear.width * 0.5);
+        assert!(!frames_overlap(hud.gear, hud.stats), "standalone stats sit on Gear");
+        assert!(!frames_overlap(hud.gear, hud.character), "character menu sits on Gear");
+        assert!(hud.character.left >= hud.gear.right() - 0.5);
+        assert!(hud.stats.left >= hud.gear.right() - 0.5);
         assert!(hud.inventory.left >= hud.gear.right() - 0.5);
         assert!(hud.quest.left >= hud.gear.right() - 0.5);
         assert!(hud.hotbar.left + hud.hotbar.width / 2.0 - width / 2.0 < 1.0);

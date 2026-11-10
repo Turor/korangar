@@ -112,6 +112,7 @@ fn preset_window(class: WindowClass, screen_width: f32, screen_height: f32) -> O
     let (anchor_kind, frame) = match class {
         WindowClass::Equipment => (ScreenAnchor::TopLeft, hud.gear),
         WindowClass::Inventory => (ScreenAnchor::TopLeft, hud.inventory),
+        WindowClass::CharacterOverview => (ScreenAnchor::TopLeft, hud.character),
         WindowClass::Stats => (ScreenAnchor::TopLeft, hud.stats),
         WindowClass::Chat => (ScreenAnchor::BottomLeft, hud.chat),
         WindowClass::Hotbar => (ScreenAnchor::BottomCenter, hud.hotbar),

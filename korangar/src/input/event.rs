@@ -74,8 +74,16 @@ pub enum InputEvent {
     },
     /// Snapshot the live switch set into a named Gear loadout.
     SaveEquipLoadout,
+    /// Open or close the saved-set menu on Gear.
+    ToggleGearSets,
+    /// Edit the selected set name inline.
+    BeginRenameLoadout,
+    /// Remove the selected saved set. No-op when none is selected.
+    DeleteEquipLoadout,
     /// Rename the selected Gear loadout from the draft name.
     RenameEquipLoadout,
+    /// Leave inline rename and drop the draft name.
+    CancelRenameLoadout,
     /// Write a saved loadout back to the switch set.
     ///
     /// `wear` also asks the server to swap that set onto the character.

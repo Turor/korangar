@@ -122,6 +122,15 @@ use crate::world::*;
 const CLIENT_NAME: &str = "Korangar";
 const ROLLING_CUTTER_ID: SkillId = SkillId(2036);
 const DEFAULT_MAP: &str = "geffen";
+/// Screenshot login. Set `KORANGAR_HEADLESS_AUTO=1` to log in, pick the first
+/// character server, enter slot 0, and open Gear. It does not open Friends or
+/// standalone Stats. See `docs/headless-auto.md`.
+static HEADLESS_AUTO_LOGIN_DONE: AtomicBool = AtomicBool::new(false);
+static HEADLESS_AUTO_INWORLD_UI: AtomicBool = AtomicBool::new(false);
+
+fn headless_auto() -> bool {
+    std::env::var_os("KORANGAR_HEADLESS_AUTO").is_some()
+}
 const START_CAMERA_FOCUS_POINT: Point3<f32> = Point3::new(600.0, 0.0, 240.0);
 const DEFAULT_BACKGROUND_MUSIC: Option<&str> = Some("bgm\\01.mp3");
 const MAIN_MENU_CLICK_SOUND_EFFECT: &str = "버튼소리.wav";
@@ -1028,6 +1037,20 @@ impl Client {
     fn handle_network_events(&mut self, client_tick: ClientTick) {
         *self.client_state.follow_mut(client_state().client_tick()) = client_tick;
         self.client_state.follow_mut(client_state().navigation()).expire(client_tick.0);
+        if headless_auto() && !HEADLESS_AUTO_LOGIN_DONE.swap(true, Ordering::SeqCst) {
+            let login_settings = self.client_state.follow(client_state().login_settings());
+            if let Some(service_id) = login_settings.recent_service_id
+                && let Some(service) = login_settings.service_settings.get(&service_id)
+                && !service.username.is_empty()
+                && !service.password.is_empty()
+            {
+                self.input_event_buffer.push(InputEvent::LogIn {
+                    service_id,
+                    username: service.username.clone(),
+                    password: service.password.clone(),
+                });
+            }
+        }
         self.networking_system.get_events(&mut self.network_event_buffer);
 
         for event in self.network_event_buffer.drain() {
@@ -1057,6 +1080,8 @@ impl Client {
 
                     self.saved_login_data = Some(login_data);
 
+                    // `SelectServer` must not alias the vec moved into client state.
+                    let auto_server = character_servers.first().cloned();
                     *self.client_state.follow_mut(client_state().character_servers()) = character_servers;
 
                     #[cfg(not(feature = "debug"))]
@@ -1067,6 +1092,11 @@ impl Client {
 
                     self.interface
                         .open_window(ServerSelectionWindow::new(client_state().character_servers()));
+                    if headless_auto()
+                        && let Some(character_server_information) = auto_server
+                    {
+                        self.input_event_buffer.push(InputEvent::SelectServer { character_server_information });
+                    }
                 }
                 NetworkEvent::LoginServerConnectionFailed { message, .. } => {
                     self.networking_system.disconnect_from_login_server();
@@ -1258,6 +1288,9 @@ impl Client {
                             client_state().character_slots(),
                             client_state().switch_request(),
                         ));
+                        if headless_auto() {
+                            self.input_event_buffer.push(InputEvent::SelectCharacter { slot: 0 });
+                        }
                     }
                 }
                 NetworkEvent::CharacterSelectionFailed { message, .. } => self.interface.open_window(ErrorWindow::new(message.to_owned())),
@@ -3555,8 +3588,20 @@ impl Client {
                 InputEvent::SaveEquipLoadout => {
                     self.client_state.follow_mut(client_state().equip_switch()).save_loadout();
                 }
+                InputEvent::ToggleGearSets => {
+                    self.client_state.follow_mut(client_state().equip_switch()).toggle_sets_menu();
+                }
+                InputEvent::BeginRenameLoadout => {
+                    self.client_state.follow_mut(client_state().equip_switch()).begin_rename();
+                }
+                InputEvent::DeleteEquipLoadout => {
+                    self.client_state.follow_mut(client_state().equip_switch()).delete_selected();
+                }
                 InputEvent::RenameEquipLoadout => {
                     self.client_state.follow_mut(client_state().equip_switch()).rename_selected();
+                }
+                InputEvent::CancelRenameLoadout => {
+                    self.client_state.follow_mut(client_state().equip_switch()).cancel_rename();
                 }
                 InputEvent::ApplyEquipLoadout { index, wear } => {
                     self.client_state.follow_mut(client_state().equip_switch()).select(index);
@@ -4941,6 +4986,9 @@ impl Client {
                                 .follow_mut(client_state().mvp_minimap())
                                 .set_map_size(width, height);
                             let _ = self.networking_system.map_loaded();
+                            if headless_auto() && !HEADLESS_AUTO_INWORLD_UI.swap(true, Ordering::SeqCst) {
+                                self.input_event_buffer.push(InputEvent::ToggleEquipmentWindow);
+                            }
                         }
                     }
                 }

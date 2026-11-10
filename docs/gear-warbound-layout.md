@@ -24,11 +24,15 @@ Dark Warbound-style framing. Three columns: square sockets on the left, one tall
 +---------------------------+----------------------+
 ```
 
-Every gear, costume, shadow, and ammo socket is the same square (`GEAR_SLOT_SIDE` by `GEAR_SLOT_SIDE`). A short caption sits under the square. The full name is the tooltip. The portrait is one framed column from the head-top row through the accessory row. Ammo is centered under the portrait.
+Every gear, costume, shadow, and ammo socket is the same 44px square. A 24px item icon is centered in the frame and is not stretched. Empty sockets keep a visible dark border. A short caption sits under the square, in its own column so neighbors do not overlap. Shadow wraps to a second row. The full name is the tooltip. The portrait is one framed column from the head-top row through the accessory row. Ammo is a square inside that frame, over the portrait just below the character's feet.
+
+Sets are one row: a dropdown of saved names, then + and −. Together + and − are half the dropdown width. + stores the current switch set as `Set N` (or the typed name). Choosing a name loads that set through SwitchEquip. − deletes the selected set and does nothing when none is selected. Double-click is the inline rename path (`BeginRenameLoadout`).
 
 Base stats pack name, base, bonus, and the point button into one cluster. Combat stats pack the name and the base + bonus the same way. The cluster does not stretch across the right half. Base Lv and Job Lv stay on the character overview.
 
-First open, with no saved window position, scales from 1280×720. Gear is the upper left. Inventory is to its right. Stats are placed inside Gear's right half. Chat is the bottom left. The hotbar is bottom center. The minimap is the top right, with status under it. Quest, friends, party, and guild stack on the right, clear of Gear. The skill tree is centered. Those rectangles stay on screen at 1280×720 and 1920×1080. Gear, Inventory, chat, hotbar, minimap, status, and the four social windows do not overlap. The skill tree is centered and can cover other windows while it is open.
+First open, with no saved window position, scales from 1280×720. Gear is the upper left. Inventory is to its right. The character menu and standalone Stats stack under Inventory, clear of Gear, because Gear already shows stats. Chat is the bottom left. The hotbar is bottom center. The minimap is the top right, with status under it. Quest, friends, party, and guild stack below Stats, clear of Gear. The skill tree is centered. Those rectangles stay on screen at 1280×720 and 1920×1080 and do not overlap each other. The skill tree is centered and can cover other windows while it is open.
+
+Combat ASPD is Hercules amotion converted the way roBrowser `WinStats` does: `floor((2000 - amotion) / 10)`, so 550 is shown as 145. HIT, FLEE, CRIT, ATK, MATK, DEF, and MDEF stay the packet numbers. roBrowser does not divide CRIT.
 
 The portrait draws the controlled player's idle sprite. That sprite is left out of the world pass while Gear is open.
 

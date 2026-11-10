@@ -7,6 +7,7 @@ pub fn item_box(token_stream: TokenStream) -> TokenStream {
         item_path: !,
         source: !,
         side: { 0.0 },
+        icon_side: { 0.0 },
         tooltip: { "" },
     });
 
