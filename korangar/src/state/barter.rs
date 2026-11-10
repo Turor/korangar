@@ -4,8 +4,9 @@
 use std::sync::Arc;
 
 use korangar_networking::{BarterOfferData, InventoryItemDetails, ItemQuantity, NetworkingSystem, NoMetadata, ShopItem};
+use ragnarok_packets::handler::PacketCallback;
 use ragnarok_packets::{InventoryIndex, ItemId, Price};
-use rust_state::{PathExt, RustState, State};
+use rust_state::{RustState, State};
 
 use super::inventory::InventoryPathExt;
 use super::{ClientState, ClientStatePathExt, client_state};
@@ -448,7 +449,10 @@ pub fn offers_from_catalog(loader: &AsyncLoader, offers: Vec<BarterOfferData>) -
 }
 
 /// Plan the cart against the inventory and send the exchange.
-pub fn submit_barter_purchase<Callback>(networking: &mut NetworkingSystem<Callback>, state: &mut State<ClientState>) {
+pub fn submit_barter_purchase<Callback>(networking: &mut NetworkingSystem<Callback>, state: &mut State<ClientState>)
+where
+    Callback: PacketCallback + Send,
+{
     let held = state
         .follow(client_state().inventory().items())
         .iter()
