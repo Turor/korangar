@@ -4,8 +4,10 @@
 //! (1), complete (2), abandon (3), and buy (4). Buy puts the shop slot in the
 //! quest-id field.
 
+#[cfg(test)]
+use ragnarok_packets::EdenShopEntry;
 use ragnarok_packets::handler::{DuplicateHandlerError, PacketCallback, PacketHandler};
-use ragnarok_packets::{EdenQuestEntry, EdenQuestListPacket, EdenResultPacket, EdenShopEntry, EdenShopPacket};
+use ragnarok_packets::{EdenQuestListPacket, EdenResultPacket, EdenShopPacket, RequestEdenPacket};
 
 use crate::event::{NetworkEvent, NetworkEventList};
 
@@ -15,6 +17,50 @@ pub const EDEN_ACTION_COMPLETE: i16 = 2;
 pub const EDEN_ACTION_ABANDON: i16 = 3;
 pub const EDEN_ACTION_BUY: i16 = 4;
 
+/// One Eden board button. Buy has no amount on the wire, so each stack is its
+/// own packet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EdenButton {
+    Accept(i32),
+    Complete(i32),
+    Abandon(i32),
+    Buy { slot: i32, amount: u16 },
+}
+
+/// `0x0EF3` packets for one button. A buy of `amount` stacks is `amount`
+/// copies.
+pub fn eden_button_packets(button: EdenButton) -> Vec<RequestEdenPacket> {
+    match button {
+        EdenButton::Accept(quest_id) => vec![RequestEdenPacket {
+            action: EDEN_ACTION_ACCEPT,
+            quest_id,
+        }],
+        EdenButton::Complete(quest_id) => vec![RequestEdenPacket {
+            action: EDEN_ACTION_COMPLETE,
+            quest_id,
+        }],
+        EdenButton::Abandon(quest_id) => vec![RequestEdenPacket {
+            action: EDEN_ACTION_ABANDON,
+            quest_id,
+        }],
+        EdenButton::Buy { slot, amount } => (0..amount)
+            .map(|_| RequestEdenPacket {
+                action: EDEN_ACTION_BUY,
+                quest_id: slot,
+            })
+            .collect(),
+    }
+}
+
+/// Eight-byte `0x0EF3` body: opcode, action, quest id or shop slot.
+pub fn encode_eden_packet(action: i16, quest_id: i32) -> [u8; 8] {
+    let mut bytes = [0u8; 8];
+    bytes[0..2].copy_from_slice(&0x0EF3u16.to_le_bytes());
+    bytes[2..4].copy_from_slice(&action.to_le_bytes());
+    bytes[4..8].copy_from_slice(&quest_id.to_le_bytes());
+    bytes
+}
+
 pub fn register_eden_packets<Callback>(packet_handler: &mut PacketHandler<NetworkEventList, Callback>) -> Result<(), DuplicateHandlerError>
 where
     Callback: PacketCallback,
@@ -22,7 +68,7 @@ where
     packet_handler.register(|packet: EdenQuestListPacket| NetworkEvent::EdenQuestList {
         base_level: packet.base_level,
         merit: packet.merit,
-        summary: format_quest_list(packet.base_level, packet.merit, &packet.quests),
+        quests: packet.quests,
     })?;
     packet_handler.register(|packet: EdenResultPacket| NetworkEvent::EdenResult {
         result: packet.result,
@@ -31,49 +77,12 @@ where
     })?;
     packet_handler.register(|packet: EdenShopPacket| NetworkEvent::EdenShop {
         merit: packet.merit,
-        summary: format_shop(packet.merit, &packet.items),
+        items: packet.items,
     })?;
     Ok(())
 }
 
-pub fn parse_eden_id(text: &str) -> Option<i32> {
-    text.trim().parse().ok()
-}
-
-pub fn format_quest_list(base_level: i16, merit: i32, quests: &[EdenQuestEntry]) -> String {
-    let mut lines = vec![format!("Base level {base_level}. Merit {merit}.")];
-    if quests.is_empty() {
-        lines.push("No Eden missions.".to_owned());
-        return lines.join("\n");
-    }
-    for quest in quests {
-        lines.push(format!(
-            "#{id} {name} [{state}] lv {min}-{max} hunt {have}/{need} mob {mob} item {item} {held}/{required} map {map} ({spawns}) exp \
-             {base}/{job} reward {reward}x{amount} merit {merit} — {hint}",
-            id = quest.quest_id,
-            name = quest.name,
-            state = quest_state_label(quest.state),
-            min = quest.min_level,
-            max = quest.max_level,
-            have = quest.hunt_count,
-            need = quest.hunt_max,
-            mob = quest.mob_id,
-            item = quest.item_id,
-            held = quest.item_have,
-            required = quest.item_need,
-            map = quest.map,
-            spawns = quest.spawn_count,
-            base = quest.base_exp,
-            job = quest.job_exp,
-            reward = quest.reward_item,
-            amount = quest.reward_item_amount,
-            merit = quest.merit,
-            hint = quest.hint,
-        ));
-    }
-    lines.join("\n")
-}
-
+#[cfg(test)]
 pub fn quest_state_label(state: u8) -> &'static str {
     match state {
         0 => "available",
@@ -84,6 +93,7 @@ pub fn quest_state_label(state: u8) -> &'static str {
     }
 }
 
+#[cfg(test)]
 pub fn shop_category_label(category: u8) -> &'static str {
     match category {
         0 => "supply",
@@ -93,6 +103,7 @@ pub fn shop_category_label(category: u8) -> &'static str {
     }
 }
 
+#[cfg(test)]
 pub fn format_shop(merit: i32, items: &[EdenShopEntry]) -> String {
     let mut lines = vec![format!("Merit {merit}.")];
     if items.is_empty() {
@@ -137,15 +148,39 @@ pub fn format_eden_result(result: i16, quest_id: i32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use ragnarok_packets::EdenShopEntry;
+    use ragnarok_bytes::ByteWriter;
+    use ragnarok_packets::{EdenShopEntry, PacketExt, RequestEdenPacket};
 
-    use super::{format_eden_result, format_shop, parse_eden_id, quest_state_label};
+    use super::{EdenButton, eden_button_packets, encode_eden_packet, format_eden_result, format_shop, quest_state_label};
+
+    #[test]
+    fn each_button_encodes_its_own_packet() {
+        let cases = [
+            (EdenButton::Accept(44), 1i16, 44i32, 1usize),
+            (EdenButton::Complete(44), 2, 44, 1),
+            (EdenButton::Abandon(44), 3, 44, 1),
+            (EdenButton::Buy { slot: 3, amount: 2 }, 4, 3, 2),
+        ];
+        for (button, action, quest_id, count) in cases {
+            let packets = eden_button_packets(button);
+            assert_eq!(packets.len(), count);
+            for packet in &packets {
+                assert_eq!(packet.action, action);
+                assert_eq!(packet.quest_id, quest_id);
+                let mut writer = ByteWriter::new();
+                packet.packet_to_bytes(&mut writer).unwrap();
+                assert_eq!(writer.as_slice(), encode_eden_packet(action, quest_id));
+            }
+        }
+        let direct = RequestEdenPacket { action: 4, quest_id: 3 };
+        let mut writer = ByteWriter::new();
+        direct.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 8);
+        assert_eq!(writer.as_slice(), encode_eden_packet(4, 3));
+    }
 
     #[test]
     fn parsers_and_result_text() {
-        assert_eq!(parse_eden_id(" 12 "), Some(12));
-        assert_eq!(parse_eden_id("-3"), Some(-3));
-        assert_eq!(parse_eden_id("slot"), None);
         assert_eq!(quest_state_label(2), "ready");
         assert!(format_eden_result(9, 4).contains("Merit"));
         assert!(format_eden_result(0, 8).contains("ok"));

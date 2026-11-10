@@ -102,7 +102,7 @@ pub use self::clan::ClanWindow;
 pub use self::commands::CommandsWindow;
 pub use self::companions::{CompanionWindow, CompanionWindowState, MercenaryPanel, PetPanel};
 pub use self::dialog::{DialogWindow, DialogWindowState};
-pub use self::eden::{EdenWindow, EdenWindowState};
+pub use self::eden::EdenWindow;
 pub use self::enchant::{EnchantWindow, EnchantWindowState};
 pub use self::equipment::EquipmentWindow;
 pub(crate) use self::equipment::draw_player_in_world;

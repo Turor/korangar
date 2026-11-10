@@ -6,7 +6,7 @@ use hashbrown::HashMap;
 use korangar_debug::logging::print_debug;
 #[cfg(feature = "debug")]
 use korangar_debug::profiling::Profiler;
-use korangar_networking::{InventoryItem, NoMetadata, ShopItem};
+use korangar_networking::{InventoryItem, ItemQuantity, NoMetadata, ShopItem};
 use ragnarok_packets::{ClientTick, EntityId, ItemId, JobId, SkillId, TilePosition};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
@@ -340,6 +340,30 @@ impl AsyncLoader {
             name = format!("Item {}", item_id.0);
         }
         (name, texture)
+    }
+
+    /// Identified item name and icon for the Eden merit shop. Missing rows
+    /// become `#id`.
+    pub fn present_eden_item(&self, item_id: i32) -> (String, Option<Arc<Texture>>) {
+        if item_id <= 0 {
+            return (String::new(), None);
+        }
+        let named = self.request_shop_item_metadata_load(ShopItem {
+            metadata: NoMetadata,
+            item_id: ItemId(item_id as u32),
+            item_type: 0,
+            price: ragnarok_packets::Price(0),
+            quantity: ItemQuantity::Fixed(1),
+            weight: 0,
+            location: 0,
+        });
+        let name = named.metadata.name;
+        let name = if name.is_empty() || name == "NOTFOUND" {
+            format!("#{item_id}")
+        } else {
+            name
+        };
+        (name, named.metadata.texture)
     }
 
     pub fn request_learnable_skill_load(&self, job_id: JobId, skill_id: SkillId, client_tick: ClientTick) -> LearnableSkill {
