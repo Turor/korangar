@@ -2390,16 +2390,47 @@ impl Client {
                     self.client_state.follow_mut(client_state().stable_window()).show_result(result, id);
                     self.interface.open_window(StableWindow::new());
                 }
-                NetworkEvent::EdenQuestList { summary, .. } => {
-                    self.client_state.follow_mut(client_state().eden_window()).show_quests(summary);
+                NetworkEvent::EdenQuestList { base_level, merit, quests } => {
+                    let mut item_ids = Vec::new();
+                    for quest in &quests {
+                        if quest.item_id > 0 {
+                            item_ids.push(quest.item_id);
+                        }
+                        if quest.reward_item > 0 {
+                            item_ids.push(quest.reward_item);
+                        }
+                    }
+                    item_ids.sort_unstable();
+                    item_ids.dedup();
+                    let names = item_ids
+                        .into_iter()
+                        .map(|item_id| {
+                            let (name, _) = self.async_loader.present_eden_item(item_id);
+                            (item_id, name)
+                        })
+                        .collect::<Vec<_>>();
+                    self.client_state
+                        .follow_mut(client_state().eden_window())
+                        .apply_quests(base_level, merit, &quests, &names);
                     self.interface.open_window(EdenWindow::new());
                 }
-                NetworkEvent::EdenShop { summary, .. } => {
-                    self.client_state.follow_mut(client_state().eden_window()).show_shop(summary);
+                NetworkEvent::EdenShop { merit, items } => {
+                    let presented = items
+                        .into_iter()
+                        .map(|entry| {
+                            let (name, texture) = self.async_loader.present_eden_item(entry.item_id);
+                            (entry, name, texture)
+                        })
+                        .collect();
+                    self.client_state
+                        .follow_mut(client_state().eden_window())
+                        .apply_shop(merit, presented);
                     self.interface.open_window(EdenWindow::new());
                 }
-                NetworkEvent::EdenResult { summary, .. } => {
-                    self.client_state.follow_mut(client_state().eden_window()).show_result(summary);
+                NetworkEvent::EdenResult { result, quest_id, .. } => {
+                    self.client_state
+                        .follow_mut(client_state().eden_window())
+                        .apply_result(result, quest_id);
                     self.interface.open_window(EdenWindow::new());
                 }
                 NetworkEvent::WarpraList {
@@ -5421,48 +5452,11 @@ impl Client {
                         self.interface.open_window(EdenWindow::new());
                     }
                 }
-                InputEvent::EdenAccept => match self.client_state.follow(client_state().eden_window()).quest_id() {
-                    Ok(quest_id) => {
-                        let _ = self
-                            .networking_system
-                            .request_eden(korangar_networking::EDEN_ACTION_ACCEPT, quest_id);
+                InputEvent::EdenPackets { packets } => {
+                    for packet in packets {
+                        let _ = self.networking_system.request_eden(packet.action, packet.quest_id);
                     }
-                    Err(message) => self
-                        .client_state
-                        .follow_mut(client_state().eden_window())
-                        .set_status(message.to_owned()),
-                },
-                InputEvent::EdenComplete => match self.client_state.follow(client_state().eden_window()).quest_id() {
-                    Ok(quest_id) => {
-                        let _ = self
-                            .networking_system
-                            .request_eden(korangar_networking::EDEN_ACTION_COMPLETE, quest_id);
-                    }
-                    Err(message) => self
-                        .client_state
-                        .follow_mut(client_state().eden_window())
-                        .set_status(message.to_owned()),
-                },
-                InputEvent::EdenAbandon => match self.client_state.follow(client_state().eden_window()).quest_id() {
-                    Ok(quest_id) => {
-                        let _ = self
-                            .networking_system
-                            .request_eden(korangar_networking::EDEN_ACTION_ABANDON, quest_id);
-                    }
-                    Err(message) => self
-                        .client_state
-                        .follow_mut(client_state().eden_window())
-                        .set_status(message.to_owned()),
-                },
-                InputEvent::EdenBuy => match self.client_state.follow(client_state().eden_window()).shop_slot() {
-                    Ok(slot) => {
-                        let _ = self.networking_system.request_eden(korangar_networking::EDEN_ACTION_BUY, slot);
-                    }
-                    Err(message) => self
-                        .client_state
-                        .follow_mut(client_state().eden_window())
-                        .set_status(message.to_owned()),
-                },
+                }
                 InputEvent::OpenWarpra | InputEvent::RequestWarpraList => {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         self.client_state.follow_mut(client_state().warpra_window()).mark_text_surface();
@@ -6542,6 +6536,10 @@ impl Client {
                         .iter_mut()
                         .filter(|item| item.item_id == item_id)
                         .for_each(|item| item.metadata.texture = Some(texture.clone()));
+
+                    self.client_state
+                        .follow_mut(client_state().eden_window())
+                        .update_item_sprite(item_id.0 as i32, texture.clone());
 
                     self.client_state
                         .follow_mut(client_state().inventory())

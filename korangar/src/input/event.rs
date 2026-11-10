@@ -320,14 +320,11 @@ pub enum InputEvent {
     },
     /// Ask the map server for the Turoran Eden board (`0x0EF3`, action 0).
     OpenEden,
-    /// Accept the typed Eden quest (`0x0EF3`, action 1).
-    EdenAccept,
-    /// Turn in the typed Eden quest (`0x0EF3`, action 2).
-    EdenComplete,
-    /// Abandon the typed Eden quest (`0x0EF3`, action 3).
-    EdenAbandon,
-    /// Buy the typed Eden shop slot (`0x0EF3`, action 4).
-    EdenBuy,
+    /// One or more Eden board buttons (`0x0EF3`). Buy repeats action 4 once per
+    /// stack.
+    EdenPackets {
+        packets: Vec<ragnarok_packets::RequestEdenPacket>,
+    },
     /// Open the Warpra menu and ask for the destination list (`0x0EF4`).
     OpenWarpra,
     /// Ask for the Warpra destination list again.

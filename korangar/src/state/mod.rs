@@ -6,6 +6,7 @@ pub mod cache_statistics;
 pub mod character_slots;
 pub mod chat;
 pub mod clan;
+pub mod eden;
 pub mod equip_switch;
 pub mod friends;
 pub mod guild;
@@ -233,7 +234,7 @@ pub struct ClientState {
     /// Internal state of the Turoran stable board.
     stable_window: crate::interface::windows::StableWindowState,
     /// Internal state of the Turoran Eden Group board.
-    eden_window: crate::interface::windows::EdenWindowState,
+    eden_window: crate::state::eden::EdenWindowState,
     /// Internal state of the Turoran Warpra menu.
     warpra_window: crate::interface::windows::WarpraWindowState,
     /// World map region, hover, and dungeon floor picker.
@@ -526,7 +527,7 @@ impl ClientState {
             let npc_presentation = NpcPresentation::default();
             let enchant_window = crate::interface::windows::EnchantWindowState::default();
             let stable_window = crate::interface::windows::StableWindowState::default();
-            let eden_window = crate::interface::windows::EdenWindowState::default();
+            let eden_window = crate::state::eden::EdenWindowState::default();
             let warpra_window = crate::interface::windows::WarpraWindowState::default();
             let world_map_window = crate::interface::windows::WorldMapWindowState::default();
             let companion_window = crate::interface::windows::CompanionWindowState::default();
