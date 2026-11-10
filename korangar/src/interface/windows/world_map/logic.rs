@@ -1,8 +1,4 @@
-//! Pure world-map hit testing and Warpra overlay decisions.
-//!
-//! Matthew t229u: an unlocked square warps immediately. A locked square is not
-//! clickable and never sends `WARPRA_ACTION_BUY`. Several dungeon floors open a
-//! list; one unlocked floor warps at once.
+//! Hit testing and Warpra overlay decisions for the world map.
 
 use korangar_interface::element::StateElement;
 use korangar_networking::warpra_level_requirement;
@@ -157,18 +153,15 @@ pub fn scale_rect(map: BaseRect, section: BaseRect) -> BaseRect {
     }
 }
 
-/// Half-open point test. The window uses `Area::check`; tests use this for
-/// scaled rects.
-#[cfg_attr(not(test), allow(dead_code))]
+/// Half-open point test. The right and bottom edges belong to the next tile.
 pub fn contains(rect: BaseRect, x: f32, y: f32) -> bool {
     x >= rect.left && y >= rect.top && x < rect.left + rect.width && y < rect.top + rect.height
 }
 
 /// Topmost section whose scaled rectangle contains the point.
 ///
-/// The window hit-tests with `Area::check`. This stays for the scaled-layout
-/// tests.
-#[cfg_attr(not(test), allow(dead_code))]
+/// Later rectangles win. The window click path uses this so a shared border is
+/// not inside two tiles.
 pub fn hit_section(map: BaseRect, sections: &[BaseRect], x: f32, y: f32) -> Option<usize> {
     sections
         .iter()
@@ -467,6 +460,51 @@ mod tests {
             Some(prontera)
         );
         assert!(maps_match("prontera.gat", visible[prontera].id));
+    }
+
+    #[test]
+    fn shared_border_is_not_inside_the_earlier_square() {
+        let map = BaseRect {
+            left: 0.0,
+            top: 0.0,
+            width: BASE_WIDTH,
+            height: BASE_HEIGHT,
+        };
+        let sections = [BaseRect {
+            left: 0.0,
+            top: 0.0,
+            width: 100.0,
+            height: 50.0,
+        }];
+        assert_eq!(hit_section(map, &sections, 99.0, 10.0), Some(0));
+        assert_eq!(hit_section(map, &sections, 100.0, 10.0), None);
+        assert_eq!(hit_section(map, &sections, 10.0, 50.0), None);
+    }
+
+    #[test]
+    fn overlapping_squares_keep_the_later_tile() {
+        let map = BaseRect {
+            left: 0.0,
+            top: 0.0,
+            width: BASE_WIDTH,
+            height: BASE_HEIGHT,
+        };
+        let midgard = regions_for_episode(DEFAULT_EPISODE)
+            .into_iter()
+            .find(|region| region.name == "Midgard")
+            .unwrap();
+        let visible = visible_sections(midgard, DEFAULT_EPISODE);
+        let rects: Vec<_> = visible.iter().copied().map(section_rect).collect();
+        let yuno_field = visible.iter().position(|section| section.id == "yuno_fild05").unwrap();
+        let yuno = visible.iter().position(|section| section.id == "yuno").unwrap();
+        assert!(yuno > yuno_field);
+        // Interior of the overlap (about 50×36): later `yuno` wins.
+        assert_eq!(hit_section(map, &rects, 650.0, 90.0), Some(yuno));
+
+        let forest = visible.iter().position(|section| section.id == "pay_fild01").unwrap();
+        let guild = visible.iter().position(|section| section.id == "pay_gld").unwrap();
+        assert!(guild > forest);
+        assert_eq!(hit_section(map, &rects, 940.0, 810.0), Some(guild));
     }
 
     #[test]

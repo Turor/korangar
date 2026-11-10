@@ -485,7 +485,7 @@ static NEW_WORLD: &[WorldMapSection] = &[
     section("splendide", "Forest Village Splendide", 544, 393, 91, 91, 13.2, 99.0),
     section("spl_fild01", "Splendide Field 01", 455, 483, 91, 91, 13.1, 99.0),
     section("spl_fild02", "Splendide Field 02", 544, 483, 91, 91, 13.1, 99.0),
-    section("spl_fild02", "Splendide Field 03", 636, 483, 91, 91, 13.2, 99.0),
+    section("spl_fild03", "Splendide Field 03", 636, 483, 91, 91, 13.2, 99.0),
     section("mid_camp", "Rune Midgard Allied Forces Post", 544, 573, 91, 91, 13.1, 99.0),
     section("man_fild01", "Manuk Field 01", 544, 662, 91, 91, 13.1, 99.0),
     section("man_fild03", "Manuk Field 03", 636, 662, 91, 91, 13.2, 99.0),

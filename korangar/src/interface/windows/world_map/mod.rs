@@ -1,8 +1,5 @@
-//! World map window.
-//!
-//! Textures are loaded from the GRF (`data/texture/유저인터페이스/…`) when the
-//! window is open. Unlocked Warpra squares send `0x0EF4` action warp
-//! immediately. Locked squares are dimmed and do not buy or confirm.
+//! World map window. Textures load from the GRF
+//! (`data/texture/유저인터페이스/…`) while the window is open.
 
 mod data;
 mod logic;
@@ -43,7 +40,7 @@ const REGION_BUTTON_HEIGHT: f32 = 28.0;
 const WINDOW_WIDTH: f32 = 1080.0;
 const WINDOW_HEIGHT: f32 = 900.0;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClickTarget {
     None,
     Region(u8),
@@ -453,17 +450,15 @@ where
             width: map.width,
             height: map.height,
         };
-        let pointer_on_picker = window.show_floors && floor_panel_area(map).check().run(layout);
-        let mut hovered_section: Option<usize> = None;
-        if !pointer_on_picker {
-            // Later sections paint on top, so the last rectangle under the pointer wins.
-            for (index, section) in sections.iter().enumerate() {
-                let scaled = scale_rect(map_rect, section_rect(section));
-                if area_from_rect(scaled).check().run(layout) {
-                    hovered_section = Some(index);
-                }
-            }
-        }
+        // The panel probe must not consume hover, or floor rows never receive the
+        // click.
+        let pointer_on_picker = window.show_floors && panel_contains_pointer(layout, map);
+        let section_rects: Vec<_> = sections.iter().copied().map(section_rect).collect();
+        let hovered_section = if pointer_on_picker {
+            None
+        } else {
+            hovered_section_index(layout, map_rect, &section_rects)
+        };
 
         let mut click = ClickTarget::None;
         let section_views: Vec<_> = sections.iter().copied().map(section_ref).collect();
@@ -595,6 +590,19 @@ fn area_from_rect(rect: logic::BaseRect) -> Area {
     }
 }
 
+/// Last half-open section under the pointer.
+///
+/// `dont_mark` keeps an earlier square from taking the hover.
+/// [`logic::hit_section`] picks the top tile and leaves a shared border out of
+/// the earlier rectangle.
+fn hovered_section_index(layout: &mut WindowLayout<ClientState>, map_rect: logic::BaseRect, sections: &[logic::BaseRect]) -> Option<usize> {
+    let mouse = layout.get_mouse_position();
+    logic::hit_section(map_rect, sections, mouse.left, mouse.top).filter(|&index| {
+        let scaled = scale_rect(map_rect, sections[index]);
+        area_from_rect(scaled).check().dont_mark().run(layout)
+    })
+}
+
 fn floor_panel_area(map: Area) -> Area {
     let panel_width = 300.0_f32.min(map.width * 0.48);
     Area {
@@ -602,6 +610,27 @@ fn floor_panel_area(map: Area) -> Area {
         top: map.top + 8.0,
         width: panel_width,
         height: map.height - 16.0,
+    }
+}
+
+/// The panel only gates map squares. It must not consume hover from its rows.
+fn panel_contains_pointer(layout: &mut WindowLayout<ClientState>, map: Area) -> bool {
+    floor_panel_area(map).check().dont_mark().run(layout)
+}
+
+fn floor_row_area(panel_area: Area, index: usize, row_count: usize) -> Option<Area> {
+    let rows = row_count.max(1);
+    let row_height = ((panel_area.height - 36.0) / rows as f32).clamp(16.0, 24.0);
+    let row = Area {
+        left: panel_area.left + 6.0,
+        top: panel_area.top + 30.0 + index as f32 * row_height,
+        width: panel_area.width - 12.0,
+        height: row_height - 2.0,
+    };
+    if row.top + row.height > panel_area.top + panel_area.height {
+        None
+    } else {
+        Some(row)
     }
 }
 
@@ -663,18 +692,10 @@ fn layout_floor_picker<'a>(
         click = ClickTarget::CloseFloors;
     }
 
-    let rows = window.floors.len().max(1);
-    let row_height = ((panel_area.height - 36.0) / rows as f32).clamp(16.0, 24.0);
     for (index, floor) in window.floors.iter().enumerate() {
-        let row = Area {
-            left: panel_area.left + 6.0,
-            top: panel_area.top + 30.0 + index as f32 * row_height,
-            width: panel_area.width - 12.0,
-            height: row_height - 2.0,
-        };
-        if row.top + row.height > panel_area.top + panel_area.height {
+        let Some(row) = floor_row_area(panel_area, index, window.floors.len()) else {
             break;
-        }
+        };
         let hovered = row.check().run(layout);
         let color = if !floor.unlocked {
             muted
@@ -743,5 +764,131 @@ impl CustomWindow<ClientState> for WorldMapWindow {
             maximum_height: WINDOW_HEIGHT,
             elements: (WorldMapView::new(client_state().world_map_window()),),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use korangar_interface::MouseMode;
+    use korangar_interface::layout::WindowLayout;
+
+    use super::*;
+    use crate::graphics::ScreenPosition;
+
+    fn place_pointer<'a>(layout: &mut WindowLayout<'a, ClientState>, mouse_mode: &'a MouseMode<ClientState>, x: f32, y: f32) {
+        layout.update(
+            1.0,
+            ScreenPosition { left: 0.0, top: 0.0 },
+            ScreenPosition { left: x, top: y },
+            None,
+            true,
+            mouse_mode,
+        );
+    }
+
+    fn sample_floors() -> Vec<FloorChoice> {
+        vec![
+            FloorChoice {
+                name: "Byalan 1".to_owned(),
+                map_id: "iz_dun00".to_owned(),
+                kind: 2,
+                location_id: 10,
+                unlocked: true,
+                level: None,
+            },
+            FloorChoice {
+                name: "Byalan 2".to_owned(),
+                map_id: "iz_dun01".to_owned(),
+                kind: 2,
+                location_id: 11,
+                unlocked: false,
+                level: Some(90),
+            },
+        ]
+    }
+
+    fn picker_window(floors: Vec<FloorChoice>) -> WorldMapWindowState {
+        let mut window = WorldMapWindowState::default();
+        window.show_floors = true;
+        window.floor_title = "Byalan".to_owned();
+        window.floors = floors;
+        window
+    }
+
+    fn paint_picker<'a>(layout: &mut WindowLayout<'a, ClientState>, map: Area, window: &'a WorldMapWindowState) -> ClickTarget {
+        let border = Color::rgb_u8(20, 30, 24);
+        layout_floor_picker(layout, map, window, border, border, border, border, border, ClickTarget::None)
+    }
+
+    #[test]
+    fn unlocked_floor_row_stays_clickable_after_the_panel_probe() {
+        let map = Area {
+            left: 10.0,
+            top: 10.0,
+            width: 800.0,
+            height: 600.0,
+        };
+        let panel = floor_panel_area(map);
+        let row = floor_row_area(panel, 0, 2).unwrap();
+        let window = picker_window(sample_floors());
+        let mouse_mode = MouseMode::Default;
+        let mut layout = WindowLayout::default();
+        place_pointer(&mut layout, &mouse_mode, row.left + row.width * 0.5, row.top + row.height * 0.5);
+
+        assert!(panel_contains_pointer(&mut layout, map));
+        assert_eq!(paint_picker(&mut layout, map, &window), ClickTarget::Floor(0));
+    }
+
+    #[test]
+    fn locked_floor_row_is_not_clickable_after_the_panel_probe() {
+        let map = Area {
+            left: 10.0,
+            top: 10.0,
+            width: 800.0,
+            height: 600.0,
+        };
+        let panel = floor_panel_area(map);
+        let row = floor_row_area(panel, 1, 2).unwrap();
+        let window = picker_window(sample_floors());
+        let mouse_mode = MouseMode::Default;
+        let mut layout = WindowLayout::default();
+        place_pointer(&mut layout, &mouse_mode, row.left + row.width * 0.5, row.top + row.height * 0.5);
+
+        assert!(panel_contains_pointer(&mut layout, map));
+        assert_eq!(paint_picker(&mut layout, map, &window), ClickTarget::None);
+    }
+
+    #[test]
+    fn section_hit_uses_the_later_half_open_square() {
+        let map = logic::BaseRect {
+            left: 0.0,
+            top: 0.0,
+            width: BASE_WIDTH,
+            height: BASE_HEIGHT,
+        };
+        let sections = [
+            logic::BaseRect {
+                left: 0.0,
+                top: 0.0,
+                width: 100.0,
+                height: 80.0,
+            },
+            logic::BaseRect {
+                left: 80.0,
+                top: 40.0,
+                width: 40.0,
+                height: 40.0,
+            },
+        ];
+        let mouse_mode = MouseMode::Default;
+        let mut layout = WindowLayout::default();
+        place_pointer(&mut layout, &mouse_mode, 90.0, 50.0);
+        assert_eq!(hovered_section_index(&mut layout, map, &sections), Some(1));
+
+        let alone = [sections[0]];
+        place_pointer(&mut layout, &mouse_mode, 100.0, 10.0);
+        assert_eq!(hovered_section_index(&mut layout, map, &alone), None);
+        place_pointer(&mut layout, &mouse_mode, 99.0, 10.0);
+        assert_eq!(hovered_section_index(&mut layout, map, &alone), Some(0));
     }
 }
