@@ -18,6 +18,8 @@ use crate::state::{ClientState, ClientStatePathExt, client_state};
 // somewhere, maybe a `consts.rs` would be a good idea at this point?
 const MINIMUM_NAME_LENGTH: usize = 4;
 const MAXIMUM_NAME_LENGTH: usize = 24;
+/// Wide enough for a member row (name and HP bar, Kick, Make leader).
+const FRIEND_WINDOW_MINIMUM_WIDTH: f32 = 300.0;
 
 struct FriendList<A> {
     friend_list_path: A,
@@ -159,6 +161,7 @@ where
             title: "Party / Friends",
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
+            minimum_width: FRIEND_WINDOW_MINIMUM_WIDTH,
             closable: true,
             elements: (
                 split! {
@@ -176,7 +179,7 @@ where
                 },
                 either! {
                     selector: self.window_state_path.show_friends(),
-                    on_true: split! {
+                    on_true: fragment! {
                         gaps: theme().window().gaps(),
                         children: (
                             text_box! {
