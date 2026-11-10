@@ -53,7 +53,8 @@ pub use self::packet_versions::companions::{
     format_homunculus_flags, format_pet, intimacy_label, mercenary_variable_name,
 };
 pub use self::packet_versions::eden::{
-    EDEN_ACTION_ABANDON, EDEN_ACTION_ACCEPT, EDEN_ACTION_BUY, EDEN_ACTION_COMPLETE, EDEN_ACTION_LIST, format_eden_result, parse_eden_id,
+    EDEN_ACTION_ABANDON, EDEN_ACTION_ACCEPT, EDEN_ACTION_BUY, EDEN_ACTION_COMPLETE, EDEN_ACTION_LIST, EdenButton, eden_button_packets,
+    encode_eden_packet, format_eden_result, parse_eden_id,
 };
 pub use self::packet_versions::enchant::{format_enchant_result, parse_enchant_index, parse_enchant_item_id, parse_enchant_slot};
 pub use self::packet_versions::mvp_minimap::{format_mvp_markers, minimap_point};
@@ -3908,8 +3909,8 @@ mod packet_handlers {
             let events = process_one(version, writer.as_slice());
             assert!(matches!(
                 events.as_slice(),
-                [NetworkEvent::EdenQuestList { base_level: 50, merit: 7, summary }]
-                    if summary.contains("Poring hunt") && summary.contains("ready")
+                [NetworkEvent::EdenQuestList { base_level: 50, merit: 7, quests }]
+                    if quests.len() == 1 && quests[0].name == "Poring hunt" && quests[0].state == 2
             ));
         }
 
@@ -3932,7 +3933,7 @@ mod packet_handlers {
         let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
         assert!(matches!(
             events.as_slice(),
-            [NetworkEvent::EdenShop { merit: 7, summary }] if summary.contains("slot 3") && summary.contains("gear")
+            [NetworkEvent::EdenShop { merit: 7, items }] if items.len() == 1 && items[0].slot == 3 && items[0].category == 1
         ));
 
         let result = EdenResultPacket { result: 9, quest_id: 44 };

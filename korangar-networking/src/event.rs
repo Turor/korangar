@@ -1200,7 +1200,7 @@ pub enum NetworkEvent {
     EdenQuestList {
         base_level: i16,
         merit: i32,
-        summary: String,
+        quests: Vec<EdenQuestEntry>,
     },
     /// Turoran Eden result (`0x0EFC`).
     EdenResult {
@@ -1211,7 +1211,7 @@ pub enum NetworkEvent {
     /// Turoran Eden shop (`0x0EFD`).
     EdenShop {
         merit: i32,
-        summary: String,
+        items: Vec<EdenShopEntry>,
     },
     /// Turoran Warpra destination chunk (`0x0EFE`).
     WarpraList {
