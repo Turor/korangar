@@ -33,8 +33,18 @@ jobs:
 
       - name: Build dependencies
         run: |
-          sudo apt-get -o DPkg::Lock::Timeout=900 update -qq
-          sudo apt-get -o DPkg::Lock::Timeout=900 install -y -qq build-essential pkg-config libasound2-dev nasm curl ca-certificates unzip
+          # The fresh guest runs its own apt (bootstrap / apt-daily) for a few
+          # minutes after boot. Wait for it instead of failing on the lock.
+          for _ in $(seq 1 180); do
+            pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || pgrep -f unattended-upgrade >/dev/null || break
+            sleep 5
+          done
+          for attempt in 1 2 3 4 5 6; do
+            sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && break
+            [ "$attempt" = 6 ] && exit 1
+            sleep 20
+          done
+          sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq build-essential pkg-config libasound2-dev nasm curl ca-certificates unzip
 
       - name: Install rustup toolchain
         run: |
