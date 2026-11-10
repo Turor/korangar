@@ -53,8 +53,7 @@ pub struct FinderItem {
     pub equip_level: i32,
     pub jobs: String,
     /// Slotted MVP item id, when the catalog marks one. Also used as a quest-id
-    /// override. Read by the drop helpers, which the window does not call yet.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// override for [`quest_files`].
     pub mvp_item_id: Option<u32>,
     pub effects: Vec<FinderEffect>,
     search_blob: String,
@@ -258,13 +257,56 @@ impl ItemFinderState {
 
     fn fill_rows(&mut self, hits: &[FinderHit]) {
         let shown = hits.len().min(PAGE);
-        self.rows = hits.iter().take(PAGE).map(|hit| hit.summary.clone()).collect();
+        let mut rows = Vec::new();
+        for hit in hits.iter().take(PAGE) {
+            rows.push(hit.summary.clone());
+            if let Some(sources) = &self.sources {
+                let mvp = self.catalog.get(hit.item_id).and_then(|item| item.mvp_item_id);
+                push_source_rows(&mut rows, &self.catalog, sources, hit.item_id, mvp);
+            }
+        }
+        self.rows = rows;
         let mut status = format!("{shown} of {} result(s).", hits.len());
         if !self.sources_ready {
             status.push(' ');
             status.push_str(MISSING_SOURCES_STATUS);
         }
         self.status = status;
+    }
+}
+
+const DROP_PREVIEW: usize = 4;
+const QUEST_PREVIEW: usize = 4;
+
+/// One summary row plus drop and quest lines from [`drop_lines`] and [`quest_files`].
+fn push_source_rows(rows: &mut Vec<String>, catalog: &FinderCatalog, sources: &ItemSources, item_id: u32, mvp_item_id: Option<u32>) {
+    let lines = drop_lines(catalog, sources, item_id, 0);
+    let shown = lines.len().min(DROP_PREVIEW);
+    for line in lines.iter().take(shown) {
+        let kind = if line.mvp_reward { "MVP drop" } else { "Drop" };
+        let tag = if line.tag.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", line.tag)
+        };
+        let spawn = line.spawns.first().map(String::as_str).unwrap_or("");
+        rows.push(format!(
+            "    {kind}: {} Lv{} {:.2}%{tag} · {spawn}",
+            line.mob_name,
+            line.mob_level,
+            line.rate as f64 / 100.0
+        ));
+    }
+    if lines.len() > shown {
+        rows.push(format!("    … {} more drop(s)", lines.len() - shown));
+    }
+    let quests = quest_files(sources, item_id, mvp_item_id);
+    let shown_quests = quests.len().min(QUEST_PREVIEW);
+    for quest in quests.iter().take(shown_quests) {
+        rows.push(format!("    Quest: {quest}"));
+    }
+    if quests.len() > shown_quests {
+        rows.push(format!("    … {} more quest file(s)", quests.len() - shown_quests));
     }
 }
 
@@ -531,8 +573,8 @@ fn summarize(item: &FinderItem) -> String {
 
 /// Monster drop lines for one item. An explicit catalog `mvp` id is the slotted
 /// sibling. When that field is absent, the sibling is `id + 40000` if that id
-/// is in the catalog.
-#[cfg_attr(not(test), allow(dead_code))]
+/// is in the catalog. The Item Finder window calls this with player level 0,
+/// which keeps the server rate (no level-difference penalty).
 pub fn drop_lines(catalog: &FinderCatalog, sources: &ItemSources, item_id: u32, player_level: i32) -> Vec<DropLine> {
     let mut raw = Vec::new();
     push_drops(sources, item_id, "", &mut raw);
@@ -621,7 +663,6 @@ pub fn penalty_percent(boss: bool, mob_level: i32, player_level: i32, sources: &
     rate
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn quest_files(sources: &ItemSources, item_id: u32, mvp_item_id: Option<u32>) -> Vec<String> {
     sources
         .quests
@@ -781,5 +822,33 @@ mod tests {
         assert!(state.status.contains("A5"));
         assert_eq!(state.rows.len(), 1);
         assert!(state.rows[0].contains("#1201"));
+    }
+
+    #[test]
+    fn search_rows_include_drop_and_quest_lines() {
+        let mut state = ItemFinderState {
+            query: "knife".to_owned(),
+            ..ItemFinderState::default()
+        };
+        state.load_bytes(Some(CATALOG.as_bytes()), Some(SOURCES.as_bytes()));
+        assert!(state.rows.iter().any(|row| row.contains("Drop:") && row.contains("Poring") && row.contains("5.00%")));
+        assert!(state.rows.iter().any(|row| row.contains("Quest: npc/quests/knife.txt")));
+    }
+
+    #[test]
+    fn shipped_itemfinder_json_matches_the_loaders() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("archive/System");
+        let catalog_bytes = std::fs::read(root.join("itemfinder.turoran.v8.json")).expect("catalog");
+        let sources_bytes = std::fs::read(root.join("itemsources.turoran.v3.json")).expect("sources");
+        let catalog = parse_catalog(&catalog_bytes).expect("catalog schema");
+        let sources = parse_sources(&sources_bytes).expect("sources schema");
+        assert!(catalog.len() > 1000);
+        assert!(!sources.drops.is_empty());
+        assert!(!sources.quests.is_empty());
+        assert!(!sources.penalty_normal.is_empty());
+        let mut state = ItemFinderState::default();
+        state.load_bytes(Some(&catalog_bytes), Some(&sources_bytes));
+        assert!(state.sources_ready);
+        assert!(!state.rows.is_empty());
     }
 }
