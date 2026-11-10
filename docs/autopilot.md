@@ -79,6 +79,9 @@ A left `click` on an NPC sprite box walks within three cells and then opens its 
 - `ContextMenuPick(1)` (a row in the open player context menu)
 - `TradeAddItem(index: 4, amount: 1)`, `TradeAddZeny(100)`
 - `SetShowEquipment(true)`
+- `DialogNext` and `DialogChoose(2)` (1-based menu row) act on the open NPC dialog
+- `EnchantSelectItem(5)`, `EnchantSetAction(0)`, `EnchantPickChoice(index: 0, item_id: 4700)`, then the unit `EnchantSubmit`
+- `GradeEnchantSelect(5)`, `GradeEnchantPick(0)`, then the unit `GradeEnchantSubmit`
 - `LeaveParty` and `AcceptPendingPartyInvite` (unit events; accept uses the open invite)
 
 `event LogIn` is rejected so a command file cannot be asked to print a password.

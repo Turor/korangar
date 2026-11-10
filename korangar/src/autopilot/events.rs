@@ -242,6 +242,18 @@ enum ScriptedEvent {
     },
     TradeAddZeny(u32),
     SetShowEquipment(bool),
+    /// Next in the open NPC dialog. The NPC id is filled in by the client.
+    DialogNext,
+    /// Pick a 1-based menu row in the open NPC dialog.
+    DialogChoose(i8),
+    EnchantSelectItem(u16),
+    EnchantSetAction(u8),
+    EnchantPickChoice {
+        index: u16,
+        item_id: u32,
+    },
+    GradeEnchantSelect(u16),
+    GradeEnchantPick(i32),
 }
 
 pub fn scripted_event(spec: &str) -> Result<InputEvent, String> {
@@ -329,6 +341,18 @@ pub fn scripted_event(spec: &str) -> Result<InputEvent, String> {
         ScriptedEvent::TradeAddItem { index, amount } => InputEvent::TradeAddItem { index, amount },
         ScriptedEvent::TradeAddZeny(amount) => InputEvent::TradeAddZeny { amount },
         ScriptedEvent::SetShowEquipment(enabled) => InputEvent::SetShowEquipment { enabled },
+        ScriptedEvent::DialogNext => InputEvent::NextDialog {
+            npc_id: ragnarok_packets::EntityId(0),
+        },
+        ScriptedEvent::DialogChoose(option) => InputEvent::ChooseDialogOption {
+            npc_id: ragnarok_packets::EntityId(0),
+            option,
+        },
+        ScriptedEvent::EnchantSelectItem(index) => InputEvent::EnchantSelectItem { index },
+        ScriptedEvent::EnchantSetAction(action) => InputEvent::EnchantSetAction { action },
+        ScriptedEvent::EnchantPickChoice { index, item_id } => InputEvent::EnchantPickChoice { index, item_id },
+        ScriptedEvent::GradeEnchantSelect(index) => InputEvent::GradeEnchantSelect { index },
+        ScriptedEvent::GradeEnchantPick(material_index) => InputEvent::GradeEnchantPick { material_index },
     })
 }
 

@@ -7600,7 +7600,16 @@ impl Client {
                         sex,
                     });
                 }
-                autopilot::Effect::Input(event) => self.input_event_buffer.push(event),
+                autopilot::Effect::Input(mut event) => {
+                    // `DialogNext` and `DialogChoose` carry NPC id 0; use the open dialog.
+                    let open_npc = self.client_state.follow(client_state().dialog_window()).npc_id();
+                    if let InputEvent::NextDialog { npc_id } | InputEvent::ChooseDialogOption { npc_id, .. } = &mut event
+                        && npc_id.0 == 0
+                    {
+                        *npc_id = open_npc;
+                    }
+                    self.input_event_buffer.push(event);
+                }
                 autopilot::Effect::Window { class, open, event } => {
                     if self.interface.is_window_with_class_open(class) != open {
                         self.input_event_buffer.push(event);
