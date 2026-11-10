@@ -423,7 +423,11 @@ where
         with_single_resolver(resolvers, |resolver| {
             let dialog = state.get(&self.window_state_path);
 
-            if !dialog.awaiting_choice || dialog.elements.is_empty() {
+            // Next, Close and menu options all sit in rows along the bottom
+            // of the band. Anything else (number or text input) keeps the
+            // plain stacked layout.
+            let bottom_row = (dialog.awaiting_choice || dialog.awaiting_next || dialog.awaiting_close) && !dialog.input_open;
+            if !bottom_row || dialog.elements.is_empty() {
                 dialog.elements.iter().enumerate().for_each(|(index, dialog_element)| {
                     // We only create this mutable reference for the lifetime of this scope, and
                     // since nothing is captured from the element this is safe.
@@ -434,7 +438,6 @@ where
                 return None;
             }
 
-            // Menu options sit side by side in rows along the bottom of the band.
             let (columns, rows) = choice_grid(dialog.elements.len());
             let button_height: f32 = *state.get(&client_theme().button().height());
             let gaps: f32 = *state.get(&client_theme().window().gaps());
@@ -457,7 +460,7 @@ where
                         width: cell_width,
                         height: button_height,
                     };
-                    if index == focus {
+                    if dialog.awaiting_choice && index == focus {
                         focus_area = Some(area);
                     }
 
@@ -552,6 +555,9 @@ where
             title: self.window_state_path.npc_name(),
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
+            // Opaque panel: the chat and hotbar sit under the band and the
+            // themed window colour is translucent.
+            background_color: client_theme().tokens().panel(),
             closable: true,
             resizable: false,
             minimum_width: self.window_state_path.band_width(),
