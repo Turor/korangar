@@ -310,8 +310,8 @@ fn paint_frame(renderer: &GameInterfaceRenderer, frame: PortraitFrame, tokens: &
             width: frame.size - FRAME_BORDER * 2.0,
             height: frame.size - FRAME_BORDER * 2.0,
         },
-        // Opaque, like the dialog band behind the text.
-        tokens.panel.with_alpha_u8(255),
+        // Same shared `window_alpha` as the dialog band behind the text.
+        tokens.panel.with_alpha_u8(tokens.window_alpha_u8()),
     );
 }
 
