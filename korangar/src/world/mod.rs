@@ -70,4 +70,5 @@ impl<K> ResourceSet<'_, K> {
 pub struct ResourceMetadata {
     pub texture: Option<Arc<Texture>>,
     pub name: String,
+    pub description: String,
 }

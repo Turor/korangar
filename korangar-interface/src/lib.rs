@@ -21,7 +21,7 @@ pub mod window;
 extern crate self as korangar_interface;
 
 use std::any::Any;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use application::{Application, Clip, CornerDiameter, FontSize, Position, RenderLayer, Size, TextLayouter, WindowCache};
 use element::ElementBox;
@@ -266,6 +266,8 @@ where
     overlay_layout: Option<WindowLayout<'a, App>>,
 
     next_window_id: u64,
+    /// Class-less windows keyed by a caller-chosen instance id.
+    instance_windows: HashMap<u64, u64>,
 
     text_layouter: App::TextLayouter,
 }
@@ -293,6 +295,7 @@ where
             overlay_layout: None,
 
             next_window_id: 0,
+            instance_windows: HashMap::new(),
             text_layouter,
         }
     }
@@ -352,7 +355,29 @@ where
             .any(|wrapper| wrapper.window.get_class().is_some_and(|class| class == window_class))
     }
 
-    fn open_new_window(&mut self, window: impl Window<App> + 'static) {
+    pub fn has_closable_window(&self, state: &State<App>) -> bool {
+        self.windows.iter().any(|wrapper| wrapper.window.is_closable(state))
+    }
+
+    /// Open a class-less window, or raise the existing one with this instance
+    /// id.
+    pub fn open_or_raise_instance<T>(&mut self, instance_id: u64, window: T)
+    where
+        T: CustomWindow<App> + 'static,
+    {
+        if let Some(&window_id) = self.instance_windows.get(&instance_id)
+            && let Some(index) = self.windows.iter().position(|wrapper| wrapper.data.id == window_id)
+        {
+            let wrapper = self.windows.remove(index);
+            self.windows.push(wrapper);
+            return;
+        }
+        let window = window.to_window();
+        let id = self.open_new_window(window);
+        self.instance_windows.insert(instance_id, id);
+    }
+
+    fn open_new_window(&mut self, window: impl Window<App> + 'static) -> u64 {
         let id = self.next_window_id;
         // TODO: Actual logic to wrap around and adjust all window ids.
         self.next_window_id = self.next_window_id.wrapping_add(1);
@@ -387,6 +412,7 @@ where
                 display_height: 0.0,
             },
         });
+        id
     }
 
     pub fn get_mouse_mode(&self) -> &MouseMode<App> {
@@ -395,6 +421,10 @@ where
 
     pub fn has_focus(&self) -> bool {
         self.focused_element.is_some()
+    }
+
+    pub fn unfocus(&mut self) {
+        self.focused_element = None;
     }
 
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
@@ -432,7 +462,9 @@ where
 
     fn remove_window(&mut self, index: usize) {
         // Remove the cached window layout to avoid growing the cache indefinitely.
-        self.window_layouts.remove(&self.windows[index].data.id);
+        let window_id = self.windows[index].data.id;
+        self.window_layouts.remove(&window_id);
+        self.instance_windows.retain(|_, id| *id != window_id);
         self.windows.remove(index);
     }
 

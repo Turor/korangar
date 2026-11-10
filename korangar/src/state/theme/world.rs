@@ -176,9 +176,9 @@ impl WorldTheme {
         #[cfg(feature = "debug")]
         print_debug!("loading theme from file {}", path.magenta());
 
-        let theme = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|data| ron::from_str(&data).ok())
+        let theme = crate::state::theme::load_theme_tokens(name)
+            .map(|tokens| WorldTheme::from_tokens(&tokens))
+            .or_else(|| std::fs::read_to_string(&path).ok().and_then(|data| ron::from_str(&data).ok()))
             .unwrap_or_else(|| {
                 if name == TURORAN_DARK_THEME_NAME {
                     return WorldTheme::turoran_dark();

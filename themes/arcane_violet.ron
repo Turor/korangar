@@ -1,0 +1,20 @@
+// Arcane Violet — triadic violet, gold, and teal.
+// Unlisted tokens (text, muted, hp, sp, hover) meet WCAG AA body-text contrast vs panel.
+ThemeFile(
+    name: "Arcane Violet",
+    bg: "#14111C",
+    panel: "#1E1A2A",
+    raised: "#29233A",
+    border: "#433A5C",
+    text: "#E6E1EE",
+    muted: "#A39AB8",
+    accent: "#9B6BE0",
+    accent2: "#45B5B0",
+    hover: "#E2B54C",
+    hp: "#E2785C",
+    sp: "#5B9AE0",
+    gold: "#E2B54C",
+    slot_size: 44.0,
+    corner_radius: 8.0,
+    font_size: 13.0,
+)

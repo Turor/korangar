@@ -120,11 +120,13 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
     }
 
     let minimap_side = (200.0 * scale).min(screen_width * 0.16);
+    let minimap_width = minimap_side.max(220.0);
+    let right_margin = margin.max(16.0);
     let minimap = HudFrame {
-        left: screen_width - minimap_side - margin,
+        left: screen_width - minimap_width - right_margin,
         top: gear.top,
-        width: minimap_side,
-        height: minimap_side,
+        width: minimap_width,
+        height: minimap_side.max(220.0),
     };
     let column_left = gear.right() + margin;
     let column_width = (minimap.left - margin - column_left).max(160.0);
@@ -248,6 +250,8 @@ mod tests {
         assert!((skill_center_x - width / 2.0).abs() < 1.0);
         assert!((skill_center_y - height / 2.0).abs() < 1.0);
         assert!(hud.minimap.right() <= width);
+        assert!(hud.minimap.width >= 220.0);
+        assert!(width - hud.minimap.right() >= 16.0 - 0.5, "minimap close button clipped");
         assert!(hud.status.top >= hud.minimap.bottom() - 0.5);
         assert!(hud.friends.top >= hud.quest.bottom() - 0.5);
         assert!(hud.party.top >= hud.friends.bottom() - 0.5);

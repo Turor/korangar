@@ -162,24 +162,8 @@ where
             false => layout_info.area.check().run(layout),
         };
 
-        let background_color = if !is_drop_target && is_hovered {
-            let base = *state.get(&client_theme().skill_tree().slot_background_color());
-            Color::rgb_u8(
-                base.red_as_u8().saturating_add(28),
-                base.green_as_u8().saturating_add(28),
-                base.blue_as_u8().saturating_add(32),
-            )
-        } else {
-            *state.get(&client_theme().skill_tree().slot_background_color())
-        };
-
-        layout.add_rectangle(
-            layout_info.area,
-            *state.get(&client_theme().skill_tree().slot_corner_diameter()),
-            background_color,
-            Color::rgba_u8(0, 0, 0, 120),
-            *state.get(&client_theme().skill_tree().slot_outline()),
-        );
+        let (border, fill) = crate::interface::components::item_box::slot_border_and_fill(state, is_hovered, is_drop_target);
+        crate::interface::components::item_box::paint_item_slot(layout, layout_info.area, border, fill, 4.0, true);
 
         if is_drop_target {
             let color = match is_hovered {

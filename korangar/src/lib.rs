@@ -294,6 +294,9 @@ pub struct Client {
     /// stored on [`InterfaceSettings`], which saves itself on drop.
     loaded_in_game_theme: String,
     loaded_world_theme: String,
+    loaded_in_game_theme_mtime: Option<std::time::SystemTime>,
+    loaded_world_theme_mtime: Option<std::time::SystemTime>,
+    force_reload_themes: bool,
     active_graphics_settings: GraphicsSettings,
     graphics_engine: GraphicsEngine,
     queue: Queue,
@@ -845,8 +848,11 @@ impl Client {
             networking_system,
             audio_engine,
             active_interface_settings,
+            loaded_in_game_theme_mtime: crate::state::theme::theme_file_mtime(&loaded_in_game_theme),
+            loaded_world_theme_mtime: crate::state::theme::theme_file_mtime(&loaded_world_theme),
             loaded_in_game_theme,
             loaded_world_theme,
+            force_reload_themes: false,
             active_graphics_settings: graphics_settings,
             graphics_engine,
             queue,
@@ -1003,10 +1009,12 @@ impl Client {
 
         let saved_in_game_theme = interface_settings.in_game_theme.clone();
         let in_game_theme = session_theme_name(&saved_in_game_theme).to_string();
-        if self.loaded_in_game_theme != in_game_theme {
+        let in_game_mtime = crate::state::theme::theme_file_mtime(&in_game_theme);
+        if self.force_reload_themes || self.loaded_in_game_theme != in_game_theme || self.loaded_in_game_theme_mtime != in_game_mtime {
             let theme = InterfaceTheme::load(InterfaceThemeType::InGame, &in_game_theme);
             *self.client_state.follow_mut(client_state().in_game_theme()) = theme;
             self.loaded_in_game_theme = in_game_theme;
+            self.loaded_in_game_theme_mtime = in_game_mtime;
         }
         if self.active_interface_settings.in_game_theme != saved_in_game_theme {
             self.active_interface_settings.in_game_theme = saved_in_game_theme;
@@ -1016,13 +1024,20 @@ impl Client {
 
         let saved_world_theme = interface_settings.world_theme.clone();
         let world_theme = session_theme_name(&saved_world_theme).to_string();
-        if self.loaded_world_theme != world_theme {
+        let world_mtime = crate::state::theme::theme_file_mtime(&world_theme);
+        if self.force_reload_themes || self.loaded_world_theme != world_theme || self.loaded_world_theme_mtime != world_mtime {
             let theme = WorldTheme::load(&world_theme);
             *self.client_state.follow_mut(client_state().world_theme()) = theme;
             self.loaded_world_theme = world_theme;
+            self.loaded_world_theme_mtime = world_mtime;
         }
         if self.active_interface_settings.world_theme != saved_world_theme {
             self.active_interface_settings.world_theme = saved_world_theme;
+        }
+        if self.force_reload_themes {
+            *self.client_state.follow_mut(client_state().interface_settings_capabilities()) =
+                crate::settings::InterfaceSettingsCapabilities::default();
+            self.force_reload_themes = false;
         }
     }
 
@@ -1116,7 +1131,9 @@ impl Client {
                     if headless_auto()
                         && let Some(character_server_information) = auto_server
                     {
-                        self.input_event_buffer.push(InputEvent::SelectServer { character_server_information });
+                        self.input_event_buffer.push(InputEvent::SelectServer {
+                            character_server_information,
+                        });
                     }
                 }
                 NetworkEvent::LoginServerConnectionFailed { message, .. } => {
@@ -1693,6 +1710,12 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().navigation())
                         .on_map_change(&map_name, position.x, position.y);
+                    {
+                        let display = self.library.map_display_name(&map_name);
+                        let board = self.client_state.follow_mut(client_state().mvp_minimap());
+                        board.set_display_name(display);
+                        board.set_player_cell(position.x, position.y);
+                    }
                     self.async_loader.request_map_load(map_name, Some(position));
                 }
                 NetworkEvent::UpdateClientTick { client_tick, received_at } => {
@@ -2918,13 +2941,21 @@ impl Client {
 
                             let name = inventory_item.metadata.name.clone();
                             let texture = inventory_item.metadata.texture.clone();
+                            let description = inventory_item.metadata.description.clone();
                             let quantity = match &inventory_item.details {
                                 korangar_networking::InventoryItemDetails::Regular { amount, .. } => *amount,
                                 korangar_networking::InventoryItemDetails::Equippable { .. } => 1,
                             };
 
                             SellItem {
-                                metadata: (ResourceMetadata { name, texture }, quantity),
+                                metadata: (
+                                    ResourceMetadata {
+                                        name,
+                                        texture,
+                                        description,
+                                    },
+                                    quantity,
+                                ),
                                 inventory_index: item.inventory_index,
                                 price: item.price,
                                 overcharge_price: item.overcharge_price,
@@ -3747,9 +3778,7 @@ impl Client {
                     self.client_state.follow_mut(client_state().achievements()).cycle_filter();
                 }
                 InputEvent::CycleAchievementCategory => {
-                    self.client_state
-                        .follow_mut(client_state().achievements())
-                        .cycle_category();
+                    self.client_state.follow_mut(client_state().achievements()).cycle_category();
                 }
                 InputEvent::ToggleNavigationWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
@@ -3794,8 +3823,7 @@ impl Client {
                             true => self.interface.close_window_with_class(WindowClass::ItemFinder),
                             false => {
                                 load_item_finder(self.game_file_loader.as_ref(), &mut self.client_state);
-                                self.interface
-                                    .open_window(ItemFinderWindow::new(client_state().item_finder()));
+                                self.interface.open_window(ItemFinderWindow::new(client_state().item_finder()));
                             }
                         }
                     }
@@ -3829,6 +3857,25 @@ impl Client {
                     }
                 }
                 InputEvent::CloseTopWindow => self.interface.close_top_window(&self.client_state),
+                InputEvent::Escape => match crate::input::escape_action(
+                    self.interface.has_focus(),
+                    self.interface.has_closable_window(&self.client_state),
+                ) {
+                    crate::input::EscapeAction::Unfocus => self.interface.unfocus(),
+                    crate::input::EscapeAction::CloseTop => self.interface.close_top_window(&self.client_state),
+                    crate::input::EscapeAction::ToggleMenu => {
+                        if self.client_state.try_follow(this_entity()).is_some() {
+                            match self.interface.is_window_with_class_open(WindowClass::Menu) {
+                                true => self.interface.close_window_with_class(WindowClass::Menu),
+                                false => self.interface.open_window(MenuWindow),
+                            }
+                        }
+                    }
+                },
+                InputEvent::ReloadTheme => self.force_reload_themes = true,
+                InputEvent::OpenItemDetails { key, title, body } => {
+                    self.interface.open_or_raise_instance(key, ItemDetailsWindow { title, body });
+                }
                 InputEvent::ToggleShowInterface => self.show_interface = !self.show_interface,
                 InputEvent::SelectCharacter { slot } => {
                     let _ = self.networking_system.select_character(slot);
@@ -3976,8 +4023,7 @@ impl Client {
                             self.client_state.follow_mut(client_state().item_finder()).query = query;
                             load_item_finder(self.game_file_loader.as_ref(), &mut self.client_state);
                             if !self.interface.is_window_with_class_open(WindowClass::ItemFinder) {
-                                self.interface
-                                    .open_window(ItemFinderWindow::new(client_state().item_finder()));
+                                self.interface.open_window(ItemFinderWindow::new(client_state().item_finder()));
                             }
                         }
                         continue;
@@ -5193,11 +5239,16 @@ impl Client {
         // including cells crossed while a walk is still in progress.
         let player_cell = self.client_state.try_follow(this_entity()).map(|player| player.get_tile_position());
         if let Some(tile) = player_cell {
-            let navigation = self.client_state.follow_mut(client_state().navigation());
-            let (x, y) = navigation.player_cell();
-            if x != tile.x || y != tile.y {
-                navigation.set_player_cell(tile.x, tile.y);
+            {
+                let navigation = self.client_state.follow_mut(client_state().navigation());
+                let (x, y) = navigation.player_cell();
+                if x != tile.x || y != tile.y {
+                    navigation.set_player_cell(tile.x, tile.y);
+                }
             }
+            self.client_state
+                .follow_mut(client_state().mvp_minimap())
+                .set_player_cell(tile.x, tile.y);
         }
 
         self.client_state

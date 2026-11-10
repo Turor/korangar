@@ -64,8 +64,12 @@ impl CustomWindow<ClientState> for MenuWindow {
                     event: InputEvent::OpenCompanions,
                 },
                 button! {
-                    text: "MVP map",
+                    text: "Minimap",
                     event: InputEvent::ToggleMvpMinimap,
+                },
+                button! {
+                    text: "Reload theme",
+                    event: InputEvent::ReloadTheme,
                 },
                 button! {
                     text: "Navigation",

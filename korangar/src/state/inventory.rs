@@ -134,6 +134,7 @@ mod tests {
             metadata: ResourceMetadata {
                 texture: None,
                 name: String::new(),
+                description: String::new(),
             },
             index: InventoryIndex(index),
             item_id: ItemId(1),

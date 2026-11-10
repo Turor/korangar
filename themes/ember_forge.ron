@@ -1,0 +1,20 @@
+// Ember Forge — complementary warm-gold on cool iron.
+// Unlisted tokens (muted, hp, sp, hover) meet WCAG AA body-text contrast vs panel.
+ThemeFile(
+    name: "Ember Forge",
+    bg: "#12151C",
+    panel: "#1B2029",
+    raised: "#252B36",
+    border: "#3A4250",
+    text: "#E6E1D6",
+    muted: "#A39B8C",
+    accent: "#D9A441",
+    accent2: "#4F8FBF",
+    hover: "#D9A441",
+    hp: "#E2785C",
+    sp: "#5C9ED6",
+    gold: "#D9A441",
+    slot_size: 44.0,
+    corner_radius: 8.0,
+    font_size: 13.0,
+)

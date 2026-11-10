@@ -469,8 +469,16 @@ impl<'a, App: Application> WindowLayout<'a, App> {
     }
 
     pub fn add_tooltip(&mut self, text: &'a str, id: TooltipId) {
-        let tooltip = Tooltip { text, id };
-        self.tooltips.push(tooltip);
+        self.add_tooltip_after(text, id, Duration::from_secs(1));
+    }
+
+    /// Show a tooltip on the current frame, with no hover delay.
+    pub fn add_immediate_tooltip(&mut self, text: &'a str, id: TooltipId) {
+        self.add_tooltip_after(text, id, Duration::ZERO);
+    }
+
+    fn add_tooltip_after(&mut self, text: &'a str, id: TooltipId, delay: Duration) {
+        self.tooltips.push(Tooltip { text, id, delay });
 
         // If the tooltip was not present last frame start the timer now.
         self.tooltip_timers.entry(id).or_insert_with(Instant::now);
@@ -491,7 +499,7 @@ impl<'a, App: Application> WindowLayout<'a, App> {
             let mut found = false;
 
             self.tooltips.iter().filter(|tooltip| tooltip.id == *id).for_each(|tooltip| {
-                if timer.elapsed() > Duration::from_secs(1) {
+                if timer.elapsed() >= tooltip.delay {
                     tooltips.push(tooltip.text);
                 }
 

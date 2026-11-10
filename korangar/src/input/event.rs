@@ -142,6 +142,16 @@ pub enum InputEvent {
     ToggleStatusEffectsWindow,
     /// Close the most recently opened or clicked closable window.
     CloseTopWindow,
+    /// Escape: unfocus, close the top closable window, or toggle the menu.
+    Escape,
+    /// Re-read the active theme file from disk.
+    ReloadTheme,
+    /// Open or focus a pinned item-details window.
+    OpenItemDetails {
+        key: u64,
+        title: String,
+        body: String,
+    },
     /// Toggle if the user interface should be rendered or not.
     ToggleShowInterface,
     /// Select a character to start playing.
