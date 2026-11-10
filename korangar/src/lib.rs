@@ -4622,10 +4622,9 @@ impl Client {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::Hotbar) {
                             true => self.interface.close_window_with_class(WindowClass::Hotbar),
-                            false => self.interface.open_window(HotbarWindow::new(
-                                client_state().hotbar().skills(),
-                                client_state().skill_tree().skills(),
-                            )),
+                            false => self
+                                .interface
+                                .open_window(HotbarWindow::new(client_state().hotbar(), client_state().inventory())),
                         }
                     }
                 }

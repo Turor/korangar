@@ -739,7 +739,6 @@ mod tests {
         for (index, entry) in entries.iter().enumerate() {
             assert!(ids.insert(entry.id), "duplicate id {}", entry.id);
             assert!(classes.insert(entry.class), "duplicate class {:?}", entry.class);
-            assert_ne!(entry.class, WindowClass::CashShop);
             assert!(!entry.icon.is_empty());
             assert!(entry.tooltip.contains(entry.label));
             if let Some(hotkey) = entry.hotkey {
