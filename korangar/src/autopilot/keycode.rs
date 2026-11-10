@@ -1,0 +1,266 @@
+//! Physical key names accepted by the autopilot `key` command.
+//!
+//! Names are the `winit` [`KeyCode`] variant names (`KeyE`, `Digit1`, `Enter`).
+//! Modifiers are written with `+`: `alt+KeyE`, `ctrl+shift+KeyA`.
+
+use winit::keyboard::KeyCode;
+
+pub struct ParsedKey {
+    pub code: KeyCode,
+    pub alt: bool,
+    pub ctrl: bool,
+    pub shift: bool,
+}
+
+pub fn parse_key_spec(spec: &str) -> Result<ParsedKey, String> {
+    let mut alt = false;
+    let mut ctrl = false;
+    let mut shift = false;
+    let mut code = None;
+    if spec.trim().is_empty() {
+        return Err("key needs a KeyCode".to_owned());
+    }
+    for part in spec.split('+') {
+        let part = part.trim();
+        if part.is_empty() {
+            return Err(format!("empty key piece in {spec}"));
+        }
+        match part.to_ascii_lowercase().as_str() {
+            "alt" => alt = true,
+            "ctrl" | "control" => ctrl = true,
+            "shift" => shift = true,
+            _ => {
+                if code.is_some() {
+                    return Err(format!("more than one key in {spec}"));
+                }
+                code = Some(parse_key_code(part).ok_or_else(|| format!("unknown KeyCode {part}"))?);
+            }
+        }
+    }
+    Ok(ParsedKey {
+        code: code.ok_or_else(|| format!("key needs a KeyCode in {spec}"))?,
+        alt,
+        ctrl,
+        shift,
+    })
+}
+
+fn parse_key_code(name: &str) -> Option<KeyCode> {
+    match name.trim() {
+        "Backquote" => Some(KeyCode::Backquote),
+        "Backslash" => Some(KeyCode::Backslash),
+        "BracketLeft" => Some(KeyCode::BracketLeft),
+        "BracketRight" => Some(KeyCode::BracketRight),
+        "Comma" => Some(KeyCode::Comma),
+        "Digit0" => Some(KeyCode::Digit0),
+        "Digit1" => Some(KeyCode::Digit1),
+        "Digit2" => Some(KeyCode::Digit2),
+        "Digit3" => Some(KeyCode::Digit3),
+        "Digit4" => Some(KeyCode::Digit4),
+        "Digit5" => Some(KeyCode::Digit5),
+        "Digit6" => Some(KeyCode::Digit6),
+        "Digit7" => Some(KeyCode::Digit7),
+        "Digit8" => Some(KeyCode::Digit8),
+        "Digit9" => Some(KeyCode::Digit9),
+        "Equal" => Some(KeyCode::Equal),
+        "IntlBackslash" => Some(KeyCode::IntlBackslash),
+        "IntlRo" => Some(KeyCode::IntlRo),
+        "IntlYen" => Some(KeyCode::IntlYen),
+        "KeyA" => Some(KeyCode::KeyA),
+        "KeyB" => Some(KeyCode::KeyB),
+        "KeyC" => Some(KeyCode::KeyC),
+        "KeyD" => Some(KeyCode::KeyD),
+        "KeyE" => Some(KeyCode::KeyE),
+        "KeyF" => Some(KeyCode::KeyF),
+        "KeyG" => Some(KeyCode::KeyG),
+        "KeyH" => Some(KeyCode::KeyH),
+        "KeyI" => Some(KeyCode::KeyI),
+        "KeyJ" => Some(KeyCode::KeyJ),
+        "KeyK" => Some(KeyCode::KeyK),
+        "KeyL" => Some(KeyCode::KeyL),
+        "KeyM" => Some(KeyCode::KeyM),
+        "KeyN" => Some(KeyCode::KeyN),
+        "KeyO" => Some(KeyCode::KeyO),
+        "KeyP" => Some(KeyCode::KeyP),
+        "KeyQ" => Some(KeyCode::KeyQ),
+        "KeyR" => Some(KeyCode::KeyR),
+        "KeyS" => Some(KeyCode::KeyS),
+        "KeyT" => Some(KeyCode::KeyT),
+        "KeyU" => Some(KeyCode::KeyU),
+        "KeyV" => Some(KeyCode::KeyV),
+        "KeyW" => Some(KeyCode::KeyW),
+        "KeyX" => Some(KeyCode::KeyX),
+        "KeyY" => Some(KeyCode::KeyY),
+        "KeyZ" => Some(KeyCode::KeyZ),
+        "Minus" => Some(KeyCode::Minus),
+        "Period" => Some(KeyCode::Period),
+        "Quote" => Some(KeyCode::Quote),
+        "Semicolon" => Some(KeyCode::Semicolon),
+        "Slash" => Some(KeyCode::Slash),
+        "AltLeft" => Some(KeyCode::AltLeft),
+        "AltRight" => Some(KeyCode::AltRight),
+        "Backspace" => Some(KeyCode::Backspace),
+        "CapsLock" => Some(KeyCode::CapsLock),
+        "ContextMenu" => Some(KeyCode::ContextMenu),
+        "ControlLeft" => Some(KeyCode::ControlLeft),
+        "ControlRight" => Some(KeyCode::ControlRight),
+        "Enter" => Some(KeyCode::Enter),
+        "SuperLeft" => Some(KeyCode::SuperLeft),
+        "SuperRight" => Some(KeyCode::SuperRight),
+        "ShiftLeft" => Some(KeyCode::ShiftLeft),
+        "ShiftRight" => Some(KeyCode::ShiftRight),
+        "Space" => Some(KeyCode::Space),
+        "Tab" => Some(KeyCode::Tab),
+        "Convert" => Some(KeyCode::Convert),
+        "KanaMode" => Some(KeyCode::KanaMode),
+        "Lang1" => Some(KeyCode::Lang1),
+        "Lang2" => Some(KeyCode::Lang2),
+        "Lang3" => Some(KeyCode::Lang3),
+        "Lang4" => Some(KeyCode::Lang4),
+        "Lang5" => Some(KeyCode::Lang5),
+        "NonConvert" => Some(KeyCode::NonConvert),
+        "Delete" => Some(KeyCode::Delete),
+        "End" => Some(KeyCode::End),
+        "Help" => Some(KeyCode::Help),
+        "Home" => Some(KeyCode::Home),
+        "Insert" => Some(KeyCode::Insert),
+        "PageDown" => Some(KeyCode::PageDown),
+        "PageUp" => Some(KeyCode::PageUp),
+        "ArrowDown" => Some(KeyCode::ArrowDown),
+        "ArrowLeft" => Some(KeyCode::ArrowLeft),
+        "ArrowRight" => Some(KeyCode::ArrowRight),
+        "ArrowUp" => Some(KeyCode::ArrowUp),
+        "NumLock" => Some(KeyCode::NumLock),
+        "Numpad0" => Some(KeyCode::Numpad0),
+        "Numpad1" => Some(KeyCode::Numpad1),
+        "Numpad2" => Some(KeyCode::Numpad2),
+        "Numpad3" => Some(KeyCode::Numpad3),
+        "Numpad4" => Some(KeyCode::Numpad4),
+        "Numpad5" => Some(KeyCode::Numpad5),
+        "Numpad6" => Some(KeyCode::Numpad6),
+        "Numpad7" => Some(KeyCode::Numpad7),
+        "Numpad8" => Some(KeyCode::Numpad8),
+        "Numpad9" => Some(KeyCode::Numpad9),
+        "NumpadAdd" => Some(KeyCode::NumpadAdd),
+        "NumpadBackspace" => Some(KeyCode::NumpadBackspace),
+        "NumpadClear" => Some(KeyCode::NumpadClear),
+        "NumpadClearEntry" => Some(KeyCode::NumpadClearEntry),
+        "NumpadComma" => Some(KeyCode::NumpadComma),
+        "NumpadDecimal" => Some(KeyCode::NumpadDecimal),
+        "NumpadDivide" => Some(KeyCode::NumpadDivide),
+        "NumpadEnter" => Some(KeyCode::NumpadEnter),
+        "NumpadEqual" => Some(KeyCode::NumpadEqual),
+        "NumpadHash" => Some(KeyCode::NumpadHash),
+        "NumpadMemoryAdd" => Some(KeyCode::NumpadMemoryAdd),
+        "NumpadMemoryClear" => Some(KeyCode::NumpadMemoryClear),
+        "NumpadMemoryRecall" => Some(KeyCode::NumpadMemoryRecall),
+        "NumpadMemoryStore" => Some(KeyCode::NumpadMemoryStore),
+        "NumpadMemorySubtract" => Some(KeyCode::NumpadMemorySubtract),
+        "NumpadMultiply" => Some(KeyCode::NumpadMultiply),
+        "NumpadParenLeft" => Some(KeyCode::NumpadParenLeft),
+        "NumpadParenRight" => Some(KeyCode::NumpadParenRight),
+        "NumpadStar" => Some(KeyCode::NumpadStar),
+        "NumpadSubtract" => Some(KeyCode::NumpadSubtract),
+        "Escape" => Some(KeyCode::Escape),
+        "Fn" => Some(KeyCode::Fn),
+        "FnLock" => Some(KeyCode::FnLock),
+        "PrintScreen" => Some(KeyCode::PrintScreen),
+        "ScrollLock" => Some(KeyCode::ScrollLock),
+        "Pause" => Some(KeyCode::Pause),
+        "BrowserBack" => Some(KeyCode::BrowserBack),
+        "BrowserFavorites" => Some(KeyCode::BrowserFavorites),
+        "BrowserForward" => Some(KeyCode::BrowserForward),
+        "BrowserHome" => Some(KeyCode::BrowserHome),
+        "BrowserRefresh" => Some(KeyCode::BrowserRefresh),
+        "BrowserSearch" => Some(KeyCode::BrowserSearch),
+        "BrowserStop" => Some(KeyCode::BrowserStop),
+        "Eject" => Some(KeyCode::Eject),
+        "LaunchApp1" => Some(KeyCode::LaunchApp1),
+        "LaunchApp2" => Some(KeyCode::LaunchApp2),
+        "LaunchMail" => Some(KeyCode::LaunchMail),
+        "MediaPlayPause" => Some(KeyCode::MediaPlayPause),
+        "MediaSelect" => Some(KeyCode::MediaSelect),
+        "MediaStop" => Some(KeyCode::MediaStop),
+        "MediaTrackNext" => Some(KeyCode::MediaTrackNext),
+        "MediaTrackPrevious" => Some(KeyCode::MediaTrackPrevious),
+        "Power" => Some(KeyCode::Power),
+        "Sleep" => Some(KeyCode::Sleep),
+        "AudioVolumeDown" => Some(KeyCode::AudioVolumeDown),
+        "AudioVolumeMute" => Some(KeyCode::AudioVolumeMute),
+        "AudioVolumeUp" => Some(KeyCode::AudioVolumeUp),
+        "WakeUp" => Some(KeyCode::WakeUp),
+        "Meta" => Some(KeyCode::Meta),
+        "Hyper" => Some(KeyCode::Hyper),
+        "Turbo" => Some(KeyCode::Turbo),
+        "Abort" => Some(KeyCode::Abort),
+        "Resume" => Some(KeyCode::Resume),
+        "Suspend" => Some(KeyCode::Suspend),
+        "Again" => Some(KeyCode::Again),
+        "Copy" => Some(KeyCode::Copy),
+        "Cut" => Some(KeyCode::Cut),
+        "Find" => Some(KeyCode::Find),
+        "Open" => Some(KeyCode::Open),
+        "Paste" => Some(KeyCode::Paste),
+        "Props" => Some(KeyCode::Props),
+        "Select" => Some(KeyCode::Select),
+        "Undo" => Some(KeyCode::Undo),
+        "Hiragana" => Some(KeyCode::Hiragana),
+        "Katakana" => Some(KeyCode::Katakana),
+        "F1" => Some(KeyCode::F1),
+        "F2" => Some(KeyCode::F2),
+        "F3" => Some(KeyCode::F3),
+        "F4" => Some(KeyCode::F4),
+        "F5" => Some(KeyCode::F5),
+        "F6" => Some(KeyCode::F6),
+        "F7" => Some(KeyCode::F7),
+        "F8" => Some(KeyCode::F8),
+        "F9" => Some(KeyCode::F9),
+        "F10" => Some(KeyCode::F10),
+        "F11" => Some(KeyCode::F11),
+        "F12" => Some(KeyCode::F12),
+        "F13" => Some(KeyCode::F13),
+        "F14" => Some(KeyCode::F14),
+        "F15" => Some(KeyCode::F15),
+        "F16" => Some(KeyCode::F16),
+        "F17" => Some(KeyCode::F17),
+        "F18" => Some(KeyCode::F18),
+        "F19" => Some(KeyCode::F19),
+        "F20" => Some(KeyCode::F20),
+        "F21" => Some(KeyCode::F21),
+        "F22" => Some(KeyCode::F22),
+        "F23" => Some(KeyCode::F23),
+        "F24" => Some(KeyCode::F24),
+        "F25" => Some(KeyCode::F25),
+        "F26" => Some(KeyCode::F26),
+        "F27" => Some(KeyCode::F27),
+        "F28" => Some(KeyCode::F28),
+        "F29" => Some(KeyCode::F29),
+        "F30" => Some(KeyCode::F30),
+        "F31" => Some(KeyCode::F31),
+        "F32" => Some(KeyCode::F32),
+        "F33" => Some(KeyCode::F33),
+        "F34" => Some(KeyCode::F34),
+        "F35" => Some(KeyCode::F35),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use winit::keyboard::KeyCode;
+
+    use super::parse_key_spec;
+
+    #[test]
+    fn parses_modified_key() {
+        let key = parse_key_spec("alt+KeyE").unwrap();
+        assert_eq!(key.code, KeyCode::KeyE);
+        assert!(key.alt);
+        assert!(!key.ctrl);
+    }
+
+    #[test]
+    fn rejects_unknown_key() {
+        assert!(parse_key_spec("alt+NotAKey").is_err());
+    }
+}

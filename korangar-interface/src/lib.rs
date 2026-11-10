@@ -355,6 +355,10 @@ where
             .any(|wrapper| wrapper.window.get_class().is_some_and(|class| class == window_class))
     }
 
+    pub fn open_window_classes(&self) -> Vec<App::WindowClass> {
+        self.windows.iter().filter_map(|wrapper| wrapper.window.get_class()).collect()
+    }
+
     pub fn has_closable_window(&self, state: &State<App>) -> bool {
         self.windows.iter().any(|wrapper| wrapper.window.is_closable(state))
     }

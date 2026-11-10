@@ -56,6 +56,10 @@ pub struct InputSystem {
     input_buffer: Vec<char>,
     picker_value: Arc<AtomicU64>,
     previous_mouse_button: Option<PreviousMouseButton>,
+    /// Keys and mouse buttons the autopilot must release on the next frame.
+    synthetic_release: Vec<KeyCode>,
+    synthetic_mouse: bool,
+    synthetic_double: bool,
 }
 
 impl InputSystem {
@@ -88,7 +92,57 @@ impl InputSystem {
             input_buffer,
             picker_value,
             previous_mouse_button,
+            synthetic_release: Vec::new(),
+            synthetic_mouse: false,
+            synthetic_double: false,
         }
+    }
+
+    /// Release keys and buttons armed by the previous autopilot command.
+    pub fn expire_synthesized(&mut self) {
+        for code in self.synthetic_release.drain(..) {
+            self.keys[code as usize].set_down(false);
+        }
+        if self.synthetic_mouse {
+            self.left_mouse_button.set_down(false);
+            self.right_mouse_button.set_down(false);
+            self.synthetic_mouse = false;
+        }
+    }
+
+    /// Press a key through the normal keyboard state. `alt+KeyE` reaches the
+    /// same bindings as a real Alt+E.
+    pub fn synthesize_key(&mut self, code: KeyCode, alt: bool, ctrl: bool, shift: bool) {
+        if alt {
+            self.arm_key(KeyCode::AltLeft);
+        }
+        if ctrl {
+            self.arm_key(KeyCode::ControlLeft);
+        }
+        if shift {
+            self.arm_key(KeyCode::ShiftLeft);
+        }
+        self.arm_key(code);
+    }
+
+    fn arm_key(&mut self, code: KeyCode) {
+        self.keys[code as usize].arm_press();
+        self.synthetic_release.push(code);
+    }
+
+    /// Move the pointer and click in physical pixels. Callers convert interface
+    /// pixels by the interface scale. Double-clicks are forced on this report
+    /// because the 250 ms detector depends on the frame rate.
+    pub fn synthesize_click(&mut self, x: f32, y: f32, button: korangar_interface::layout::MouseButton) {
+        self.new_mouse_position = ScreenPosition { left: x, top: y };
+        self.synthetic_double = button == korangar_interface::layout::MouseButton::DoubleLeft;
+        match button {
+            korangar_interface::layout::MouseButton::Right | korangar_interface::layout::MouseButton::DoubleRight => {
+                self.right_mouse_button.arm_press();
+            }
+            _ => self.left_mouse_button.arm_press(),
+        }
+        self.synthetic_mouse = true;
     }
 
     pub fn reset(&mut self) {
@@ -189,6 +243,16 @@ impl InputSystem {
                 });
 
                 mouse_click = Some(korangar_interface::layout::MouseButton::Right);
+            }
+        }
+
+        if self.synthetic_double {
+            self.synthetic_double = false;
+            if matches!(
+                mouse_click,
+                Some(korangar_interface::layout::MouseButton::Left | korangar_interface::layout::MouseButton::DoubleLeft)
+            ) {
+                mouse_click = Some(korangar_interface::layout::MouseButton::DoubleLeft);
             }
         }
 

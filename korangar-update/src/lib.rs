@@ -39,6 +39,13 @@
 pub mod cli;
 pub mod manifest;
 
+/// rustls 0.23 does not install a process-wide crypto provider when its default
+/// features are off. Call this before building a `ClientConfig`. A later call
+/// is ignored once a provider is already installed.
+pub fn install_rustls_crypto() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -632,6 +639,7 @@ fn connect_tcp(host: &str, port: u16) -> Result<TcpStream, String> {
 fn https_get(host: &str, port: u16, path: &str, max_bytes: u64) -> Result<Vec<u8>, String> {
     use std::sync::Arc;
 
+    install_rustls_crypto();
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     let config = rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth();
@@ -716,4 +724,15 @@ fn relative_string(path: &Path) -> String {
         })
         .collect::<Vec<_>>()
         .join("/")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::install_rustls_crypto;
+
+    #[test]
+    fn rustls_provider_can_be_installed_twice() {
+        install_rustls_crypto();
+        install_rustls_crypto();
+    }
 }

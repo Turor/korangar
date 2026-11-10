@@ -17,6 +17,7 @@ struct Arguments {
 }
 
 fn main() {
+    korangar_update::install_rustls_crypto();
     let arguments = Arguments::parse();
     if arguments.update_self_check {
         println!("update-self-check-ok");
