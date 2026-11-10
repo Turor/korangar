@@ -7,6 +7,7 @@ use rust_state::{RustState, State};
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::loaders::OverflowBehavior;
+use crate::state::mail_compose::MailComposeStatePathExt;
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, ClientStatePathExt, client_state};
 
@@ -122,6 +123,11 @@ impl MailWindowState {
         self.status = summary;
     }
 
+    /// Put `mail_id` in the mail id box.
+    pub fn select_mail(&mut self, mail_id: i64) {
+        self.mail_id_text = mail_id.to_string();
+    }
+
     pub fn mail_id(&self) -> Result<i64, &'static str> {
         parse_rodex_mail_id(&self.mail_id_text).ok_or("Enter a mail id.")
     }
@@ -155,6 +161,7 @@ impl MailWindowState {
 }
 
 struct MailIdBox;
+struct MailSearchBox;
 
 pub struct MailWindow;
 
@@ -173,6 +180,7 @@ impl CustomWindow<ClientState> for MailWindow {
         use korangar_interface::prelude::*;
 
         let state_path = client_state().mail_window();
+        let compose = client_state().mail_compose();
         let mail_id_action = |_state: &State<ClientState>, _queue: &mut EventQueue<ClientState>| {};
 
         window! {
@@ -237,6 +245,34 @@ impl CustomWindow<ClientState> for MailWindow {
                 button! {
                     text: "Delete",
                     event: InputEvent::DeleteMail,
+                },
+                split! {
+                    gaps: theme().window().gaps(),
+                    children: (
+                        button! {
+                            text: "Write",
+                            event: InputEvent::OpenMailCompose,
+                        },
+                        button! {
+                            text: "Reply",
+                            event: InputEvent::ReplyMail,
+                        },
+                    ),
+                },
+                text_box! {
+                    ghost_text: "search sender or title",
+                    state: compose.search_text(),
+                    input_handler: DefaultHandler::<_, _, 24>::new(compose.search_text(), mail_id_action),
+                    focus_id: MailSearchBox,
+                    overflow_behavior: OverflowBehavior::Shrink,
+                },
+                button! {
+                    text: "Search",
+                    event: InputEvent::SearchMail,
+                },
+                text! {
+                    text: compose.search_results(),
+                    overflow_behavior: OverflowBehavior::Shrink,
                 },
                 button! {
                     text: "Close mailbox",

@@ -4,6 +4,7 @@ pub(crate) mod context_menu_flow;
 pub mod cursor;
 pub(crate) mod dialog_layer;
 pub mod guild_emblem_overlay;
+pub mod mail_compose_flow;
 pub(crate) mod npc_flow;
 pub(crate) mod npc_overlay;
 pub mod player_shop_flow;

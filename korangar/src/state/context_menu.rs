@@ -13,6 +13,7 @@ pub enum ContextMenuAction {
     ViewEquipment,
     Trade,
     Whisper,
+    SendMail,
     AddFriend,
     PartyInvite,
     Sit,
@@ -80,6 +81,7 @@ pub fn build_context_menu(facts: &ContextMenuFacts<'_>) -> Vec<ContextMenuEntry>
     let named = !facts.target_name.is_empty();
     if named {
         entries.push(entry("Whisper", ContextMenuAction::Whisper));
+        entries.push(entry("Send mail", ContextMenuAction::SendMail));
         if !is_friend(facts.target_name, facts.friend_names) {
             entries.push(entry("Add friend", ContextMenuAction::AddFriend));
         }
@@ -135,6 +137,7 @@ mod tests {
             "View equipment",
             "Trade",
             "Whisper",
+            "Send mail",
             "Add friend",
             "Party invite"
         ]);
@@ -149,7 +152,7 @@ mod tests {
     fn add_friend_is_hidden_when_the_name_matches_ignoring_case() {
         let friends = vec!["ALICE".to_owned()];
         let entries = build_context_menu(&facts(false, false, "Alice", &friends, false, false));
-        assert_eq!(labels(&entries), vec!["View equipment", "Trade", "Whisper"]);
+        assert_eq!(labels(&entries), vec!["View equipment", "Trade", "Whisper", "Send mail"]);
     }
 
     #[test]

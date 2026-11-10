@@ -414,6 +414,24 @@ pub enum InputEvent {
     DeleteMail,
     /// Tell the map server the mailbox closed (`0x09E9`).
     CloseMail,
+    /// Open a blank Rodex compose form.
+    OpenMailCompose,
+    /// Open the compose form addressed to a character (context menu).
+    ComposeMailTo {
+        receiver: String,
+    },
+    /// Put a mail id in the Mail window and read it (autopilot).
+    ReadMailId {
+        mail_id: i64,
+    },
+    /// Reply to the mail last read in the Mail window.
+    ReplyMail,
+    /// Filter the loaded mail page by the search box.
+    SearchMail,
+    /// Check the receiver, then send the compose form.
+    SendMail,
+    /// Close the compose form without sending.
+    CancelMailCompose,
     /// Open the bank and ask for the vault (`0x09B6`, `0x09AB`).
     OpenBank,
     /// Ask for the vault again (`0x09AB`).

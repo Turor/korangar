@@ -21,6 +21,7 @@ pub mod item_finder;
 pub mod item_skill_selection;
 pub mod item_workshop;
 pub mod localization;
+pub mod mail_compose;
 pub mod navigation;
 pub mod npc_dialog;
 pub mod npc_dismiss;
@@ -262,6 +263,8 @@ pub struct ClientState {
     mvp_minimap: crate::interface::windows::MvpMinimapState,
     /// Rodex inbox and the unread-mail flag.
     mail_window: crate::interface::windows::MailWindowState,
+    /// Rodex compose form, reply target and inbox search.
+    mail_compose: crate::state::mail_compose::MailComposeState,
     /// Kafra bank vault.
     bank_window: crate::state::bank_roulette::BankWindowState,
     /// Roulette points and prize table.
@@ -675,6 +678,7 @@ impl ClientState {
             companion_window,
             mvp_minimap,
             mail_window,
+            mail_compose: Default::default(),
             bank_window,
             roulette_window,
             skill_tree_window,
