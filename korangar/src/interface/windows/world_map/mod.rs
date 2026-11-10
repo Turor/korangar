@@ -15,9 +15,9 @@ use korangar_interface::layout::area::Area;
 use korangar_interface::layout::{MouseButton, Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::prelude::{ButtonThemePathExt, HorizontalAlignment, TextThemePathExt, VerticalAlignment, WindowThemePathExt};
 use korangar_interface::window::{CustomWindow, Window};
-pub use logic::{InterfaceTextureAttempt, select_interface_texture, should_close_after_result};
 #[cfg(test)]
 pub use logic::interface_texture_candidates;
+pub use logic::{InterfaceTextureAttempt, select_interface_texture, should_close_after_result};
 use rust_state::{Path, PathExt, RustState, State};
 
 use self::data::WorldMapSection;
@@ -259,7 +259,9 @@ struct Metrics {
 }
 
 fn metrics(width: f32) -> Metrics {
-    let map_width = (width - RAIL_WIDTH - RAIL_GAP).max(200.0);
+    // Do not floor the map at 200px: at scale 2 on 1024x576 the fitted map is
+    // narrower, and a 200px floor would clip the caption and the right of the art.
+    let map_width = (width - RAIL_WIDTH - RAIL_GAP).max(0.0);
     let map_height = map_width * (BASE_HEIGHT / BASE_WIDTH);
     let height = map_height + RAIL_GAP + CAPTION_HEIGHT;
     Metrics {
@@ -279,7 +281,7 @@ fn metrics(width: f32) -> Metrics {
         caption: Area {
             left: 0.0,
             top: map_height + RAIL_GAP,
-            width: (width - 80.0).max(120.0),
+            width: (width - 80.0).clamp(0.0, width),
             height: CAPTION_HEIGHT,
         },
         thumb: Area {
@@ -903,6 +905,51 @@ mod tests {
             true,
             mouse_mode,
         );
+    }
+
+    #[test]
+    fn metrics_use_the_fitted_map_at_scale_two_on_1024() {
+        let chrome = logic::WorldMapChrome {
+            scaling: 2.0,
+            ..logic::WorldMapChrome::stock()
+        };
+        let fit = logic::fit_world_map(1024.0, 576.0, chrome);
+        let content_width = fit.window_width - chrome.border * 2.0;
+        let metrics = metrics(content_width);
+        assert!(
+            (metrics.map.width - fit.map.width).abs() < 0.51,
+            "metrics map {} must match the fitted map {}, not a 200px floor",
+            metrics.map.width,
+            fit.map.width
+        );
+        assert!(
+            metrics.map.left + metrics.map.width <= content_width + 0.51,
+            "map right {} exceeds content width {}",
+            metrics.map.left + metrics.map.width,
+            content_width
+        );
+        assert!(
+            metrics.caption.top + metrics.caption.height <= metrics.height + 0.51,
+            "caption leaves the content block"
+        );
+        let content_top = chrome.title_height + chrome.title_gap;
+        assert!(
+            content_top + metrics.height + chrome.border <= fit.window_height + 0.51,
+            "caption or map leaves the window clip (content ends at {}, window {})",
+            content_top + metrics.height + chrome.border,
+            fit.window_height
+        );
+        assert!(logic::rendered_right(fit, 2.0) <= 1024.0 - chrome.margin + 0.51);
+        assert!(logic::rendered_bottom(fit, 2.0) <= 576.0 - chrome.margin + 0.51);
+
+        let count = regions_for_episode(DEFAULT_EPISODE).len();
+        let buttons = region_buttons(metrics.rail.height, count);
+        assert_eq!(buttons.len(), count);
+        for (index, button) in buttons.iter().enumerate() {
+            let bottom = button.top + button.height;
+            assert!(bottom <= metrics.rail.height + 0.01, "{index} leaves the rail");
+            assert!(bottom <= metrics.caption.top + 0.01, "{index} overlaps the caption");
+        }
     }
 
     fn sample_floors() -> Vec<FloorChoice> {
