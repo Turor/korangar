@@ -615,7 +615,9 @@ job_exp_bar = "#445566"
         assert_eq!(sectioned.status_job_exp_bar, parse_hex_color("#445566").unwrap());
         assert_eq!(sectioned.status_sp_bar, sectioned.sp);
 
-        let dotted = toml.replace("[status]\nhp_bar", "status.hp_bar").replace("\nbase_exp_bar", "\nstatus.base_exp_bar");
+        let dotted = toml
+            .replace("[status]\nhp_bar", "status.hp_bar")
+            .replace("\nbase_exp_bar", "\nstatus.base_exp_bar");
         let dotted = parse_theme_file(&dotted).expect("dotted keys");
         assert_eq!(dotted.status_hp_bar, parse_hex_color("#00FF00").unwrap());
     }

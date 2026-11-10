@@ -22,9 +22,7 @@ use crate::state::status_effects::{ActiveStatusEffect, StatusEffects};
 use crate::state::status_names::{status_effect_description, status_effect_name};
 use crate::state::theme::{BasicInfoThemePathExt, InterfaceThemePathExt, InterfaceThemeType, ThemeTokens, ThemeTokensPathExt};
 use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
-use crate::world::{
-    BasicInfoStatsPathExt, CommonPathExt, Player, PlayerPathExt, exp_bar_ratio, format_exp_pair, format_exp_percent,
-};
+use crate::world::{BasicInfoStatsPathExt, CommonPathExt, Player, PlayerPathExt, exp_bar_ratio, format_exp_pair, format_exp_percent};
 
 const PORTRAIT_SIDE: f32 = 72.0;
 const HEADER_COLUMN_GAP: f32 = 6.0;
@@ -537,7 +535,11 @@ where
             // SAFETY: only touched on the UI thread while laying out this element.
             unsafe {
                 *self.text.get() = exp_bar_label(self.prefix, level, current, next);
-                *self.tip.get() = format!("{} EXP {}", if self.base { "Base" } else { "Job" }, format_exp_pair(current, next));
+                *self.tip.get() = format!(
+                    "{} EXP {}",
+                    if self.base { "Base" } else { "Job" },
+                    format_exp_pair(current, next)
+                );
             }
             self.last.set(Some((level, current, next)));
         }
@@ -891,8 +893,7 @@ mod tests {
         resource_ratio, status_header_frames,
     };
     use crate::state::status_effects::ActiveStatusEffect;
-    use crate::state::theme::ThemeTokens;
-    use crate::state::theme::contrast_ratio;
+    use crate::state::theme::{ThemeTokens, contrast_ratio};
 
     #[test]
     fn remaining_time_counts_down_from_last_update() {
