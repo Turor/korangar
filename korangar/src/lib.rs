@@ -151,6 +151,14 @@ const ITEM_PICKUP_RANGE: AttackRange = AttackRange(1);
 // number that should be playable on most devices.
 const NUMBER_OF_POINT_LIGHTS_WITH_SHADOWS: usize = 6;
 
+enum LoadedInterfaceTexture {
+    Image(Arc<Texture>),
+    /// A local file was present but did not read. Do not record the path.
+    Retry,
+    /// Both local candidates missed and the remote read returned nothing.
+    Missing,
+}
+
 const INITIAL_SCREEN_SIZE: ScreenSize = ScreenSize {
     width: 1280.0,
     height: 720.0,
@@ -3855,10 +3863,16 @@ impl Client {
         }
     }
 
-    /// Load world-map images from the GRF while the window is open.
+    /// Load world-map images while the window is open.
     ///
-    /// Paths match the interface texture loader (`data/texture/` + region id).
-    /// A missing file stays blank instead of the placeholder texture.
+    /// The logical path is the Hangul interface directory. A folder extract
+    /// that still uses the CP949 Latin-1 directory is the local fallback.
+    /// Local archives are probed first; a remote manifest entry is not a
+    /// local hit. The asset host is read only after both local candidates
+    /// miss. A failed read does not install the placeholder texture and
+    /// does not record the path, so the next frame can retry. A confirmed
+    /// miss stays empty and the window paints an opaque theme panel
+    /// underneath.
     fn sync_world_map_textures(&mut self) {
         if !self.interface.is_window_with_class_open(WindowClass::WorldMap) {
             if self.client_state.follow(client_state().world_map_window()).holds_textures() {
@@ -3867,43 +3881,73 @@ impl Client {
             return;
         }
 
-        let (region_path, hover_path, loaded_region, loaded_hover) = {
+        let (region_path, hover_path, region_file, hover_file, loaded_region, loaded_hover) = {
             let window = self.client_state.follow(client_state().world_map_window());
             (
                 window.desired_region_texture(),
                 window.desired_hover_texture(),
+                window.desired_region_file(),
+                window.desired_hover_file(),
                 window.loaded_region().to_owned(),
                 window.loaded_hover().to_owned(),
             )
         };
 
         if region_path != loaded_region {
-            let archive_path = format!("data\\texture\\{region_path}");
-            let texture = if self.game_file_loader.file_exists(&archive_path) {
-                self.texture_loader.get_or_load(&region_path, ImageType::Color).ok()
-            } else {
-                None
-            };
-            self.client_state
-                .follow_mut(client_state().world_map_window())
-                .install_region_texture(region_path, texture);
+            let loaded = self.load_interface_texture(&region_file);
+            let window = self.client_state.follow_mut(client_state().world_map_window());
+            match loaded {
+                LoadedInterfaceTexture::Image(texture) => window.install_region_texture(region_path, Some(texture)),
+                LoadedInterfaceTexture::Retry => window.release_region_texture(),
+                LoadedInterfaceTexture::Missing => window.mark_region_texture_absent(region_path),
+            }
         }
 
         if hover_path != loaded_hover {
-            let texture = if hover_path.is_empty() {
-                None
+            if hover_file.is_empty() {
+                self.client_state
+                    .follow_mut(client_state().world_map_window())
+                    .mark_hover_texture_absent(hover_path);
             } else {
-                let archive_path = format!("data\\texture\\{hover_path}");
-                if self.game_file_loader.file_exists(&archive_path) {
-                    self.texture_loader.get_or_load(&hover_path, ImageType::Color).ok()
-                } else {
-                    None
+                let loaded = self.load_interface_texture(&hover_file);
+                let window = self.client_state.follow_mut(client_state().world_map_window());
+                match loaded {
+                    LoadedInterfaceTexture::Image(texture) => window.install_hover_texture(hover_path, Some(texture)),
+                    LoadedInterfaceTexture::Retry => window.release_hover_texture(),
+                    LoadedInterfaceTexture::Missing => window.mark_hover_texture_absent(hover_path),
                 }
-            };
-            self.client_state
-                .follow_mut(client_state().world_map_window())
-                .install_hover_texture(hover_path, texture);
+            }
         }
+    }
+
+    /// Resolve one interface texture. Local hits win, including the CP949
+    /// directory, before any asset-host fetch. The image is never the
+    /// placeholder texture.
+    fn load_interface_texture(&self, file: &str) -> LoadedInterfaceTexture {
+        match select_interface_texture(
+            file,
+            |archive| self.game_file_loader.local_file_exists(archive),
+            |archive| self.interface_texture_readable(archive),
+        ) {
+            InterfaceTextureAttempt::Ready(relative) => match self.texture_loader.load_user_color(&relative) {
+                Some(texture) => LoadedInterfaceTexture::Image(texture),
+                None => LoadedInterfaceTexture::Retry,
+            },
+            InterfaceTextureAttempt::Retry => LoadedInterfaceTexture::Retry,
+            InterfaceTextureAttempt::Missing => LoadedInterfaceTexture::Missing,
+        }
+    }
+
+    /// `true` when the archive path reads and decodes. A manifest entry whose
+    /// bytes are missing is `false` and does not install the placeholder.
+    fn interface_texture_readable(&self, archive: &str) -> bool {
+        let Some(relative) = archive.strip_prefix(r"data\texture\") else {
+            return false;
+        };
+        let Ok(bytes) = korangar_loaders::FileLoader::get(self.game_file_loader.as_ref(), archive) else {
+            return false;
+        };
+        crate::loaders::color_image_decodes(relative, &bytes)
     }
 
     /// A hover on the previous frame asked to show a skill. Run this after
@@ -6437,6 +6481,7 @@ impl Client {
         let render_options = *self.client_state.follow(client_state().render_options());
 
         let screen_size = self.graphics_engine.get_window_size().into();
+        *self.client_state.follow_mut(client_state().window_size()) = screen_size;
         let currently_playing = self.client_state.try_follow(this_player()).is_some();
 
         self.mouse_cursor.update(client_tick);
