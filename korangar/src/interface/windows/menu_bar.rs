@@ -205,6 +205,7 @@ impl MenuBarEntry {
     }
 
     /// Whether this button reaches `class`, directly or through a tab.
+    #[cfg(test)]
     pub fn covers(&self, class: WindowClass) -> bool {
         match &self.kind {
             MenuBarKind::Group(group) => group.contains(class),
