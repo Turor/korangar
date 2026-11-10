@@ -99,9 +99,11 @@ pub struct MarkerPaint {
 }
 
 /// Alpha of the accent wash on an unlocked square.
-pub const UNLOCKED_WASH_ALPHA: f32 = 0.22;
+pub const UNLOCKED_WASH_ALPHA: f32 = 0.3;
 /// Alpha of the panel color over a locked square.
 pub const LOCKED_DIM_ALPHA: f32 = 0.62;
+/// Alpha of the muted marker on a locked square.
+pub const LOCKED_MARKER_ALPHA: f32 = 0.55;
 const _: () = assert!(UNLOCKED_WASH_ALPHA > 0.0 && UNLOCKED_WASH_ALPHA < LOCKED_DIM_ALPHA && LOCKED_DIM_ALPHA < 1.0);
 
 pub fn marker_paint(class: OverlayClass, is_current: bool, hovered: bool) -> MarkerPaint {
@@ -111,11 +113,11 @@ pub fn marker_paint(class: OverlayClass, is_current: bool, hovered: bool) -> Mar
         OverlayClass::Missing => (MarkerTone::None, MarkerTone::None),
     };
     let (stroke, stroke_width) = if hovered {
-        (MarkerTone::Gold, 2.0)
+        (MarkerTone::Gold, 2.5)
     } else if is_current {
         (MarkerTone::Accent, 3.0)
     } else if class == OverlayClass::Unlocked {
-        (MarkerTone::Accent, 1.5)
+        (MarkerTone::Accent, 2.0)
     } else {
         (MarkerTone::None, 0.0)
     };
@@ -985,7 +987,7 @@ mod tests {
             fill: MarkerTone::Accent,
             stroke: MarkerTone::Accent,
             square: MarkerTone::Accent,
-            stroke_width: 1.5,
+            stroke_width: 2.0,
         });
         let locked = marker_paint(OverlayClass::Locked, false, false);
         assert_eq!(locked.fill, MarkerTone::Dim);

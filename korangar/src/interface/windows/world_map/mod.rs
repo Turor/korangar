@@ -572,9 +572,9 @@ where
                         ShadowPadding::default(),
                     ),
                     MarkerTone::Dim => layout.add_rectangle(
-                        marker,
+                        locked_marker_area(marker),
                         CornerDiameter::uniform(2.0),
-                        muted,
+                        with_alpha(muted, logic::LOCKED_MARKER_ALPHA),
                         Color::TRANSPARENT,
                         ShadowPadding::default(),
                     ),
@@ -694,6 +694,17 @@ where
         if click != ClickTarget::None {
             layout.register_click_handler(MouseButton::Left, self);
         }
+    }
+}
+
+/// Locked markers are smaller than unlocked ones, centered on the same spot.
+fn locked_marker_area(marker: Area) -> Area {
+    let size = marker.width * 0.6;
+    Area {
+        left: marker.left + (marker.width - size) * 0.5,
+        top: marker.top + (marker.height - size) * 0.5,
+        width: size,
+        height: size,
     }
 }
 
