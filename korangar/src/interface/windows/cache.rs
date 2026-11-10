@@ -7,7 +7,9 @@ use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
 
 use super::WindowClass;
-use super::placement::{HudFrame, REFERENCE_SCREEN_HEIGHT, REFERENCE_SCREEN_WIDTH, ScreenAnchor, first_open_hud, frame_anchor_offset};
+use super::placement::{
+    HudFrame, REFERENCE_SCREEN_HEIGHT, REFERENCE_SCREEN_WIDTH, ScreenAnchor, first_open_hud, fit_chat_on_screen, frame_anchor_offset,
+};
 use crate::graphics::{ScreenPosition, ScreenSize};
 use crate::state::ClientState;
 
@@ -71,7 +73,17 @@ impl korangar_interface::application::WindowCache<ClientState> for WindowCache {
     }
 
     fn get_window_state(&self, class: WindowClass, screen: ScreenSize) -> Option<(Anchor<ClientState>, ScreenSize)> {
-        resolve_window_state(self.entries.get(&class), class, screen)
+        resolve_window_state(self.entries.get(&class), class, screen).map(|(mut anchor, mut size)| {
+            if class == WindowClass::Chat {
+                let position = anchor.to_position(screen);
+                let (top, height) = fit_chat_on_screen(position.top, size.height, screen.height);
+                if (top - position.top).abs() > 0.5 || (height - size.height).abs() > 0.5 {
+                    size.height = height;
+                    anchor.update(screen, ScreenPosition { left: position.left, top }, size);
+                }
+            }
+            (anchor, size)
+        })
     }
 
     fn register_window(&mut self, class: WindowClass, anchor: Anchor<ClientState>, size: ScreenSize) {

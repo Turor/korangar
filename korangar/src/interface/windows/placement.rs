@@ -79,6 +79,18 @@ pub enum ScreenAnchor {
 
 /// Offset from [`ScreenAnchor`] that reproduces `frame` on a screen of this
 /// size.
+/// Keep a chat window's top-left and height inside the screen.
+///
+/// Saved caches used a 220px minimum on a ~160px anchor, so the message list
+/// hung below the framebuffer and the visible sliver was the oldest line.
+pub fn fit_chat_on_screen(top: f32, height: f32, screen_height: f32) -> (f32, f32) {
+    let margin = 8.0;
+    let height = height.min((screen_height - margin * 2.0).max(48.0)).max(32.0);
+    let max_top = (screen_height - margin - height).max(0.0);
+    let top = top.min(max_top).max(0.0);
+    (top, height)
+}
+
 pub fn frame_anchor_offset(anchor: ScreenAnchor, frame: HudFrame, screen_width: f32, screen_height: f32) -> (f32, f32) {
     match anchor {
         ScreenAnchor::TopLeft => (frame.left, frame.top),
@@ -123,11 +135,15 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
         gear.top = status_panel.bottom() + margin;
     }
 
+    // Fill the strip under Gear so the message pane stays on screen. A shorter
+    // frame plus the old 220px minimum pushed the newest lines below the window.
+    let chat_bottom = screen_height - margin;
+    let chat_top = (gear.bottom() + margin).min(chat_bottom - 48.0);
     let mut chat = HudFrame {
         left: margin,
-        top: screen_height - 160.0 * scale - margin,
+        top: chat_top,
         width: (340.0 * scale).min(gear.width),
-        height: 160.0 * scale,
+        height: chat_bottom - chat_top,
     };
     let mut hotbar = HudFrame {
         left: 0.0,
@@ -277,7 +293,9 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
 
 #[cfg(test)]
 mod tests {
-    use super::{HudFrame, REFERENCE_SCREEN_HEIGHT, REFERENCE_SCREEN_WIDTH, ScreenAnchor, first_open_hud, frame_anchor_offset};
+    use super::{
+        HudFrame, REFERENCE_SCREEN_HEIGHT, REFERENCE_SCREEN_WIDTH, ScreenAnchor, first_open_hud, fit_chat_on_screen, frame_anchor_offset,
+    };
 
     fn frames_overlap(a: HudFrame, b: HudFrame) -> bool {
         a.left < b.right() && a.right() > b.left && a.top < b.bottom() && a.bottom() > b.top
@@ -376,6 +394,20 @@ mod tests {
         );
 
         assert!(large.inventory.left > mid.inventory.left);
+        assert!(
+            mid.chat.height >= 150.0,
+            "chat message pane needs room under Gear, height {}",
+            mid.chat.height
+        );
+        assert!((mid.chat.bottom() - (REFERENCE_SCREEN_HEIGHT - 8.0)).abs() < 0.5);
+    }
+
+    #[test]
+    fn chat_that_hangs_below_the_screen_shifts_up() {
+        let (top, height) = fit_chat_on_screen(540.0, 220.0, 700.0);
+        assert!(top + height <= 700.0 - 8.0 + 0.5);
+        assert!(height >= 160.0);
+        assert!(top < 540.0);
     }
 
     #[test]
