@@ -66,18 +66,21 @@ fn main() {
     }
 }
 
-/// No-op unless `KORANGAR_UPDATE_MANIFEST_URL` is set. `KORANGAR_SKIP_UPDATE=1`
-/// disables the hook. The client verifies manifests with the embedded Turoran
-/// release public key. The signing seed is not in this tree.
+/// Checks the main-channel manifest unless `KORANGAR_SKIP_UPDATE=1`. The default
+/// URL is `https://korangar-releases.turoran.com/main/manifest.jsonup` and may
+/// be overridden with `KORANGAR_UPDATE_MANIFEST_URL`. An unreachable channel is
+/// skipped so gameplay can start. A bad signature or an older build is fatal.
 fn startup_update() -> Result<(), String> {
     let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let install_root = current_exe.parent().ok_or("executable has no directory")?.to_path_buf();
     let relaunch_args: Vec<String> = std::env::args().skip(1).collect();
     let skip = std::env::var("KORANGAR_SKIP_UPDATE").ok();
-    let manifest = std::env::var("KORANGAR_UPDATE_MANIFEST_URL").ok();
+    let manifest = std::env::var("KORANGAR_UPDATE_MANIFEST_URL").ok().filter(|value| !value.trim().is_empty());
+    let default = korangar_update::DEFAULT_UPDATE_MANIFEST_URL;
+    let manifest_url = manifest.as_deref().unwrap_or(default);
     let outcome = korangar_update::run_startup_update(&korangar_update::StartupRequest {
         skip_env: skip.as_deref(),
-        manifest_url: manifest.as_deref(),
+        manifest_url: Some(manifest_url),
         current_version: env!("CARGO_PKG_VERSION"),
         install_root: &install_root,
         current_exe: &current_exe,

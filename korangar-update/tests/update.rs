@@ -15,8 +15,13 @@ fn public_key() -> &'static [u8; 32] {
 }
 
 fn manifest_for(version: &str, files: Vec<ReleaseFile>) -> String {
+    manifest_for_build(version, 1, files)
+}
+
+fn manifest_for_build(version: &str, build: u64, files: Vec<ReleaseFile>) -> String {
     let payload = manifest::canonical_payload(&ReleaseManifest {
         version: version.into(),
+        build,
         files,
     })
     .unwrap();
@@ -66,11 +71,12 @@ fn canonical_form_sorts_files_and_rejects_tampering() {
     let files = vec![file_entry("b.txt", b"b", "b.txt"), file_entry("a.txt", hello, "a.txt")];
     let payload = manifest::canonical_payload(&ReleaseManifest {
         version: "1.0.0".into(),
+        build: 1,
         files,
     })
     .unwrap();
     let expected = format!(
-        "KRUP1\n1.0.0\n2\na.txt\n{}\n5\na.txt\nb.txt\n{}\n1\nb.txt\n",
+        "KRUP1\n1.0.0\n1\n2\na.txt\n{}\n5\na.txt\nb.txt\n{}\n1\nb.txt\n",
         manifest::sha256_hex(hello),
         manifest::sha256_hex(b"b")
     );
@@ -115,6 +121,14 @@ fn unsafe_paths_and_remote_urls_are_rejected() {
         korangar_update::join_url("https://ro.turoran.com/client/releases/manifest.krup", "korangar.exe").unwrap(),
         "https://ro.turoran.com/client/releases/korangar.exe"
     );
+    assert_eq!(
+        korangar_update::join_url(
+            "https://korangar-releases.turoran.com/main/manifest.jsonup",
+            "korangar-linux-deadbeef"
+        )
+        .unwrap(),
+        "https://korangar-releases.turoran.com/main/korangar-linux-deadbeef"
+    );
 }
 
 #[test]
@@ -127,6 +141,7 @@ fn embedded_release_key_rejects_ephemeral_signatures() {
     assert_ne!(manifest::EMBEDDED_UPDATE_PUBLIC_KEY, [0u8; 32]);
     let payload = manifest::canonical_payload(&ReleaseManifest {
         version: "1.2.3".into(),
+        build: 1,
         files: vec![file_entry("a.txt", b"hello", "a.txt")],
     })
     .unwrap();
@@ -206,7 +221,7 @@ fn file_url_apply_swaps_exe_and_companion_and_rolls_back() {
     let bad_manifest = publish.join("bad.krup");
     fs::write(
         &bad_manifest,
-        manifest_for("9.9.10", vec![
+        manifest_for_build("9.9.10", 2, vec![
             file_entry("korangar.exe", &bad_bytes, "bad-exe"),
             file_entry("runtime.dat", b"nope", "missing-would-not-run"),
         ]),
@@ -217,7 +232,7 @@ fn file_url_apply_swaps_exe_and_companion_and_rolls_back() {
     fs::write(publish.join("side.dat"), b"nope").unwrap();
     fs::write(
         &bad_manifest,
-        manifest_for("9.9.10", vec![
+        manifest_for_build("9.9.10", 2, vec![
             file_entry("korangar.exe", &bad_bytes, "bad-exe"),
             file_entry("runtime.dat", b"nope", "side.dat"),
         ]),
@@ -271,7 +286,7 @@ fn existing_old_backup_is_kept_until_swap_commits_and_a_blocked_aside_rolls_back
     let blocked = publish.join("blocked.krup");
     fs::write(
         &blocked,
-        manifest_for("8.0.1", vec![
+        manifest_for_build("8.0.1", 2, vec![
             file_entry("b.txt", b"new-b", "b.txt"),
             file_entry("a.txt", b"new-a", "a.txt"),
         ]),
@@ -358,12 +373,19 @@ fn loopback_http_apply_uses_no_external_host() {
     assert!(remote.contains("disabled") || remote.contains("only http"), "{remote}");
     let foreign = korangar_update::run_startup_update(&request(&install, &exe, "https://cdn.example/manifest.krup", "0.1.1")).unwrap_err();
     assert!(
-        foreign.contains("limited to ro.turoran.com") || foreign.contains("only http"),
+        foreign.contains("limited to ro.turoran.com")
+            || foreign.contains("allowlisted")
+            || foreign.contains("only http"),
         "{foreign}"
     );
     let lookalike =
         korangar_update::run_startup_update(&request(&install, &exe, "https://ro.turoran.com.evil/manifest.krup", "0.1.1")).unwrap_err();
-    assert!(lookalike.contains("limited to ro.turoran.com") || lookalike.contains("only http"), "{lookalike}");
+    assert!(
+        lookalike.contains("limited to ro.turoran.com")
+            || lookalike.contains("allowlisted")
+            || lookalike.contains("only http"),
+        "{lookalike}"
+    );
     let _ = fs::remove_dir_all(&root);
 }
 
@@ -379,6 +401,8 @@ fn signing_cli_roundtrip_and_keygen_stays_outside_the_repo() {
         "sign".into(),
         "--version".into(),
         "1.2.3".into(),
+        "--build".into(),
+        "42".into(),
         "--out".into(),
         out.display().to_string(),
         "--private-key".into(),
@@ -390,6 +414,7 @@ fn signing_cli_roundtrip_and_keygen_stays_outside_the_repo() {
     let signed = fs::read(&out).unwrap();
     let opened = manifest::open_envelope(&signed, public_key()).unwrap();
     assert_eq!(opened.version, "1.2.3");
+    assert_eq!(opened.build, 42);
     assert_eq!(opened.files[0].size, 5);
 
     let refused = korangar_update::cli::dispatch(["keygen".into(), "--out".into(), "secret.seed".into()]);
@@ -399,6 +424,48 @@ fn signing_cli_roundtrip_and_keygen_stays_outside_the_repo() {
     let outside = root.join("outside.seed");
     korangar_update::cli::dispatch(["keygen".into(), "--out".into(), outside.display().to_string()]).unwrap();
     assert_eq!(fs::metadata(&outside).unwrap().len(), 32);
+    let _ = fs::remove_dir_all(&root);
+}
+
+
+#[test]
+fn older_or_equal_build_is_rejected_or_skipped() {
+    let root = temp_dir();
+    let publish = root.join("publish");
+    let install = root.join("install");
+    fs::create_dir_all(&publish).unwrap();
+    fs::create_dir_all(&install).unwrap();
+    let exe_bytes = b"#!/bin/sh\nif [ \"$1\" = \"--update-self-check\" ]; then echo update-self-check-ok; exit 0; fi\nexit 0\n";
+    fs::write(publish.join("korangar.exe"), exe_bytes).unwrap();
+    let exe = install.join("korangar.exe");
+    write_script(&exe, true);
+    let first = publish.join("first.krup");
+    fs::write(
+        &first,
+        manifest_for_build("main-aaaa", 100, vec![file_entry("korangar.exe", exe_bytes, "korangar.exe")]),
+    )
+    .unwrap();
+    let outcome = korangar_update::run_startup_update(&request(&install, &exe, &format!("file://{}", first.display()), "0.1.1")).unwrap();
+    assert_eq!(outcome, StartupOutcome::Applied { relaunched: false });
+    assert_eq!(fs::read_to_string(install.join("updates/applied.build")).unwrap().trim(), "100");
+
+    let older = publish.join("older.krup");
+    fs::write(
+        &older,
+        manifest_for_build("main-bbbb", 99, vec![file_entry("korangar.exe", exe_bytes, "korangar.exe")]),
+    )
+    .unwrap();
+    let error = korangar_update::run_startup_update(&request(&install, &exe, &format!("file://{}", older.display()), "0.1.1")).unwrap_err();
+    assert!(error.contains("rollback protection"), "{error}");
+    assert_eq!(fs::read_to_string(install.join("updates/applied.build")).unwrap().trim(), "100");
+
+    let same = korangar_update::run_startup_update(&request(&install, &exe, &format!("file://{}", first.display()), "0.1.1")).unwrap();
+    assert_eq!(same, StartupOutcome::UpToDate);
+
+    assert!(!manifest::is_newer_build(100, 100));
+    assert!(!manifest::is_newer_build(99, 100));
+    assert!(manifest::is_newer_build(101, 100));
+    assert!(manifest::is_newer_build(1, 0));
     let _ = fs::remove_dir_all(&root);
 }
 

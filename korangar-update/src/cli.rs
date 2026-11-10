@@ -30,8 +30,10 @@ commands:
       Write a new 32-byte Ed25519 seed. PATH must be outside the git worktree.
   public-key (--private-key PATH | uses KORANGAR_UPDATE_SIGNING_KEY)
       Print the raw public key and a Rust const for EMBEDDED_UPDATE_PUBLIC_KEY.
-  sign --version VER --out MANIFEST (--private-key PATH) --file REL=SOURCE [--url REL_URL]...
+  sign --version VER --build N --out MANIFEST (--private-key PATH) --file REL=SOURCE [--url REL_URL]...
       Hash each SOURCE file, build the canonical payload, and write a signed envelope.
+      --build is a positive monotonic counter or unix timestamp; the client rejects a
+      manifest whose build is not newer than the installed one.
       Repeat --file. A following --url overrides the default relative URL for the previous file.
 Keys: KORANGAR_UPDATE_SIGNING_KEY is either 64 hex seed chars or a filesystem path.
 Never pass a path inside this repo. Generate with: korangar-sign-release keygen --out /secure/korangar-update.seed"
@@ -68,6 +70,12 @@ fn public_key(args: &[String]) -> Result<(), String> {
 
 fn sign(args: &[String]) -> Result<(), String> {
     let version = flag(args, "--version")?.to_string();
+    let build: u64 = flag(args, "--build")?
+        .parse()
+        .map_err(|_| " --build must be a positive integer".trim_start().to_string())?;
+    if build == 0 {
+        return Err("build must be a positive monotonic counter or timestamp".into());
+    }
     let out = PathBuf::from(flag(args, "--out")?);
     let seed = load_seed(args)?;
     let mut files = Vec::new();
@@ -98,7 +106,7 @@ fn sign(args: &[String]) -> Result<(), String> {
     if files.is_empty() {
         return Err("sign requires at least one --file REL=SOURCE".into());
     }
-    let manifest = ReleaseManifest { version, files };
+    let manifest = ReleaseManifest { version, build, files };
     let payload = manifest::canonical_payload(&manifest)?;
     let envelope = manifest::sign_envelope(&payload, &seed)?;
     if let Some(parent) = out.parent()

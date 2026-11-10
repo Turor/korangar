@@ -4,7 +4,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/sign-korangar-release.sh --version VER --out MANIFEST --file REL=SOURCE [--url URL]...
+Usage: scripts/sign-korangar-release.sh --version VER --build N --out MANIFEST --file REL=SOURCE [--url URL]...
        [--private-key PATH]
 
 Private key: --private-key PATH, or env KORANGAR_UPDATE_SIGNING_KEY (path to a

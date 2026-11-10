@@ -1,0 +1,79 @@
+# Unsigned Linux build for the main auto-update channel.
+# Signing and Garage publish happen on the controller, never in this job.
+# Windows is built on win11-build VM 118 by the controller poller.
+name: main-release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: main-release-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: "2"
+  SLANG_VERSION: v2026.1.1
+
+jobs:
+  linux:
+    name: Linux x86_64 (unsigned)
+    runs-on: [self-hosted, elastic, cores-2, mem-4096]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential pkg-config libasound2-dev nasm curl ca-certificates unzip
+
+      - name: Install rustup toolchain
+        run: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+          fi
+          # shellcheck disable=SC1091
+          . "$HOME/.cargo/env"
+          rustup show
+
+      - name: Install slangc
+        run: |
+          mkdir -p "$HOME/slangc"
+          cd "$HOME/slangc"
+          if [ ! -x bin/slangc ]; then
+            VERSION_NO_V=${SLANG_VERSION#v}
+            curl -L -o slang-linux-x86_64.tar.gz \
+              "https://github.com/shader-slang/slang/releases/download/${SLANG_VERSION}/slang-${VERSION_NO_V}-linux-x86_64.tar.gz"
+            tar -xzf slang-linux-x86_64.tar.gz
+            rm -f slang-linux-x86_64.tar.gz
+            chmod +x bin/slangc bin/slangd || true
+          fi
+          echo "$HOME/slangc/bin" >> "$GITHUB_PATH"
+
+      - name: Build Linux client (release, unsigned)
+        run: |
+          # shellcheck disable=SC1091
+          . "$HOME/.cargo/env"
+          export PATH="$HOME/slangc/bin:$PATH"
+          cargo build --locked -p korangar --bin korangar --release
+          install -D -m 0755 target/release/korangar "artifacts/korangar-linux-${GITHUB_SHA}"
+          printf '%s\n' "${GITHUB_SHA}" > artifacts/gitsha.txt
+
+      - name: Upload unsigned Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: korangar-linux-${{ github.sha }}
+          path: |
+            artifacts/korangar-linux-${{ github.sha }}
+            artifacts/gitsha.txt
+          if-no-files-found: error
+          retention-days: 14
