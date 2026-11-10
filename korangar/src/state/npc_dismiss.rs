@@ -46,6 +46,12 @@ impl DismissedScript {
         self.active = Some((npc_id, now_ms));
     }
 
+    /// The player started talking to an NPC on purpose. Whatever comes next
+    /// is shown, even when an old script never sent its last page.
+    pub fn clear(&mut self) {
+        self.active = None;
+    }
+
     #[cfg(test)]
     pub fn is_dismissed(&self, npc_id: EntityId) -> bool {
         self.active.is_some_and(|(active, _)| active == npc_id)
@@ -92,6 +98,16 @@ impl DismissedScript {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fresh_talk_clears_a_script_that_never_closed() {
+        let npc = EntityId(7);
+        let mut script = DismissedScript::default();
+        script.dismiss(npc, 100);
+        script.clear();
+        assert!(!script.is_dismissed(npc));
+        assert_eq!(script.intercept(Some(npc), ScriptEvent::Text, 200), None);
+    }
 
     const NPC: EntityId = EntityId(110_000_123);
 

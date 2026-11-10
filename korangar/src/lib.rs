@@ -6976,6 +6976,7 @@ impl Client {
                     .iter()
                     .any(|entity| entity.get_entity_id() == entity_id)
                 {
+                    self.npc_dismissed.clear();
                     let _ = self.networking_system.start_dialog(entity_id);
                 }
             }
@@ -7032,6 +7033,7 @@ impl Client {
             *self.client_state.follow_mut(client_state().buffered_action()) = Some(BufferedAction::TalkToNpc { entity_id });
         } else {
             *self.client_state.follow_mut(client_state().buffered_action()) = None;
+            self.npc_dismissed.clear();
             let _ = self.networking_system.start_dialog(entity_id);
         }
     }
