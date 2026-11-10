@@ -558,7 +558,7 @@ where
         NetworkEvent::VisualEffect { effect_path, entity_id }
     })?;
     packet_handler.register_noop::<DisplayGainedExperiencePacket>()?;
-    packet_handler.register_noop::<DisplayImagePacket>()?;
+    crate::packet_versions::npc_dialog::register_npc_dialog_packets(packet_handler)?;
     packet_handler.register_noop::<StateChangePacket>()?;
 
     packet_handler.register(|packet: QuestEffectPacket| match packet.effect {

@@ -10,6 +10,7 @@ pub mod framing_20250716;
 pub mod item_use;
 pub mod item_workshop;
 pub mod mvp_minimap;
+pub mod npc_dialog;
 pub mod party;
 pub mod refine;
 pub mod rodex;

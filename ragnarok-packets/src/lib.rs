@@ -3795,6 +3795,92 @@ pub struct DisplayImagePacket {
     pub location: ImageLocation,
 }
 
+/// `ZC_OPEN_EDITDLG` (`0x0142`): open the numeric NPC input.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0142)]
+pub struct OpenEditDialogPacket {
+    pub npc_id: EntityId,
+}
+
+/// `CZ_INPUT_EDITDLG` (`0x0143`): numeric NPC input reply.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0143)]
+pub struct InputEditDialogPacket {
+    pub npc_id: EntityId,
+    pub value: i32,
+}
+
+/// `ZC_OPEN_EDITDLGSTR` (`0x01D4`): open the string NPC input.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01D4)]
+pub struct OpenEditDialogStringPacket {
+    pub npc_id: EntityId,
+}
+
+/// `CZ_INPUT_EDITDLGSTR` (`0x01D5`): string NPC input reply.
+///
+/// `01d5 <packet len>.W <npc id>.L <string>.?B` with a trailing NUL.
+/// Hercules (`PACKETVER >= 20151029`) accepts this when the packet length is at
+/// least 9.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01D5)]
+#[variable_length]
+pub struct InputEditDialogStringPacket {
+    pub npc_id: EntityId,
+    #[length_remaining]
+    pub text: String,
+}
+
+/// `ZC_PROGRESS` (`0x02F0`): cast-style bar. `color` is `0xRRGGBB`; `seconds`
+/// is the duration.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x02F0)]
+pub struct NpcProgressPacket {
+    pub color: u32,
+    pub seconds: u32,
+}
+
+/// `CZ_PROGRESS` (`0x02F1`): the bar finished or the player aborted it early.
+#[derive(Debug, Clone, Default, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x02F1)]
+pub struct NpcProgressCompletePacket {}
+
+/// `ZC_PROGRESS_CANCEL` (`0x02F2`) hides the bar. The client also sends it when
+/// the player walks, then still sends [`NpcProgressCompletePacket`] so Hercules
+/// continues the script.
+#[derive(Debug, Clone, Default, Packet, ClientPacket, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x02F2)]
+pub struct NpcProgressCancelPacket {}
+
+/// `ZC_SOUND` (`0x01D3`). `action` stays a raw `u8` (0 play, 1 repeat, 2 stop).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01D3)]
+pub struct NpcSoundPacket {
+    #[length(24)]
+    pub file_name: String,
+    pub action: u8,
+    pub term: u32,
+    pub npc_id: EntityId,
+}
+
+/// `ZC_PLAY_NPC_BGM` (`0x07FE`). Fixed 24-byte name. `0x0B8C` is the later
+/// variable form.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x07FE)]
+pub struct PlayNpcBgmPacket {
+    #[length(24)]
+    pub track: String,
+}
+
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0229)]
