@@ -4055,11 +4055,22 @@ impl Client {
                     self.cast_bars.begin(source_entity_id.0, skill_id.0, delay_time, client_tick.0);
                     self.play_skill_field(skill_id, SkillField::BeginCast, source_entity_id, None, false);
                 }
-                NetworkEvent::ToUseSkillSuccess { flag, .. } => {
+                NetworkEvent::ToUseSkillSuccess {
+                    flag,
+                    skill_id,
+                    cause,
+                    btype,
+                    ..
+                } => {
                     // `0x0110` is the failure packet. Hercules always sends `flag == 0`.
                     // Success STR is `HealEffect` when `result == 1` (`0x09CB`).
                     if flag != 0 {
                         continue;
+                    }
+                    if let Some(text) = crate::state::basic_skill::basic_skill_failure_text(skill_id.0, cause, btype) {
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(text.to_owned(), MessageColor::Error));
                     }
                     let Some(entity_id) = self.client_state.try_follow(this_entity()).map(|player| player.get_entity_id()) else {
                         continue;

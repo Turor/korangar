@@ -300,7 +300,7 @@ impl FontLoader {
         );
 
         if let OverflowBehavior::Shrink = overflow_behavior {
-            let scaling_factor = (available_width / (size.x + THRESHOLD)).min(1.0);
+            let scaling_factor = shrink_factor(available_width, size.x + THRESHOLD);
 
             font_size = FontSize(font_size.0 * scaling_factor);
             size *= scaling_factor;
@@ -330,6 +330,14 @@ impl FontLoader {
         available_width: Option<f32>,
         glyphs: Option<&mut Vec<GlyphInstruction>>,
     ) -> Vector2<f32> {
+        // A zero, negative, or NaN font size makes cosmic-text's
+        // `shape_until_scroll` loop forever (line height <= 0). That froze the
+        // client when a window squeezed a shrinking text into a negative width.
+        if !is_drawable_font_size(font_size) {
+            return Vector2::new(0.0, 0.0);
+        }
+        let available_width = available_width.map(line_break_width);
+
         // TODO: NHA We currently call get_text_dimensions() with different
         //       "available_width" and "overflow_behavior" then when we call
         //       layout_text() for with the resulting available_width.
@@ -485,5 +493,72 @@ impl TextLayouter<ClientState> for Arc<FontLoader> {
         );
 
         (size, font_size)
+    }
+}
+
+/// Font sizes cosmic-text can lay out. Non-finite or non-positive sizes give a
+/// line height <= 0, and `Buffer::shape_until_scroll` never finishes.
+fn is_drawable_font_size(font_size: FontSize) -> bool {
+    font_size.0.is_finite() && font_size.0 > 0.0
+}
+
+/// Wrap width for line-broken text. A cell narrower than one pixel (or a
+/// negative one from an over-split layout) still wraps one glyph per line.
+fn line_break_width(available_width: f32) -> f32 {
+    if available_width.is_nan() {
+        return 1.0;
+    }
+    available_width.max(1.0)
+}
+
+/// Shrink factor for [`OverflowBehavior::Shrink`], kept in `0.0..=1.0`.
+fn shrink_factor(available_width: f32, measured_width: f32) -> f32 {
+    if !available_width.is_finite() || !measured_width.is_finite() || measured_width <= 0.0 {
+        return if available_width.is_finite() && available_width <= 0.0 {
+            0.0
+        } else {
+            1.0
+        };
+    }
+    (available_width / measured_width).clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod size_guard_tests {
+    use super::{FontSize, is_drawable_font_size, line_break_width, shrink_factor};
+
+    #[test]
+    fn negative_width_never_gives_a_negative_font_size() {
+        // Party tab regression: a cell about -20 px wide shrank text to a
+        // negative font size, and cosmic-text hung on it.
+        let factor = shrink_factor(-20.0, 120.0);
+        assert_eq!(factor, 0.0);
+        assert!(!is_drawable_font_size(FontSize(14.0 * factor)));
+    }
+
+    #[test]
+    fn shrink_factor_stays_in_unit_range() {
+        assert_eq!(shrink_factor(200.0, 100.0), 1.0);
+        assert_eq!(shrink_factor(50.0, 100.0), 0.5);
+        assert_eq!(shrink_factor(f32::NAN, 100.0), 1.0);
+        assert_eq!(shrink_factor(50.0, 0.0), 1.0);
+        assert_eq!(shrink_factor(-1.0, 0.0), 0.0);
+    }
+
+    #[test]
+    fn only_positive_finite_font_sizes_are_drawn() {
+        assert!(is_drawable_font_size(FontSize(12.0)));
+        assert!(!is_drawable_font_size(FontSize(0.0)));
+        assert!(!is_drawable_font_size(FontSize(-3.0)));
+        assert!(!is_drawable_font_size(FontSize(f32::NAN)));
+        assert!(!is_drawable_font_size(FontSize(f32::INFINITY)));
+    }
+
+    #[test]
+    fn line_break_width_is_at_least_one_pixel() {
+        assert_eq!(line_break_width(-40.0), 1.0);
+        assert_eq!(line_break_width(0.0), 1.0);
+        assert_eq!(line_break_width(f32::NAN), 1.0);
+        assert_eq!(line_break_width(180.0), 180.0);
     }
 }

@@ -1,6 +1,7 @@
 pub mod achievements;
 pub mod bank_roulette;
 pub mod barter;
+pub mod basic_skill;
 #[cfg(feature = "debug")]
 pub mod cache_statistics;
 pub mod character_slots;

@@ -80,7 +80,8 @@ where
         let text_height = text.height;
         let horizontal = text.horizontal_alignment;
         let vertical = text.vertical_alignment;
-        let overflow = text.overflow_behavior;
+        // One line: the HP bar sits right under it.
+        let overflow = crate::loaders::OverflowBehavior::Shrink;
         let neutral = text.color;
         let highlight = state.get(&client_theme().window()).highlight_color;
         let offline = *state.get(&client_theme().skill_tree().unlearned_skill_color());
@@ -211,26 +212,34 @@ where
             let show_actions = leader && account_id != local_account;
             let line = PartyMemberLine::new(member_path);
             if show_actions {
-                self.elements.push(ErasedElement::new(split! {
+                // Full-width member line (name, HP bar) with the leader
+                // actions on their own row, so the label never wraps over the
+                // bar.
+                self.elements.push(ErasedElement::new(fragment! {
                     gaps: theme().window().gaps(),
                     children: (
                         line,
-                        button! {
-                            text: "Kick",
-                            event: move |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
-                                let member = state.get(&member_path);
-                                queue.queue(InputEvent::KickPartyMember {
-                                    account_id: member.account_id,
-                                    name: member.name.clone(),
-                                });
-                            },
-                        },
-                        button! {
-                            text: "Make leader",
-                            event: move |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
-                                let account_id = state.get(&member_path).account_id;
-                                queue.queue(InputEvent::ChangePartyLeader { account_id });
-                            },
+                        split! {
+                            gaps: theme().window().gaps(),
+                            children: (
+                                button! {
+                                    text: "Kick",
+                                    event: move |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
+                                        let member = state.get(&member_path);
+                                        queue.queue(InputEvent::KickPartyMember {
+                                            account_id: member.account_id,
+                                            name: member.name.clone(),
+                                        });
+                                    },
+                                },
+                                button! {
+                                    text: "Make leader",
+                                    event: move |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
+                                        let account_id = state.get(&member_path).account_id;
+                                        queue.queue(InputEvent::ChangePartyLeader { account_id });
+                                    },
+                                },
+                            ),
                         },
                     ),
                 }));
@@ -336,12 +345,15 @@ where
             });
         };
 
-        let element = ErasedElement::new(split! {
+        // `split!` lays children out side by side. Every block here is a
+        // vertical stack, so it must be `fragment!`. Nesting `split!` gave each
+        // text a negative cell width and froze the client (G04B).
+        let element = ErasedElement::new(fragment! {
             gaps: theme().window().gaps(),
             children: (
                 either! {
                     selector: party_path.joined(),
-                    on_true: split! {
+                    on_true: fragment! {
                         gaps: theme().window().gaps(),
                         children: (
                             text! { text: party_path.name(), },
@@ -352,7 +364,7 @@ where
                             },
                         ),
                     },
-                    on_false: split! {
+                    on_false: fragment! {
                         gaps: theme().window().gaps(),
                         children: (
                             text! { text: "You are not in a party.", },
@@ -381,7 +393,7 @@ where
                 },
                 either! {
                     selector: party_path.self_is_leader(),
-                    on_true: split! {
+                    on_true: fragment! {
                         gaps: theme().window().gaps(),
                         children: (
                             text! { text: "Invite by name", },

@@ -180,7 +180,7 @@ impl PartyState {
                 }
                 None
             }
-            PartyUpdate::InviteResult { name, result } => Some(invite_notice(&name, result)),
+            PartyUpdate::InviteResult { name, result } => invite_notice(&name, result),
         };
         self.refresh_leader_flag();
         notice
@@ -283,7 +283,9 @@ impl PartyState {
             return None;
         }
         if is_self {
-            if was_joined {
+            // A leader's own `0x0AE4` arrives just before `0x00FA` when it
+            // creates the party; "Party created." already covers it.
+            if was_joined || entry.leader {
                 None
             } else {
                 Some(PartyNotice {
@@ -431,7 +433,8 @@ fn apply_entry(member: &mut PartyMember, entry: &PartyRosterEntry) {
 }
 
 fn refresh_label(member: &mut PartyMember) {
-    let crown = if member.leader { "♔ " } else { "" };
+    // The interface font has no U+2654 glyph (it drew a box), so say it in text.
+    let crown = if member.leader { "[Leader] " } else { "" };
     let presence = if member.dead {
         "Dead"
     } else if member.online {
@@ -496,11 +499,20 @@ pub fn job_label(job: i16) -> String {
     name.to_owned()
 }
 
-fn invite_notice(name: &str, result: i32) -> PartyNotice {
+/// Chat line for `ZC_PARTY_JOIN_REQ_ACK` (`0x02C5`).
+///
+/// Result 2 (joined) is silent: Hercules also sends `0x0AE4` for the new
+/// member, and [`PartyState::apply_member_added`] announces it. Hercules sends
+/// an empty name when the invited character was not found (result 7).
+fn invite_notice(name: &str, result: i32) -> Option<PartyNotice> {
+    let name = match name.trim() {
+        "" => "That character",
+        trimmed => trimmed,
+    };
     let (text, error) = match result {
         0 => (format!("{name} is already in a party."), true),
         1 => (format!("{name} rejected the party invite."), true),
-        2 => (format!("{name} joined the party."), false),
+        2 => return None,
         3 => ("The party is full.".to_owned(), true),
         4 => ("A character from that account is already in the party.".to_owned(), true),
         5 => (format!("{name} is blocking party invites."), true),
@@ -511,7 +523,7 @@ fn invite_notice(name: &str, result: i32) -> PartyNotice {
         11 => (format!("{name} cannot join the party at their level."), true),
         other => (format!("Party invite failed ({other})."), true),
     };
-    PartyNotice { text, error }
+    Some(PartyNotice { text, error })
 }
 
 #[cfg(test)]
@@ -717,5 +729,67 @@ mod tests {
         assert!(second.is_none());
         assert_eq!(state.members.len(), 1);
         assert!(state.item_division);
+    }
+
+    #[test]
+    fn accepted_invite_is_announced_once() {
+        // TEST log showed "kgap05 joined the party." twice: once from
+        // `0x02C5` result 2 and once from `0x0AE4`.
+        let mut state = PartyState::default();
+        apply(&mut state, PartyUpdate::CreateResult(0));
+        apply(&mut state, PartyUpdate::Roster {
+            name: "Wolves".to_owned(),
+            members: vec![entry(1, "Hero", true)],
+        });
+        let ack = apply(&mut state, PartyUpdate::InviteResult {
+            name: "Nova".to_owned(),
+            result: 2,
+        });
+        assert!(ack.is_none());
+        let added = apply(&mut state, PartyUpdate::MemberAdded {
+            party_name: "Wolves".to_owned(),
+            share_pickup: false,
+            share_loot: false,
+            member: entry(2, "Nova", false),
+        })
+        .expect("member added notice");
+        assert_eq!(added.text, "Nova joined the party.");
+        let again = apply(&mut state, PartyUpdate::MemberAdded {
+            party_name: "Wolves".to_owned(),
+            share_pickup: false,
+            share_loot: false,
+            member: entry(2, "Nova", false),
+        });
+        assert!(again.is_none());
+        assert_eq!(state.members.len(), 2);
+    }
+
+    #[test]
+    fn missing_invite_target_has_a_readable_name() {
+        // Hercules `party_invite` with no target: inviteack(sd, "", 7).
+        let mut state = PartyState::default();
+        let notice = apply(&mut state, PartyUpdate::InviteResult {
+            name: String::new(),
+            result: 7,
+        })
+        .unwrap();
+        assert_eq!(notice.text, "That character is offline.");
+        assert!(notice.error);
+    }
+
+    #[test]
+    fn creating_a_party_shows_one_notice() {
+        // Hercules sends the leader's own `0x0AE4` before `0x00FA`.
+        let mut state = PartyState::default();
+        let own = apply(&mut state, PartyUpdate::MemberAdded {
+            party_name: "Wolves".to_owned(),
+            share_pickup: false,
+            share_loot: false,
+            member: entry(1, "Hero", true),
+        });
+        assert!(own.is_none());
+        let created = apply(&mut state, PartyUpdate::CreateResult(0)).unwrap();
+        assert_eq!(created.text, "Party created.");
+        assert!(state.joined && state.self_is_leader);
     }
 }
