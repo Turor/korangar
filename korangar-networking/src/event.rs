@@ -894,6 +894,11 @@ pub enum NetworkEvent {
     HuntingQuestObjectiveUpdate {
         objectives: Vec<HuntingObjective>,
     },
+    /// Kill-count progress (`ZC_UPDATE_MISSION_HUNT`, 0x0AFE).
+    /// `objective_index` is Hercules `huntIdent2`. The packet has no mob id.
+    HuntingQuestIndexUpdate {
+        updates: Vec<HuntIndexUpdate>,
+    },
     /// A quest was removed from the character (0x02B4).
     QuestRemoved {
         quest_id: u32,
@@ -1255,6 +1260,16 @@ pub struct RoulettePrize {
     pub position: u16,
     pub item_id: u32,
     pub count: u16,
+}
+
+/// One `0x0AFE` objective. `objective_index` selects the row stored from the
+/// quest list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HuntIndexUpdate {
+    pub quest_id: u32,
+    pub objective_index: u32,
+    pub total_count: u16,
+    pub current_count: u16,
 }
 
 /// New-type so we can implement some `From` traits. This will help when

@@ -43,6 +43,9 @@ pub struct SkillTreeWindowState {
     description_pending_title: String,
     description_pending_body: String,
     description_pending_skill: Option<SkillId>,
+    /// Skill whose window was just closed. Hover does not reopen it until the
+    /// pointer leaves that slot.
+    description_dismissed: Option<SkillId>,
 }
 
 impl SkillTreeWindowState {
@@ -53,10 +56,18 @@ impl SkillTreeWindowState {
         self.description_open = false;
     }
 
-    /// Drop a hover open recorded for this frame. The committed skill stays so
-    /// a pointer that is still on that slot does not immediately ask to reopen.
+    /// Drop a hover open recorded for this frame so it cannot reopen a window
+    /// the click just closed.
     pub fn cancel_hover_open(&mut self) {
         self.description_open = false;
+    }
+
+    /// The description window is gone. Forget the skill it was showing and
+    /// suppress hover-open for that skill until the pointer leaves its slot.
+    pub fn note_description_window_closed(&mut self) {
+        if let Some(skill_id) = self.description_skill.take() {
+            self.description_dismissed = Some(skill_id);
+        }
     }
 
     /// Copy a hover request into the committed description. Returns whether the
@@ -237,10 +248,11 @@ mod description_state_tests {
     }
 
     #[test]
-    fn closing_cancels_a_hover_open_and_keeps_the_shown_skill() {
+    fn closing_clears_the_shown_skill_until_the_pointer_leaves() {
         let mut state = SkillTreeWindowState {
-            description_pending_skill: Some(SkillId(1)),
-            description_pending_body: "Level: 2 / 10".to_owned(),
+            description_pending_skill: Some(SkillId(2)),
+            description_pending_title: "Magnum".to_owned(),
+            description_pending_body: "Level: 4 / 10".to_owned(),
             description_open: true,
             ..Default::default()
         };
@@ -248,9 +260,15 @@ mod description_state_tests {
         state.description_open = true;
 
         state.cancel_hover_open();
+        state.note_description_window_closed();
 
+        assert!(state.description_skill.is_none());
+        assert_eq!(state.description_dismissed, Some(SkillId(1)));
         assert!(!state.take_hover_description());
-        assert_eq!(state.description_skill, Some(SkillId(1)));
-        assert_eq!(state.description_body, "Level: 1 / 10");
+
+        state.description_open = true;
+        assert!(state.take_hover_description());
+        assert_eq!(state.description_skill, Some(SkillId(2)));
+        assert_eq!(state.description_dismissed, Some(SkillId(1)));
     }
 }

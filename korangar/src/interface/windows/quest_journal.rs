@@ -67,7 +67,7 @@ where
 
 struct QuestJournalLayoutInfo {
     area: Area,
-    row_height: f32,
+    row_heights: Vec<f32>,
 }
 
 impl<A> Element<ClientState> for QuestJournalElement<A>
@@ -97,11 +97,41 @@ where
             .collect();
         let token_path = client_theme().tokens();
         let font_size = state.get(&token_path).font_size;
-        let row_height = font_size + 8.0;
+        let text_color = state.get(&token_path).text;
+        let muted_color = state.get(&token_path).muted;
+        let accent_color = state.get(&token_path).accent;
+        let highlight_color = state.get(&token_path).hover;
         with_single_resolver(resolvers, |resolver| {
-            let rows = self.lines.len().max(1) as f32;
-            let area = resolver.with_height(row_height * rows);
-            Self::LayoutInfo { area, row_height }
+            let mut row_heights = Vec::with_capacity(self.lines.len());
+            let mut total_height = 0.0;
+            for line in &self.lines {
+                let color = match line.kind {
+                    JournalLineKind::Title => text_color,
+                    JournalLineKind::Toggle => accent_color,
+                    JournalLineKind::Empty | JournalLineKind::Body => muted_color,
+                };
+                let alignment = if line.kind == JournalLineKind::Body {
+                    HorizontalAlignment::Left { offset: 14.0, border: 2.0 }
+                } else {
+                    HorizontalAlignment::Left { offset: 4.0, border: 2.0 }
+                };
+                let (size, _) = resolver.get_text_dimensions(
+                    line.text.as_str(),
+                    color,
+                    highlight_color,
+                    FontSize(font_size),
+                    alignment,
+                    OverflowBehavior::LineBreak,
+                );
+                let height = size.height.max(font_size + 8.0);
+                row_heights.push(height);
+                total_height += height;
+            }
+            if row_heights.is_empty() {
+                total_height = font_size + 8.0;
+            }
+            let area = resolver.with_height(total_height);
+            Self::LayoutInfo { area, row_heights }
         })
     }
 
@@ -115,13 +145,16 @@ where
         let token_path = client_theme().tokens();
         let tokens = state.get(&token_path);
         let font_size = FontSize(tokens.font_size);
+        let mut top = layout_info.area.top;
         for (index, line) in self.lines.iter().enumerate() {
+            let height = layout_info.row_heights.get(index).copied().unwrap_or(tokens.font_size + 8.0);
             let area = Area {
                 left: layout_info.area.left,
-                top: layout_info.area.top + layout_info.row_height * index as f32,
+                top,
                 width: layout_info.area.width,
-                height: layout_info.row_height,
+                height,
             };
+            top += height;
             let hovered = area.check().run(layout);
             let border = if line.selected {
                 tokens.accent

@@ -197,6 +197,21 @@ impl QuestLog {
         }
     }
 
+    /// `0x0AFE` names an objective by index (`huntIdent2`), not by mob id.
+    /// Unknown quests and indexes are ignored. The stored mob id stays so the
+    /// name lookup from the quest list is kept.
+    pub fn apply_hunt_progress_at_index(&mut self, quest_id: u32, objective_index: u32, current_count: u16, total_count: u16) {
+        let Some(quest) = self.quests.iter_mut().find(|quest| quest.quest_id == quest_id) else {
+            return;
+        };
+        let Some(slot) = quest.objectives.get_mut(objective_index as usize) else {
+            return;
+        };
+        slot.current_count = current_count;
+        slot.total_count = total_count;
+        slot.summary = objective_summary(&slot.mob_name, slot.current_count, slot.total_count);
+    }
+
     pub fn apply_hunting_objectives(&mut self, objectives: &[HuntingObjective], text: &impl QuestTextSource) {
         for objective in objectives {
             let Some(quest) = self.quests.iter_mut().find(|quest| quest.quest_id == objective.quest_id) else {
@@ -368,6 +383,53 @@ mod tests {
         assert!(!log.quests()[0].title.contains('#'));
         log.remove(9);
         assert!(log.quests().is_empty());
+    }
+
+    #[test]
+    fn hunt_index_update_changes_the_matching_objective_only() {
+        let stub = empty_stub();
+        let mut log = QuestLog::default();
+        log.replace_all(
+            vec![Quest {
+                quest_id: 9,
+                active: 1,
+                remaining_time: 0,
+                expire_time: 0,
+                objective_count: 2,
+                objective_details: vec![
+                    QuestDetails {
+                        hunt_identification: 9,
+                        objective_type: 0,
+                        mob_id: 1002,
+                        minimum_level: 1,
+                        maximum_level: 1,
+                        kill_count: 0,
+                        total_count: 5,
+                        mob_name: String::new(),
+                    },
+                    QuestDetails {
+                        hunt_identification: 9,
+                        objective_type: 0,
+                        mob_id: 1113,
+                        minimum_level: 1,
+                        maximum_level: 1,
+                        kill_count: 1,
+                        total_count: 4,
+                        mob_name: String::new(),
+                    },
+                ],
+            }],
+            &stub,
+        );
+        log.apply_hunt_progress_at_index(9, 1, 3, 4);
+        assert_eq!(log.quests()[0].objectives[0].current_count, 0);
+        assert_eq!(log.quests()[0].objectives[0].mob_name, "Poring");
+        assert_eq!(log.quests()[0].objectives[1].mob_id, 1113);
+        assert_eq!(log.quests()[0].objectives[1].current_count, 3);
+        assert!(log.quests()[0].objectives[1].summary.contains("3/4"));
+        log.apply_hunt_progress_at_index(99, 0, 1, 1);
+        log.apply_hunt_progress_at_index(9, 5, 1, 1);
+        assert_eq!(log.quests()[0].objectives[1].current_count, 3);
     }
 
     #[test]

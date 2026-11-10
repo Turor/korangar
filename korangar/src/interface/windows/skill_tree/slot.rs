@@ -517,6 +517,10 @@ where
             }
 
             let committed_skill = *state.get(&self.window_state_path.description_skill());
+            let dismissed_skill = *state.get(&self.window_state_path.description_dismissed());
+            if !is_hovered && dismissed_skill == Some(skill.skill_id) {
+                state.update_value(self.window_state_path.description_dismissed(), None);
+            }
             if committed_skill == Some(skill.skill_id) {
                 let body_path = self.window_state_path.description_body();
                 let body_differs = state.get(&body_path).as_str() != self.description_text;
@@ -534,7 +538,8 @@ where
                 layout.add_tooltip(self.hover_text.as_str(), SkillSlotTooltip.tooltip_id());
 
                 state.update_value(self.window_state_path.highlighted_skill(), Some(skill.skill_id));
-                if committed_skill != Some(skill.skill_id) {
+                let same_slot_just_closed = dismissed_skill == Some(skill.skill_id);
+                if committed_skill != Some(skill.skill_id) && !same_slot_just_closed {
                     state.update_value(self.window_state_path.description_pending_title(), skill.skill_name.clone());
                     state.update_value(self.window_state_path.description_pending_body(), self.description_text.clone());
                     state.update_value(self.window_state_path.description_pending_skill(), Some(skill.skill_id));

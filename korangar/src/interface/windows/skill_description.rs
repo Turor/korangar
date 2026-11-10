@@ -48,9 +48,28 @@ where
         self.body = state.get(&body_path).clone();
         let token_path = client_theme().tokens();
         let font_size = state.get(&token_path).font_size;
-        let lines = self.body.lines().filter(|line| !line.is_empty()).count().max(1) as f32;
-        with_single_resolver(resolvers, |resolver| Self::LayoutInfo {
-            area: resolver.with_height((lines * (font_size + 6.0)).max(48.0)),
+        let text_color = state.get(&token_path).text;
+        let highlight_color = state.get(&token_path).hover;
+        let display = if self.body.is_empty() {
+            "No description"
+        } else {
+            self.body.as_str()
+        };
+        with_single_resolver(resolvers, |resolver| {
+            let (size, _) = resolver.get_text_dimensions(
+                display,
+                text_color,
+                highlight_color,
+                FontSize(font_size),
+                HorizontalAlignment::Left { offset: 4.0, border: 2.0 },
+                OverflowBehavior::LineBreak,
+            );
+            // Top alignment draws two pixels below the area. The measured height is the
+            // wrapped block, so the scroll range includes every line.
+            let height = (size.height + 2.0).max(48.0);
+            Self::LayoutInfo {
+                area: resolver.with_height(height),
+            }
         })
     }
 

@@ -7,6 +7,7 @@ mod party;
 pub mod pincode;
 mod player_shops;
 mod position;
+mod quest_renewal;
 mod styling;
 pub mod version_20190530;
 pub mod version_20250716;
@@ -31,6 +32,9 @@ pub use self::pincode::{
 };
 pub use self::player_shops::*;
 pub use self::position::{Direction, WorldPosition, WorldPosition2};
+pub use self::quest_renewal::{
+    HuntingQuestUpdatePacket4, QuestAddedPacket4, QuestHuntProgress, QuestHuntSub, QuestListInfo4, QuestListPacket4, QuestMissionInfo,
+};
 pub use self::styling::{
     CloseStyleShopPacket, RequestStyleChange2Packet, RequestStyleChangePacket, STYLIST_UI_TYPE, StyleChangeResultPacket,
 };

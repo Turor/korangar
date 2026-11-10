@@ -3694,6 +3694,17 @@ impl Client {
                         .follow_mut(client_state().quest_log())
                         .apply_hunting_objectives(&objectives, library.as_ref());
                 }
+                NetworkEvent::HuntingQuestIndexUpdate { updates } => {
+                    let quest_log = self.client_state.follow_mut(client_state().quest_log());
+                    for update in updates {
+                        quest_log.apply_hunt_progress_at_index(
+                            update.quest_id,
+                            update.objective_index,
+                            update.current_count,
+                            update.total_count,
+                        );
+                    }
+                }
                 NetworkEvent::QuestRemoved { quest_id } => {
                     self.client_state.follow_mut(client_state().quest_log()).remove(quest_id);
                 }
@@ -3899,14 +3910,20 @@ impl Client {
     /// input so a right-click in the same frame toggles the skill the window
     /// was actually showing. Opens the window only when it is closed.
     fn open_pending_skill_description(&mut self) {
+        let window_open = self.interface.is_window_with_class_open(WindowClass::SkillDescription);
+        if !window_open {
+            // Right-click and the close button both remove the window before this runs.
+            // Clearing the committed id lets a later hover open it again. The slot
+            // still suppresses that open while the pointer has not left the slot.
+            self.client_state
+                .follow_mut(client_state().skill_tree_window())
+                .note_description_window_closed();
+        }
         let should_open = self
             .client_state
             .follow_mut(client_state().skill_tree_window())
             .take_hover_description();
-        if should_open
-            && self.client_state.try_follow(this_entity()).is_some()
-            && !self.interface.is_window_with_class_open(WindowClass::SkillDescription)
-        {
+        if should_open && self.client_state.try_follow(this_entity()).is_some() && !window_open {
             self.interface
                 .open_window(SkillDescriptionWindow::new(client_state().skill_tree_window()));
         }
