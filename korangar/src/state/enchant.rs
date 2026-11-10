@@ -977,8 +977,28 @@ fn percent_tokens(raw: &str) -> Vec<String> {
     tokens
 }
 
-fn load_catalog(loader: &GameFileLoader) -> EnchantCatalog {
+/// Globals the official client defines before it runs `EnchantList_f.lub`
+/// (values as in roBrowser `DBManager.loadEnchantListFile`). Without them the
+/// first `SetSlotOrder` compares nil with a number and the list stops at group
+/// 1.
+const ENCHANT_LUA_PRELUDE: &str = r#"
+MAX_SLOT_NUM = 4
+MAX_MATERIAL_NUM = 10
+MAX_REFINE_LEVEL = 20
+MAX_GRADE_LEVEL = 4
+IS_CLIENT = true
+MessageBox = function(message) return 1 end
+C_GetSlotCount = function(item_db_name) return 0 end
+"#;
+
+fn enchant_lua() -> Lua {
     let lua = Lua::new();
+    let _ = lua.load(ENCHANT_LUA_PRELUDE).set_name("enchant prelude").exec();
+    lua
+}
+
+fn load_catalog(loader: &GameFileLoader) -> EnchantCatalog {
+    let lua = enchant_lua();
     for (name, paths) in [
         (
             "ItemDBNameTbl.lub",
@@ -1020,7 +1040,7 @@ fn load_catalog(loader: &GameFileLoader) -> EnchantCatalog {
 
 #[cfg(test)]
 fn catalog_from_source(source: &str) -> EnchantCatalog {
-    let lua = Lua::new();
+    let lua = enchant_lua();
     lua.load(source).exec().expect("enchant fixture");
     catalog_from_lua(&lua)
 }
@@ -1318,6 +1338,47 @@ fn lua_bool(value: Option<mlua::Value>, default: bool) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn prelude_lets_client_style_slot_order_run_past_the_first_group() {
+        // Shape of the official EnchantList_f.lub: a vararg method that checks
+        // `#arg` against MAX_SLOT_NUM before it stores SlotOrder.
+        let catalog = super::catalog_from_source(
+            r#"
+Table = {}
+CreateEnchantInfo = function()
+    local info = {}
+    info.SetSlotOrder = function(self, ...)
+        if #arg < 1 or MAX_SLOT_NUM < #arg then
+            MessageBox("bad slot order")
+        end
+        self.SlotOrder = {}
+        for _, v in ipairs(arg) do
+            if MAX_SLOT_NUM - 1 < v then MessageBox("slot out of range") end
+            table.insert(self.SlotOrder, v)
+        end
+    end
+    info.AddTargetItem = function(self, name)
+        self.TargetItemTbl = self.TargetItemTbl or {}
+        table.insert(self.TargetItemTbl, name)
+    end
+    return info
+end
+ItemDBNameTbl = { Hero_Insignia = 490163 }
+Table[1] = CreateEnchantInfo()
+Table[1]:SetSlotOrder(3, 2, 1)
+Table[20] = CreateEnchantInfo()
+Table[20]:SetSlotOrder(3, 2, 1)
+Table[20]:AddTargetItem("Hero_Insignia")
+"#,
+        );
+        let ids: Vec<i64> = catalog.groups.iter().map(|group| group.id).collect();
+        assert_eq!(ids, vec![1, 20]);
+        let hero = catalog.groups.iter().find(|group| group.id == 20).unwrap();
+        assert_eq!(hero.slot_order, vec![3, 2, 1]);
+        assert_eq!(hero.target_item_ids, vec![490163]);
+    }
+
     use std::collections::HashMap;
 
     use korangar_networking::{InventoryItem, InventoryItemDetails};
