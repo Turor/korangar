@@ -139,6 +139,30 @@ pub enum NetworkEvent {
         reason: CharacterDeletionFailedReason,
         message: &'static str,
     },
+    /// `0x09A0` page count. `0` and `1` both mean a single page.
+    CharacterSlotPages {
+        page_count: u32,
+    },
+    /// `0x020D` ban list. Empty character ids are ignored by the client.
+    CharacterBanList {
+        bans: Vec<(CharacterId, String)>,
+    },
+    /// `0x0828`. `remaining_seconds` is the delay still left, not a timestamp.
+    CharacterDeleteReserved {
+        character_id: CharacterId,
+        result: u32,
+        remaining_seconds: u32,
+    },
+    /// `0x082A`.
+    CharacterDeleteAccepted {
+        character_id: CharacterId,
+        result: u32,
+    },
+    /// `0x082C`.
+    CharacterDeleteCanceled {
+        character_id: CharacterId,
+        result: u32,
+    },
     /// Second password (`0x08B9`, `0x0AE9`, `0x08BB`, `0x08BF`).
     Pincode {
         notice: PincodeNotice,

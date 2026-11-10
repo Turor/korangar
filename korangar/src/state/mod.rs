@@ -4,6 +4,7 @@ pub mod barter;
 pub mod basic_skill;
 #[cfg(feature = "debug")]
 pub mod cache_statistics;
+pub mod character_screen;
 pub mod character_slots;
 pub mod chat;
 pub mod clan;
@@ -91,6 +92,7 @@ use crate::settings::{
     session_theme_name,
 };
 use crate::state::achievements::Achievements;
+use crate::state::character_screen::CharacterScreen;
 use crate::state::character_slots::CharacterSlots;
 use crate::state::equip_switch::EquipSwitch;
 use crate::state::hotbar::Hotbar;
@@ -392,6 +394,8 @@ pub struct ClientState {
     switch_request: Option<usize>,
     /// Name of the character being created currently.
     create_character_name: String,
+    /// Creation draft, slot pages, bans, and deletion confirmation.
+    character_screen: CharacterScreen,
     /// Second password asked by the character server before character select.
     pincode_window: PincodeWindowState,
 
@@ -527,6 +531,7 @@ impl ClientState {
             // TODO: This could be in a single struct.
             let switch_request = None;
             let create_character_name = String::new();
+            let character_screen = CharacterScreen::default();
             let pincode_window = PincodeWindowState::default();
         });
 
@@ -718,6 +723,7 @@ impl ClientState {
             currently_deleting,
             switch_request,
             create_character_name,
+            character_screen,
             pincode_window,
             window_size,
             menu_bar_open,

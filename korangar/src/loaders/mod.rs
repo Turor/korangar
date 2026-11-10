@@ -2,6 +2,7 @@ mod action;
 mod animation;
 mod archive;
 mod color;
+pub(crate) use self::color::premultiply_alpha;
 mod rectangle;
 
 mod r#async;

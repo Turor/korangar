@@ -54,6 +54,10 @@ pub enum Effect {
     CreateCharacter {
         slot: usize,
         name: String,
+        hair_color: u16,
+        hair_style: u16,
+        start_job: u16,
+        sex: u8,
     },
     Input(InputEvent),
     Window {
@@ -284,6 +288,11 @@ impl Autopilot {
                 vec![Effect::CreateCharacter {
                     slot: self.slot,
                     name: self.character_name.clone(),
+                    // Style 2 and color 3 are off the old name-only defaults (style 0, color 0).
+                    hair_color: 3,
+                    hair_style: 2,
+                    start_job: 0,
+                    sex: 1,
                 }]
             }
             _ => Vec::new(),
@@ -687,7 +696,14 @@ mod tests {
         let created = auto.on_characters(now, false);
         assert!(matches!(
             &created[0],
-            Effect::CreateCharacter { slot: 0, name } if name == "kgap01"
+            Effect::CreateCharacter {
+                slot: 0,
+                name,
+                hair_color: 3,
+                hair_style: 2,
+                start_job: 0,
+                sex: 1,
+            } if name == "kgap01"
         ));
         let selected = auto.on_character_created(now);
         assert!(matches!(selected.as_slice(), [Effect::SelectCharacter(0)]));

@@ -790,12 +790,15 @@ where
         }
     }
 
-    pub fn create_character(&mut self, slot: usize, name: String) -> Result<(), NotConnectedError> {
-        let hair_color = 0;
-        let hair_style = 0;
-        let start_job_id = JobId(0);
-        let sex = Sex::Male;
-
+    pub fn create_character(
+        &mut self,
+        slot: usize,
+        name: String,
+        hair_color: u16,
+        hair_style: u16,
+        start_job_id: JobId,
+        sex: Sex,
+    ) -> Result<(), NotConnectedError> {
         match self.character_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
                 .send_character_server_packet(CreateCharacterPacket::new(
@@ -809,12 +812,29 @@ where
         }
     }
 
+    /// `0x0827`. Replaces the legacy `0x01FB` email delete.
     pub fn delete_character(&mut self, character_id: CharacterId) -> Result<(), NotConnectedError> {
-        let email = "a@a.com".to_string();
-
         match self.character_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
-                self.send_character_server_packet(DeleteCharacterPacket::new(character_id, email))
+                self.send_character_server_packet(ReserveDeleteCharacterPacket::new(character_id))
+            }
+        }
+    }
+
+    /// `0x0829`. `confirmation` is exactly six bytes.
+    pub fn confirm_delete_character(&mut self, character_id: CharacterId, confirmation: [u8; 6]) -> Result<(), NotConnectedError> {
+        match self.character_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_character_server_packet(ConfirmDeleteCharacterPacket::new(character_id, confirmation))
+            }
+        }
+    }
+
+    /// `0x082B`.
+    pub fn cancel_delete_character(&mut self, character_id: CharacterId) -> Result<(), NotConnectedError> {
+        match self.character_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_character_server_packet(CancelDeleteCharacterPacket::new(character_id))
             }
         }
     }

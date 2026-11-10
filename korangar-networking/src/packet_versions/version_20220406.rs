@@ -125,8 +125,7 @@ where
         characters: packet.character_information,
     })?;
     packet_handler.register_noop::<CharacterListPacket>()?;
-    packet_handler.register_noop::<CharacterSlotPagePacket>()?;
-    packet_handler.register_noop::<CharacterBanListPacket>()?;
+    super::character_select::register_character_select_packets(packet_handler)?;
     packet_handler.register_noop::<LoginPincodePacket>()?;
     packet_handler.register_noop::<Packet0b18>()?;
     packet_handler.register(|packet: CharacterSelectionSuccessPacket| {

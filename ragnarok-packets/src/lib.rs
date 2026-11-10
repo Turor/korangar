@@ -2,6 +2,7 @@
 #![cfg_attr(feature = "interface", feature(impl_trait_in_assoc_type))]
 
 mod barter;
+pub mod character_select;
 pub mod guild_actions;
 pub mod handler;
 mod item_skill_selection;
@@ -30,6 +31,10 @@ pub use self::barter::{
     BarterPurchaseEntry, BarterPurchasePacket, BarterShop2021Packet, BarterShopItem, BarterShopPacket, CloseBarterPacket,
     CloseExpandedBarterPacket, ExpandedBarterCurrency, ExpandedBarterItem, ExpandedBarterPurchaseEntry, ExpandedBarterPurchasePacket,
     ExpandedBarterShop2025Packet, ExpandedBarterShopPacket, NpcBuyResultPacket,
+};
+pub use self::character_select::{
+    CancelDeleteCharacterPacket, CancelDeleteCharacterResultPacket, ConfirmDeleteCharacterPacket, ConfirmDeleteCharacterResultPacket,
+    ReserveDeleteCharacterPacket, ReserveDeleteCharacterResultPacket,
 };
 pub use self::guild_actions::{
     BreakGuildRelationPacket, ChangeGuildMemberPositionsPacket, ChangeGuildPacket, ChangeGuildPositionsPacket, CreateGuildPacket,

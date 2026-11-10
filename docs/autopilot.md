@@ -59,7 +59,7 @@ A left `click` on an NPC sprite box walks within three cells and then opens its 
 - `SendMessage("text")`
 - `PlayerMove(x: 10, y: 20)`
 - `SelectCharacter(0)`
-- `CreateCharacter(slot: 0, name: "Name")`
+- `CreateCharacter(slot: 0, name: "Name")` — optional `hair_color` (default 3), `hair_style` (default 2), `start_job` (default 0, Novice), `sex` (default 1, male). Empty-slot login uses those defaults.
 - `OpenCharacterCreationWindow(0)`
 - `CastSkill(0)` / `StopSkill(0)` (hotbar slot)
 - `UseItem(0)` (inventory index)
