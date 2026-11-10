@@ -157,6 +157,9 @@ impl ChatRoomState {
         self.chat_id = Some(chat_id);
         self.members = members;
         self.pending_join = None;
+        // The board was drawn before this client joined; the member list is
+        // the current count.
+        self.set_users(self.members.len() as u16);
         self.refresh();
     }
 
@@ -380,6 +383,7 @@ mod tests {
         state.upsert_board(board(7, true));
         state.entered(ChatRoomId(7), vec![member("Owner", true), member("Me", false)]);
         assert!(state.is_in_room());
+        assert_eq!(state.heading, "Room 7 (2/20)");
         assert!(!state.is_owner("Me"));
         assert_eq!(state.member_lines, "Owner (owner)\nMe");
 
