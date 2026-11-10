@@ -38,9 +38,9 @@ use korangar_interface::window::{Anchor, AnchorPoint, CustomWindow, Window};
 use rust_state::{Path, PathExt, State};
 use serde::{Deserialize, Serialize};
 
-use super::window_groups::WindowGroup;
 use super::WindowClass;
 use super::placement::{HudFrame, ScreenAnchor, first_open_hud, frame_anchor_offset, hud_bottom_margin};
+use super::window_groups::WindowGroup;
 use crate::graphics::{Color, ScreenPosition, ScreenSize, Texture};
 use crate::input::InputEvent;
 use crate::loaders::OverflowBehavior;
@@ -234,8 +234,8 @@ fn menu_bar_entry_list() -> Vec<MenuBarEntry> {
         ToggleNavigationWindow, ToggleSkillTreeWindow, ToggleStatusPanelWindow, ToggleWorldMap,
     };
     use WindowClass::{
-        Bank, Cart, Chat, Eden, Emotes, Hotbar, Inventory, ItemFinder, Mail, Menu, MvpMinimap, Navigation, Roulette, SkillTree, StatusPanel,
-        Warpra, WorldMap,
+        Bank, Cart, Chat, Eden, Emotes, Hotbar, Inventory, ItemFinder, Mail, Menu, MvpMinimap, Navigation, Roulette, SkillTree,
+        StatusPanel, Warpra, WorldMap,
     };
 
     let icon = |name: &'static str| Some(name);
@@ -946,7 +946,9 @@ mod tests {
                     assert_eq!(opened, vec![entry.class]);
                     for tab in group.tabs() {
                         assert!(
-                            !entries.iter().any(|other| !matches!(other.kind, MenuBarKind::Group(_)) && other.class == tab.class),
+                            !entries
+                                .iter()
+                                .any(|other| !matches!(other.kind, MenuBarKind::Group(_)) && other.class == tab.class),
                             "{:?} has its own button and a tab",
                             tab.class
                         );

@@ -7524,6 +7524,17 @@ impl Client {
                     });
                 }
                 autopilot::Effect::Input(event) => self.input_event_buffer.push(event),
+                autopilot::Effect::Tab(class) => {
+                    let from = interface::windows::WindowGroup::of(class).and_then(|group| {
+                        group
+                            .open_members(|member| self.interface.is_window_with_class_open(member))
+                            .into_iter()
+                            .find(|member| *member != class)
+                    });
+                    if let Some(from) = from {
+                        self.input_event_buffer.push(InputEvent::SwitchWindowTab { from, to: class });
+                    }
+                }
                 autopilot::Effect::Window { class, open, event } => {
                     if self.interface.is_window_with_class_open(class) != open {
                         self.input_event_buffer.push(event);
@@ -7971,8 +7982,7 @@ impl Client {
                 _ => None,
             };
             let is_chat_open = self.interface.is_window_with_class_open(WindowClass::Chat);
-            self.window_groups
-                .observe(|class| self.interface.is_window_with_class_open(class));
+            self.window_groups.observe(|class| self.interface.is_window_with_class_open(class));
             let menu_bar_bits = menu_bar_open_bits(|class| self.interface.is_window_with_class_open(class));
             *self.client_state.follow_mut(client_state().menu_bar_open()) = menu_bar_bits;
 

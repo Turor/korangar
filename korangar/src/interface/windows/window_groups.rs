@@ -62,7 +62,10 @@ const SOCIAL_TABS: [GroupTab; 3] = [
     tab("Guild", WindowClass::Guild),
     tab("Clan", WindowClass::Clan),
 ];
-const JOURNAL_TABS: [GroupTab; 2] = [tab("Quests", WindowClass::QuestJournal), tab("Achievements", WindowClass::Achievements)];
+const JOURNAL_TABS: [GroupTab; 2] = [
+    tab("Quests", WindowClass::QuestJournal),
+    tab("Achievements", WindowClass::Achievements),
+];
 const PET_STABLE_TABS: [GroupTab; 2] = [tab("Stable", WindowClass::Stable), tab("Pets", WindowClass::Companions)];
 
 impl WindowGroup {
@@ -189,7 +192,13 @@ pub struct WindowGroupTabs {
 impl WindowGroupTabs {
     pub fn new(class: WindowClass) -> Self {
         let tabs = WindowGroup::of(class).map_or(&[][..], WindowGroup::tabs);
-        let clicks = tabs.iter().map(|tab| SwitchTabClick { from: class, to: tab.class }).collect();
+        let clicks = tabs
+            .iter()
+            .map(|tab| SwitchTabClick {
+                from: class,
+                to: tab.class,
+            })
+            .collect();
         Self { class, tabs, clicks }
     }
 }
