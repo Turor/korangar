@@ -313,7 +313,9 @@ mod tests {
 /// `pincode submit|change|reset|cancel|request`.
 fn pincode_event(rest: &str) -> Result<InputEvent, String> {
     let mut parts = rest.split_whitespace();
-    let action = parts.next().ok_or("pincode needs an action (digit, press, submit, change, reset, cancel, request)")?;
+    let action = parts
+        .next()
+        .ok_or("pincode needs an action (digit, press, submit, change, reset, cancel, request)")?;
     let argument = parts.next();
     if parts.next().is_some() {
         return Err("pincode takes at most one argument".to_owned());
@@ -374,7 +376,15 @@ mod pincode_tests {
 
     #[test]
     fn bad_pincode_commands_are_rejected() {
-        for line in ["pincode", "pincode digit", "pincode digit 10", "pincode digit x", "pincode submit 1", "pincode wiggle", "pincode press 1 2"] {
+        for line in [
+            "pincode",
+            "pincode digit",
+            "pincode digit 10",
+            "pincode digit x",
+            "pincode submit 1",
+            "pincode wiggle",
+            "pincode press 1 2",
+        ] {
             assert!(parse_command(line).is_err(), "{line} parsed");
         }
     }

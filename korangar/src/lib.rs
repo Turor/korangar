@@ -7390,10 +7390,7 @@ impl Client {
                     autopilot_println(&format!("AUTOPILOT_DUMP {} {body}", path.as_str()));
                 }
                 autopilot::Effect::Quit => SHUTDOWN_SIGNAL.store(true, Ordering::SeqCst),
-                autopilot::Effect::Log { .. }
-                | autopilot::Effect::Ready(_)
-                | autopilot::Effect::PinArmed
-                | autopilot::Effect::PinGate => {}
+                autopilot::Effect::Log { .. } | autopilot::Effect::Ready(_) | autopilot::Effect::PinArmed | autopilot::Effect::PinGate => {}
             }
         }
     }
