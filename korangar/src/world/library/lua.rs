@@ -55,6 +55,30 @@ pub(super) fn game_string(value: mlua::String) -> mlua::Result<String> {
     decode_game_bytes(&bytes).map_err(|_| Error::RuntimeError("Lua string is neither valid UTF-8 nor valid Windows-949/EUC-KR".into()))
 }
 
+pub(super) fn value_u32(value: mlua::Value) -> Option<u32> {
+    match value {
+        mlua::Value::Integer(number) if number >= 0 => u32::try_from(number as u64).ok(),
+        mlua::Value::Number(number) if number.is_finite() && number >= 0.0 && number <= u32::MAX as f64 => Some(number as u32),
+        mlua::Value::String(text) => game_string(text).ok().and_then(|text| text.trim().parse().ok()),
+        _ => None,
+    }
+}
+
+/// Numeric Lua array (`{ [1] = 8, [2] = 10 }` or a bare number), in key order.
+pub(super) fn value_u32_list(value: mlua::Value) -> Vec<u32> {
+    let mlua::Value::Table(table) = value else {
+        return value_u32(value).into_iter().collect();
+    };
+    let mut indexed = Vec::new();
+    for pair in table.pairs::<mlua::Value, mlua::Value>().flatten() {
+        let Some(number) = value_u32(pair.1) else { continue };
+        let key = value_u32(pair.0).unwrap_or(u32::MAX);
+        indexed.push((key, number));
+    }
+    indexed.sort_by_key(|(key, _)| *key);
+    indexed.into_iter().map(|(_, number)| number).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;

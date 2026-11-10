@@ -7,6 +7,7 @@ mod party;
 pub mod pincode;
 mod player_shops;
 mod position;
+mod quest_renewal;
 mod styling;
 pub mod version_20190530;
 pub mod version_20250716;
@@ -31,6 +32,9 @@ pub use self::pincode::{
 };
 pub use self::player_shops::*;
 pub use self::position::{Direction, WorldPosition, WorldPosition2};
+pub use self::quest_renewal::{
+    HuntingQuestUpdatePacket4, QuestAddedPacket4, QuestHuntProgress, QuestHuntSub, QuestListInfo4, QuestListPacket4, QuestMissionInfo,
+};
 pub use self::styling::{
     CloseStyleShopPacket, RequestStyleChange2Packet, RequestStyleChangePacket, STYLIST_UI_TYPE, StyleChangeResultPacket,
 };
@@ -3683,6 +3687,16 @@ pub struct HuntingQuestUpdateObjectivePacket {
 #[header(0x02B4)]
 pub struct QuestRemovedPacket {
     pub quest_id: u32,
+}
+
+/// `CZ_ACTIVE_QUEST` (`0x02B6`). Hercules `clif_parse_questStateAck`: quest id
+/// then one active byte. Framing length is 7.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x02B6)]
+pub struct SetQuestActivePacket {
+    pub quest_id: u32,
+    pub active: u8,
 }
 
 #[derive(Debug, Clone, ByteConvertable)]

@@ -36,7 +36,7 @@ pub use self::entity::EntityData;
 pub use self::equip_switch::EquipSwitchSlotPathExt;
 pub use self::equip_switch::{EquipSwitchSlot, assign_slot, position_label, replace_slots};
 pub use self::event::{
-    CashShopOffer, DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, NetworkEvent, OwnShopLine,
+    CashShopOffer, DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, HuntIndexUpdate, NetworkEvent, OwnShopLine,
     RefineMaterialOffer, RoulettePrize, SearchStoreHit, StatusChangeState,
 };
 pub use self::hotkey::HotkeyState;
@@ -1047,6 +1047,17 @@ where
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(RequestUnequipItemPacket::new(item_index))
             }
+        }
+    }
+
+    /// `CZ_ACTIVE_QUEST` (`0x02B6`): mark a quest active or inactive.
+    pub fn set_quest_active(&mut self, quest_id: u32, active: bool) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(SetQuestActivePacket {
+                    quest_id,
+                    active: u8::from(active),
+                }),
         }
     }
 
@@ -2602,6 +2613,130 @@ mod packet_handlers {
             other => panic!("expected hunting update, got {other:?}"),
         }
         assert!(matches!(events[4], NetworkEvent::QuestRemoved { quest_id: 501 }));
+    }
+
+    #[test]
+    fn quest_packets_20250716_read_the_renewal_layouts() {
+        use ragnarok_packets::{
+            HuntingQuestUpdatePacket4, QuestAddedPacket4, QuestHuntProgress, QuestHuntSub, QuestListInfo4, QuestListPacket4,
+            QuestMissionInfo,
+        };
+
+        let mut writer = ByteWriter::new();
+        QuestListPacket4 {
+            quest_count: 1,
+            quests: vec![QuestListInfo4 {
+                quest_id: 501,
+                active: 1,
+                remaining_time: 11,
+                expire_time: 90,
+                objective_count: 1,
+                objective_details: vec![QuestMissionInfo {
+                    hunt_ident: 501,
+                    hunt_ident2: 0,
+                    mob_type: 2,
+                    mob_id: 1002,
+                    minimum_level: 1,
+                    maximum_level: 99,
+                    kill_count: 2,
+                    total_count: 5,
+                    mob_name: "Poring".to_owned(),
+                }],
+            }],
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        QuestAddedPacket4 {
+            quest_id: 502,
+            active: 0,
+            start_time: 1,
+            expire_time: 2,
+            objective_count: 1,
+            objective_details: [
+                QuestHuntSub {
+                    hunt_ident: 502,
+                    hunt_ident2: 0,
+                    mob_type: 1,
+                    mob_id: 1113,
+                    minimum_level: 1,
+                    maximum_level: 10,
+                    hunt_count: 4,
+                    mob_name: "Drops".to_owned(),
+                },
+                QuestHuntSub {
+                    hunt_ident: 0,
+                    hunt_ident2: 0,
+                    mob_type: 0,
+                    mob_id: 0,
+                    minimum_level: 0,
+                    maximum_level: 0,
+                    hunt_count: 0,
+                    mob_name: String::new(),
+                },
+                QuestHuntSub {
+                    hunt_ident: 0,
+                    hunt_ident2: 0,
+                    mob_type: 0,
+                    mob_id: 0,
+                    minimum_level: 0,
+                    maximum_level: 0,
+                    hunt_count: 0,
+                    mob_name: String::new(),
+                },
+            ],
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        HuntingQuestUpdatePacket4 {
+            objective_count: 1,
+            objective_details: vec![QuestHuntProgress {
+                quest_id: 501,
+                hunt_ident: 501,
+                hunt_ident2: 1,
+                total_count: 5,
+                current_count: 3,
+            }],
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+
+        let events = map_events(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert_eq!(events.len(), 3);
+        match &events[0] {
+            NetworkEvent::QuestList { quests } => {
+                assert_eq!(quests[0].quest_id, 501);
+                assert_eq!(quests[0].objective_details[0].mob_id, 1002);
+                assert_eq!(quests[0].objective_details[0].mob_name, "Poring");
+                assert_eq!(quests[0].objective_details[0].kill_count, 2);
+                assert_eq!(quests[0].objective_details[0].total_count, 5);
+            }
+            other => panic!("expected quest list, got {other:?}"),
+        }
+        match &events[1] {
+            NetworkEvent::QuestNotification {
+                quest_id,
+                active,
+                objectives,
+                ..
+            } => {
+                assert_eq!(*quest_id, 502);
+                assert!(!*active);
+                assert_eq!(objectives.len(), 1);
+                assert_eq!(objectives[0].mob_id, 1113);
+                assert_eq!(objectives[0].mob_name, "Drops");
+            }
+            other => panic!("expected quest notification, got {other:?}"),
+        }
+        match &events[2] {
+            NetworkEvent::HuntingQuestIndexUpdate { updates } => {
+                assert_eq!(updates.len(), 1);
+                assert_eq!(updates[0].quest_id, 501);
+                assert_eq!(updates[0].objective_index, 1);
+                assert_eq!(updates[0].current_count, 3);
+                assert_eq!(updates[0].total_count, 5);
+            }
+            other => panic!("expected hunt index update, got {other:?}"),
+        }
     }
 
     #[test]

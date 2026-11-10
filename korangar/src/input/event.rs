@@ -127,6 +127,18 @@ pub enum InputEvent {
     },
     /// Open or close the quest journal. Only works while playing.
     ToggleQuestJournalWindow,
+    /// Ask the map server to mark a quest active or inactive
+    /// (`CZ_ACTIVE_QUEST`).
+    SetQuestActive {
+        quest_id: u32,
+        active: bool,
+    },
+    /// Open or close the skill description for one skill-tree slot.
+    ToggleSkillDescription {
+        skill_id: SkillId,
+        title: String,
+        body: String,
+    },
     /// Open or close the achievement and attendance list.
     ToggleAchievementsWindow,
     /// Ask the map server for the attendance period.

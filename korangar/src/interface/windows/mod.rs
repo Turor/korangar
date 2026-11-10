@@ -61,6 +61,7 @@ mod search_store;
 mod sell;
 mod sell_cart;
 mod server_selection;
+mod skill_description;
 mod skill_tree;
 pub(crate) mod stable;
 mod stats;
@@ -142,6 +143,7 @@ pub use self::search_store::SearchStoreWindow;
 pub use self::sell::SellWindow;
 pub use self::sell_cart::SellCartWindow;
 pub use self::server_selection::ServerSelectionWindow;
+pub use self::skill_description::SkillDescriptionWindow;
 pub use self::skill_tree::{SkillTreeWindow, SkillTreeWindowState, SkillTreeWindowStatePathExt};
 pub use self::stable::{StableWindow, StableWindowState};
 pub use self::stats::StatsWindow;
@@ -187,6 +189,7 @@ pub enum WindowClass {
     Equipment,
     SwitchEquip,
     SkillTree,
+    SkillDescription,
     Stable,
     Warpra,
     WorldMap,

@@ -3666,7 +3666,10 @@ impl Client {
                     }
                 }
                 NetworkEvent::QuestList { quests } => {
-                    self.client_state.follow_mut(client_state().quest_log()).replace_all(quests);
+                    let library = std::sync::Arc::clone(&self.library);
+                    self.client_state
+                        .follow_mut(client_state().quest_log())
+                        .replace_all(quests, library.as_ref());
                 }
                 NetworkEvent::QuestNotification {
                     quest_id,
@@ -3675,18 +3678,32 @@ impl Client {
                     expire_time,
                     objectives,
                 } => {
+                    let library = std::sync::Arc::clone(&self.library);
                     self.client_state.follow_mut(client_state().quest_log()).upsert_notification(
                         quest_id,
                         active,
                         start_time,
                         expire_time,
                         objectives,
+                        library.as_ref(),
                     );
                 }
                 NetworkEvent::HuntingQuestNotification { objectives } | NetworkEvent::HuntingQuestObjectiveUpdate { objectives } => {
+                    let library = std::sync::Arc::clone(&self.library);
                     self.client_state
                         .follow_mut(client_state().quest_log())
-                        .apply_hunting_objectives(&objectives);
+                        .apply_hunting_objectives(&objectives, library.as_ref());
+                }
+                NetworkEvent::HuntingQuestIndexUpdate { updates } => {
+                    let quest_log = self.client_state.follow_mut(client_state().quest_log());
+                    for update in updates {
+                        quest_log.apply_hunt_progress_at_index(
+                            update.quest_id,
+                            update.objective_index,
+                            update.current_count,
+                            update.total_count,
+                        );
+                    }
                 }
                 NetworkEvent::QuestRemoved { quest_id } => {
                     self.client_state.follow_mut(client_state().quest_log()).remove(quest_id);
@@ -3886,6 +3903,29 @@ impl Client {
             self.client_state
                 .follow_mut(client_state().world_map_window())
                 .install_hover_texture(hover_path, texture);
+        }
+    }
+
+    /// A hover on the previous frame asked to show a skill. Run this after
+    /// input so a right-click in the same frame toggles the skill the window
+    /// was actually showing. Opens the window only when it is closed.
+    fn open_pending_skill_description(&mut self) {
+        let window_open = self.interface.is_window_with_class_open(WindowClass::SkillDescription);
+        if !window_open {
+            // Right-click and the close button both remove the window before this runs.
+            // Clearing the committed id lets a later hover open it again. The slot
+            // still suppresses that open while the pointer has not left the slot.
+            self.client_state
+                .follow_mut(client_state().skill_tree_window())
+                .note_description_window_closed();
+        }
+        let should_open = self
+            .client_state
+            .follow_mut(client_state().skill_tree_window())
+            .take_hover_description();
+        if should_open && self.client_state.try_follow(this_entity()).is_some() && !window_open {
+            self.interface
+                .open_window(SkillDescriptionWindow::new(client_state().skill_tree_window()));
         }
     }
 
@@ -4166,6 +4206,31 @@ impl Client {
                         .interface
                         .open_window(AudioSettingsWindow::new(client_state().audio_settings())),
                 },
+                InputEvent::SetQuestActive { quest_id, active } => {
+                    self.client_state
+                        .follow_mut(client_state().quest_log())
+                        .set_active_local(quest_id, active);
+                    let _ = self.networking_system.set_quest_active(quest_id, active);
+                }
+                InputEvent::ToggleSkillDescription { skill_id, title, body } => {
+                    if self.client_state.try_follow(this_entity()).is_none() {
+                        continue;
+                    }
+                    let same_skill = *self.client_state.follow(client_state().skill_tree_window().description_skill()) == Some(skill_id);
+                    let window_open = self.interface.is_window_with_class_open(WindowClass::SkillDescription);
+                    if same_skill && window_open {
+                        self.interface.close_window_with_class(WindowClass::SkillDescription);
+                        self.client_state.follow_mut(client_state().skill_tree_window()).cancel_hover_open();
+                    } else {
+                        self.client_state
+                            .follow_mut(client_state().skill_tree_window())
+                            .set_description(skill_id, title, body);
+                        if !window_open {
+                            self.interface
+                                .open_window(SkillDescriptionWindow::new(client_state().skill_tree_window()));
+                        }
+                    }
+                }
                 InputEvent::ToggleQuestJournalWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::QuestJournal) {
@@ -5660,6 +5725,8 @@ impl Client {
                 InputEvent::InspectFrame { measurement } => self.interface.open_window(FrameInspectorWindow::new(measurement)),
             }
         }
+
+        self.open_pending_skill_description();
 
         for effect in pincode_effects {
             self.apply_pincode_effect(effect);

@@ -6,7 +6,10 @@ mod job_identity;
 mod lua;
 mod map_display_name;
 mod map_sky_data;
+mod monster_name;
+mod quest_display;
 mod signboard;
+mod skill_description;
 mod skill_information;
 mod skill_requirements;
 mod skill_tree;
@@ -16,6 +19,7 @@ use std::hash::Hash;
 use hashbrown::HashMap;
 use korangar_loaders::FileLoader;
 use mlua::{ErrorContext, Lua};
+use ragnarok_packets::{ItemId, JobId, SkillId};
 
 pub use self::baby_job::IsBabyJob;
 pub use self::item_info::ItemInfo;
@@ -25,7 +29,14 @@ pub use self::job_identity::JobIdentity;
 use self::lua::{decode_game_bytes, execute_chunk, game_string};
 pub use self::map_display_name::{display_name_from_table, load_map_display_names};
 pub use self::map_sky_data::MapSkyData;
+use self::monster_name::load_monster_names;
+#[allow(unused_imports)]
+pub use self::quest_display::QuestRewardItem;
+use self::quest_display::load_quest_displays;
+pub use self::quest_display::{QuestDisplay, QuestTextSource, format_quest_rewards, format_quest_timer, quest_is_cooldown};
 pub use self::signboard::MapSignboards;
+pub use self::skill_description::{JobParents, compose_skill_description, shown_skill_level};
+use self::skill_description::{filter_job_prefixed_lines, load_skill_text};
 pub use self::skill_tree::SkillTreeLayout;
 use crate::loaders::GameFileLoader;
 pub use crate::world::library::skill_information::SkillListInformation;
@@ -41,6 +52,10 @@ pub struct Library {
     baby_job_table: <IsBabyJob as Table>::Storage,
     signboard_table: <MapSignboards as Table>::Storage,
     map_display_names: HashMap<String, String>,
+    quest_displays: HashMap<u32, QuestDisplay>,
+    monster_names: HashMap<u32, String>,
+    skill_descriptions: HashMap<u16, String>,
+    job_parents: JobParents,
 }
 
 impl Library {
@@ -54,6 +69,11 @@ impl Library {
         let baby_job_table = IsBabyJob::load(game_file_loader).context("loading IsBabyJob")?;
         let signboard_table = MapSignboards::load(game_file_loader).context("loading MapSignboards")?;
         let map_display_names = load_map_display_names(game_file_loader);
+        // Missing quest and skill text files leave these empty. They must not fail
+        // startup.
+        let quest_displays = load_quest_displays(game_file_loader);
+        let monster_names = load_monster_names(game_file_loader);
+        let (skill_descriptions, job_parents) = load_skill_text(game_file_loader);
 
         Ok(Self {
             job_identity_table,
@@ -65,7 +85,18 @@ impl Library {
             baby_job_table,
             signboard_table,
             map_display_names,
+            quest_displays,
+            monster_names,
+            skill_descriptions,
+            job_parents,
         })
+    }
+
+    /// Filtered skill description body for one job. Level and SP are added
+    /// later.
+    pub fn skill_description_body(&self, skill_id: SkillId, job_id: JobId) -> String {
+        let raw = self.skill_descriptions.get(&skill_id.0).map(String::as_str).unwrap_or("");
+        filter_job_prefixed_lines(raw, job_id.0, &self.job_parents)
     }
 
     pub fn map_display_name(&self, internal: &str) -> String {
@@ -88,6 +119,26 @@ impl Library {
     #[inline(always)]
     pub fn get<T: Table>(&self, key: T::Key<'_>) -> &T {
         T::get(self, key)
+    }
+}
+
+impl QuestTextSource for Library {
+    fn quest_display(&self, quest_id: u32) -> Option<&QuestDisplay> {
+        self.quest_displays.get(&quest_id)
+    }
+
+    fn monster_name(&self, mob_id: u32) -> Option<&str> {
+        self.monster_names.get(&mob_id).map(String::as_str)
+    }
+
+    fn item_label(&self, item_id: u32) -> String {
+        let name = self
+            .get::<ItemName>(ItemNameKey {
+                item_id: ItemId(item_id),
+                is_identified: true,
+            })
+            .to_string();
+        if name == "NOTFOUND" { format!("Item {item_id}") } else { name }
     }
 }
 

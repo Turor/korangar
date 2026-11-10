@@ -17,6 +17,7 @@ use crate::renderer::LayoutExt;
 use crate::state::skills::{LearnableSkill, LearnedSkill, SkillAcquisition};
 use crate::state::theme::{InterfaceThemePathExt, SkillTreeThemePathExt};
 use crate::state::{ClientState, client_theme};
+use crate::world::{compose_skill_description, shown_skill_level};
 
 struct LevelDisplay {
     level: Option<SkillLevel>,
@@ -117,6 +118,53 @@ where
     }
 }
 
+/// Right-click opens or closes the description and does not start a drag.
+struct SkillDescribeHandler<A, B, C> {
+    learnable_skill_path: A,
+    learned_skill_path: B,
+    window_state_path: C,
+}
+
+impl<A, B, C> SkillDescribeHandler<A, B, C> {
+    fn new(learnable_skill_path: A, learned_skill_path: B, window_state_path: C) -> Self {
+        Self {
+            learnable_skill_path,
+            learned_skill_path,
+            window_state_path,
+        }
+    }
+}
+
+impl<A, B, C> ClickHandler<ClientState> for SkillDescribeHandler<A, B, C>
+where
+    A: Path<ClientState, LearnableSkill, false>,
+    B: Path<ClientState, LearnedSkill, false>,
+    C: Path<ClientState, SkillTreeWindowState>,
+{
+    fn handle_click(&self, state: &State<ClientState>, queue: &mut EventQueue<ClientState>) {
+        let Some(skill) = state.try_get(&self.learnable_skill_path) else {
+            return;
+        };
+        let learned_level = state.try_get(&self.learned_skill_path).map(|learned| learned.skill_level.0);
+        let pending_points = state
+            .get(&self.window_state_path.pending_skill_points())
+            .iter()
+            .filter(|skill_id| **skill_id == skill.skill_id)
+            .count() as u16;
+        let chosen_level = state
+            .get(&self.window_state_path.chosen_skill_level())
+            .get(&skill.skill_id)
+            .map(|level| level.0);
+        let level = shown_skill_level(learned_level, pending_points, chosen_level);
+        let body = compose_skill_description(&skill.description, level, skill.maximum_level.0, &skill.spell_point_costs);
+        queue.queue(InputEvent::ToggleSkillDescription {
+            skill_id: skill.skill_id,
+            title: skill.skill_name.clone(),
+            body,
+        });
+    }
+}
+
 struct ChooseLowerClickHandler<A, B> {
     learned_skill_path: A,
     window_state_path: B,
@@ -201,9 +249,12 @@ pub struct SkillSlot<A, B, C> {
     learned_skill_path: B,
     window_state_path: C,
     click_handler: SkillSlotClickHandler<A, B, C>,
+    describe_handler: SkillDescribeHandler<A, B, C>,
     choose_lower_handler: ChooseLowerClickHandler<B, C>,
     choose_higher_handler: ChooseHigherClickHandler<B, C>,
     level_display: LevelDisplay,
+    hover_text: String,
+    description_text: String,
 }
 
 impl<A, B, C> SkillSlot<A, B, C>
@@ -218,9 +269,12 @@ where
             learned_skill_path,
             window_state_path,
             click_handler: SkillSlotClickHandler::new(learnable_skill_path, learned_skill_path, window_state_path, source),
+            describe_handler: SkillDescribeHandler::new(learnable_skill_path, learned_skill_path, window_state_path),
             choose_lower_handler: ChooseLowerClickHandler::new(learned_skill_path, window_state_path),
             choose_higher_handler: ChooseHigherClickHandler::new(learned_skill_path, window_state_path),
             level_display: LevelDisplay::default(),
+            hover_text: String::new(),
+            description_text: String::new(),
         }
     }
 }
@@ -252,15 +306,18 @@ where
                     .filter(|skill_id| **skill_id == learnable_skill.skill_id)
                     .count() as u16;
 
-                let mut skill_level = state.try_get(&self.learned_skill_path).map(|skill| skill.skill_level);
+                let learned_level = state.try_get(&self.learned_skill_path).map(|skill| skill.skill_level.0);
+                let chosen_level = state
+                    .get(&self.window_state_path.chosen_skill_level())
+                    .get(&learnable_skill.skill_id)
+                    .copied();
+
+                let mut skill_level = learned_level.map(SkillLevel);
 
                 if pending_skill_points >= 1 {
                     skill_level.get_or_insert(SkillLevel(0)).0 += pending_skill_points;
-                } else if let Some(chosen_skill_level) = state
-                    .get(&self.window_state_path.chosen_skill_level())
-                    .get(&learnable_skill.skill_id)
-                {
-                    skill_level = Some(*chosen_skill_level);
+                } else if let Some(chosen_skill_level) = chosen_level {
+                    skill_level = Some(chosen_skill_level);
                 }
 
                 let highlighted_skill = *state.get(&self.window_state_path.highlighted_skill());
@@ -270,6 +327,17 @@ where
                     Some(required_skill_level) => self.level_display.update(skill_level, *required_skill_level),
                     None => self.level_display.update(skill_level, learnable_skill.maximum_level),
                 }
+                let shown_level = shown_skill_level(learned_level, pending_skill_points, chosen_level.map(|level| level.0));
+                self.description_text = compose_skill_description(
+                    &learnable_skill.description,
+                    shown_level,
+                    learnable_skill.maximum_level.0,
+                    &learnable_skill.spell_point_costs,
+                );
+                self.hover_text = format!("{}\n{}", learnable_skill.skill_name, self.description_text);
+            } else {
+                self.hover_text.clear();
+                self.description_text.clear();
             }
 
             Self::LayoutInfo { area }
@@ -448,13 +516,35 @@ where
                 layout.add_sprite(sprite_area, actions, sprite, &skill.animation_state, color, 1.3);
             }
 
+            let committed_skill = *state.get(&self.window_state_path.description_skill());
+            let dismissed_skill = *state.get(&self.window_state_path.description_dismissed());
+            if !is_hovered && dismissed_skill == Some(skill.skill_id) {
+                state.update_value(self.window_state_path.description_dismissed(), None);
+            }
+            if committed_skill == Some(skill.skill_id) {
+                let body_path = self.window_state_path.description_body();
+                let body_differs = state.get(&body_path).as_str() != self.description_text;
+                if body_differs {
+                    state.update_value(self.window_state_path.description_title(), skill.skill_name.clone());
+                    state.update_value(self.window_state_path.description_body(), self.description_text.clone());
+                }
+            }
+
             if is_hovered {
                 layout.register_click_handler(MouseButton::Left, &self.click_handler);
+                layout.register_click_handler(MouseButton::Right, &self.describe_handler);
 
                 struct SkillSlotTooltip;
-                layout.add_tooltip(&skill.skill_name, SkillSlotTooltip.tooltip_id());
+                layout.add_tooltip(self.hover_text.as_str(), SkillSlotTooltip.tooltip_id());
 
                 state.update_value(self.window_state_path.highlighted_skill(), Some(skill.skill_id));
+                let same_slot_just_closed = dismissed_skill == Some(skill.skill_id);
+                if committed_skill != Some(skill.skill_id) && !same_slot_just_closed {
+                    state.update_value(self.window_state_path.description_pending_title(), skill.skill_name.clone());
+                    state.update_value(self.window_state_path.description_pending_body(), self.description_text.clone());
+                    state.update_value(self.window_state_path.description_pending_skill(), Some(skill.skill_id));
+                    state.update_value(self.window_state_path.description_open(), true);
+                }
             }
         } else {
             layout.add_rectangle(

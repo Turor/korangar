@@ -4,6 +4,9 @@ use hashbrown::HashMap;
 use mlua::{ErrorContext, Lua};
 use ragnarok_packets::{SkillId, SkillLevel};
 
+use super::lua::value_u32_list;
+use super::quest_display::{decode_bytes, read_first};
+use super::skill_description::parse_sp_amount_table;
 use super::{HashMapExt, Library, Table, game_string};
 use crate::loaders::GameFileLoader;
 use crate::state::skills::SkillAcquisition;
@@ -16,6 +19,7 @@ static NOT_FOUND_ENTRY: LazyLock<SkillListInformation> = LazyLock::new(|| SkillL
     can_select_level: false,
     // To make it unskillable.
     acquisition: SkillAcquisition::Quest,
+    sp_amounts: Vec::new(),
 });
 
 pub struct SkillListInformation {
@@ -24,6 +28,8 @@ pub struct SkillListInformation {
     pub maximum_level: SkillLevel,
     pub can_select_level: bool,
     pub acquisition: SkillAcquisition,
+    /// Per-level SP from `SpAmount`, overridden by `leveluseskillspamount.txt`.
+    pub sp_amounts: Vec<u32>,
 }
 
 impl Table for SkillListInformation {
@@ -44,7 +50,9 @@ impl Table for SkillListInformation {
             ],
         ])?;
 
-        Self::from_lua(&state)
+        let mut skills = Self::from_lua(&state)?;
+        apply_level_sp_amounts(game_file_loader, &state, &mut skills);
+        Ok(skills)
     }
 
     fn try_get<'a, 'b>(library: &'a Library, key: Self::Key<'b>) -> Option<&'a Self>
@@ -86,6 +94,7 @@ impl SkillListInformation {
                 None => SkillAcquisition::Job,
                 Some(unknown) => panic!("unknown skill type {}", unknown),
             };
+            let sp_amounts = table.get::<mlua::Value>("SpAmount").map(value_u32_list).unwrap_or_default();
 
             result.insert(SkillId(skill_id), SkillListInformation {
                 file_name,
@@ -93,10 +102,29 @@ impl SkillListInformation {
                 maximum_level: SkillLevel(maximum_level),
                 can_select_level,
                 acquisition,
+                sp_amounts,
             });
         }
 
         Ok(result.compact())
+    }
+}
+
+const SP_AMOUNT_CANDIDATES: &[&str] = &["data\\leveluseskillspamount.txt", "data/leveluseskillspamount.txt"];
+
+fn apply_level_sp_amounts(game_file_loader: &GameFileLoader, state: &Lua, skills: &mut HashMap<SkillId, SkillListInformation>) {
+    let Some(bytes) = read_first(game_file_loader, SP_AMOUNT_CANDIDATES) else {
+        return;
+    };
+    let Ok(skid) = state.globals().get::<mlua::Table>("SKID") else {
+        return;
+    };
+    for (name, amounts) in parse_sp_amount_table(&decode_bytes(&bytes)) {
+        let Ok(id) = skid.get::<i64>(name.as_str()) else { continue };
+        let Ok(id) = u16::try_from(id) else { continue };
+        if let Some(skill) = skills.get_mut(&SkillId(id)) {
+            skill.sp_amounts = amounts;
+        }
     }
 }
 

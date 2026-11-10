@@ -12,6 +12,7 @@ pub mod item_workshop;
 pub mod mvp_minimap;
 pub mod npc_dialog;
 pub mod party;
+pub mod quest_renewal;
 pub mod refine;
 pub mod rodex;
 pub mod stable;
