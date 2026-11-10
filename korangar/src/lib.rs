@@ -401,6 +401,9 @@ pub struct Client {
     npc_dismissed: crate::state::npc_dismiss::DismissedScript,
     dialog_layer: crate::interface::dialog_layer::DialogLayer,
     long_walk: crate::world::long_walk::LongWalk,
+    /// Error for a map that failed to load, shown once character select is
+    /// back.
+    pending_map_error: Option<String>,
 
     point_light_set_buffer: ResourceSetBuffer<LightSourceKey>,
     directional_shadow_object_set_buffer: ResourceSetBuffer<ObjectKey>,
@@ -963,6 +966,7 @@ impl Client {
             npc_dismissed: Default::default(),
             dialog_layer: Default::default(),
             long_walk: Default::default(),
+            pending_map_error: None,
             point_light_set_buffer,
             directional_shadow_object_set_buffer,
             point_shadow_object_set_buffer,
@@ -6819,9 +6823,18 @@ impl Client {
         let mut autopilot_effects = Vec::new();
         for map_name in self.async_loader.take_failed_maps() {
             let failure = crate::world::map_load_failure::on_map_load_failed(&map_name, self.networking_system.is_map_server_connected());
-            self.interface.open_window(ErrorWindow::new(failure.message));
+            eprintln!(
+                "map load failed: {map_name} (return to character selection: {})",
+                failure.return_to_character_selection
+            );
             if failure.return_to_character_selection {
-                let _ = self.networking_system.log_out();
+                // The server ignores a restart request before the map is
+                // loaded, so drop the map connection ourselves. Character
+                // select closes every window, so the error waits for it.
+                self.pending_map_error = Some(failure.message);
+                self.networking_system.disconnect_from_map_server();
+            } else {
+                self.interface.open_window(ErrorWindow::new(failure.message));
             }
         }
         for completed in self.async_loader.take_completed() {
@@ -6915,6 +6928,9 @@ impl Client {
                                     client_state().character_slots(),
                                     client_state().switch_request(),
                                 ));
+                                if let Some(message) = self.pending_map_error.take() {
+                                    self.interface.open_window(ErrorWindow::new(message));
+                                }
                             }
 
                             self.start_camera.set_focus_point(START_CAMERA_FOCUS_POINT);
