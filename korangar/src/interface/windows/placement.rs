@@ -91,6 +91,16 @@ fn chat_screen_margin(scale: f32) -> f32 {
     (8.0 * scale).max(CHAT_SCREEN_MARGIN)
 }
 
+/// HUD scale relative to the 1280x720 reference screen.
+pub fn hud_scale(screen_width: f32, screen_height: f32) -> f32 {
+    (screen_width / REFERENCE_SCREEN_WIDTH).min(screen_height / REFERENCE_SCREEN_HEIGHT)
+}
+
+/// Gap kept under windows docked on the bottom edge (same as chat).
+pub fn hud_bottom_margin(screen_width: f32, screen_height: f32) -> f32 {
+    chat_screen_margin(hud_scale(screen_width, screen_height))
+}
+
 /// Keep a chat window's top-left and height inside the screen.
 ///
 /// Saved caches used a 220px minimum on a ~160px anchor, so the message list

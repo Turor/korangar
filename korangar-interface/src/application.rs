@@ -191,6 +191,12 @@ where
     /// preset when nothing has been saved for `window_class`.
     fn get_window_state(&self, window_class: App::WindowClass, screen: App::Size) -> Option<(Anchor<App>, App::Size)>;
 
+    /// `true` when the user placed this window class (moved or resized it),
+    /// so the window must not be re-docked when the screen changes.
+    fn has_saved_state(&self, _window_class: App::WindowClass) -> bool {
+        true
+    }
+
     /// Register a new window with its size and position.
     ///
     /// This is only called if the window is not already cached but the

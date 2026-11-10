@@ -138,7 +138,8 @@ pub use self::mail::{MailWindow, MailWindowState};
 pub use self::maps::MapsWindow;
 pub use self::menu::MenuWindow;
 pub use self::menu_bar::{
-    MenuBarIcons, MenuBarLayout, MenuBarPress, MenuBarWindow, menu_bar_open_bits, next_distinct_layout, press_menu_bar,
+    MenuBarIcons, MenuBarLayout, MenuBarPress, MenuBarWindow, docked_menu_bar_window, menu_bar_open_bits, next_distinct_layout,
+    press_menu_bar,
 };
 pub use self::mvp_minimap::{MvpMinimapState, MvpMinimapWindow};
 pub use self::navigation::NavigationWindow;

@@ -86,6 +86,10 @@ impl korangar_interface::application::WindowCache<ClientState> for WindowCache {
         })
     }
 
+    fn has_saved_state(&self, class: WindowClass) -> bool {
+        self.entries.contains_key(&class)
+    }
+
     fn register_window(&mut self, class: WindowClass, anchor: Anchor<ClientState>, size: ScreenSize) {
         if let Some(entry) = self.entries.get_mut(&class) {
             entry.anchor = anchor;
@@ -196,9 +200,10 @@ mod tests {
         assert!((start.top - expected.top).abs() < 0.5);
         assert!((size.width - expected.width).abs() < 0.5);
         assert!((size.height - expected.height).abs() < 0.5);
+        let bottom = screen.height - super::super::placement::hud_bottom_margin(screen.width, screen.height);
         assert!(
-            screen.height - (start.top + size.height) > 40.0,
-            "default bar still covers the bottom HUD"
+            (start.top + size.height - bottom).abs() < 0.5,
+            "default bar is not on the bottom edge"
         );
 
         let mut moved = anchor;
