@@ -32,6 +32,14 @@ impl CustomWindow<ClientState> for RouletteWindow {
             closable: false,
             elements: (
                 text! {
+                    text: state_path.points(),
+                    overflow_behavior: OverflowBehavior::Shrink,
+                },
+                text! {
+                    text: state_path.wheel(),
+                    overflow_behavior: OverflowBehavior::Shrink,
+                },
+                text! {
                     text: state_path.status(),
                     overflow_behavior: OverflowBehavior::Shrink,
                 },

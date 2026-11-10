@@ -1054,6 +1054,9 @@ impl Client {
     fn handle_network_events(&mut self, client_tick: ClientTick) {
         *self.client_state.follow_mut(client_state().client_tick()) = client_tick;
         self.client_state.follow_mut(client_state().navigation()).expire(client_tick.0);
+        self.client_state
+            .follow_mut(client_state().roulette_window())
+            .tick_spin(client_tick.0);
         if headless_auto() && !HEADLESS_AUTO_LOGIN_DONE.swap(true, Ordering::SeqCst) {
             let login_settings = self.client_state.follow(client_state().login_settings());
             if let Some(service_id) = login_settings.recent_service_id
@@ -1911,6 +1914,7 @@ impl Client {
                             silver,
                             bronze,
                         },
+                        client_tick.0,
                     );
                 }
                 NetworkEvent::RouletteClaimed { result, item_id } => {
@@ -2221,8 +2225,14 @@ impl Client {
                         self.interface.open_window(MailWindow::new());
                     }
                 }
-                NetworkEvent::RodexMailList { summary, .. } => {
-                    self.client_state.follow_mut(client_state().mail_window()).set_list(summary);
+                NetworkEvent::RodexMailList {
+                    summary,
+                    is_end,
+                    next_mail_id,
+                } => {
+                    self.client_state
+                        .follow_mut(client_state().mail_window())
+                        .set_list(summary, is_end, next_mail_id);
                     self.interface.open_window(MailWindow::new());
                 }
                 NetworkEvent::RodexWriteResult { summary, .. } => {
@@ -2234,11 +2244,25 @@ impl Client {
                         .follow_mut(client_state().mail_window())
                         .set_status(format!("Deleted mail #{mail_id}."));
                 }
-                NetworkEvent::RodexZeny { summary, .. } => {
-                    self.client_state.follow_mut(client_state().mail_window()).set_status(summary);
+                NetworkEvent::RodexZeny { mail_id, result, summary } => {
+                    self.client_state
+                        .follow_mut(client_state().mail_window())
+                        .note_zeny(mail_id, result, summary);
                 }
-                NetworkEvent::RodexRead { summary, .. } => {
-                    self.client_state.follow_mut(client_state().mail_window()).set_body(summary);
+                NetworkEvent::RodexItems { mail_id, result, summary } => {
+                    self.client_state
+                        .follow_mut(client_state().mail_window())
+                        .note_items(mail_id, result, summary);
+                }
+                NetworkEvent::RodexRead {
+                    mail_id,
+                    zeny,
+                    item_count,
+                    summary,
+                } => {
+                    self.client_state
+                        .follow_mut(client_state().mail_window())
+                        .set_read(mail_id, zeny, item_count, summary);
                     self.interface.open_window(MailWindow::new());
                 }
                 NetworkEvent::OpenDialog { text, npc_id } => {
@@ -3712,6 +3736,14 @@ impl Client {
                         let _ = self.networking_system.request_achievement_reward(achievement_id);
                     }
                 }
+                InputEvent::CycleAchievementFilter => {
+                    self.client_state.follow_mut(client_state().achievements()).cycle_filter();
+                }
+                InputEvent::CycleAchievementCategory => {
+                    self.client_state
+                        .follow_mut(client_state().achievements())
+                        .cycle_category();
+                }
                 InputEvent::ToggleNavigationWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::Navigation) {
@@ -4170,9 +4202,36 @@ impl Client {
                         self.interface.open_window(MailWindow::new());
                     }
                 }
+                InputEvent::NextMailPage => match self.client_state.follow(client_state().mail_window()).next_page_id() {
+                    Ok(mail_id) => {
+                        let _ = self.networking_system.refresh_rodex(mail_id);
+                    }
+                    Err(message) => self
+                        .client_state
+                        .follow_mut(client_state().mail_window())
+                        .set_status(message.to_owned()),
+                },
                 InputEvent::ReadMail => match self.client_state.follow(client_state().mail_window()).mail_id() {
                     Ok(mail_id) => {
                         let _ = self.networking_system.read_rodex(0, mail_id);
+                    }
+                    Err(message) => self
+                        .client_state
+                        .follow_mut(client_state().mail_window())
+                        .set_status(message.to_owned()),
+                },
+                InputEvent::TakeMailZeny => match self.client_state.follow(client_state().mail_window()).zeny_request() {
+                    Ok(mail_id) => {
+                        let _ = self.networking_system.take_rodex_zeny(0, mail_id);
+                    }
+                    Err(message) => self
+                        .client_state
+                        .follow_mut(client_state().mail_window())
+                        .set_status(message.to_owned()),
+                },
+                InputEvent::TakeMailItems => match self.client_state.follow(client_state().mail_window()).item_request() {
+                    Ok(mail_id) => {
+                        let _ = self.networking_system.take_rodex_items(0, mail_id);
                     }
                     Err(message) => self
                         .client_state
@@ -4220,6 +4279,14 @@ impl Client {
                     }
                     Err(message) => self.client_state.follow_mut(client_state().bank_window()).status = message.to_owned(),
                 },
+                InputEvent::BankAdd100k => self.client_state.follow_mut(client_state().bank_window()).add_amount(100_000),
+                InputEvent::BankAdd1m => self.client_state.follow_mut(client_state().bank_window()).add_amount(1_000_000),
+                InputEvent::BankAdd10m => self.client_state.follow_mut(client_state().bank_window()).add_amount(10_000_000),
+                InputEvent::BankSetMax => {
+                    if let Err(message) = self.client_state.follow_mut(client_state().bank_window()).set_max_pocket() {
+                        self.client_state.follow_mut(client_state().bank_window()).status = message.to_owned();
+                    }
+                }
                 InputEvent::CloseBank => {
                     if let Some(account_id) = self.saved_login_data.as_ref().map(|login| login.account_id) {
                         let _ = self.networking_system.close_bank(account_id);
