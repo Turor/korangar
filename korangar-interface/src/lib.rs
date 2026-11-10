@@ -450,6 +450,21 @@ where
         }
     }
 
+    /// Move a window that is already open. The saved anchor is updated too, so
+    /// the next open starts at the same place.
+    pub fn place_window_class(&mut self, window_class: App::WindowClass, anchor: Anchor<App>, size: App::Size) {
+        if let Some(wrapper) = self
+            .windows
+            .iter_mut()
+            .find(|wrapper| wrapper.window.get_class().is_some_and(|class| class == window_class))
+        {
+            wrapper.data.anchor = anchor;
+            wrapper.data.size = size;
+        }
+        self.window_cache.update_anchor(window_class, anchor);
+        self.window_cache.update_size(window_class, size);
+    }
+
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
     pub fn open_state_window<T>(&mut self, window_path: impl rust_state::Path<App, T>)
     where

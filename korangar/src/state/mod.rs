@@ -36,6 +36,7 @@ pub mod styling_catalog;
 pub mod styling_shop;
 pub mod theme;
 pub mod trade;
+pub mod vn_dialog;
 
 use std::cell::Cell;
 use std::sync::Arc;

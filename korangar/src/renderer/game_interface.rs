@@ -57,7 +57,7 @@ impl SpriteRenderer for GameInterfaceRenderer {
         color: Color,
         smooth: bool,
     ) {
-        self.render_indexed(texture, position, size, color, 1, 0, smooth);
+        self.render_indexed(texture, position, size, color, 1, 0, smooth, false);
     }
 
     fn render_sdf(
@@ -284,6 +284,12 @@ impl GameInterfaceRenderer {
         });
     }
 
+    /// `flip_x` mirrors the texture. The interface shader samples
+    /// `texture_position + uv * texture_size`, so a negative width flips it.
+    pub fn render_sprite_flipped(&self, texture: Arc<Texture>, position: ScreenPosition, size: ScreenSize, color: Color, flip_x: bool) {
+        self.render_indexed(texture, position, size, color, 1, 0, false, flip_x);
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn render_indexed(
         &self,
@@ -294,6 +300,7 @@ impl GameInterfaceRenderer {
         column_count: usize,
         cell_index: usize,
         smooth: bool,
+        flip_x: bool,
     ) {
         let screen_position = ScreenPosition {
             left: screen_position.left / self.window_size.width,
@@ -308,8 +315,14 @@ impl GameInterfaceRenderer {
         let unit = 1.0 / column_count as f32;
         let offset_x = unit * (cell_index % column_count) as f32;
         let offset_y = unit * (cell_index / column_count) as f32;
-        let texture_position = Vector2::new(offset_x, offset_y);
-        let texture_size = Vector2::new(unit, unit);
+        let texture_position = match flip_x {
+            true => Vector2::new(offset_x + unit, offset_y),
+            false => Vector2::new(offset_x, offset_y),
+        };
+        let texture_size = match flip_x {
+            true => Vector2::new(-unit, unit),
+            false => Vector2::new(unit, unit),
+        };
 
         self.instructions.borrow_mut().push(RectangleInstruction::Sprite {
             screen_position,

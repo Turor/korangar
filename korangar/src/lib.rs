@@ -5063,7 +5063,12 @@ impl Client {
                 }
                 InputEvent::CloseTopWindow => self.on_close_top_window(),
                 InputEvent::Escape => {
-                    if self.interface.is_window_with_class_open(WindowClass::WorldMap) {
+                    if crate::interface::npc_flow::try_close_npc_script(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        &mut self.networking_system,
+                    ) {
+                    } else if self.interface.is_window_with_class_open(WindowClass::WorldMap) {
                         self.interface.close_window_with_class(WindowClass::WorldMap);
                         self.client_state.follow_mut(client_state().world_map_window()).close_floors();
                     } else {
@@ -7398,6 +7403,34 @@ impl Client {
         let mut indicator_instruction = None;
         let mut water_instruction = None;
 
+        let focus_npc_input = self.client_state.follow_mut(client_state().dialog_window()).take_input_focus();
+        let dialog_npc_id = self.client_state.follow(client_state().dialog_window()).npc_id();
+        let (dialog_key, dialog_ate_confirm) = if !interface_has_focus {
+            let ate = self
+                .client_state
+                .follow_mut(client_state().dialog_window())
+                .take_confirm_key(&input_report.characters);
+            if ate {
+                (None, true)
+            } else {
+                let dialog = self.client_state.follow(client_state().dialog_window());
+                (
+                    dialog_hotkey(
+                        dialog.is_awaiting_next(),
+                        dialog.is_awaiting_close(),
+                        dialog.is_awaiting_choice(),
+                        dialog.input_is_open(),
+                        &input_report.characters,
+                    ),
+                    false,
+                )
+            }
+        } else {
+            (None, false)
+        };
+
+        crate::interface::npc_flow::prepare_vn_dialog(&mut self.client_state, &mut self.interface, screen_size, client_tick.0);
+
         let mouse_mode = self.interface.get_mouse_mode();
         let is_mouse_mode_default = mouse_mode.is_default();
         let last_walking_destination = mouse_mode.walk_destination();
@@ -7412,19 +7445,13 @@ impl Client {
             _ => None,
         };
 
-        let focus_npc_input = self.client_state.follow_mut(client_state().dialog_window()).take_input_focus();
-        let dialog_npc_id = self.client_state.follow(client_state().dialog_window()).npc_id();
-        let dialog_key = if !interface_has_focus {
-            let dialog = self.client_state.follow(client_state().dialog_window());
-            dialog_hotkey(
-                dialog.is_awaiting_next(),
-                dialog.is_awaiting_close(),
-                dialog.is_awaiting_choice(),
-                dialog.input_is_open(),
-                &input_report.characters,
-            )
-        } else {
-            None
+        let dialog_open = self.interface.is_window_with_class_open(WindowClass::Dialog);
+        let script_captures_pointer = crate::interface::npc_flow::npc_script_captures_pointer(&self.client_state, dialog_open);
+        let vn_click = match input_report.mouse_click {
+            Some(MouseButton::Left | MouseButton::DoubleLeft) => {
+                crate::interface::npc_flow::vn_primary_click(&mut self.client_state, dialog_open)
+            }
+            _ => crate::interface::npc_flow::VnPrimaryClick::Pass,
         };
 
         let mut interface_frame = {
@@ -7499,55 +7526,69 @@ impl Client {
             self.mouse_cursor.set_state(cursor_state, client_tick);
 
             if let Some(mouse_button) = input_report.mouse_click {
-                if is_interface_hovered {
-                    interface_frame.click(&self.client_state, mouse_button);
-                } else {
-                    interface_frame.unfocus();
-
-                    if mouse_button == MouseButton::Left {
-                        if let Some(hit) = shop_hit {
-                            self.input_event_buffer.push(InputEvent::OpenPlayerShop {
-                                account_id: hit.account_id,
-                                buying_store: hit.buying_store,
-                            });
+                match vn_click {
+                    crate::interface::npc_flow::VnPrimaryClick::Consume => {}
+                    crate::interface::npc_flow::VnPrimaryClick::InterfaceOnly => {
+                        if is_interface_hovered {
+                            interface_frame.click(&self.client_state, mouse_button);
+                        }
+                    }
+                    crate::interface::npc_flow::VnPrimaryClick::Event(event) => {
+                        self.input_event_buffer.push(*event);
+                    }
+                    crate::interface::npc_flow::VnPrimaryClick::Pass => {
+                        if is_interface_hovered {
+                            interface_frame.click(&self.client_state, mouse_button);
                         } else {
-                            match input_report.mouse_target {
-                                PickerTarget::Nothing => {}
-                                PickerTarget::Entity(entity_id) => {
-                                    let is_ground_item = self
-                                        .client_state
-                                        .follow(client_state().ground_items())
-                                        .iter()
-                                        .any(|item| item.get_entity_id() == entity_id);
+                            interface_frame.unfocus();
 
-                                    if is_ground_item {
-                                        self.input_event_buffer.push(InputEvent::PickUpItem { entity_id })
-                                    } else {
-                                        self.input_event_buffer.push(InputEvent::PlayerInteract { entity_id })
+                            if mouse_button == MouseButton::Left {
+                                if let Some(hit) = shop_hit {
+                                    self.input_event_buffer.push(InputEvent::OpenPlayerShop {
+                                        account_id: hit.account_id,
+                                        buying_store: hit.buying_store,
+                                    });
+                                } else {
+                                    match input_report.mouse_target {
+                                        PickerTarget::Nothing => {}
+                                        PickerTarget::Entity(entity_id) => {
+                                            let is_ground_item = self
+                                                .client_state
+                                                .follow(client_state().ground_items())
+                                                .iter()
+                                                .any(|item| item.get_entity_id() == entity_id);
+
+                                            if is_ground_item {
+                                                self.input_event_buffer.push(InputEvent::PickUpItem { entity_id })
+                                            } else {
+                                                self.input_event_buffer.push(InputEvent::PlayerInteract { entity_id })
+                                            }
+                                        }
+                                        PickerTarget::Tile { x, y } => {
+                                            let destination = TilePosition { x, y };
+
+                                            interface_frame.set_mouse_mode(MouseInputMode::Walk { destination });
+
+                                            self.input_event_buffer.push(InputEvent::PlayerMove { destination });
+                                        }
+                                        #[cfg(feature = "debug")]
+                                        PickerTarget::Marker(marker_identifier) => {
+                                            self.input_event_buffer.push(InputEvent::OpenMarkerDetails { marker_identifier })
+                                        }
                                     }
                                 }
-                                PickerTarget::Tile { x, y } => {
-                                    let destination = TilePosition { x, y };
-
-                                    interface_frame.set_mouse_mode(MouseInputMode::Walk { destination });
-
-                                    self.input_event_buffer.push(InputEvent::PlayerMove { destination });
-                                }
-                                #[cfg(feature = "debug")]
-                                PickerTarget::Marker(marker_identifier) => {
-                                    self.input_event_buffer.push(InputEvent::OpenMarkerDetails { marker_identifier })
-                                }
+                            } else if mouse_button == MouseButton::Right && currently_playing {
+                                #[cfg_attr(feature = "debug", korangar_debug::debug_condition(!render_options.use_debug_camera))]
+                                interface_frame.set_mouse_mode(MouseInputMode::RotateCamera);
+                            } else if mouse_button == MouseButton::DoubleRight && currently_playing {
+                                #[cfg_attr(feature = "debug", korangar_debug::debug_condition(!render_options.use_debug_camera))]
+                                self.input_event_buffer.push(InputEvent::ResetCameraRotation);
                             }
                         }
-                    } else if mouse_button == MouseButton::Right && currently_playing {
-                        #[cfg_attr(feature = "debug", korangar_debug::debug_condition(!render_options.use_debug_camera))]
-                        interface_frame.set_mouse_mode(MouseInputMode::RotateCamera);
-                    } else if mouse_button == MouseButton::DoubleRight && currently_playing {
-                        #[cfg_attr(feature = "debug", korangar_debug::debug_condition(!render_options.use_debug_camera))]
-                        self.input_event_buffer.push(InputEvent::ResetCameraRotation);
                     }
                 }
-            } else if let Some(last_destination) = last_walking_destination
+            } else if !script_captures_pointer
+                && let Some(last_destination) = last_walking_destination
                 && let PickerTarget::Tile { x, y } = input_report.mouse_target
                 && input_report.left_mouse_button_down
             {
@@ -7590,7 +7631,8 @@ impl Client {
                     DialogHotkey::Close => InputEvent::CloseDialog { npc_id: dialog_npc_id },
                 };
                 self.input_event_buffer.push(event);
-            } else if (!interface_has_focus || !interface_frame.input_characters(&self.client_state, &input_report.characters))
+            } else if !dialog_ate_confirm
+                && (!interface_has_focus || !interface_frame.input_characters(&self.client_state, &input_report.characters))
                 && input_report.characters.contains(&'\x0d')
                 && is_chat_open
             {
@@ -7678,12 +7720,25 @@ impl Client {
         }
 
         let player_position = self.client_state.try_follow(this_entity()).map(|player| player.get_position());
-        crate::interface::npc_overlay::render_npc_cutin(
-            self.client_state.follow(client_state().npc_presentation()),
+        if !dialog_open {
+            crate::interface::npc_overlay::render_npc_cutin(
+                self.client_state.follow(client_state().npc_presentation()),
+                self.game_file_loader.as_ref(),
+                &self.texture_loader,
+                &self.middle_interface_renderer,
+                screen_size,
+            );
+        }
+        crate::interface::vn_portrait::render_vn_portraits(
+            &self.client_state,
             self.game_file_loader.as_ref(),
+            &self.sprite_loader,
+            &self.action_loader,
             &self.texture_loader,
+            &self.library,
             &self.middle_interface_renderer,
             screen_size,
+            dialog_open,
         );
         crate::interface::npc_overlay::render_npc_progress(
             self.client_state.follow(client_state().npc_presentation()),

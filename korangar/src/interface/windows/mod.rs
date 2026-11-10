@@ -20,7 +20,7 @@ mod dialog;
 mod eden;
 mod emotes;
 mod enchant;
-mod equipment;
+pub(crate) mod equipment;
 mod error;
 #[cfg(feature = "debug")]
 mod frame_inspector;

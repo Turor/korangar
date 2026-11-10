@@ -7,13 +7,17 @@ use std::sync::Arc;
 
 use korangar_audio::AudioEngine;
 use korangar_interface::Interface;
+use korangar_interface::window::{Anchor, AnchorPoint};
 use korangar_networking::{NetworkingSystem, NpcInputReply, apply_npc_bgm, decide_npc_input, sound_effect_path};
 use ragnarok_packets::EntityId;
 use ragnarok_packets::handler::PacketCallback;
 use rust_state::State;
 
-use crate::interface::windows::{DialogWindow, WindowClass};
+use crate::graphics::{ScreenPosition, ScreenSize};
+use crate::input::InputEvent;
+use crate::interface::windows::WindowClass;
 use crate::loaders::GameFileLoader;
+use crate::state::vn_dialog::{self, ClickDecision, EscapeKind, MENU_CANCEL_OPTION, bottom_anchor_offset, dialog_band};
 use crate::state::{ClientState, ClientStatePathExt, client_state};
 use crate::world::Map;
 
@@ -155,9 +159,129 @@ pub(crate) fn recover_dismissed_npc_windows<Callback>(
         return;
     }
 
-    if awaiting_choice || (awaiting_next && !awaiting_close) {
-        interface.open_window(DialogWindow::new(client_state().dialog_window()));
-    } else if awaiting_close {
+    // The title-bar X is the same as Escape: cancel a menu, or end a plain page.
+    // Reopening the window would leave the script running with nowhere to click.
+    if awaiting_choice {
+        let _ = networking.choose_dialog_option(npc_id, MENU_CANCEL_OPTION);
+        dismiss_npc_dialog_ui(state, interface);
+    } else if awaiting_next || awaiting_close {
         finish_npc_dialog(state, interface, networking, npc_id);
+    }
+}
+
+/// Pin the dialog to the bottom and advance the typewriter before layout.
+pub(crate) fn prepare_vn_dialog(
+    state: &mut State<ClientState>,
+    interface: &mut Interface<'static, ClientState>,
+    screen: ScreenSize,
+    now_ms: u32,
+) {
+    if !interface.is_window_with_class_open(WindowClass::Dialog) {
+        return;
+    }
+
+    let band = dialog_band(screen.width, screen.height);
+    let (offset_left, offset_top) = bottom_anchor_offset(screen.width, band);
+    let npc_id = state.follow(client_state().dialog_window()).npc_id();
+    let name = state
+        .follow(client_state().entities())
+        .iter()
+        .find(|entity| entity.get_entity_id() == npc_id)
+        .and_then(|entity| entity.get_details().cloned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "NPC".to_owned());
+    let rate = state.follow(client_state().game_settings()).dialog_chars_per_second;
+
+    let dialog = state.follow_mut(client_state().dialog_window());
+    dialog.set_npc_name(name);
+    dialog.set_band(band.width, band.height);
+    dialog.tick_typewriter(now_ms, rate);
+
+    interface.place_window_class(
+        WindowClass::Dialog,
+        Anchor::at(AnchorPoint::BottomCenter, ScreenPosition {
+            left: offset_left,
+            top: offset_top,
+        }),
+        ScreenSize {
+            width: band.width,
+            height: band.height,
+        },
+    );
+}
+
+/// A primary click while a script is open. `Pass` means the world may walk.
+pub(crate) enum VnPrimaryClick {
+    Pass,
+    Consume,
+    InterfaceOnly,
+    Event(Box<InputEvent>),
+}
+
+pub(crate) fn vn_primary_click(state: &mut State<ClientState>, dialog_open: bool) -> VnPrimaryClick {
+    let input_open = state.follow(client_state().dialog_window()).input_is_open();
+    if !dialog_open && !input_open {
+        return VnPrimaryClick::Pass;
+    }
+
+    let cutin_visible = state.follow(client_state().npc_presentation()).cutin().is_some();
+    let (revealing, awaiting_next, awaiting_close, blocked, npc_id) = {
+        let dialog = state.follow(client_state().dialog_window());
+        (
+            dialog.is_revealing(),
+            dialog.is_awaiting_next(),
+            dialog.is_awaiting_close(),
+            dialog.blocks_advance(cutin_visible),
+            dialog.npc_id(),
+        )
+    };
+
+    match vn_dialog::route_click(revealing, awaiting_next, awaiting_close, blocked) {
+        ClickDecision::CompleteReveal => {
+            state.follow_mut(client_state().dialog_window()).complete_reveal();
+            VnPrimaryClick::Consume
+        }
+        ClickDecision::Next => VnPrimaryClick::Event(Box::new(InputEvent::NextDialog { npc_id })),
+        ClickDecision::Close => VnPrimaryClick::Event(Box::new(InputEvent::CloseDialog { npc_id })),
+        ClickDecision::Ignore => VnPrimaryClick::InterfaceOnly,
+    }
+}
+
+pub(crate) fn npc_script_captures_pointer(state: &State<ClientState>, dialog_open: bool) -> bool {
+    dialog_open || state.follow(client_state().dialog_window()).input_is_open()
+}
+
+/// Escape ends the current script state with the packet Hercules expects.
+/// Returns false when no script is open so the generic window stack can run.
+pub(crate) fn try_close_npc_script<Callback>(
+    state: &mut State<ClientState>,
+    interface: &mut Interface<'static, ClientState>,
+    networking: &mut NetworkingSystem<Callback>,
+) -> bool
+where
+    Callback: PacketCallback + Send,
+{
+    let window_open = interface.is_window_with_class_open(WindowClass::Dialog);
+    let (menu, input, plain, npc_id) = {
+        let dialog = state.follow(client_state().dialog_window());
+        let plain = window_open && (dialog.is_awaiting_next() || dialog.is_awaiting_close() || dialog.has_page() || dialog.is_revealing());
+        (dialog.is_awaiting_choice(), dialog.input_is_open(), plain, dialog.npc_id())
+    };
+
+    match vn_dialog::escape_action(menu, input, plain) {
+        Some(EscapeKind::MenuCancel) => {
+            let _ = networking.choose_dialog_option(npc_id, MENU_CANCEL_OPTION);
+            dismiss_npc_dialog_ui(state, interface);
+            true
+        }
+        Some(EscapeKind::InputCancel) => {
+            reply_npc_input(state, interface, networking, true);
+            true
+        }
+        Some(EscapeKind::CloseDialog) => {
+            finish_npc_dialog(state, interface, networking, npc_id);
+            true
+        }
+        None => false,
     }
 }
