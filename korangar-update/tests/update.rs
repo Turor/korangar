@@ -98,6 +98,10 @@ fn envelope_placeholder() -> String {
 
 #[test]
 fn unsafe_paths_and_remote_urls_are_rejected() {
+    assert_eq!(
+        korangar_update::DEFAULT_UPDATE_MANIFEST_URL,
+        "https://ro.turoran.com/client/korangar/main/latest"
+    );
     assert!(korangar_update::safe_relative("../korangar.exe").is_err());
     assert!(korangar_update::safe_relative("/etc/passwd").is_err());
     assert!(korangar_update::safe_relative("updates/applied.version").is_err());
@@ -109,33 +113,42 @@ fn unsafe_paths_and_remote_urls_are_rejected() {
         korangar_update::join_url("file:///tmp/stage/manifest.krup", "korangar.exe").unwrap(),
         "file:///tmp/stage/korangar.exe"
     );
+    let garage = concat!(
+        "https://garage.turoran.com/korangar-releases/main/",
+        "korangar-linux-deadbeef?X-Amz-Signature=abcd1234"
+    );
     assert_eq!(
+        korangar_update::join_url("https://ro.turoran.com/client/korangar/main/latest", garage).unwrap(),
+        garage
+    );
+    assert!(
         korangar_update::join_url(
-            "https://ro.turoran.com/client/releases/manifest.krup",
-            "https://ro.turoran.com/client/releases/korangar.exe"
+            "https://ro.turoran.com/client/korangar/main/latest",
+            "https://garage.turoran.com/korangar-releases/main/../.env?X-Amz-Signature=abcd"
         )
-        .unwrap(),
-        "https://ro.turoran.com/client/releases/korangar.exe"
+        .is_err()
     );
-    assert_eq!(
-        korangar_update::join_url("https://ro.turoran.com/client/releases/manifest.krup", "korangar.exe").unwrap(),
-        "https://ro.turoran.com/client/releases/korangar.exe"
-    );
-    assert_eq!(
+    assert!(
         korangar_update::join_url(
-            "https://korangar-releases.turoran.com/main/manifest.jsonup",
-            "korangar-linux-deadbeef"
+            "https://ro.turoran.com/client/korangar/main/latest",
+            "https://ro.turoran.com/client/.env"
         )
-        .unwrap(),
-        "https://korangar-releases.turoran.com/main/korangar-linux-deadbeef"
+        .is_err()
     );
+    assert!(
+        korangar_update::join_url(
+            "https://ro.turoran.com/client/korangar/main/latest",
+            "https://garage.turoran.com/korangar-releases/main/manifest.jsonup"
+        )
+        .is_err()
+    ); // unsigned garage URLs are rejected
 }
 
 #[test]
 fn embedded_release_key_rejects_ephemeral_signatures() {
     const EXPECTED: [u8; 32] = [
-        251, 61, 211, 214, 185, 225, 149, 94, 224, 58, 71, 134, 89, 111, 125, 85, 98, 183, 217, 109, 123, 108, 23, 126, 109, 56, 207, 122, 188,
-        167, 222, 24,
+        251, 61, 211, 214, 185, 225, 149, 94, 224, 58, 71, 134, 89, 111, 125, 85, 98, 183, 217, 109, 123, 108, 23, 126, 109, 56, 207, 122,
+        188, 167, 222, 24,
     ];
     assert_eq!(manifest::EMBEDDED_UPDATE_PUBLIC_KEY, EXPECTED);
     assert_ne!(manifest::EMBEDDED_UPDATE_PUBLIC_KEY, [0u8; 32]);
@@ -373,17 +386,13 @@ fn loopback_http_apply_uses_no_external_host() {
     assert!(remote.contains("disabled") || remote.contains("only http"), "{remote}");
     let foreign = korangar_update::run_startup_update(&request(&install, &exe, "https://cdn.example/manifest.krup", "0.1.1")).unwrap_err();
     assert!(
-        foreign.contains("limited to ro.turoran.com")
-            || foreign.contains("allowlisted")
-            || foreign.contains("only http"),
+        foreign.contains("limited to ro.turoran.com") || foreign.contains("allowlisted") || foreign.contains("only http"),
         "{foreign}"
     );
     let lookalike =
         korangar_update::run_startup_update(&request(&install, &exe, "https://ro.turoran.com.evil/manifest.krup", "0.1.1")).unwrap_err();
     assert!(
-        lookalike.contains("limited to ro.turoran.com")
-            || lookalike.contains("allowlisted")
-            || lookalike.contains("only http"),
+        lookalike.contains("limited to ro.turoran.com") || lookalike.contains("allowlisted") || lookalike.contains("only http"),
         "{lookalike}"
     );
     let _ = fs::remove_dir_all(&root);
@@ -426,7 +435,6 @@ fn signing_cli_roundtrip_and_keygen_stays_outside_the_repo() {
     assert_eq!(fs::metadata(&outside).unwrap().len(), 32);
     let _ = fs::remove_dir_all(&root);
 }
-
 
 #[test]
 fn older_or_equal_build_is_rejected_or_skipped() {
@@ -480,4 +488,83 @@ fn request<'a>(install: &'a Path, exe: &'a Path, url: &'a str, version: &'a str)
         relaunch_args: &[],
         spawn_relaunch: false,
     }
+}
+
+#[test]
+fn presign_catalog_applies_and_rejects_evil_hosts() {
+    let root = temp_dir();
+    let publish = root.join("publish");
+    let install = root.join("install");
+    fs::create_dir_all(&publish).unwrap();
+    fs::create_dir_all(&install).unwrap();
+    let exe_bytes = b"#!/bin/sh\nif [ \"$1\" = \"--update-self-check\" ]; then echo update-self-check-ok; exit 0; fi\nexit 0\n";
+    fs::write(publish.join("korangar.exe"), exe_bytes).unwrap();
+    let exe = install.join("korangar.exe");
+    write_script(&exe, true);
+    let signed = publish.join("manifest.jsonup");
+    fs::write(
+        &signed,
+        manifest_for_build("main-cccc", 200, vec![file_entry("korangar.exe", exe_bytes, "korangar.exe")]),
+    )
+    .unwrap();
+    let catalog = publish.join("latest.json");
+    fs::write(
+        &catalog,
+        format!(
+            "{{\n  \"expires_in\": 600,\n  \"manifest_url\": \"file://{signed}\",\n  \"files\": [{{\n    \"path\": \"korangar.exe\",\n    \"url\": \"file://{bin}\"\n  }}]\n}}\n",
+            signed = signed.display(),
+            bin = publish.join("korangar.exe").display(),
+        ),
+    )
+    .unwrap();
+    let outcome = korangar_update::run_startup_update(&request(&install, &exe, &format!("file://{}", catalog.display()), "0.1.1")).unwrap();
+    assert_eq!(outcome, StartupOutcome::Applied { relaunched: false });
+    assert_eq!(fs::read(&exe).unwrap(), exe_bytes);
+    assert_eq!(fs::read_to_string(install.join("updates/applied.build")).unwrap().trim(), "200");
+
+    let evil = publish.join("evil.json");
+    fs::write(
+        &evil,
+        "{\n  \"manifest_url\": \"https://cdn.example/manifest.jsonup\",\n  \"files\": []\n}",
+    )
+    .unwrap();
+    let err = korangar_update::run_startup_update(&request(&install, &exe, &format!("file://{}", evil.display()), "0.1.1")).unwrap_err();
+    assert!(err.contains("allowlisted") || err.contains("catalog"), "{err}");
+
+    let traversal = publish.join("traversal.json");
+    fs::write(
+        &traversal,
+        "{\n  \"manifest_url\": \"https://garage.turoran.com/korangar-releases/main/../wow?X-Amz-Signature=abcd\",\n  \"files\": []\n}",
+    )
+    .unwrap();
+    let err =
+        korangar_update::run_startup_update(&request(&install, &exe, &format!("file://{}", traversal.display()), "0.1.1")).unwrap_err();
+    assert!(err.contains("allowlisted") || err.contains("catalog"), "{err}");
+
+    // Replaying an older signed manifest must still be rejected.
+    let older = publish.join("older.jsonup");
+    fs::write(
+        &older,
+        manifest_for_build("main-bbbb", 199, vec![file_entry("korangar.exe", exe_bytes, "korangar.exe")]),
+    )
+    .unwrap();
+    let older_catalog = publish.join("older.json");
+    fs::write(
+        &older_catalog,
+        format!(
+            "{{\n  \"manifest_url\": \"file://{signed}\",\n  \"files\": [{{\n    \"path\": \"korangar.exe\",\n    \"url\": \"file://{bin}\"\n  }}]\n}}\n",
+            signed = older.display(),
+            bin = publish.join("korangar.exe").display(),
+        ),
+    )
+    .unwrap();
+    let err = korangar_update::run_startup_update(&request(
+        &install,
+        &exe,
+        &format!("file://{}", older_catalog.display()),
+        "0.1.1",
+    ))
+    .unwrap_err();
+    assert!(err.contains("rollback protection"), "{err}");
+    let _ = fs::remove_dir_all(&root);
 }

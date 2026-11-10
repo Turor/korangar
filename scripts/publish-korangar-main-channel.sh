@@ -55,7 +55,7 @@ cp "$MANIFEST" "$WORKDIR/manifest.jsonup"
 cp "$LINUX" "$WORKDIR/linux.bin"
 cp "$WINDOWS" "$WORKDIR/windows.exe"
 # credentials stay mode 600 and are sourced only on garage-1
-ssh -o BatchMode=yes $SSH_EXTRA "$GARAGE_HOST" -- mkdir -p /root/korangar-release-upload && chmod 700 /root/korangar-release-upload
+ssh -o BatchMode=yes $SSH_EXTRA "$GARAGE_HOST" -- "mkdir -p /root/korangar-release-upload && chmod 700 /root/korangar-release-upload"
 scp -q -o BatchMode=yes $SSH_EXTRA "$CRED" \
   "$WORKDIR/manifest.jsonup" "$WORKDIR/linux.bin" "$WORKDIR/windows.exe" \
   "${GARAGE_HOST}:/root/korangar-release-upload/"
