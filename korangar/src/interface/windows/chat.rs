@@ -1,8 +1,10 @@
+use std::cell::RefCell;
+
 use korangar_interface::application::Size;
 use korangar_interface::components::text_box::DefaultHandler;
-use korangar_interface::element::store::{ElementStore, ElementStoreMut};
+use korangar_interface::element::store::{ElementStore, ElementStoreMut, Persistent, PersistentExt};
 use korangar_interface::element::{Element, StateElement};
-use korangar_interface::event::ClickHandler;
+use korangar_interface::event::{ClickHandler, Event, EventQueue, InputHandler, ScrollHandler};
 use korangar_interface::layout::area::Area;
 use korangar_interface::layout::{Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::prelude::{HorizontalAlignment, TextThemePathExt, VerticalAlignment};
@@ -14,7 +16,10 @@ use super::WindowClass;
 use crate::graphics::Color;
 use crate::input::InputEvent;
 use crate::loaders::OverflowBehavior;
-use crate::state::chat::{ChannelMaskPathExt, ChatChannel, ChatFilterState, ChatFilterStatePathExt, ChatTab};
+use crate::state::chat::{
+    CHAT_LINE_SPACING, ChannelMaskPathExt, ChatChannel, ChatFilterState, ChatFilterStatePathExt, ChatTab, ListScroll, scroll_list,
+    stacked_content_height, sync_list_scroll,
+};
 use crate::state::localization::LocalizationPathExt;
 use crate::state::theme::{ChatThemePathExt, InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
 use crate::state::{ChatMessage, ClientState, ClientStatePathExt, client_state, client_theme};
@@ -65,8 +70,41 @@ struct WhisperTargetTextBox;
 
 struct ChatLayoutInfo {
     area: Area,
+    offset: f32,
     // TODO: Don't allocate this every frame.
     message_heights: Vec<f32>,
+}
+
+struct MessageListScrollData {
+    inner: RefCell<MessageListScrollInner>,
+}
+
+struct MessageListScrollInner {
+    scroll: ListScroll,
+    content_height: f32,
+    viewport: f32,
+}
+
+impl Default for MessageListScrollData {
+    fn default() -> Self {
+        Self {
+            inner: RefCell::new(MessageListScrollInner {
+                scroll: ListScroll::default(),
+                content_height: 0.0,
+                viewport: 0.0,
+            }),
+        }
+    }
+}
+
+impl ScrollHandler<ClientState> for MessageListScrollData {
+    fn handle_scroll(&self, _: &State<ClientState>, _: &mut EventQueue<ClientState>, delta: f32) -> bool {
+        let mut inner = self.inner.borrow_mut();
+        let next = scroll_list(inner.scroll, delta, inner.content_height, inner.viewport);
+        let changed = (next.offset - inner.scroll.offset).abs() > f32::EPSILON || next.pinned != inner.scroll.pinned;
+        inner.scroll = next;
+        changed
+    }
 }
 
 struct ChatElement<A, B> {
@@ -83,6 +121,10 @@ impl<A, B> ChatElement<A, B> {
     }
 }
 
+impl<A, B> Persistent for ChatElement<A, B> {
+    type Data = MessageListScrollData;
+}
+
 impl<A, B> Element<ClientState> for ChatElement<A, B>
 where
     A: Path<ClientState, Vec<ChatMessage>>,
@@ -93,21 +135,18 @@ where
     fn create_layout_info(
         &mut self,
         state: &State<ClientState>,
-        _: ElementStoreMut,
+        store: ElementStoreMut,
         resolvers: &mut dyn Resolvers<ClientState>,
     ) -> Self::LayoutInfo {
         with_single_resolver(resolvers, |resolver| {
             let chat_messages = visible_messages(state, &self.chat_messages_path, &self.chat_window_state);
-            let message_spacing = 5.0;
             let font_size = *state.get(&client_theme().text().font_size());
             let highlight = *state.get(&client_theme().text().highlight_color());
 
-            let mut total_height = 0.0;
-            let message_heights = chat_messages
+            let message_heights: Vec<f32> = chat_messages
                 .iter()
                 .map(|chat_message| {
                     let color = themed_message_color(state, chat_message.color);
-
                     let (size, _) = resolver.get_text_dimensions(
                         &chat_message.text,
                         color,
@@ -116,66 +155,92 @@ where
                         HorizontalAlignment::Left { offset: 5.0, border: 3.0 },
                         OverflowBehavior::LineBreak,
                     );
-
-                    if total_height != 0.0 {
-                        total_height += message_spacing;
-                    }
-
-                    total_height += size.height();
-
                     size.height()
                 })
                 .collect();
 
-            let area = resolver.with_height(total_height);
+            let content_height = stacked_content_height(&message_heights, CHAT_LINE_SPACING);
+            let available = resolver.push_available_area();
+            let viewport = match available.height {
+                Some(height) => height.max(0.0),
+                None => content_height,
+            };
 
-            Self::LayoutInfo { area, message_heights }
+            let persistent = self.get_persistent_data(&store, ());
+            let offset = {
+                let mut inner = persistent.inner.borrow_mut();
+                inner.content_height = content_height;
+                inner.viewport = viewport;
+                inner.scroll = sync_list_scroll(inner.scroll, content_height, viewport);
+                inner.scroll.offset
+            };
+
+            let area = Area {
+                left: available.left,
+                top: available.top,
+                width: available.width,
+                height: viewport,
+            };
+            resolver.commit_used_height(viewport);
+
+            Self::LayoutInfo {
+                area,
+                offset,
+                message_heights,
+            }
         })
     }
 
     fn lay_out<'a>(
         &'a self,
         state: &'a State<ClientState>,
-        _: ElementStore<'a>,
+        store: ElementStore<'a>,
         layout_info: &'a Self::LayoutInfo,
         layout: &mut WindowLayout<'a, ClientState>,
     ) {
+        let persistent = self.get_persistent_data(&store, ());
+        if layout_info.area.check().dont_mark().run(layout) {
+            layout.register_scroll_handler(persistent);
+        }
+
         let chat_messages = visible_messages(state, &self.chat_messages_path, &self.chat_window_state);
-        let message_spacing = 5.0;
         let font_size = *state.get(&client_theme().text().font_size());
         let highlight = *state.get(&client_theme().text().highlight_color());
+        let scroll_offset = layout_info.offset;
 
-        let mut offset = 0.0;
-        chat_messages
-            .iter()
-            .zip(layout_info.message_heights.iter())
-            .for_each(|(chat_message, message_height)| {
-                let color = themed_message_color(state, chat_message.color);
+        layout.with_clip(layout_info.area, |layout| {
+            let mut line_top = 0.0;
+            chat_messages
+                .iter()
+                .zip(layout_info.message_heights.iter())
+                .for_each(|(chat_message, message_height)| {
+                    let color = themed_message_color(state, chat_message.color);
 
-                if offset != 0.0 {
-                    offset += message_spacing;
-                }
+                    if line_top != 0.0 {
+                        line_top += CHAT_LINE_SPACING;
+                    }
 
-                let text_area = Area {
-                    left: layout_info.area.left,
-                    top: layout_info.area.top + offset,
-                    width: layout_info.area.width,
-                    height: *message_height,
-                };
+                    let text_area = Area {
+                        left: layout_info.area.left,
+                        top: layout_info.area.top + line_top - scroll_offset,
+                        width: layout_info.area.width,
+                        height: *message_height,
+                    };
 
-                layout.add_text(
-                    text_area,
-                    &chat_message.text,
-                    font_size,
-                    color,
-                    highlight,
-                    HorizontalAlignment::Left { offset: 5.0, border: 3.0 },
-                    VerticalAlignment::Center { offset: 0.0 },
-                    OverflowBehavior::LineBreak,
-                );
+                    layout.add_text(
+                        text_area,
+                        &chat_message.text,
+                        font_size,
+                        color,
+                        highlight,
+                        HorizontalAlignment::Left { offset: 5.0, border: 3.0 },
+                        VerticalAlignment::Center { offset: 0.0 },
+                        OverflowBehavior::LineBreak,
+                    );
 
-                offset += message_height;
-            });
+                    line_top += message_height;
+                });
+        });
     }
 }
 
@@ -217,6 +282,46 @@ where
     }
 }
 
+struct WhisperTargetHandler<T, S> {
+    text_path: T,
+    stamp_path: S,
+}
+
+impl<T, S> InputHandler<ClientState> for WhisperTargetHandler<T, S>
+where
+    T: Path<ClientState, String> + Copy,
+    S: Path<ClientState, String> + Copy,
+{
+    fn handle_character(&self, state: &State<ClientState>, queue: &mut EventQueue<ClientState>, character: char) {
+        if character == '\t' || character == '\r' || character == '\n' {
+            state.update_value_with(self.stamp_path, crate::state::chat::note_whisper_field_edit);
+            queue.queue(Event::Unfocus);
+            return;
+        }
+        if character == '\u{1b}' {
+            queue.queue(Event::Unfocus);
+            return;
+        }
+        if character == '\u{8}' {
+            state.update_value_with(self.text_path, |current_text| {
+                if !current_text.is_empty() {
+                    current_text.pop();
+                }
+            });
+            state.update_value_with(self.stamp_path, crate::state::chat::note_whisper_field_edit);
+            return;
+        }
+        if !character.is_control() {
+            state.update_value_with(self.text_path, move |current_text| {
+                if current_text.len().saturating_add(character.len_utf8()) <= MAXIMUM_WHISPER_NAME_LENGTH {
+                    current_text.push(character);
+                }
+            });
+            state.update_value_with(self.stamp_path, crate::state::chat::note_whisper_field_edit);
+        }
+    }
+}
+
 fn visible_messages<'a, A, B>(state: &'a State<ClientState>, messages_path: &'a A, window_path: &B) -> Vec<&'a ChatMessage>
 where
     A: Path<ClientState, Vec<ChatMessage>>,
@@ -235,8 +340,12 @@ where
 #[derive(RustState, StateElement)]
 pub struct ChatWindowState {
     current_text: String,
-    /// Name typed in the whisper target box. Empty sends public chat.
+    /// Name shown in the whisper target box.
     whisper_target: String,
+    /// When this equals [`Self::whisper_target`], plain chat stays public.
+    /// `/w` sets both so the next line is not a whisper. Editing the box clears
+    /// the stamp and arms whisper mode.
+    whisper_disarm_stamp: String,
     /// Newest whisper names first. The dropdown writes
     /// [`Self::whisper_target`].
     recent_whisper_targets: Vec<String>,
@@ -251,6 +360,7 @@ impl Default for ChatWindowState {
         Self {
             current_text: String::new(),
             whisper_target: String::new(),
+            whisper_disarm_stamp: String::new(),
             recent_whisper_targets: Vec::new(),
             pending_whisper_name: String::new(),
             pending_whisper_text: String::new(),
@@ -265,14 +375,19 @@ impl ChatWindowState {
         &self.whisper_target
     }
 
-    /// The Guild tab sends `0x017E` unless a whisper target or command wins.
+    /// The Guild tab sends `0x017E` unless an armed whisper target or command
+    /// wins.
     pub(crate) fn sends_guild_chat(&self) -> bool {
         self.filters.active == ChatTab::Guild
     }
 
+    pub(crate) fn whisper_target_armed(&self) -> bool {
+        crate::state::chat::whisper_target_armed(&self.whisper_target, &self.whisper_disarm_stamp)
+    }
+
     pub(crate) fn begin_whisper(&mut self, target: String, text: String) -> (String, String) {
         crate::state::chat::remember_whisper_target(&mut self.recent_whisper_targets, &target);
-        self.whisper_target.clone_from(&target);
+        crate::state::chat::disarm_sticky_whisper(&mut self.whisper_target, &mut self.whisper_disarm_stamp, &target);
         self.pending_whisper_name.clone_from(&target);
         self.pending_whisper_text.clone_from(&text);
         (target, text)
@@ -334,8 +449,10 @@ where
                 queue.queue(Event::Unfocus);
             }
         };
-        let whisper_name_action = move |_state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
-            queue.queue(Event::Unfocus);
+        let stamp_path = window_state.whisper_disarm_stamp();
+        let whisper_name_input = WhisperTargetHandler {
+            text_path: whisper_target_path,
+            stamp_path,
         };
 
         let select_tab = |tab: ChatTab| SelectTab {
@@ -354,7 +471,7 @@ where
             border: 3.0,
             gaps: 2.0,
             title_gap: 0.0,
-            minimum_height: 220.0,
+            minimum_height: 96.0,
             maximum_height: 800.0,
             elements: (
                 split! {
@@ -409,7 +526,7 @@ where
                         text_box! {
                             ghost_text: "Whisper to",
                             state: whisper_target_path,
-                            input_handler: DefaultHandler::<_, _, MAXIMUM_WHISPER_NAME_LENGTH>::new(whisper_target_path, whisper_name_action),
+                            input_handler: whisper_name_input,
                             background_color: client_theme().chat().text_box_background_color(),
                             focused_background_color: client_theme().text_box().focused_background_color(),
                             focus_id: WhisperTargetTextBox,
@@ -428,10 +545,7 @@ where
                     focused_background_color: client_theme().text_box().focused_background_color(),
                     focus_id: ChatTextBox,
                 },
-                scroll_view! {
-                    follow: true,
-                    children: ChatElement::new(messages_path, window_state),
-                },
+                ChatElement::new(messages_path, window_state),
             ),
         }
     }
