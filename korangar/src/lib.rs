@@ -88,7 +88,8 @@ use settings::{
 use state::character_slots::CharacterSlotsExt;
 use state::equip_switch::{EquipSwitchPathExt, switch_delta};
 use state::hotbar::{
-    HOTBAR_SLOTS, HOTBAR_TABS, HotbarDispatch, HotbarPathExt, cast_bound_skill, cell_item_id, inventory_hint, stop_bound_skill,
+    CELL_ITEM, CELL_SKILL, HOTBAR_SLOTS, HOTBAR_TABS, HotbarDispatch, HotbarPathExt, cast_bound_skill, cell_item_id, inventory_hint,
+    stop_bound_skill,
 };
 use state::inventory::{GroundDrop, InventoryPathExt, ItemActivation, ThrowUpdate, ground_drop, item_activation, use_ack_targets_self};
 use state::localization::Localization;
@@ -7001,15 +7002,26 @@ impl Client {
                 format!("[{}]", rows.join(", "))
             }
             autopilot::DumpPath::Hotbar => {
-                let skills = self.client_state.follow(client_state().hotbar().skills());
-                let rows: Vec<String> = skills
-                    .iter()
-                    .enumerate()
-                    .map(|(index, skill)| match skill {
-                        Some(skill) => format!("{index}: {:?} {}", skill.skill_id, skill.skill_name),
-                        None => format!("{index}: empty"),
-                    })
-                    .collect();
+                let hotbar = self.client_state.follow(client_state().hotbar());
+                let mut rows = Vec::new();
+                for tab in 0..HOTBAR_TABS {
+                    for slot in 0..HOTBAR_SLOTS {
+                        let Some(cell) = hotbar.cell(HotbarTab(tab as u16), HotbarSlot(slot as u16)) else {
+                            continue;
+                        };
+                        let label = if cell.kind == CELL_SKILL {
+                            match cell.skill.as_ref() {
+                                Some(skill) => format!("skill {:?} {}", skill.skill_id, skill.skill_name),
+                                None => "skill".to_owned(),
+                            }
+                        } else if cell.kind == CELL_ITEM {
+                            format!("item {} x{} {}", cell.item_id, cell.amount, cell.item_name)
+                        } else {
+                            "empty".to_owned()
+                        };
+                        rows.push(format!("{tab}:{slot} {label}"));
+                    }
+                }
                 format!("[{}]", rows.join(", "))
             }
             autopilot::DumpPath::ChatMessages => {

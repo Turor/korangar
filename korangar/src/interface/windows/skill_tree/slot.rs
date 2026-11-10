@@ -48,6 +48,28 @@ impl LevelDisplay {
     }
 }
 
+/// What a skill-slot click does. Spending points stops at the level cap.
+/// Dragging does not: First Aid 1/1 and any other maxed skill can still be
+/// placed on the hotbar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SkillSlotClick {
+    Ignore,
+    SpendPoint,
+    Drag,
+}
+
+fn skill_slot_click(currently_skilling: bool, job_skill: bool, at_level_cap: bool) -> SkillSlotClick {
+    if currently_skilling {
+        if !job_skill || at_level_cap {
+            SkillSlotClick::Ignore
+        } else {
+            SkillSlotClick::SpendPoint
+        }
+    } else {
+        SkillSlotClick::Drag
+    }
+}
+
 /// Regular click handler.
 struct SkillSlotClickHandler<A, B, C> {
     learnable_skill_path: A,
@@ -77,43 +99,39 @@ where
         // Unwrapping here is fine since we only register the handler if the slot has a
         // skill.
         let mut learnable_skill = state.try_get(&self.learnable_skill_path).unwrap().clone();
+        let learned_skill = state.try_get(&self.learned_skill_path);
+        let at_level_cap = learned_skill.is_some_and(|skill| !skill.upgradable);
+        let currently_skilling = *state.get(&self.window_state_path.currently_skilling());
 
-        if *state.get(&self.window_state_path.currently_skilling()) {
-            if learnable_skill.acquisition != SkillAcquisition::Job
-                || state
-                    .try_get(&self.learned_skill_path)
-                    .is_some_and(|learned_skill| !learned_skill.upgradable)
-            {
-                return;
+        match skill_slot_click(
+            currently_skilling,
+            learnable_skill.acquisition == SkillAcquisition::Job,
+            at_level_cap,
+        ) {
+            SkillSlotClick::Ignore => {}
+            SkillSlotClick::SpendPoint => {
+                let skill_id = learnable_skill.skill_id;
+                queue.queue(InputEvent::DistributePointsForSkill { skill_id });
             }
+            SkillSlotClick::Drag => {
+                if let Some(cast_level) = state
+                    .get(&self.window_state_path.chosen_skill_level())
+                    .get(&learnable_skill.skill_id)
+                    .or_else(|| learned_skill.map(|skill| &skill.skill_level))
+                    .cloned()
+                {
+                    learnable_skill.maximum_level = cast_level;
+                }
 
-            let skill_id = learnable_skill.skill_id;
-
-            queue.queue(InputEvent::DistributePointsForSkill { skill_id });
-        } else {
-            let learned_skill = state.try_get(&self.learned_skill_path);
-
-            if learned_skill.is_some_and(|skill| !skill.upgradable) {
-                return;
-            }
-
-            if let Some(cast_level) = state
-                .get(&self.window_state_path.chosen_skill_level())
-                .get(&learnable_skill.skill_id)
-                .or_else(|| learned_skill.map(|skill| &skill.skill_level))
-                .cloned()
-            {
-                learnable_skill.maximum_level = cast_level;
-            }
-
-            queue.queue(Event::SetMouseMode {
-                mouse_mode: MouseMode::Custom {
-                    mode: MouseInputMode::MoveSkill {
-                        skill: learnable_skill,
-                        source: self.source,
+                queue.queue(Event::SetMouseMode {
+                    mouse_mode: MouseMode::Custom {
+                        mode: MouseInputMode::MoveSkill {
+                            skill: learnable_skill,
+                            source: self.source,
+                        },
                     },
-                },
-            });
+                });
+            }
         }
     }
 }
@@ -555,5 +573,19 @@ where
                 *state.get(&client_theme().skill_tree().unoccupied_slot_outline()),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SkillSlotClick, skill_slot_click};
+
+    #[test]
+    fn a_maxed_skill_still_drags_and_cannot_take_another_point() {
+        assert_eq!(skill_slot_click(false, true, true), SkillSlotClick::Drag);
+        assert_eq!(skill_slot_click(false, false, true), SkillSlotClick::Drag);
+        assert_eq!(skill_slot_click(true, true, true), SkillSlotClick::Ignore);
+        assert_eq!(skill_slot_click(true, true, false), SkillSlotClick::SpendPoint);
+        assert_eq!(skill_slot_click(true, false, false), SkillSlotClick::Ignore);
     }
 }
