@@ -16,4 +16,11 @@ ThemeFile(
     slot_size: 44.0,
     corner_radius: 8.0,
     font_size: 13.0,
+    // Status panel bars (status.hp_bar, status.sp_bar, status.base_exp_bar, status.job_exp_bar).
+    status: (
+        hp_bar: Some("#5CC25A"),
+        sp_bar: Some("#4A86D8"),
+        base_exp_bar: Some("#CFAE5A"),
+        job_exp_bar: Some("#E0708A"),
+    ),
 )

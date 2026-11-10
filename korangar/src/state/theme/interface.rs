@@ -182,8 +182,8 @@ impl Default for BasicInfoTheme {
 impl BasicInfoTheme {
     pub fn from_tokens(tokens: &crate::state::theme::ThemeTokens) -> Self {
         Self {
-            base_exp_color: tokens.sp,
-            job_exp_color: tokens.gold,
+            base_exp_color: tokens.status_base_exp_bar,
+            job_exp_color: tokens.status_job_exp_bar,
             exp_track_color: tokens.raised.with_alpha_u8(230),
             zeny_color: tokens.gold,
             weight_color: tokens.text,
