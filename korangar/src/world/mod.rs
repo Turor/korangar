@@ -34,6 +34,7 @@ pub use self::effect::*;
 pub use self::entity::*;
 pub use self::fade_state::*;
 pub use self::ground_item::*;
+pub(crate) use self::library::execute_lua_chunk;
 pub use self::library::*;
 pub use self::light::*;
 pub use self::map::*;

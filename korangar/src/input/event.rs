@@ -339,14 +339,21 @@ pub enum InputEvent {
     },
     /// Close Kafra storage and tell the map server.
     CloseStorage,
-    /// Random enchant (`CZ_REQUEST_RANDOM_ENCHANT`).
-    RequestRandomEnchant,
-    /// Perfect enchant (`CZ_REQUEST_PERFECT_ENCHANT`).
-    RequestPerfectEnchant,
-    /// Upgrade an existing enchant (`CZ_REQUEST_UPGRADE_ENCHANT`).
-    RequestUpgradeEnchant,
-    /// Reset an enchant (`CZ_REQUEST_RESET_ENCHANT`).
-    RequestResetEnchant,
+    /// Pick an eligible inventory item in the enchant window.
+    EnchantSelectItem {
+        index: u16,
+    },
+    /// Choose normal, perfect, upgrade, or reset.
+    EnchantSetAction {
+        action: u8,
+    },
+    /// Choose a perfect enchant or an upgrade slot.
+    EnchantPickChoice {
+        index: u16,
+        item_id: u32,
+    },
+    /// Send the enchant selected in the window.
+    EnchantSubmit,
     /// Close the enchant UI and send `CZ_CLOSE_UI_ENCHANT`.
     CloseEnchant,
     /// Ask the map server for the Turoran stable board (`0x0EF0`).
@@ -705,8 +712,14 @@ pub enum InputEvent {
     ItemReformSubmit,
     /// Close the item reform UI.
     ItemReformClose,
-    /// Ask the grade UI for materials on the typed inventory index.
-    GradeEnchantSelect,
+    /// Ask the grade UI for materials on this inventory item.
+    GradeEnchantSelect {
+        index: u16,
+    },
+    /// Add one blessing step, clamped by the offer and the owned stack.
+    GradeBlessingAdd,
+    /// Remove one blessing step.
+    GradeBlessingRemove,
     /// Choose one grade option by its list index.
     GradeEnchantPick {
         material_index: i32,
