@@ -3531,7 +3531,9 @@ mod packet_handlers {
             SupportedPacketVersion::_20190530,
         ] {
             let events = process_one(version, writer.as_slice());
-            assert!(matches!(events.as_slice(), [NetworkEvent::StableHomunculusList { active_id: 3, summary, .. }] if summary.contains("Lif")));
+            assert!(
+                matches!(events.as_slice(), [NetworkEvent::StableHomunculusList { active_id: 3, summary, .. }] if summary.contains("Lif"))
+            );
         }
 
         let pets = StablePetListPacket {

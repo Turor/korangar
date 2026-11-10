@@ -166,10 +166,7 @@ impl Achievements {
         if let Some(entry) = self.entries.iter_mut().find(|row| row.achievement_id == achievement_id) {
             entry.rewarded = true;
             entry.completed = true;
-            entry.summary = format!(
-                "#{achievement_id:04} rewarded ({}/{})",
-                entry.objective_hits, OBJECTIVE_SLOTS
-            );
+            entry.summary = format!("#{achievement_id:04} rewarded ({}/{})", entry.objective_hits, OBJECTIVE_SLOTS);
         }
         self.rebuild_lines();
     }
@@ -181,11 +178,7 @@ impl Achievements {
     }
 
     pub fn cycle_category(&mut self) {
-        let mut buckets: Vec<u32> = self
-            .entries
-            .iter()
-            .map(|entry| category_bucket(entry.achievement_id))
-            .collect();
+        let mut buckets: Vec<u32> = self.entries.iter().map(|entry| category_bucket(entry.achievement_id)).collect();
         buckets.sort_unstable();
         buckets.dedup();
         if buckets.is_empty() {
@@ -216,7 +209,8 @@ impl Achievements {
         self.rebuild_lines();
     }
 
-    /// `0x0AF0` result is the new day counter. It does not replace the calendar.
+    /// `0x0AF0` result is the new day counter. It does not replace the
+    /// calendar.
     pub fn apply_attendance_claim(&mut self, result: u32) {
         self.attendance_count = result;
         self.attendance_known = true;
@@ -263,12 +257,7 @@ impl Achievements {
         self.lines = vec![
             format!(
                 "Score {}  rank {}  exp {}/{}  filter {}  category {}",
-                self.total_score,
-                self.level,
-                self.experience,
-                self.experience_to_next_level,
-                self.filter_label,
-                self.category_label
+                self.total_score, self.level, self.experience, self.experience_to_next_level, self.filter_label, self.category_label
             ),
             attendance,
         ];
@@ -332,12 +321,7 @@ mod tests {
         log.apply_reward(1, false);
         assert!(log.lines()[2].contains("rewarded"));
         assert_eq!(log.claimable_id(), Some(2));
-        log.set_attendance(
-            10,
-            20,
-            4,
-            vec![ragnarok_packets::AttendanceReward { item_id: 501, amount: 1 }],
-        );
+        log.set_attendance(10, 20, 4, vec![ragnarok_packets::AttendanceReward { item_id: 501, amount: 1 }]);
         assert!(log.lines().iter().any(|line| line.contains("4 days") && line.contains("rewards 1")));
         log.apply_attendance_claim(5);
         assert!(log.lines().iter().any(|line| line.contains("5 days") && line.contains("rewards 1")));
@@ -363,13 +347,11 @@ mod tests {
     #[test]
     fn category_cycles_id_buckets() {
         let mut log = Achievements::default();
-        log.replace_list(
-            1,
-            1,
-            0,
-            10,
-            vec![sample(120001, 1, 0), sample(200001, 0, 0), sample(120002, 0, 0)],
-        );
+        log.replace_list(1, 1, 0, 10, vec![
+            sample(120001, 1, 0),
+            sample(200001, 0, 0),
+            sample(120002, 0, 0),
+        ]);
         assert!(log.lines()[0].contains("category All"));
         log.cycle_category();
         assert!(log.lines()[0].contains("category Adventure"));

@@ -18,7 +18,13 @@ impl Default for GameArchiveList {
 }
 
 impl GameArchiveList {
-    /// Live Turoran `resources-0716/DATA.INI` slot order (0 = highest priority).
+    const DATA_INI_CANDIDATES: &'static [&'static str] = &["DATA.INI", "data.ini", "client/DATA.INI", "client/data.ini"];
+    const FILE_NAME: &'static str = "client/game_archives.ron";
+    /// Local overlay directory; kept last so GameFileLoader's last-wins insert
+    /// order gives it the highest search priority (see stage-turoran-test.py).
+    const LOCAL_OVERLAY: &'static str = "archive/";
+    /// Live Turoran `resources-0716/DATA.INI` slot order (0 = highest
+    /// priority).
     const TURORAN_DATA_INI_ORDER: &'static [&'static str] = &[
         "translation.grf",
         "2025-07-16_en.grf",
@@ -27,20 +33,11 @@ impl GameArchiveList {
         "region_assets.grf",
     ];
 
-    const DATA_INI_CANDIDATES: &'static [&'static str] =
-        &["DATA.INI", "data.ini", "client/DATA.INI", "client/data.ini"];
-
-    const FILE_NAME: &'static str = "client/game_archives.ron";
-
-    /// Local overlay directory; kept last so GameFileLoader's last-wins insert
-    /// order gives it the highest search priority (see stage-turoran-test.py).
-    const LOCAL_OVERLAY: &'static str = "archive/";
-
     pub(super) fn load(remote_enabled: bool) -> Result<Self, String> {
         match std::fs::read_to_string(Self::FILE_NAME) {
             Ok(data) => {
-                let mut list: Self = ron::from_str(&data)
-                    .map_err(|_| format!("Invalid {}: expected (archives: [\"path\", ...])", Self::FILE_NAME))?;
+                let mut list: Self =
+                    ron::from_str(&data).map_err(|_| format!("Invalid {}: expected (archives: [\"path\", ...])", Self::FILE_NAME))?;
                 // Explicit config still errors on missing entries after filter? Task asks
                 // missing archives skipped gracefully for DATA.INI-equivalent defaults.
                 // For an explicit ron list we also skip missing so remote/partial installs
@@ -54,8 +51,9 @@ impl GameArchiveList {
     }
 
     fn without_settings(remote_enabled: bool) -> Self {
-        // Remote installs stay archive-free unless an explicit DATA.INI is present, so the
-        // verified cache is not shadowed by whatever GRFs happen to sit in the CWD.
+        // Remote installs stay archive-free unless an explicit DATA.INI is present, so
+        // the verified cache is not shadowed by whatever GRFs happen to sit in
+        // the CWD.
         let slot_order = if let Some(slots) = Self::read_data_ini_slots() {
             slots
         } else if remote_enabled {
@@ -82,8 +80,9 @@ impl GameArchiveList {
         Self { archives }
     }
 
-    /// Keep upstream `rdata.grf` above `data.grf` under last-wins loading, without
-    /// outranking Turoran English/translation GRFs when those are present.
+    /// Keep upstream `rdata.grf` above `data.grf` under last-wins loading,
+    /// without outranking Turoran English/translation GRFs when those are
+    /// present.
     fn ensure_legacy_grf_priority(archives: &mut Vec<String>) {
         let has = |archives: &[String], name: &str| archives.iter().any(|path| path == name);
 
@@ -100,8 +99,9 @@ impl GameArchiveList {
         }
     }
 
-    /// Convert DATA.INI slot order (index 0 = highest priority) into GameFileLoader
-    /// list order (last entry wins because archives are `insert(0, …)` on load).
+    /// Convert DATA.INI slot order (index 0 = highest priority) into
+    /// GameFileLoader list order (last entry wins because archives are
+    /// `insert(0, …)` on load).
     fn loader_order_from_data_ini_slots(slots_high_to_low: &[&str]) -> Vec<String> {
         slots_high_to_low.iter().rev().map(|path| (*path).to_owned()).collect()
     }
@@ -118,7 +118,8 @@ impl GameArchiveList {
         None
     }
 
-    /// Parse a Gravity-style DATA.INI `[Data]` section into ascending slot order.
+    /// Parse a Gravity-style DATA.INI `[Data]` section into ascending slot
+    /// order.
     fn parse_data_ini(text: &str) -> Option<Vec<String>> {
         let mut in_data = false;
         let mut slots: Vec<(u32, String)> = Vec::new();
@@ -162,7 +163,12 @@ mod tests {
     #[test]
     fn remote_defaults_do_not_require_grfs() {
         // Without local DATA.INI/GRFs in the test CWD this stays empty.
-        assert!(GameArchiveList::without_settings(true).archives.iter().all(|path| Path::new(path).exists()));
+        assert!(
+            GameArchiveList::without_settings(true)
+                .archives
+                .iter()
+                .all(|path| Path::new(path).exists())
+        );
     }
 
     #[test]
@@ -178,19 +184,14 @@ mod tests {
     fn data_ini_slot_zero_becomes_highest_loader_priority() {
         let text = "[Data]\n0=translation.grf\n1=2025-07-16_en.grf\n2=data.grf\n3=iro_assets.grf\n4=region_assets.grf\n";
         let slots = GameArchiveList::parse_data_ini(text).unwrap();
-        assert_eq!(
-            slots,
-            vec![
-                "translation.grf",
-                "2025-07-16_en.grf",
-                "data.grf",
-                "iro_assets.grf",
-                "region_assets.grf",
-            ]
-        );
-        let loader_order = GameArchiveList::loader_order_from_data_ini_slots(
-            &slots.iter().map(String::as_str).collect::<Vec<_>>(),
-        );
+        assert_eq!(slots, vec![
+            "translation.grf",
+            "2025-07-16_en.grf",
+            "data.grf",
+            "iro_assets.grf",
+            "region_assets.grf",
+        ]);
+        let loader_order = GameArchiveList::loader_order_from_data_ini_slots(&slots.iter().map(String::as_str).collect::<Vec<_>>());
         // Last listed archive is inserted last → searched first (highest priority).
         assert_eq!(loader_order.last().unwrap(), "translation.grf");
         assert_eq!(loader_order.first().unwrap(), "region_assets.grf");
@@ -198,10 +199,7 @@ mod tests {
 
     #[test]
     fn legacy_rdata_outranks_data_but_not_translation() {
-        let mut archives = GameArchiveList::loader_order_from_data_ini_slots(&[
-            "translation.grf",
-            "data.grf",
-        ]);
+        let mut archives = GameArchiveList::loader_order_from_data_ini_slots(&["translation.grf", "data.grf"]);
         // Simulate ensure_legacy when rdata exists: insert after data.
         if let Some(data_at) = archives.iter().position(|path| path == "data.grf") {
             archives.insert(data_at + 1, "rdata.grf".to_owned());
@@ -214,31 +212,23 @@ mod tests {
     #[test]
     fn turoran_default_matches_live_data_ini_order() {
         let order = GameArchiveList::loader_order_from_data_ini_slots(GameArchiveList::TURORAN_DATA_INI_ORDER);
-        assert_eq!(
-            order,
-            vec![
-                "region_assets.grf",
-                "iro_assets.grf",
-                "data.grf",
-                "2025-07-16_en.grf",
-                "translation.grf",
-            ]
-        );
+        assert_eq!(order, vec![
+            "region_assets.grf",
+            "iro_assets.grf",
+            "data.grf",
+            "2025-07-16_en.grf",
+            "translation.grf",
+        ]);
     }
 
     #[test]
     fn parse_data_ini_ignores_comments_and_other_sections() {
         let text = "\
-; header\n\
-[Misc]\n\
-0=ignore.grf\n\
-[Data]\n\
-0=translation.grf # slot zero\n\
-2=data.grf\n\
-1=\"2025-07-16_en.grf\"\n";
-        assert_eq!(
-            GameArchiveList::parse_data_ini(text).unwrap(),
-            vec!["translation.grf", "2025-07-16_en.grf", "data.grf"]
-        );
+; header\n[Misc]\n0=ignore.grf\n[Data]\n0=translation.grf # slot zero\n2=data.grf\n1=\"2025-07-16_en.grf\"\n";
+        assert_eq!(GameArchiveList::parse_data_ini(text).unwrap(), vec![
+            "translation.grf",
+            "2025-07-16_en.grf",
+            "data.grf"
+        ]);
     }
 }

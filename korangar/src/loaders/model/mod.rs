@@ -97,8 +97,9 @@ impl ModelLoader {
 
         let array: [f32; 3] = node.scale.unwrap_or(Vector3::new(1.0, 1.0, 1.0)).into();
         let reverse_node_order = array.into_iter().fold(1.0, |a, b| a * b).is_sign_negative();
-        // Negative scale determinant flips winding; fold into reverse_order instead of panicking
-        // (a panic on the loader thread left `map` None after ChangeMap → permanent black frames).
+        // Negative scale determinant flips winding; fold into reverse_order instead of
+        // panicking (a panic on the loader thread left `map` None after
+        // ChangeMap → permanent black frames).
         let reverse_order = reverse_order ^ reverse_node_order;
 
         for face in &node.faces {
@@ -702,7 +703,6 @@ enum TextureMapping {
     PreVersion2_3(Vec<TextureSetTexture>),
     PostVersion2_3(HashMap<String, TextureSetTexture>),
 }
-
 
 #[cfg(test)]
 mod reverse_scale_tests {

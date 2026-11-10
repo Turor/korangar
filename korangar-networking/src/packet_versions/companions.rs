@@ -212,9 +212,14 @@ pub fn format_homunculus_flags(flags: u8) -> String {
 }
 
 pub fn format_homunculus(packet: &HomunculusPropertyPacket) -> String {
-    let name = if packet.name.is_empty() { "Homunculus" } else { packet.name.as_str() };
+    let name = if packet.name.is_empty() {
+        "Homunculus"
+    } else {
+        packet.name.as_str()
+    };
     format!(
-        "{name} Lv {} ({}). Hunger {}. Intimacy {} ({}). HP {}/{} SP {}/{}. ATK {} MATK {} HIT {} CRI {} DEF {} MDEF {} FLEE {} ASPD {} range {}. EXP {} / {}. Skill points {}.",
+        "{name} Lv {} ({}). Hunger {}. Intimacy {} ({}). HP {}/{} SP {}/{}. ATK {} MATK {} HIT {} CRI {} DEF {} MDEF {} FLEE {} ASPD {} \
+         range {}. EXP {} / {}. Skill points {}.",
         packet.level,
         format_homunculus_flags(packet.flags),
         packet.hunger,
@@ -261,9 +266,15 @@ pub fn format_elemental(class_id: u32, hp: u32, max_hp: u32, sp: u32, max_sp: u3
 }
 
 pub fn format_mercenary_init(packet: &MercenaryInitPacket) -> String {
-    let name = if packet.name.is_empty() { "Mercenary" } else { packet.name.as_str() };
+    let name = if packet.name.is_empty() {
+        "Mercenary"
+    } else {
+        packet.name.as_str()
+    };
     format!(
-        "{name} Lv {level}. HP {hp}/{max_hp} SP {sp}/{max_sp}. ATK {attack} MATK {magic_attack} HIT {hit} CRI {critical} DEF {defense} MDEF {magic_defense} FLEE {flee} ASPD {attack_speed} range {attack_range}. Faith {faith}. Summons {summons}. Kills {kills}. Contract until {expire}.",
+        "{name} Lv {level}. HP {hp}/{max_hp} SP {sp}/{max_sp}. ATK {attack} MATK {magic_attack} HIT {hit} CRI {critical} DEF {defense} \
+         MDEF {magic_defense} FLEE {flee} ASPD {attack_speed} range {attack_range}. Faith {faith}. Summons {summons}. Kills {kills}. \
+         Contract until {expire}.",
         level = packet.level,
         hp = packet.health_points,
         max_hp = packet.maximum_health_points,
@@ -286,9 +297,14 @@ pub fn format_mercenary_init(packet: &MercenaryInitPacket) -> String {
 }
 
 pub fn format_mercenary_property(packet: &MercenaryPropertyPacket) -> String {
-    let name = if packet.name.is_empty() { "Mercenary" } else { packet.name.as_str() };
+    let name = if packet.name.is_empty() {
+        "Mercenary"
+    } else {
+        packet.name.as_str()
+    };
     format!(
-        "{name} Lv {level}. HP {hp}/{max_hp} SP {sp}/{max_sp}. ATK {attack} MATK {magic_attack} HIT {hit} CRI {critical} DEF {defense} MDEF {magic_defense} FLEE {flee} ASPD {attack_speed}. Faith {faith}. Summons {summons}. Kills {kills}. Contract until {expire}.",
+        "{name} Lv {level}. HP {hp}/{max_hp} SP {sp}/{max_sp}. ATK {attack} MATK {magic_attack} HIT {hit} CRI {critical} DEF {defense} \
+         MDEF {magic_defense} FLEE {flee} ASPD {attack_speed}. Faith {faith}. Summons {summons}. Kills {kills}. Contract until {expire}.",
         level = packet.level,
         hp = packet.health_points,
         max_hp = packet.maximum_health_points,

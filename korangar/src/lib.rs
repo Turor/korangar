@@ -65,8 +65,8 @@ use korangar_interface::Interface;
 use korangar_interface::layout::MouseButton;
 use korangar_networking::{
     DialogHotkey, DisconnectReason, HotkeyState, InventoryItemDetails, ItemQuantity, LoginServerLoginData, MessageColor, NetworkEvent,
-    NetworkEventBuffer, NetworkingSystem, PartyUpdate, SellItem, StatusChangeState, SupportedPacketVersion, cutin_anchor,
-    dialog_hotkey, existing_cutin_texture,
+    NetworkEventBuffer, NetworkingSystem, PartyUpdate, SellItem, StatusChangeState, SupportedPacketVersion, cutin_anchor, dialog_hotkey,
+    existing_cutin_texture,
 };
 #[cfg(feature = "debug")]
 use networking::{PacketHistory, PacketHistoryCallback};
@@ -2288,9 +2288,7 @@ impl Client {
                     self.interface.open_window(StableWindow::new());
                 }
                 NetworkEvent::StableResult { result, id, .. } => {
-                    self.client_state
-                        .follow_mut(client_state().stable_window())
-                        .show_result(result, id);
+                    self.client_state.follow_mut(client_state().stable_window()).show_result(result, id);
                     self.interface.open_window(StableWindow::new());
                 }
                 NetworkEvent::EdenQuestList { summary, .. } => {
@@ -2582,26 +2580,13 @@ impl Client {
                         .start_progress(color, seconds, client_tick.0);
                 }
                 NetworkEvent::NpcProgressCancel => {
-                    if self
-                        .client_state
-                        .follow_mut(client_state().npc_presentation())
-                        .cancel_from_server()
-                    {
+                    if self.client_state.follow_mut(client_state().npc_presentation()).cancel_from_server() {
                         let _ = self.networking_system.npc_progress_complete();
                     }
                 }
                 NetworkEvent::NpcSound {
-                    file_name,
-                    action,
-                    npc_id,
-                    ..
-                } => crate::interface::npc_flow::play_npc_sound(
-                    &self.audio_engine,
-                    &self.client_state,
-                    &file_name,
-                    action,
-                    npc_id,
-                ),
+                    file_name, action, npc_id, ..
+                } => crate::interface::npc_flow::play_npc_sound(&self.audio_engine, &self.client_state, &file_name, action, npc_id),
                 NetworkEvent::NpcBgm { track, play_type } => {
                     crate::interface::npc_flow::play_npc_bgm(
                         &self.audio_engine,
@@ -2844,9 +2829,7 @@ impl Client {
                     }
                 }
                 NetworkEvent::PartyInvite { party_id, party_name } => {
-                    self.client_state
-                        .follow_mut(client_state().party())
-                        .set_pending_invite(party_id);
+                    self.client_state.follow_mut(client_state().party()).set_pending_invite(party_id);
                     self.interface.open_window(PartyInviteWindow::new(party_id, party_name));
                 }
                 NetworkEvent::PartyInvitationState { invitations_allowed } => {
@@ -6929,11 +6912,7 @@ impl Client {
             #[cfg(feature = "debug")]
             (delta_time as f32),
         );
-        crate::interface::npc_flow::recover_dismissed_npc_windows(
-            &mut self.client_state,
-            &mut self.interface,
-            &mut self.networking_system,
-        );
+        crate::interface::npc_flow::recover_dismissed_npc_windows(&mut self.client_state, &mut self.interface, &mut self.networking_system);
 
         // Some debug windows, such as the packet history or cache statistics, require
         // special update logic.
@@ -7084,10 +7063,7 @@ impl Client {
             _ => None,
         };
 
-        let focus_npc_input = self
-            .client_state
-            .follow_mut(client_state().dialog_window())
-            .take_input_focus();
+        let focus_npc_input = self.client_state.follow_mut(client_state().dialog_window()).take_input_focus();
         let dialog_npc_id = self.client_state.follow(client_state().dialog_window()).npc_id();
         let dialog_key = if !interface_has_focus {
             let dialog = self.client_state.follow(client_state().dialog_window());
@@ -7330,10 +7306,7 @@ impl Client {
             render_context.render_world_overlays();
         }
 
-        let player_position = self
-            .client_state
-            .try_follow(this_entity())
-            .map(|player| player.get_position());
+        let player_position = self.client_state.try_follow(this_entity()).map(|player| player.get_position());
         crate::interface::npc_overlay::render_npc_cutin(
             self.client_state.follow(client_state().npc_presentation()),
             self.game_file_loader.as_ref(),
@@ -7925,12 +7898,8 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
         let _ = crate::interface::windows::draw_player_in_world(true);
 
         #[cfg_attr(feature = "debug", korangar_debug::debug_condition(self.render_options.show_entities))]
-        self.map.render_entities(
-            self.entity_instructions,
-            entities,
-            entity_camera,
-            self.client_tick,
-        );
+        self.map
+            .render_entities(self.entity_instructions, entities, entity_camera, self.client_tick);
 
         #[cfg_attr(feature = "debug", korangar_debug::debug_condition(self.render_options.show_entities))]
         self.map

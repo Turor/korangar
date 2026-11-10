@@ -1497,10 +1497,10 @@ mod tests {
         BASE_STAT_PART_WIDTHS, COMBAT_STAT_LABELS, COMBAT_STAT_PART_WIDTHS, COSTUME_SLOTS, EQUIP_LABEL_MAX_CHARS, GEAR_COLUMN_COUNT,
         GEAR_EMBEDS_INVENTORY, GEAR_PORTRAIT_WIDTH, GEAR_SLOT_GAP, GEAR_SLOT_SIDE, GEAR_WINDOW_HEIGHT, GEAR_WINDOW_WIDTH,
         INVENTORY_COLUMNS, INVENTORY_ROWS, LOADOUT_CONTROLS, PAPERDOLL_COLUMN_COUNT, PAPERDOLL_ROWS, PORTRAIT_SPANS_ALL_ROWS,
-        PREVIEW_RENDERS_CHARACTER, SHADOW_SLOTS, STAT_PART_GAP, STRIP_SLOTS_PER_ROW, display_aspd, display_packet_stat, draw_player_in_world,
-        equip_slot_label, equip_slot_tooltip, fit_sprite_part, gear_content_budget, gear_left_column_content_height, packed_width,
-        paperdoll_geometry, set_row_widths, shown_equip_positions, slot_caption_fits, sprite_part_top_left, square_strip_frames,
-        strip_block_height,
+        PREVIEW_RENDERS_CHARACTER, SHADOW_SLOTS, STAT_PART_GAP, STRIP_SLOTS_PER_ROW, display_aspd, display_packet_stat,
+        draw_player_in_world, equip_slot_label, equip_slot_tooltip, fit_sprite_part, gear_content_budget, gear_left_column_content_height,
+        packed_width, paperdoll_geometry, set_row_widths, shown_equip_positions, slot_caption_fits, sprite_part_top_left,
+        square_strip_frames, strip_block_height,
     };
 
     #[test]

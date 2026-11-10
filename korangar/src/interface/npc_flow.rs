@@ -65,7 +65,8 @@ pub(crate) fn play_npc_bgm(
     }
 }
 
-/// A local walk aborts the bar with `0x02F1` only. Hercules ignores a client `0x02F2`.
+/// A local walk aborts the bar with `0x02F1` only. Hercules ignores a client
+/// `0x02F2`.
 pub(crate) fn abort_npc_progress_for_move<Callback>(state: &mut State<ClientState>, networking: &mut NetworkingSystem<Callback>)
 where
     Callback: PacketCallback + Send,

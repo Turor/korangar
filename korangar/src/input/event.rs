@@ -514,7 +514,8 @@ pub enum InputEvent {
     AcceptPartyInvite {
         party_id: PartyId,
     },
-    /// Accept the invite stored on [`crate::state::party::PartyState::pending_invite`].
+    /// Accept the invite stored on
+    /// [`crate::state::party::PartyState::pending_invite`].
     AcceptPendingPartyInvite,
     /// `CZ_MAKE_GROUP2`.
     CreateParty {

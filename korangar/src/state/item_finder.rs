@@ -291,7 +291,8 @@ impl ItemFinderState {
 const DROP_PREVIEW: usize = 4;
 const QUEST_PREVIEW: usize = 4;
 
-/// One summary row plus drop and quest lines from [`drop_lines`] and [`quest_files`].
+/// One summary row plus drop and quest lines from [`drop_lines`] and
+/// [`quest_files`].
 fn push_source_rows(rows: &mut Vec<String>, catalog: &FinderCatalog, sources: &ItemSources, item_id: u32, mvp_item_id: Option<u32>) {
     let lines = drop_lines(catalog, sources, item_id, 0);
     let shown = lines.len().min(DROP_PREVIEW);
@@ -844,7 +845,12 @@ mod tests {
             ..ItemFinderState::default()
         };
         state.load_bytes(Some(CATALOG.as_bytes()), Some(SOURCES.as_bytes()));
-        assert!(state.rows.iter().any(|row| row.contains("Drop:") && row.contains("Poring") && row.contains("5.00%")));
+        assert!(
+            state
+                .rows
+                .iter()
+                .any(|row| row.contains("Drop:") && row.contains("Poring") && row.contains("5.00%"))
+        );
         assert!(state.rows.iter().any(|row| row.contains("Quest: npc/quests/knife.txt")));
     }
 

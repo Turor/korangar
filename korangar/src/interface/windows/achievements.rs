@@ -122,7 +122,10 @@ fn fraction_after(text: &str, marker: &str) -> f32 {
     let Some(start) = text.find(marker) else {
         return 0.0;
     };
-    fraction_in_parens(&format!("({})", text[start + marker.len()..].split_whitespace().next().unwrap_or("0/1")))
+    fraction_in_parens(&format!(
+        "({})",
+        text[start + marker.len()..].split_whitespace().next().unwrap_or("0/1")
+    ))
 }
 
 fn fraction_in_parens(text: &str) -> f32 {

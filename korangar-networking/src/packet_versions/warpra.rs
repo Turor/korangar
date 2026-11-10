@@ -109,11 +109,7 @@ pub fn push_warpra_chunk(
     let total_len = usize::from(total);
     let incoming = entries.len();
     let held = pending.len();
-    let continues = held > 0
-        && total_len > 0
-        && held < total_len
-        && held + incoming <= total_len
-        && (more || held + incoming == total_len);
+    let continues = held > 0 && total_len > 0 && held < total_len && held + incoming <= total_len && (more || held + incoming == total_len);
     if held > 0 && !continues {
         pending.clear();
     }

@@ -27,12 +27,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9001,
         food_item_id: 531,
         accessory_item_id: 10013,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9069,
-                materials: &[(610, 10), (619, 3)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9069,
+            materials: &[(610, 10), (619, 3)],
+        }],
     },
     PetSpecies {
         class_id: 1010,
@@ -64,12 +62,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9014,
         food_item_id: 537,
         accessory_item_id: 10010,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9071,
-                materials: &[(537, 10), (632, 3), (7101, 300), (4031, 1), (522, 10)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9071,
+            materials: &[(537, 10), (632, 3), (7101, 300), (4031, 1), (522, 10)],
+        }],
     },
     PetSpecies {
         class_id: 1023,
@@ -77,12 +73,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9017,
         food_item_id: 537,
         accessory_item_id: 10009,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9087,
-                materials: &[(635, 3), (1124, 1), (931, 500), (2267, 1), (4066, 1)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9087,
+            materials: &[(635, 3), (1124, 1), (931, 500), (2267, 1), (4066, 1)],
+        }],
     },
     PetSpecies {
         class_id: 1026,
@@ -98,12 +92,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9021,
         food_item_id: 537,
         accessory_item_id: 10006,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9090,
-                materials: &[(639, 3), (10006, 1), (954, 300), (732, 6)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9090,
+            materials: &[(639, 3), (10006, 1), (954, 300), (732, 6)],
+        }],
     },
     PetSpecies {
         class_id: 1031,
@@ -135,12 +127,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9102,
         food_item_id: 934,
         accessory_item_id: 0,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9107,
-                materials: &[(23256, 3), (7511, 200), (969, 30), (4248, 1)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9107,
+            materials: &[(23256, 3), (7511, 200), (969, 30), (4248, 1)],
+        }],
     },
     PetSpecies {
         class_id: 1042,
@@ -164,12 +154,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9011,
         food_item_id: 537,
         accessory_item_id: 10014,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9106,
-                materials: &[(707, 3), (940, 777), (508, 200), (4057, 1)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9106,
+            materials: &[(707, 3), (940, 777), (508, 200), (4057, 1)],
+        }],
     },
     PetSpecies {
         class_id: 1056,
@@ -185,12 +173,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9016,
         food_item_id: 532,
         accessory_item_id: 10018,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9091,
-                materials: &[(634, 3), (753, 2), (7182, 300), (4051, 1)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9091,
+            materials: &[(634, 3), (753, 2), (7182, 300), (4051, 1)],
+        }],
     },
     PetSpecies {
         class_id: 1058,
@@ -206,12 +192,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9004,
         food_item_id: 534,
         accessory_item_id: 10007,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9094,
-                materials: &[(7198, 100), (705, 250), (706, 30), (4663, 1)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9094,
+            materials: &[(7198, 100), (705, 250), (706, 30), (4663, 1)],
+        }],
     },
     PetSpecies {
         class_id: 1077,
@@ -227,12 +211,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9069,
         food_item_id: 537,
         accessory_item_id: 0,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9088,
-                materials: &[(503, 20), (2282, 1), (509, 50), (909, 200)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9088,
+            materials: &[(503, 20), (2282, 1), (509, 50), (909, 200)],
+        }],
     },
     PetSpecies {
         class_id: 1096,
@@ -264,12 +246,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9023,
         food_item_id: 711,
         accessory_item_id: 10004,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9097,
-                materials: &[(641, 3), (1039, 250), (1009, 30), (4122, 1)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9097,
+            materials: &[(641, 3), (1039, 250), (1009, 30), (4122, 1)],
+        }],
     },
     PetSpecies {
         class_id: 1110,
@@ -277,12 +257,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9019,
         food_item_id: 537,
         accessory_item_id: 10005,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9089,
-                materials: &[(637, 3), (981, 3), (1021, 300), (969, 3)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9089,
+            materials: &[(637, 3), (981, 3), (1021, 300), (969, 3)],
+        }],
     },
     PetSpecies {
         class_id: 1113,
@@ -347,12 +325,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9022,
         food_item_id: 537,
         accessory_item_id: 10011,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9098,
-                materials: &[(640, 3), (6260, 100), (606, 150), (4279, 1)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9098,
+            materials: &[(640, 3), (6260, 100), (606, 150), (4279, 1)],
+        }],
     },
     PetSpecies {
         class_id: 1166,
@@ -368,12 +344,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9009,
         food_item_id: 537,
         accessory_item_id: 10015,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9070,
-                materials: &[(537, 10), (627, 3), (517, 100), (949, 50)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9070,
+            materials: &[(537, 10), (627, 3), (517, 100), (949, 50)],
+        }],
     },
     PetSpecies {
         class_id: 1170,
@@ -397,12 +371,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9095,
         food_item_id: 25231,
         accessory_item_id: 0,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9096,
-                materials: &[(23187, 3), (1022, 999), (10008, 1), (4159, 1)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9096,
+            materials: &[(23187, 3), (1022, 999), (10008, 1), (4159, 1)],
+        }],
     },
     PetSpecies {
         class_id: 1188,
@@ -410,12 +382,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9025,
         food_item_id: 537,
         accessory_item_id: 10020,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9093,
-                materials: &[(5367, 1), (7277, 100), (7014, 50), (4328, 1)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9093,
+            materials: &[(5367, 1), (7277, 100), (7014, 50), (4328, 1)],
+        }],
     },
     PetSpecies {
         class_id: 1200,
@@ -431,12 +401,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9037,
         food_item_id: 7824,
         accessory_item_id: 0,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9117,
-                materials: &[(7005, 500), (1009, 50), (1059, 100), (4210, 1)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9117,
+            materials: &[(7005, 500), (1009, 50), (1059, 100), (4210, 1)],
+        }],
     },
     PetSpecies {
         class_id: 1213,
@@ -444,12 +412,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9087,
         food_item_id: 537,
         accessory_item_id: 0,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9121,
-                materials: &[(968, 10), (4066, 10), (4375, 10), (25375, 30)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9121,
+            materials: &[(968, 10), (4066, 10), (4375, 10), (25375, 30)],
+        }],
     },
     PetSpecies {
         class_id: 1214,
@@ -481,12 +447,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9027,
         food_item_id: 504,
         accessory_item_id: 0,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9120,
-                materials: &[(7047, 500), (511, 200), (985, 30), (4253, 1)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9120,
+            materials: &[(7047, 500), (511, 200), (985, 30), (4253, 1)],
+        }],
     },
     PetSpecies {
         class_id: 1297,
@@ -518,12 +482,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9096,
         food_item_id: 537,
         accessory_item_id: 0,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9112,
-                materials: &[(25375, 30), (4159, 10), (4100, 10), (4090, 10)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9112,
+            materials: &[(25375, 30), (4159, 10), (4100, 10), (4090, 10)],
+        }],
     },
     PetSpecies {
         class_id: 1369,
@@ -555,12 +517,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9054,
         food_item_id: 6112,
         accessory_item_id: 10036,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9116,
-                materials: &[(7120, 500), (510, 100), (935, 100), (4166, 1)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9116,
+            materials: &[(7120, 500), (510, 100), (935, 100), (4166, 1)],
+        }],
     },
     PetSpecies {
         class_id: 1382,
@@ -600,12 +560,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9047,
         food_item_id: 6105,
         accessory_item_id: 10029,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9115,
-                materials: &[(25375, 30), (4202, 10), (4265, 10), (4272, 10)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9115,
+            materials: &[(25375, 30), (4202, 10), (4265, 10), (4272, 10)],
+        }],
     },
     PetSpecies {
         class_id: 1495,
@@ -698,12 +656,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9100,
         food_item_id: 25232,
         accessory_item_id: 0,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9105,
-                materials: &[(23188, 3), (6100, 50), (7340, 200), (4413, 1)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9105,
+            materials: &[(23188, 3), (6100, 50), (7340, 200), (4413, 1)],
+        }],
     },
     PetSpecies {
         class_id: 1735,
@@ -735,12 +691,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9105,
         food_item_id: 537,
         accessory_item_id: 0,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9122,
-                materials: &[(4413, 10), (4412, 10), (4409, 10), (25375, 30)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9122,
+            materials: &[(4413, 10), (4412, 10), (4409, 10), (25375, 30)],
+        }],
     },
     PetSpecies {
         class_id: 1782,
@@ -996,12 +950,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9101,
         food_item_id: 579,
         accessory_item_id: 10040,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9113,
-                materials: &[(25408, 2), (11616, 100), (11605, 100)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9113,
+            materials: &[(25408, 2), (11616, 100), (11605, 100)],
+        }],
     },
     PetSpecies {
         class_id: 3790,
@@ -1081,12 +1033,10 @@ static PETS: &[PetSpecies] = &[
         egg_item_id: 9123,
         food_item_id: 1000227,
         accessory_item_id: 10043,
-        evolutions: &[
-            PetEvolutionRecipe {
-                target_egg_id: 9124,
-                materials: &[(1000103, 500), (7095, 50), (7094, 10)],
-            },
-        ],
+        evolutions: &[PetEvolutionRecipe {
+            target_egg_id: 9124,
+            materials: &[(1000103, 500), (7095, 50), (7094, 10)],
+        }],
     },
     PetSpecies {
         class_id: 20697,
@@ -1103,4 +1053,3 @@ pub fn pet_species(class_id: i32) -> Option<&'static PetSpecies> {
         .ok()
         .map(|index| &PETS[index])
 }
-

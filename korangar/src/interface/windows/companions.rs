@@ -2,9 +2,9 @@ use korangar_interface::element::StateElement;
 use korangar_interface::window::{CustomWindow, Window};
 use korangar_networking::{
     EL_VAR_HP, EL_VAR_MAX_HP, EL_VAR_MAX_SP, EL_VAR_SP, MERC_VAR_ATTACK, MERC_VAR_ATTACK_SPEED, MERC_VAR_CRITICAL, MERC_VAR_DEFENSE,
-    MERC_VAR_FAITH, MERC_VAR_FLEE, MERC_VAR_HIT, MERC_VAR_HP, MERC_VAR_KILLS, MERC_VAR_MAGIC_ATTACK, MERC_VAR_MAGIC_DEFENSE, MERC_VAR_MAX_HP,
-    MERC_VAR_MAX_SP, MERC_VAR_SP, PET_KIND_ACCESSORY, PET_KIND_HUNGER, PET_KIND_INTIMACY, elemental_variable_name, format_elemental,
-    format_pet, mercenary_variable_name,
+    MERC_VAR_FAITH, MERC_VAR_FLEE, MERC_VAR_HIT, MERC_VAR_HP, MERC_VAR_KILLS, MERC_VAR_MAGIC_ATTACK, MERC_VAR_MAGIC_DEFENSE,
+    MERC_VAR_MAX_HP, MERC_VAR_MAX_SP, MERC_VAR_SP, PET_KIND_ACCESSORY, PET_KIND_HUNGER, PET_KIND_INTIMACY, elemental_variable_name,
+    format_elemental, format_pet, mercenary_variable_name,
 };
 use rust_state::RustState;
 
@@ -14,7 +14,8 @@ use crate::loaders::OverflowBehavior;
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, ClientStatePathExt, client_state};
 
-/// Pet fields kept so hunger, intimacy, and accessory updates can rewrite the line.
+/// Pet fields kept so hunger, intimacy, and accessory updates can rewrite the
+/// line.
 pub struct PetPanel {
     pub name: String,
     pub renamed: bool,
@@ -213,11 +214,7 @@ impl CompanionWindowState {
         self.mercenary_summons = mercenary.summons;
         self.mercenary_kills = mercenary.kills;
         self.mercenary_range = range;
-        self.mercenary_text = if keep_range {
-            format!("{summary} Range {range}.")
-        } else {
-            summary
-        };
+        self.mercenary_text = if keep_range { format!("{summary} Range {range}.") } else { summary };
         self.status = "Mercenary updated.".to_owned();
     }
 
@@ -244,8 +241,13 @@ impl CompanionWindowState {
             _ => {}
         }
         self.mercenary_text = format!(
-            "{} Lv {}. HP {}/{} SP {}/{}. ATK {} MATK {} HIT {} CRI {} DEF {} MDEF {} FLEE {} ASPD {} range {}. Faith {}. Summons {}. Kills {}. Contract until {}.",
-            if self.mercenary_name.is_empty() { "Mercenary" } else { self.mercenary_name.as_str() },
+            "{} Lv {}. HP {}/{} SP {}/{}. ATK {} MATK {} HIT {} CRI {} DEF {} MDEF {} FLEE {} ASPD {} range {}. Faith {}. Summons {}. \
+             Kills {}. Contract until {}.",
+            if self.mercenary_name.is_empty() {
+                "Mercenary"
+            } else {
+                self.mercenary_name.as_str()
+            },
             self.mercenary_level,
             self.mercenary_hp,
             self.mercenary_max_hp,
