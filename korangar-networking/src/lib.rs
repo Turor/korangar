@@ -117,6 +117,9 @@ pub struct NetworkingSystem<Callback> {
     character_server_connection: ServerConnection,
     map_server_connection: ServerConnection,
     packet_callback: Callback,
+    /// Account id written into `CZ_USE_ITEM2`. Hercules ignores the field, but
+    /// the 8-byte packet still carries it. Zero until map connect.
+    map_account_id: AccountId,
 }
 
 impl NetworkingSystem<NoPacketCallback> {
@@ -142,6 +145,7 @@ where
             character_server_connection: ServerConnection::Disconnected,
             map_server_connection: ServerConnection::Disconnected,
             packet_callback,
+            map_account_id: AccountId(0),
         };
         let event_buffer = NetworkEventBuffer(Vec::new());
 
@@ -535,6 +539,8 @@ where
         login_server_login_data: &LoginServerLoginData,
         character_server_login_data: CharacterServerLoginData,
     ) {
+        self.map_account_id = login_server_login_data.account_id;
+
         if !matches!(self.map_server_connection, ServerConnection::Disconnected) {
             return;
         }
@@ -908,6 +914,29 @@ where
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(ChooseDialogOptionPacket::new(npc_id, option))
+            }
+        }
+    }
+
+    /// `CZ_USE_ITEM2` (`0x0439`). The account id is the one stored at map
+    /// connect.
+    pub fn use_item(&mut self, index: InventoryIndex) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(UseItemPacket::new(index, self.map_account_id))
+            }
+        }
+    }
+
+    /// `CZ_ITEM_THROW2` (`0x0363`). An amount of zero is not sent.
+    pub fn drop_item(&mut self, index: InventoryIndex, amount: u16) -> Result<(), NotConnectedError> {
+        if amount == 0 {
+            return Ok(());
+        }
+
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(DropItemPacket::new(index, amount))
             }
         }
     }
@@ -4298,6 +4327,46 @@ mod packet_handlers {
         let mut writer = ByteWriter::new();
         upgrade_close.packet_to_bytes(&mut writer).unwrap();
         assert_eq!(writer.as_slice(), &[0xB5, 0x0A]);
+    }
+
+    #[test]
+    fn item_use_and_drop_acks_are_registered_on_every_map_version() {
+        use ragnarok_packets::{AccountId, InventoryIndex, ItemId};
+
+        let use_ack2 = [
+            0xC8, 0x01, 0x03, 0x00, 0xF5, 0x01, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x04, 0x00, 0x01,
+        ];
+        let legacy = [0xA8, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00];
+        let thrown = [0xAF, 0x00, 0x05, 0x00, 0x02, 0x00];
+
+        for version in [
+            SupportedPacketVersion::_20250716,
+            SupportedPacketVersion::_20220406,
+            SupportedPacketVersion::_20190530,
+        ] {
+            assert!(matches!(process_one(version, &use_ack2).as_slice(), [
+                NetworkEvent::ItemUseAck {
+                    index: InventoryIndex(1),
+                    item_id: ItemId(501),
+                    account_id: Some(AccountId(9)),
+                    amount: 4,
+                    success: true,
+                }
+            ]));
+            assert!(matches!(process_one(version, &legacy).as_slice(), [NetworkEvent::ItemUseAck {
+                index: InventoryIndex(1),
+                account_id: None,
+                amount: 0,
+                success: false,
+                ..
+            }]));
+            assert!(matches!(process_one(version, &thrown).as_slice(), [
+                NetworkEvent::ItemThrowAck {
+                    index: InventoryIndex(3),
+                    amount: 2,
+                }
+            ]));
+        }
     }
 }
 

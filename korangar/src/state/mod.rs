@@ -10,6 +10,7 @@ pub mod friends;
 pub mod guild;
 pub mod hotbar;
 pub mod inventory;
+pub mod item_drop;
 pub mod item_finder;
 pub mod item_workshop;
 pub mod localization;
@@ -78,6 +79,7 @@ use crate::state::character_slots::CharacterSlots;
 use crate::state::equip_switch::EquipSwitch;
 use crate::state::hotbar::Hotbar;
 use crate::state::inventory::Inventory;
+use crate::state::item_drop::ItemDropPrompt;
 use crate::state::item_workshop::{EnchantGradeState, ItemReformState, LaphineSynthesisState, LaphineUpgradeState};
 use crate::state::navigation::Navigation;
 use crate::state::pincode::PincodeWindowState;
@@ -296,6 +298,8 @@ pub struct ClientState {
     hotbar: Hotbar,
     /// Player inventory.
     inventory: Inventory,
+    /// Amount typed when a stack is dropped on the ground.
+    item_drop: ItemDropPrompt,
     /// Kafra or guild storage. Replaced when a storage list arrives.
     storage: Inventory,
     /// Alternate equipment set. This does not change what is currently worn.
@@ -509,6 +513,7 @@ impl ClientState {
             let player_name = String::new();
             let hotbar = Hotbar::default();
             let inventory = Inventory::default();
+            let item_drop = ItemDropPrompt::default();
             let storage = Inventory::default();
             let cart = Inventory::default();
             let skill_tree = SkillTree::default();
@@ -617,6 +622,7 @@ impl ClientState {
             player_name,
             hotbar,
             inventory,
+            item_drop,
             storage,
             equip_switch: EquipSwitch::default(),
             cart,

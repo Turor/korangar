@@ -39,6 +39,10 @@ struct ItemBoxHandler<P> {
     source: ItemSource,
 }
 
+struct ItemUseHandler<P> {
+    item_path: P,
+}
+
 impl<P> ItemBoxHandler<P> {
     fn new(item_path: P, source: ItemSource) -> Self {
         Self { item_path, source }
@@ -59,6 +63,20 @@ where
                 mode: MouseInputMode::MoveItem { item, source: self.source },
             },
         });
+    }
+}
+
+impl<P> ClickHandler<ClientState> for ItemUseHandler<P>
+where
+    P: Path<ClientState, InventoryItem<ResourceMetadata>, false>,
+{
+    fn handle_click(&self, state: &State<ClientState>, queue: &mut EventQueue<ClientState>) {
+        let item = state.try_get(&self.item_path).unwrap().clone();
+
+        queue.queue(Event::SetMouseMode {
+            mouse_mode: MouseMode::Default,
+        });
+        queue.queue(InputEvent::UseItem { index: item.index });
     }
 }
 
@@ -106,6 +124,7 @@ pub struct ItemBox<A> {
     item_path: A,
     handler: ItemBoxHandler<A>,
     details_handler: ItemDetailsHandler<A>,
+    use_handler: ItemUseHandler<A>,
     amount_display: AmountDisplay,
     /// `0.0` keeps the historical 40px-tall stretched cell. A positive value is
     /// a square icon frame of that side, centered in the cell.
@@ -128,6 +147,7 @@ where
             item_path,
             handler: ItemBoxHandler::new(item_path, source),
             details_handler: ItemDetailsHandler { item_path, source },
+            use_handler: ItemUseHandler { item_path },
             amount_display: AmountDisplay::default(),
             side,
             icon_side,
@@ -279,6 +299,9 @@ where
             if is_hovered && !is_move_mode {
                 layout.register_click_handler(MouseButton::Left, &self.handler);
                 layout.register_click_handler(MouseButton::Right, &self.details_handler);
+                if self.handler.source == ItemSource::Inventory {
+                    layout.register_click_handler(MouseButton::DoubleLeft, &self.use_handler);
+                }
             }
 
             if is_hovered && !self.tooltip_text.is_empty() {

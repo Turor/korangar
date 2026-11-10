@@ -352,6 +352,23 @@ pub enum InputEvent {
         /// Id of the option.
         option: i8,
     },
+    /// Use the inventory item at `index`. Healing, usable, delayed-consume, and
+    /// cash items are sent as `CZ_USE_ITEM2`. Equippable types equip. The
+    /// hotbar (G07) sends this without opening the bag.
+    UseItem {
+        /// Inventory index.
+        index: ragnarok_packets::InventoryIndex,
+    },
+    /// Drop an inventory item on the ground. Stacks may open the amount window
+    /// instead of sending the packet immediately.
+    DropItem {
+        /// Item dragged out of the inventory.
+        item: InventoryItem<ResourceMetadata>,
+    },
+    /// Send the amount typed into the drop window.
+    ConfirmItemDrop,
+    /// Close the drop window without sending a packet.
+    CancelItemDrop,
     /// Move an item in the user interface.
     MoveItem {
         /// Source of the move.

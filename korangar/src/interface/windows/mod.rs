@@ -31,6 +31,7 @@ mod hotbar;
 mod interface_settings;
 mod inventory;
 mod item_details;
+mod item_drop;
 mod item_finder;
 mod item_workshop;
 mod login;
@@ -107,6 +108,7 @@ pub use self::interface_settings::InterfaceSettingsWindow;
 #[allow(unused_imports)]
 pub use self::inventory::InventoryWindow;
 pub use self::item_details::{ItemDetailsWindow, format_item_details, item_details_key};
+pub use self::item_drop::{ItemDropAmountBox, ItemDropWindow};
 pub use self::item_finder::ItemFinderWindow;
 pub use self::item_workshop::{EnchantGradeWindow, ItemReformWindow, LaphineSynthesisWindow, LaphineUpgradeWindow};
 pub use self::login::{LoginWindow, LoginWindowState, LoginWindowStatePathExt};
@@ -167,6 +169,7 @@ pub enum WindowClass {
     GraphicsSettings,
     Hotbar,
     Inventory,
+    ItemDrop,
     Storage,
     Equipment,
     SwitchEquip,

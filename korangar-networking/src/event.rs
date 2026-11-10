@@ -689,6 +689,21 @@ pub enum NetworkEvent {
         index: InventoryIndex,
         amount: u16,
     },
+    /// `ZC_USE_ITEM_ACK2` or `ZC_USE_ITEM_ACK`. `amount` is the stack left in
+    /// the inventory. `account_id` is `None` for the older ack, which is sent
+    /// only to this client. A `Some` id from the area broadcast must match us.
+    ItemUseAck {
+        index: InventoryIndex,
+        item_id: ItemId,
+        account_id: Option<AccountId>,
+        amount: u16,
+        success: bool,
+    },
+    /// `ZC_ITEM_THROW_ACK`. `amount` is the count removed. Zero is a failure.
+    ItemThrowAck {
+        index: InventoryIndex,
+        amount: u16,
+    },
     AttackFailed {
         target_entity_id: EntityId,
         target_position: TilePosition,

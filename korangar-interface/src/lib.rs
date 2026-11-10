@@ -423,6 +423,14 @@ where
         &self.mouse_mode
     }
 
+    /// Queue a focus request. The next interface frame resolves it once the
+    /// target has been laid out.
+    pub fn request_focus(&mut self, focus_id: impl element::id::FocusIdExt) {
+        self.event_queue.queue(Event::FocusElement {
+            focus_id: focus_id.focus_id(),
+        });
+    }
+
     pub fn has_focus(&self) -> bool {
         self.focused_element.is_some()
     }

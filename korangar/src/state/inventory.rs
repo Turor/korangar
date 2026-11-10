@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use korangar_interface::element::StateElement;
 use korangar_networking::{InventoryItem, InventoryItemDetails, NoMetadata};
-use ragnarok_packets::{EquipPosition, InventoryIndex, ItemId};
+use ragnarok_packets::{AccountId, EquipPosition, EquippableItemFlags, InventoryIndex, ItemId, RegularItemFlags};
 use rust_state::RustState;
 
 use crate::graphics::Texture;
@@ -114,14 +114,131 @@ impl Inventory {
 
         *equipped_position = new_equipped_position;
     }
+
+    /// `ZC_USE_ITEM_ACK` remaining count. Zero removes the item. A missing
+    /// index is left alone. Equippable rows are not rewritten to a stack count.
+    pub fn apply_use_ack(&mut self, index: InventoryIndex, remaining: u16) -> bool {
+        let Some(position) = self.items.iter().position(|item| item.index == index) else {
+            return false;
+        };
+
+        if remaining == 0 {
+            self.items.remove(position);
+            return true;
+        }
+
+        let InventoryItemDetails::Regular { amount, .. } = &mut self.items[position].details else {
+            return false;
+        };
+        *amount = remaining;
+        true
+    }
+
+    /// `ZC_ITEM_THROW_ACK`. `removed` is the count taken off the stack. Zero
+    /// fails and does not delete the item. A missing index does not panic.
+    pub fn apply_throw_ack(&mut self, index: InventoryIndex, removed: u16) -> ThrowUpdate {
+        let Some(position) = self.items.iter().position(|item| item.index == index) else {
+            return ThrowUpdate::Missing;
+        };
+
+        if removed == 0 {
+            return ThrowUpdate::Failed;
+        }
+
+        if let InventoryItemDetails::Regular { amount, .. } = &mut self.items[position].details
+            && *amount > removed
+        {
+            *amount -= removed;
+            return ThrowUpdate::Updated;
+        }
+
+        self.items.remove(position);
+        ThrowUpdate::Updated
+    }
+}
+
+/// What a double-click on an inventory cell should do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemActivation {
+    Use,
+    Equip { position: EquipPosition },
+    Ignore,
+}
+
+/// Drag onto the world. Stacks larger than one ask for an amount first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroundDrop {
+    Now(u16),
+    Ask { max: u16 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThrowUpdate {
+    Failed,
+    Missing,
+    Updated,
+}
+
+/// `0x01C8` is an area broadcast. `0x00A8` has no account id and is this
+/// client.
+pub fn use_ack_targets_self(our_account: Option<AccountId>, packet_account: Option<AccountId>) -> bool {
+    packet_account.is_none_or(|id| our_account == Some(id))
+}
+
+/// roBrowser `ItemType`: healing 0, usable 2, delayed consume 11, cash 18 are
+/// used. Weapon, armor, shadow, pet armor, and ammo (4, 5, 8, 12, 10) equip
+/// when identified. Ammo that arrived as a regular stack equips in the ammo
+/// slot.
+pub fn item_activation<Meta>(item: &InventoryItem<Meta>) -> ItemActivation {
+    match item.item_type {
+        0 | 2 | 11 | 18 => ItemActivation::Use,
+        4 | 5 | 8 | 12 => equip_position(item),
+        10 => match equip_position(item) {
+            ItemActivation::Ignore => {
+                let InventoryItemDetails::Regular { flags, .. } = &item.details else {
+                    return ItemActivation::Ignore;
+                };
+                if flags.contains(RegularItemFlags::IDENTIFIED) {
+                    ItemActivation::Equip {
+                        position: EquipPosition::AMMO,
+                    }
+                } else {
+                    ItemActivation::Ignore
+                }
+            }
+            equipped => equipped,
+        },
+        _ => ItemActivation::Ignore,
+    }
+}
+
+fn equip_position<Meta>(item: &InventoryItem<Meta>) -> ItemActivation {
+    let InventoryItemDetails::Equippable { equip_position, flags, .. } = &item.details else {
+        return ItemActivation::Ignore;
+    };
+
+    if flags.contains(EquippableItemFlags::IDENTIFIED) && !flags.contains(EquippableItemFlags::IS_BROKEN) && !equip_position.is_empty() {
+        ItemActivation::Equip { position: *equip_position }
+    } else {
+        ItemActivation::Ignore
+    }
+}
+
+pub fn ground_drop<Meta>(item: &InventoryItem<Meta>) -> Option<GroundDrop> {
+    match &item.details {
+        InventoryItemDetails::Regular { amount, .. } if *amount > 1 => Some(GroundDrop::Ask { max: *amount }),
+        InventoryItemDetails::Regular { amount: 1, .. } => Some(GroundDrop::Now(1)),
+        InventoryItemDetails::Regular { .. } => None,
+        InventoryItemDetails::Equippable { .. } => Some(GroundDrop::Now(1)),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use korangar_networking::{InventoryItem, InventoryItemDetails};
-    use ragnarok_packets::{EquipPosition, EquippableItemFlags, InventoryIndex, ItemId, ItemOptions};
+    use ragnarok_packets::{AccountId, EquipPosition, EquippableItemFlags, InventoryIndex, ItemId, ItemOptions, RegularItemFlags};
 
-    use super::Inventory;
+    use super::{GroundDrop, Inventory, ItemActivation, ThrowUpdate, ground_drop, item_activation, use_ack_targets_self};
     use crate::world::ResourceMetadata;
 
     fn equip(index: u16, refine: u8, grade: u8) -> InventoryItem<ResourceMetadata> {
@@ -183,5 +300,135 @@ mod tests {
 
         inventory.apply_enchant_grade(InventoryIndex(4), 0, 3);
         assert_eq!(levels(&inventory, 4), (9, 2));
+    }
+
+    fn regular(index: u16, item_type: u8, amount: u16, identified: bool) -> InventoryItem<ResourceMetadata> {
+        InventoryItem {
+            metadata: ResourceMetadata {
+                texture: None,
+                name: "Red Potion".to_owned(),
+                description: String::new(),
+            },
+            index: InventoryIndex(index),
+            item_id: ItemId(501),
+            item_type,
+            slot: [0; 4],
+            hire_expiration_date: 0,
+            details: InventoryItemDetails::Regular {
+                amount,
+                equipped_position: EquipPosition::empty(),
+                flags: if identified {
+                    RegularItemFlags::IDENTIFIED
+                } else {
+                    RegularItemFlags::empty()
+                },
+            },
+        }
+    }
+
+    fn amount_of(inventory: &Inventory, index: u16) -> Option<u16> {
+        inventory.items.iter().find(|item| item.index == InventoryIndex(index)).map(|item| {
+            let InventoryItemDetails::Regular { amount, .. } = item.details else {
+                panic!("expected a stack");
+            };
+            amount
+        })
+    }
+
+    #[test]
+    fn use_ack_sets_remaining_and_removes_at_zero() {
+        let mut inventory = Inventory::default();
+        inventory.items.push(regular(4, 0, 5, true));
+
+        assert!(inventory.apply_use_ack(InventoryIndex(4), 4));
+        assert_eq!(amount_of(&inventory, 4), Some(4));
+
+        assert!(inventory.apply_use_ack(InventoryIndex(4), 0));
+        assert!(amount_of(&inventory, 4).is_none());
+        assert!(!inventory.apply_use_ack(InventoryIndex(4), 1));
+    }
+
+    #[test]
+    fn use_ack_does_not_rewrite_an_equip() {
+        let mut inventory = Inventory::default();
+        inventory.items.push(equip(2, 0, 0));
+        assert!(!inventory.apply_use_ack(InventoryIndex(2), 1));
+        assert_eq!(inventory.items.len(), 1);
+        assert!(inventory.apply_use_ack(InventoryIndex(2), 0));
+        assert!(inventory.items.is_empty());
+    }
+
+    #[test]
+    fn throw_ack_subtracts_removes_and_ignores_failure() {
+        let mut inventory = Inventory::default();
+        inventory.items.push(regular(3, 0, 5, true));
+        inventory.items.push(equip(8, 0, 0));
+
+        assert_eq!(inventory.apply_throw_ack(InventoryIndex(3), 0), ThrowUpdate::Failed);
+        assert_eq!(amount_of(&inventory, 3), Some(5));
+
+        assert_eq!(inventory.apply_throw_ack(InventoryIndex(3), 2), ThrowUpdate::Updated);
+        assert_eq!(amount_of(&inventory, 3), Some(3));
+
+        assert_eq!(inventory.apply_throw_ack(InventoryIndex(3), 3), ThrowUpdate::Updated);
+        assert!(amount_of(&inventory, 3).is_none());
+
+        assert_eq!(inventory.apply_throw_ack(InventoryIndex(8), 0), ThrowUpdate::Failed);
+        assert_eq!(inventory.items.len(), 1);
+        assert_eq!(inventory.apply_throw_ack(InventoryIndex(8), 1), ThrowUpdate::Updated);
+        assert!(inventory.items.is_empty());
+
+        assert_eq!(inventory.apply_throw_ack(InventoryIndex(8), 1), ThrowUpdate::Missing);
+    }
+
+    #[test]
+    fn activation_follows_ro_browser_item_types() {
+        assert_eq!(item_activation(&regular(1, 0, 1, true)), ItemActivation::Use);
+        assert_eq!(item_activation(&regular(1, 2, 1, true)), ItemActivation::Use);
+        assert_eq!(item_activation(&regular(1, 11, 1, true)), ItemActivation::Use);
+        assert_eq!(item_activation(&regular(1, 18, 1, true)), ItemActivation::Use);
+        assert_eq!(item_activation(&regular(1, 3, 1, true)), ItemActivation::Ignore);
+        assert_eq!(item_activation(&regular(1, 6, 1, true)), ItemActivation::Ignore);
+
+        let mut weapon = equip(1, 0, 0);
+        if let InventoryItemDetails::Equippable { equip_position, flags, .. } = &mut weapon.details {
+            *equip_position = EquipPosition::RIGHT_HAND;
+            *flags = EquippableItemFlags::IDENTIFIED;
+        }
+        assert_eq!(item_activation(&weapon), ItemActivation::Equip {
+            position: EquipPosition::RIGHT_HAND,
+        });
+
+        if let InventoryItemDetails::Equippable { flags, .. } = &mut weapon.details {
+            *flags = EquippableItemFlags::empty();
+        }
+        assert_eq!(item_activation(&weapon), ItemActivation::Ignore);
+
+        if let InventoryItemDetails::Equippable { flags, .. } = &mut weapon.details {
+            *flags = EquippableItemFlags::IDENTIFIED | EquippableItemFlags::IS_BROKEN;
+        }
+        assert_eq!(item_activation(&weapon), ItemActivation::Ignore);
+
+        assert_eq!(item_activation(&regular(1, 10, 20, true)), ItemActivation::Equip {
+            position: EquipPosition::AMMO,
+        });
+        assert_eq!(item_activation(&regular(1, 10, 20, false)), ItemActivation::Ignore);
+    }
+
+    #[test]
+    fn ground_drop_asks_only_for_a_stack() {
+        assert_eq!(ground_drop(&regular(1, 0, 5, true)), Some(GroundDrop::Ask { max: 5 }));
+        assert_eq!(ground_drop(&regular(1, 0, 1, true)), Some(GroundDrop::Now(1)));
+        assert_eq!(ground_drop(&regular(1, 0, 0, true)), None);
+        assert_eq!(ground_drop(&equip(1, 0, 0)), Some(GroundDrop::Now(1)));
+    }
+
+    #[test]
+    fn use_ack_area_broadcast_is_filtered_by_account() {
+        let ours = Some(AccountId(9));
+        assert!(use_ack_targets_self(ours, None));
+        assert!(use_ack_targets_self(ours, Some(AccountId(9))));
+        assert!(!use_ack_targets_self(ours, Some(AccountId(4))));
+        assert!(!use_ack_targets_self(None, Some(AccountId(9))));
     }
 }

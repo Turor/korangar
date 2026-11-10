@@ -87,7 +87,7 @@ use settings::{
 use state::character_slots::CharacterSlotsExt;
 use state::equip_switch::{EquipSwitchPathExt, switch_delta};
 use state::hotbar::HotbarPathExt;
-use state::inventory::InventoryPathExt;
+use state::inventory::{GroundDrop, InventoryPathExt, ItemActivation, ThrowUpdate, ground_drop, item_activation, use_ack_targets_self};
 use state::localization::Localization;
 use state::skills::SkillTreePathExt;
 use state::theme::{CursorThemePathExt, IndicatorThemePathExt, InterfaceThemePathExt, WorldThemePathExt};
@@ -2498,6 +2498,38 @@ impl Client {
                 NetworkEvent::InventoryItemRemoved { index, amount, .. } => {
                     self.client_state.follow_mut(client_state().inventory()).remove_item(index, amount);
                 }
+                NetworkEvent::ItemUseAck {
+                    index,
+                    account_id,
+                    amount,
+                    success,
+                    ..
+                } => {
+                    let ours = self.saved_login_data.as_ref().map(|login| login.account_id);
+                    if use_ack_targets_self(ours, account_id) {
+                        if success {
+                            self.client_state
+                                .follow_mut(client_state().inventory())
+                                .apply_use_ack(index, amount);
+                        } else {
+                            self.client_state
+                                .follow_mut(client_state().chat_messages())
+                                .push(ChatMessage::new("Could not use that item.".to_owned(), MessageColor::Error));
+                        }
+                    }
+                }
+                NetworkEvent::ItemThrowAck { index, amount } => match self
+                    .client_state
+                    .follow_mut(client_state().inventory())
+                    .apply_throw_ack(index, amount)
+                {
+                    ThrowUpdate::Failed => {
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new("Could not drop that item.".to_owned(), MessageColor::Error));
+                    }
+                    ThrowUpdate::Missing | ThrowUpdate::Updated => {}
+                },
                 NetworkEvent::SkillTree { skill_information } => {
                     *self.client_state.follow_mut(client_state().skill_tree().skills()) =
                         skill_information.into_iter().map(LearnedSkill::new).collect();
@@ -4311,6 +4343,57 @@ impl Client {
                         self.interface.close_window_with_class(WindowClass::Dialog);
                     }
                 }
+                InputEvent::UseItem { index } => {
+                    let item = self
+                        .client_state
+                        .follow(client_state().inventory().items())
+                        .iter()
+                        .find(|item| item.index == index)
+                        .cloned();
+                    if let Some(item) = item {
+                        match item_activation(&item) {
+                            ItemActivation::Use => {
+                                let _ = self.networking_system.use_item(index);
+                            }
+                            ItemActivation::Equip { position } => {
+                                let _ = self.networking_system.request_item_equip(index, position);
+                            }
+                            ItemActivation::Ignore => {}
+                        }
+                    }
+                }
+                InputEvent::DropItem { item } => match ground_drop(&item) {
+                    Some(GroundDrop::Now(amount)) => {
+                        let _ = self.networking_system.drop_item(item.index, amount);
+                    }
+                    Some(GroundDrop::Ask { max }) => {
+                        self.client_state
+                            .follow_mut(client_state().item_drop())
+                            .begin(item.index.0, max, &item.metadata.name);
+                        if !self.interface.is_window_with_class_open(WindowClass::ItemDrop) {
+                            self.interface.open_window(ItemDropWindow::new());
+                        }
+                        self.interface.request_focus(ItemDropAmountBox);
+                    }
+                    None => {}
+                },
+                InputEvent::ConfirmItemDrop => {
+                    let (index, amount, message) = {
+                        let prompt = self.client_state.follow(client_state().item_drop());
+                        (prompt.index(), prompt.amount(), prompt.invalid_amount_message())
+                    };
+                    if let Some(amount) = amount {
+                        let _ = self.networking_system.drop_item(InventoryIndex(index), amount);
+                        self.interface.close_window_with_class(WindowClass::ItemDrop);
+                    } else {
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(message, MessageColor::Error));
+                    }
+                }
+                InputEvent::CancelItemDrop => {
+                    self.interface.close_window_with_class(WindowClass::ItemDrop);
+                }
                 InputEvent::MoveItem { source, destination, item } => match (source, destination) {
                     (ItemSource::Inventory, ItemSource::Equipment { position }) => {
                         let _ = self.networking_system.request_item_equip(item.index, position);
@@ -6030,6 +6113,16 @@ impl Client {
         let mouse_mode = self.interface.get_mouse_mode();
         let is_mouse_mode_default = mouse_mode.is_default();
         let last_walking_destination = mouse_mode.walk_destination();
+        let dragged_inventory_item = match mouse_mode {
+            korangar_interface::MouseMode::Custom {
+                mode:
+                    MouseInputMode::MoveItem {
+                        source: ItemSource::Inventory,
+                        item,
+                    },
+            } => Some(item.clone()),
+            _ => None,
+        };
 
         let mut interface_frame = {
             #[cfg(feature = "debug")]
@@ -6132,6 +6225,9 @@ impl Client {
             }
 
             if input_report.mouse_button_released {
+                if !is_interface_hovered && let Some(item) = dragged_inventory_item {
+                    self.input_event_buffer.push(InputEvent::DropItem { item });
+                }
                 interface_frame.drop(&self.client_state);
             }
 
