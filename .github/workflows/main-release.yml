@@ -18,14 +18,14 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_BUILD_JOBS: "2"
+  CARGO_BUILD_JOBS: "4"
   SLANG_VERSION: v2026.1.1
 
 jobs:
   linux:
     name: Linux x86_64 (unsigned)
-    runs-on: [self-hosted, elastic, cores-2, mem-4096]
-    timeout-minutes: 90
+    runs-on: [self-hosted, elastic, cores-4, mem-6144]
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v5
         with:
@@ -33,8 +33,18 @@ jobs:
 
       - name: Build dependencies
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config libasound2-dev nasm curl ca-certificates unzip
+          # The fresh guest runs its own apt (bootstrap / apt-daily) for a few
+          # minutes after boot. Wait for it instead of failing on the lock.
+          for _ in $(seq 1 180); do
+            pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
+            sleep 5
+          done
+          for attempt in 1 2 3 4 5 6; do
+            sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && break
+            [ "$attempt" = 6 ] && exit 1
+            sleep 20
+          done
+          sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq build-essential pkg-config libasound2-dev nasm curl ca-certificates unzip
 
       - name: Install rustup toolchain
         run: |

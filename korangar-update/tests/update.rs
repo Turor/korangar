@@ -568,3 +568,71 @@ fn presign_catalog_applies_and_rejects_evil_hosts() {
     assert!(err.contains("rollback protection"), "{err}");
     let _ = fs::remove_dir_all(&root);
 }
+
+#[cfg(unix)]
+#[test]
+fn published_platform_binary_replaces_the_running_executable() {
+    let root = temp_dir();
+    let publish = root.join("publish");
+    let install = root.join("install");
+    fs::create_dir_all(&publish).unwrap();
+    fs::create_dir_all(install.join("bin")).unwrap();
+    let sha = "703c76c37929e49b363f1e2f712cb80212a0d3d2";
+    let linux_name = format!("korangar-linux-{sha}");
+    let windows_name = format!("korangar-windows-{sha}.exe");
+    let linux_bytes =
+        b"#!/bin/sh\nif [ \"$1\" = \"--update-self-check\" ]; then echo update-self-check-ok; exit 0; fi\necho linux-release\n";
+    let windows_bytes = b"MZ not for this platform";
+    fs::write(publish.join(&linux_name), linux_bytes).unwrap();
+    // Only the Linux binary is reachable: fetching the Windows one would fail.
+    let signed = publish.join("manifest.jsonup");
+    fs::write(
+        &signed,
+        manifest_for_build("main-703c76c37929", 300, vec![
+            file_entry(&linux_name, linux_bytes, &linux_name),
+            file_entry(&windows_name, windows_bytes, &windows_name),
+        ]),
+    )
+    .unwrap();
+    let catalog = publish.join("latest.json");
+    fs::write(
+        &catalog,
+        format!(
+            "{{\"manifest_url\": \"file://{signed}\", \"files\": [{{\"path\": \"{linux_name}\", \"url\": \"file://{bin}\"}}]}}",
+            signed = signed.display(),
+            bin = publish.join(&linux_name).display(),
+        ),
+    )
+    .unwrap();
+    let exe = install.join("bin/korangar");
+    write_script(&exe, true);
+    let url = format!("file://{}", catalog.display());
+    let outcome = korangar_update::run_startup_update(&request(&install, &exe, &url, "0.1.1")).unwrap();
+    assert_eq!(outcome, StartupOutcome::Applied { relaunched: false });
+    assert_eq!(fs::read(&exe).unwrap(), linux_bytes);
+    assert!(install.join("bin/korangar.old").exists());
+    assert!(!install.join(&linux_name).exists());
+    assert!(!install.join(&windows_name).exists());
+    assert_eq!(fs::read_to_string(install.join("updates/applied.build")).unwrap().trim(), "300");
+    let again = korangar_update::run_startup_update(&request(&install, &exe, &url, "0.1.1")).unwrap();
+    assert_eq!(again, StartupOutcome::UpToDate);
+
+    // A release that only carries another platform's binary leaves the install
+    // alone.
+    let windows_only = publish.join("windows-only.jsonup");
+    fs::write(
+        &windows_only,
+        manifest_for_build("main-windows-only", 301, vec![file_entry(
+            &windows_name,
+            windows_bytes,
+            &windows_name,
+        )]),
+    )
+    .unwrap();
+    let outcome =
+        korangar_update::run_startup_update(&request(&install, &exe, &format!("file://{}", windows_only.display()), "0.1.1")).unwrap();
+    assert_eq!(outcome, StartupOutcome::Skipped);
+    assert_eq!(fs::read(&exe).unwrap(), linux_bytes);
+    assert_eq!(fs::read_to_string(install.join("updates/applied.build")).unwrap().trim(), "300");
+    let _ = fs::remove_dir_all(&root);
+}

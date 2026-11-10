@@ -166,7 +166,12 @@ fn apply_manifest(
 
     let mut staged = Vec::with_capacity(manifest.files.len());
     for file in &manifest.files {
-        let relative = safe_relative(&file.path)?;
+        // Release binaries are published as `korangar-<platform>-<sha>`; install the
+        // one for this platform over the running executable and skip the others.
+        let Some(destination_rel) = install_destination(&file.path, &exe_rel, cfg!(windows)) else {
+            continue;
+        };
+        let relative = safe_relative(&destination_rel)?;
         if file.size > FILE_LIMIT {
             return Err(format!("artifact {} exceeds size cap", file.path));
         }
@@ -181,6 +186,12 @@ fn apply_manifest(
         }
         write_full(&destination, &bytes)?;
         staged.push((relative, destination));
+    }
+
+    if staged.is_empty() {
+        // Nothing in this release targets this platform; keep the current build.
+        let _ = fs::remove_dir_all(&staging);
+        return Ok(StartupOutcome::Skipped);
     }
 
     let exe_changed = staged.iter().any(|(relative, _)| relative_string(relative) == exe_rel);
@@ -506,6 +517,27 @@ fn allowed_release_object_name(name: &str) -> bool {
     false
 }
 
+/// Install-relative destination for a manifest file on this platform.
+///
+/// Published release binaries use bucket object names (`korangar-linux-<sha>`,
+/// `korangar-windows-<sha>.exe`) so the presigning service can allowlist them.
+/// The binary for the running platform replaces the current executable
+/// (`exe_rel`); the other platform's binary is skipped (`None`). Any other path
+/// is installed as-is.
+fn install_destination(path: &str, exe_rel: &str, windows: bool) -> Option<String> {
+    if let Some(rest) = path.strip_prefix("korangar-linux-")
+        && is_hex_sha(rest)
+    {
+        return (!windows).then(|| exe_rel.to_string());
+    }
+    if let Some(rest) = path.strip_prefix("korangar-windows-")
+        && rest.strip_suffix(".exe").is_some_and(is_hex_sha)
+    {
+        return windows.then(|| exe_rel.to_string());
+    }
+    Some(path.to_string())
+}
+
 fn is_hex_sha(s: &str) -> bool {
     let n = s.len();
     (7..=64).contains(&n) && s.bytes().all(|b| b.is_ascii_hexdigit())
@@ -728,7 +760,34 @@ fn relative_string(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::install_rustls_crypto;
+    use super::{install_destination, install_rustls_crypto};
+
+    #[test]
+    fn release_binaries_map_to_the_running_executable_per_platform() {
+        let sha = "703c76c37929e49b363f1e2f712cb80212a0d3d2";
+        let linux = format!("korangar-linux-{sha}");
+        let windows = format!("korangar-windows-{sha}.exe");
+        assert_eq!(install_destination(&linux, "korangar", false).as_deref(), Some("korangar"));
+        assert_eq!(install_destination(&windows, "korangar", false), None);
+        assert_eq!(
+            install_destination(&windows, "korangar.exe", true).as_deref(),
+            Some("korangar.exe")
+        );
+        assert_eq!(install_destination(&linux, "korangar.exe", true), None);
+        assert_eq!(
+            install_destination(&linux, "bin/korangar", false).as_deref(),
+            Some("bin/korangar")
+        );
+        // Non-release names (and malformed shas) are installed as written.
+        assert_eq!(
+            install_destination("runtime.dat", "korangar", false).as_deref(),
+            Some("runtime.dat")
+        );
+        assert_eq!(
+            install_destination("korangar-linux-nothex", "korangar", false).as_deref(),
+            Some("korangar-linux-nothex")
+        );
+    }
 
     #[test]
     fn rustls_provider_can_be_installed_twice() {

@@ -82,6 +82,8 @@ main/korangar-linux-<gitsha>
 main/korangar-windows-<gitsha>.exe
 ```
 
+Release binaries keep their bucket object names in the manifest (`korangar-linux-<gitsha>`, `korangar-windows-<gitsha>.exe`) so remoteclient2 can allowlist and presign them. On apply, the client installs the binary for its own platform over the running executable (`bin/korangar`, `korangar.exe`, wherever it was started from) and skips the other platform's file without downloading it. A manifest with nothing for this platform is skipped and `applied.build` is left unchanged.
+
 The last three published SHAs are kept; older binaries are deleted after a successful publish.
 
 The read-only Garage key used to mint those URLs lives on rodata-dev at `/etc/remoteclient2/korangar-releases-reader.env` (mode 600), loaded by systemd, not in the git tree and not in the web-served working folder. The controller holds the write key at `~/Work/korangar-signing/garage-writer.env`.
