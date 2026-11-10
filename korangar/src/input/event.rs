@@ -155,6 +155,21 @@ pub enum InputEvent {
     },
     /// Toggle if the user interface should be rendered or not.
     ToggleShowInterface,
+    /// Press one location on the shuffled PIN pad. The digit is the label
+    /// there.
+    PincodeDigit {
+        index: usize,
+    },
+    /// Clear the PIN entry and move the pad labels.
+    PincodeReset,
+    /// Submit the hidden PIN entry.
+    PincodeSubmit,
+    /// Start the change-PIN flow from the check screen.
+    PincodeChange,
+    /// Ask the server for the PIN window, or reopen it.
+    PincodeRequest,
+    /// Leave the PIN screen and return to login.
+    PincodeCancel,
     /// Select a character to start playing.
     SelectCharacter {
         /// Slot that the selected character is in.

@@ -43,6 +43,7 @@ mod navigation;
 #[cfg(feature = "debug")]
 mod packet_inspector;
 mod party_invite;
+mod pincode;
 mod placement;
 #[cfg(feature = "debug")]
 mod profiler;
@@ -118,6 +119,7 @@ pub use self::navigation::NavigationWindow;
 #[cfg(feature = "debug")]
 pub use self::packet_inspector::PacketInspectorWindow;
 pub use self::party_invite::PartyInviteWindow;
+pub use self::pincode::PincodeWindow;
 #[cfg(feature = "debug")]
 pub use self::profiler::{ProfilerWindow, ProfilerWindowState};
 pub use self::quest_journal::QuestJournalWindow;
@@ -182,6 +184,7 @@ pub enum WindowClass {
     Guild,
     Clan,
     PartyInvite,
+    Pincode,
     Login,
     Menu,
     Mail,

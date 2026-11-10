@@ -9,6 +9,7 @@ use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::state::character_slots::{CharacterSlots, CharacterSlotsExt};
 use crate::state::localization::LocalizationPathExt;
+use crate::state::pincode::PincodeWindowStatePathExt;
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, ClientStatePathExt, client_state};
 
@@ -645,6 +646,14 @@ where
                     gaps: 8.0,
                     children: (
                         CharacterWrapper::new(self.character_slots, self.switch_request),
+                        korangar_interface::components::either::Either::component_new(
+                            client_state().pincode_window().needs_pin(),
+                            button! {
+                                text: "PIN code",
+                                event: InputEvent::PincodeRequest,
+                            },
+                            (),
+                        ),
                         button! {
                             text: client_state().localization().log_out_button_text(),
                             event: InputEvent::LogOutCharacter,

@@ -2,6 +2,7 @@
 #![cfg_attr(feature = "interface", feature(impl_trait_in_assoc_type))]
 
 pub mod handler;
+pub mod pincode;
 mod position;
 pub mod version_20190530;
 pub mod version_20250716;
@@ -16,6 +17,11 @@ pub use ragnarok_macros::{CharacterServer, ClientPacket, LoginServer, MapServer,
 #[cfg(not(feature = "derive"))]
 use ragnarok_macros::{CharacterServer, ClientPacket, LoginServer, MapServer, Packet, ServerPacket};
 
+pub use self::pincode::{
+    AvailableSecondPasswdPacket, CheckSecondPasswdPacket, EditSecondPasswdPacket, EditSecondPasswdResultPacket, MakeSecondPasswdPacket,
+    MakeSecondPasswdResultPacket, PINCODE_BASE_SEED, PINCODE_LENGTH, PINCODE_MULTIPLIER, SecondPasswdLogin2Packet,
+    advance_pincode_visual_seed, decrypt_pincode, encrypt_pincode, pincode_decrypt_table, pincode_keypad,
+};
 pub use self::position::{Direction, WorldPosition, WorldPosition2};
 
 // To make proc macros work in korangar_interface.

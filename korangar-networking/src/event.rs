@@ -5,7 +5,7 @@ use ragnarok_packets::*;
 use crate::hotkey::HotkeyState;
 use crate::items::ShopItem;
 use crate::{
-    CharacterServerLoginData, EntityData, InventoryItem, LoginServerLoginData, MessageColor, NoMetadata,
+    CharacterServerLoginData, EntityData, InventoryItem, LoginServerLoginData, MessageColor, NoMetadata, PincodeNotice,
     UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
 };
 
@@ -109,6 +109,10 @@ pub enum NetworkEvent {
     CharacterDeletionFailed {
         reason: CharacterDeletionFailedReason,
         message: &'static str,
+    },
+    /// Second password (`0x08B9`, `0x0AE9`, `0x08BB`, `0x08BF`).
+    Pincode {
+        notice: PincodeNotice,
     },
     MapServerDisconnected {
         reason: DisconnectReason,

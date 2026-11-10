@@ -9,6 +9,7 @@ mod inventory_lists;
 mod items;
 mod message;
 mod packet_versions;
+mod pincode;
 mod server;
 
 use std::net::{IpAddr, SocketAddr};
@@ -58,6 +59,7 @@ pub use self::packet_versions::stable::{format_stable_result, parse_stable_actio
 pub use self::packet_versions::warpra::{
     format_warpra_destinations, format_warpra_result, push_warpra_chunk, warpra_kind_name, warpra_level_requirement,
 };
+pub use self::pincode::PincodeNotice;
 pub use self::server::{
     CharacterServerLoginData, LoginServerLoginData, NotConnectedError, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
 };
@@ -745,6 +747,26 @@ where
                 self.send_character_server_packet(SwitchCharacterSlotPacket::new(origin_slot as u16, destination_slot as u16))
             }
         }
+    }
+
+    /// `CH_SECOND_PASSWD_ACK` (`0x08B8`). `pin` is already encrypted.
+    pub fn send_pincode_check(&mut self, account_id: AccountId, pin: [u8; 4]) -> Result<(), NotConnectedError> {
+        self.send_character_server_packet(CheckSecondPasswdPacket::new(account_id, pin))
+    }
+
+    /// `CH_MAKE_SECOND_PASSWD` (`0x08BA`).
+    pub fn send_pincode_make(&mut self, account_id: AccountId, pin: [u8; 4]) -> Result<(), NotConnectedError> {
+        self.send_character_server_packet(MakeSecondPasswdPacket::new(account_id, pin))
+    }
+
+    /// `CH_EDIT_SECOND_PASSWD` (`0x08BE`).
+    pub fn send_pincode_edit(&mut self, account_id: AccountId, old_pin: [u8; 4], new_pin: [u8; 4]) -> Result<(), NotConnectedError> {
+        self.send_character_server_packet(EditSecondPasswdPacket::new(account_id, old_pin, new_pin))
+    }
+
+    /// `CH_AVAILABLE_SECOND_PASSWD` (`0x08C5`).
+    pub fn send_pincode_available(&mut self, account_id: AccountId) -> Result<(), NotConnectedError> {
+        self.send_character_server_packet(AvailableSecondPasswdPacket::new(account_id))
     }
 
     pub fn map_loaded(&mut self) -> Result<(), NotConnectedError> {
