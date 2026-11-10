@@ -29,6 +29,7 @@ macro_rules! time_phase {
     }
 }
 
+mod autopilot;
 pub mod deployment;
 mod graphics;
 mod input;
@@ -48,6 +49,7 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Instant;
 
 use cgmath::{Point3, Vector3};
 use image::{EncodableLayout, ImageFormat, ImageReader};
@@ -82,6 +84,7 @@ use settings::{
     AudioSettings, AudioSettingsPathExt, GraphicsSettingsCapabilities, GraphicsSettingsPathExt, InterfaceSettings,
     InterfaceSettingsPathExt, session_theme_name,
 };
+use state::character_slots::CharacterSlotsExt;
 use state::equip_switch::{EquipSwitchPathExt, switch_delta};
 use state::hotbar::HotbarPathExt;
 use state::inventory::InventoryPathExt;
@@ -132,6 +135,11 @@ static HEADLESS_AUTO_INWORLD_UI: AtomicBool = AtomicBool::new(false);
 
 fn headless_auto() -> bool {
     std::env::var_os("KORANGAR_HEADLESS_AUTO").is_some()
+}
+
+fn autopilot_println(line: &str) {
+    println!("{line}");
+    let _ = std::io::Write::flush(&mut std::io::stdout());
 }
 const START_CAMERA_FOCUS_POINT: Point3<f32> = Point3::new(600.0, 0.0, 240.0);
 const DEFAULT_BACKGROUND_MUSIC: Option<&str> = Some("bgm\\01.mp3");
@@ -251,6 +259,7 @@ pub struct Client {
     point_shadow_camera: PointShadowCamera,
 
     input_event_buffer: Vec<InputEvent>,
+    autopilot: Option<autopilot::Autopilot>,
     network_event_buffer: NetworkEventBuffer,
     // TODO: Move or remove this.
     saved_login_data: Option<LoginServerLoginData>,
@@ -696,6 +705,7 @@ impl Client {
 
         time_phase!("create resources", {
             let input_event_buffer = Vec::new();
+            let autopilot = autopilot::Autopilot::from_env();
 
             let particle_holder = ParticleHolder::default();
             let point_light_manager = PointLightManager::new();
@@ -823,6 +833,7 @@ impl Client {
             directional_shadow_partitions,
             point_shadow_camera,
             input_event_buffer,
+            autopilot,
             network_event_buffer,
             saved_login_data,
             saved_character_server,
@@ -1074,7 +1085,7 @@ impl Client {
         self.client_state
             .follow_mut(client_state().roulette_window())
             .tick_spin(client_tick.0);
-        if headless_auto() && !HEADLESS_AUTO_LOGIN_DONE.swap(true, Ordering::SeqCst) {
+        if self.headless_auto_login() && !HEADLESS_AUTO_LOGIN_DONE.swap(true, Ordering::SeqCst) {
             let login_settings = self.client_state.follow(client_state().login_settings());
             if let Some(service_id) = login_settings.recent_service_id
                 && let Some(service) = login_settings.service_settings.get(&service_id)
@@ -1091,7 +1102,9 @@ impl Client {
         self.networking_system.get_events(&mut self.network_event_buffer);
 
         let mut defer_headless_character = false;
+        let mut autopilot_slot_occupied: Option<bool> = None;
         let mut pincode_effects = Vec::new();
+        let mut autopilot_effects = Vec::new();
         for event in self.network_event_buffer.drain() {
             match event {
                 NetworkEvent::LoginServerConnected {
@@ -1120,6 +1133,7 @@ impl Client {
                     self.saved_login_data = Some(login_data);
 
                     // `SelectServer` must not alias the vec moved into client state.
+                    let server_names: Vec<String> = character_servers.iter().map(|server| server.server_name.clone()).collect();
                     let auto_server = character_servers.first().cloned();
                     *self.client_state.follow_mut(client_state().character_servers()) = character_servers;
 
@@ -1132,14 +1146,21 @@ impl Client {
                     self.interface
                         .open_window(ServerSelectionWindow::new(client_state().character_servers()));
                     if headless_auto()
+                        && self.autopilot.is_none()
                         && let Some(character_server_information) = auto_server
                     {
                         self.input_event_buffer.push(InputEvent::SelectServer {
                             character_server_information,
                         });
                     }
+                    if let Some(auto) = self.autopilot.as_mut() {
+                        autopilot_effects.extend(auto.on_login_ok(Instant::now(), &server_names));
+                    }
                 }
                 NetworkEvent::LoginServerConnectionFailed { message, .. } => {
+                    if let Some(auto) = self.autopilot.as_mut() {
+                        autopilot_effects.extend(auto.on_login_failed(&message));
+                    }
                     self.networking_system.disconnect_from_login_server();
 
                     self.interface.open_window(ErrorWindow::new(message.to_owned()));
@@ -1331,7 +1352,14 @@ impl Client {
                             client_state().character_slots(),
                             client_state().switch_request(),
                         ));
-                        if headless_auto() {
+                        if self.autopilot.is_some() {
+                            let slot = self.autopilot.as_ref().map(|auto| auto.slot()).unwrap_or(0);
+                            autopilot_slot_occupied = Some(
+                                self.client_state
+                                    .try_follow(client_state().character_slots().in_slot(slot))
+                                    .is_some(),
+                            );
+                        } else if headless_auto() {
                             defer_headless_character = true;
                         }
                     }
@@ -1345,8 +1373,17 @@ impl Client {
                     pincode_effects.push(effect);
                     if !self.client_state.follow(client_state().pincode_window()).allows_select() {
                         defer_headless_character = false;
-                    } else if headless_auto() && self.interface.is_window_with_class_open(WindowClass::CharacterSelection) {
-                        defer_headless_character = true;
+                    } else if self.interface.is_window_with_class_open(WindowClass::CharacterSelection) {
+                        if self.autopilot.is_some() {
+                            let slot = self.autopilot.as_ref().map(|auto| auto.slot()).unwrap_or(0);
+                            autopilot_slot_occupied = Some(
+                                self.client_state
+                                    .try_follow(client_state().character_slots().in_slot(slot))
+                                    .is_some(),
+                            );
+                        } else if headless_auto() {
+                            defer_headless_character = true;
+                        }
                     }
                 }
                 NetworkEvent::CharacterSelectionFailed { message, .. } => self.interface.open_window(ErrorWindow::new(message.to_owned())),
@@ -1413,7 +1450,7 @@ impl Client {
                     self.interface.close_window_with_class(WindowClass::CharacterSelection);
                     self.interface.close_window_with_class(WindowClass::CharacterCreation);
                     self.interface.close_window_with_class(WindowClass::Pincode);
-                    if headless_auto() {
+                    if headless_auto() || self.autopilot.is_some() {
                         self.interface.close_window_with_class(WindowClass::CharacterOverview);
                         self.interface.close_window_with_class(WindowClass::Menu);
                     } else {
@@ -1450,8 +1487,14 @@ impl Client {
                         .add_character(character_information);
 
                     self.interface.close_window_with_class(WindowClass::CharacterCreation);
+                    if let Some(auto) = self.autopilot.as_mut() {
+                        autopilot_effects.extend(auto.on_character_created(Instant::now()));
+                    }
                 }
                 NetworkEvent::CharacterCreationFailed { message, .. } => {
+                    if let Some(auto) = self.autopilot.as_mut() {
+                        autopilot_effects.extend(auto.on_character_creation_failed(message));
+                    }
                     self.interface.open_window(ErrorWindow::new(message.to_owned()));
                 }
                 NetworkEvent::CharacterSlotSwitched => {
@@ -3586,6 +3629,13 @@ impl Client {
         {
             self.input_event_buffer.push(InputEvent::SelectCharacter { slot: 0 });
         }
+        if let Some(occupied) = autopilot_slot_occupied
+            && self.client_state.follow(client_state().pincode_window()).allows_select()
+            && let Some(auto) = self.autopilot.as_mut()
+        {
+            autopilot_effects.extend(auto.on_characters(Instant::now(), occupied));
+        }
+        self.apply_autopilot(autopilot_effects);
     }
 
     fn apply_pincode_effect(&mut self, effect: crate::state::pincode::PincodeEffect) {
@@ -5285,6 +5335,7 @@ impl Client {
     #[inline(always)]
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
     fn update_loaded_resources(&mut self, client_tick: ClientTick) {
+        let mut autopilot_effects = Vec::new();
         for completed in self.async_loader.take_completed() {
             match completed {
                 (LoaderId::AnimationData(entity_id), LoadableResource::AnimationData(animation_data)) => {
@@ -5369,7 +5420,15 @@ impl Client {
                                 .follow_mut(client_state().mvp_minimap())
                                 .set_map_size(width, height);
                             let _ = self.networking_system.map_loaded();
-                            if headless_auto() && !HEADLESS_AUTO_INWORLD_UI.swap(true, Ordering::SeqCst) {
+                            if self.autopilot.is_some() {
+                                self.interface.close_window_with_class(WindowClass::CharacterOverview);
+                                self.interface.close_window_with_class(WindowClass::CharacterCreation);
+                                self.interface.close_window_with_class(WindowClass::CharacterSelection);
+                                self.interface.close_window_with_class(WindowClass::Menu);
+                                if let Some(auto) = self.autopilot.as_mut() {
+                                    autopilot_effects.extend(auto.on_map_loaded(Instant::now()));
+                                }
+                            } else if headless_auto() && !HEADLESS_AUTO_INWORLD_UI.swap(true, Ordering::SeqCst) {
                                 self.interface.close_window_with_class(WindowClass::CharacterOverview);
                                 self.interface.close_window_with_class(WindowClass::CharacterCreation);
                                 self.interface.close_window_with_class(WindowClass::CharacterSelection);
@@ -5422,6 +5481,7 @@ impl Client {
                 _ => {}
             }
         }
+        self.apply_autopilot(autopilot_effects);
     }
 
     #[inline(always)]
@@ -5630,11 +5690,166 @@ impl Client {
         }
     }
 
+    fn headless_auto_login(&self) -> bool {
+        headless_auto() && self.autopilot.is_none()
+    }
+
+    fn drive_autopilot(&mut self) {
+        let effects = self.autopilot.as_mut().map(|auto| auto.poll(Instant::now())).unwrap_or_default();
+        self.apply_autopilot(effects);
+    }
+
+    fn apply_autopilot(&mut self, effects: Vec<autopilot::Effect>) {
+        for effect in effects {
+            if let Some(line) = effect.log_line() {
+                autopilot_println(&line);
+                if matches!(effect, autopilot::Effect::Ready(_)) {
+                    autopilot_println("AUTOPILOT_READY");
+                }
+            }
+            match effect {
+                autopilot::Effect::Login => self.autopilot_login(),
+                autopilot::Effect::SelectServer(index) => {
+                    if let Some(character_server_information) =
+                        self.client_state.follow(client_state().character_servers()).get(index).cloned()
+                    {
+                        self.input_event_buffer.push(InputEvent::SelectServer {
+                            character_server_information,
+                        });
+                    }
+                }
+                autopilot::Effect::SelectCharacter(slot) => {
+                    self.input_event_buffer.push(InputEvent::SelectCharacter { slot });
+                }
+                autopilot::Effect::CreateCharacter { slot, name } => {
+                    self.input_event_buffer.push(InputEvent::CreateCharacter { slot, name });
+                }
+                autopilot::Effect::Input(event) => self.input_event_buffer.push(event),
+                autopilot::Effect::Window { class, open, event } => {
+                    if self.interface.is_window_with_class_open(class) != open {
+                        self.input_event_buffer.push(event);
+                    }
+                }
+                autopilot::Effect::Click { x, y, kind } => {
+                    let factor = self.client_state.follow(client_state().interface_settings().scaling()).get_factor();
+                    let factor = if factor.is_finite() && factor > 0.0 { factor } else { 1.0 };
+                    let button = match kind {
+                        autopilot::ClickKind::Left => MouseButton::Left,
+                        autopilot::ClickKind::Right => MouseButton::Right,
+                        autopilot::ClickKind::Double => MouseButton::DoubleLeft,
+                    };
+                    self.input_system.synthesize_click(x * factor, y * factor, button);
+                }
+                autopilot::Effect::Key { code, alt, ctrl, shift } => self.input_system.synthesize_key(code, alt, ctrl, shift),
+                autopilot::Effect::Dump(path) => {
+                    let body = self.autopilot_dump(path);
+                    autopilot_println(&format!("AUTOPILOT_DUMP {} {body}", path.as_str()));
+                }
+                autopilot::Effect::Quit => SHUTDOWN_SIGNAL.store(true, Ordering::SeqCst),
+                autopilot::Effect::Log { .. } | autopilot::Effect::Ready(_) | autopilot::Effect::PinArmed => {}
+            }
+        }
+    }
+
+    fn autopilot_login(&mut self) {
+        let Some(host) = self.autopilot.as_ref().map(|auto| auto.login_host().to_owned()) else {
+            return;
+        };
+        let Some(port) = self.autopilot.as_ref().map(|auto| auto.login_port()) else {
+            return;
+        };
+        let Some(username) = self.autopilot.as_ref().map(|auto| auto.login_username()) else {
+            return;
+        };
+        let Some(password) = self.autopilot.as_ref().map(|auto| auto.password().to_owned()) else {
+            return;
+        };
+        let service_id = self
+            .client_state
+            .follow(client_state().client_info().services())
+            .iter()
+            .find(|service| service.address == host && service.port == port)
+            .map(|service| service.service_id());
+        match service_id {
+            Some(service_id) => self.input_event_buffer.push(InputEvent::LogIn {
+                service_id,
+                username,
+                password,
+            }),
+            None => autopilot_println(&format!("AUTOPILOT_CMD err no service matches {host}:{port}")),
+        }
+    }
+
+    fn autopilot_dump(&self, path: autopilot::DumpPath) -> String {
+        match path {
+            autopilot::DumpPath::Inventory => {
+                let items = self.client_state.follow(client_state().inventory().items());
+                let rows: Vec<String> = items
+                    .iter()
+                    .map(|item| {
+                        let amount = match &item.details {
+                            InventoryItemDetails::Regular { amount, .. } => u32::from(*amount),
+                            InventoryItemDetails::Equippable { .. } => 1,
+                        };
+                        format!("(item_id: {:?}, index: {:?}, amount: {amount})", item.item_id, item.index)
+                    })
+                    .collect();
+                format!("[{}]", rows.join(", "))
+            }
+            autopilot::DumpPath::Hotbar => {
+                let skills = self.client_state.follow(client_state().hotbar().skills());
+                let rows: Vec<String> = skills
+                    .iter()
+                    .enumerate()
+                    .map(|(index, skill)| match skill {
+                        Some(skill) => format!("{index}: {:?} {}", skill.skill_id, skill.skill_name),
+                        None => format!("{index}: empty"),
+                    })
+                    .collect();
+                format!("[{}]", rows.join(", "))
+            }
+            autopilot::DumpPath::ChatMessages => {
+                let messages = self.client_state.follow(client_state().chat_messages());
+                let tail: Vec<_> = messages.iter().rev().take(20).collect();
+                let rows: Vec<String> = tail
+                    .iter()
+                    .rev()
+                    .map(|message| format!("{:?}: {}", message.color, message.text))
+                    .collect();
+                format!("[{}]", rows.join(", "))
+            }
+            autopilot::DumpPath::Windows => format!("{:?}", self.interface.open_window_classes()),
+            autopilot::DumpPath::Player => self
+                .client_state
+                .try_follow(this_player())
+                .map(|player| {
+                    format!(
+                        "(base_level: {}, job_level: {}, strength: {}, agility: {}, vitality: {}, intelligence: {}, dexterity: {}, luck: \
+                         {}, spell_points: {}, stat_points: {})",
+                        player.base_level,
+                        player.job_level,
+                        player.strength,
+                        player.agility,
+                        player.vitality,
+                        player.intelligence,
+                        player.dexterity,
+                        player.luck,
+                        player.spell_points,
+                        player.stat_points,
+                    )
+                })
+                .unwrap_or_else(|| "none".to_owned()),
+        }
+    }
+
     #[inline(always)]
     fn update_and_render(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
             return;
         }
+
+        self.input_system.expire_synthesized();
+        self.drive_autopilot();
 
         if SHUTDOWN_SIGNAL.load(Ordering::SeqCst) {
             event_loop.exit();
@@ -6189,7 +6404,17 @@ impl ApplicationHandler for Client {
                 );
 
             window.set_visible(true);
+            if self.autopilot.is_some() {
+                window.request_redraw();
+            }
         }
+
+        let shown = self
+            .autopilot
+            .as_mut()
+            .map(|auto| auto.on_window_shown(Instant::now()))
+            .unwrap_or_default();
+        self.apply_autopilot(shown);
 
         if *self.client_state.follow(client_state().audio_settings().mute_on_focus_loss()) {
             self.audio_engine.mute(false);

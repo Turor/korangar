@@ -23,6 +23,15 @@ impl Key {
         }
     }
 
+    /// Record a press for the next update even if this key was already down.
+    /// Used by the headless autopilot so scripted keys are not dropped between
+    /// frames.
+    pub fn arm_press(&mut self) {
+        self.is_down = true;
+        self.was_down = false;
+        self.force_both = false;
+    }
+
     pub fn update(&mut self) {
         self.is_pressed = self.force_both || (self.is_down && !self.was_down);
         self.is_released = self.force_both || (!self.is_down && self.was_down);
