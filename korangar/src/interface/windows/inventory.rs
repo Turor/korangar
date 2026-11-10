@@ -3,8 +3,8 @@ use korangar_interface::window::{CustomWindow, Window};
 use korangar_networking::InventoryItem;
 use rust_state::{ManuallyAssertExt, Path, VecIndexExt};
 
-use crate::ItemSource;
 use super::basic_info_view::{WeightColor, WeightLabel, ZenyLabel};
+use crate::ItemSource;
 use crate::interface::windows::WindowClass;
 use crate::loaders::OverflowBehavior;
 use crate::state::localization::LocalizationPathExt;

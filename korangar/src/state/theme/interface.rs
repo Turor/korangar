@@ -155,7 +155,6 @@ pub struct GlobalTheme {
     drop_area_outline: ShadowPadding,
 }
 
-
 /// Colors for the basic-info HUD, inventory footer, and experience bars.
 #[derive(Serialize, Deserialize, RustState, StateElement, Clone, Debug, PartialEq)]
 #[serde(default)]
@@ -471,7 +470,6 @@ impl InterfaceTheme {
                 drop_area_outline: ShadowPadding::uniform(3.0),
             },
             basic_info: BasicInfoTheme::from_tokens(tokens),
-
         }
     }
 
@@ -778,7 +776,6 @@ impl InterfaceTheme {
                 drop_area_outline: ShadowPadding::uniform(4.0),
             },
             basic_info: BasicInfoTheme::default(),
-
         }
     }
 
@@ -1003,7 +1000,6 @@ impl InterfaceTheme {
                 drop_area_outline: ShadowPadding::uniform(4.0),
             },
             basic_info: BasicInfoTheme::default(),
-
         }
     }
 }

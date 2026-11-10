@@ -1,9 +1,10 @@
-//! Upper-left status panel modeled on roBrowser BasicInfo, painted from theme tokens.
+//! Upper-left status panel modeled on roBrowser BasicInfo, painted from theme
+//! tokens.
 
 use std::cell::{Cell, UnsafeCell};
 
-use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::Element;
+use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::layout::area::Area;
 use korangar_interface::layout::tooltip::TooltipExt;
 use korangar_interface::layout::{Resolvers, WindowLayout, with_single_resolver};
@@ -15,13 +16,13 @@ use rust_state::{Path, PathExt, Selector, State};
 use super::equipment::paint_portrait;
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::interface::components::exp_bar::ExpBar;
-use crate::interface::windows::basic_info_view::{WeightColor, WeightLabel, ZenyLabel};
 use crate::interface::windows::WindowClass;
+use crate::interface::windows::basic_info_view::{WeightColor, WeightLabel, ZenyLabel};
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::state::status_effects::{ActiveStatusEffect, StatusEffects};
 use crate::state::status_names::{status_effect_description, status_effect_name};
 use crate::state::theme::{BasicInfoThemePathExt, InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
-use crate::state::{client_state, client_theme, ClientState, ClientStatePathExt};
+use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 use crate::world::{BasicInfoStatsPathExt, CommonPathExt, Player, PlayerPathExt};
 
 const PORTRAIT_SIDE: f32 = 72.0;
@@ -228,7 +229,8 @@ impl Element<ClientState> for PortraitFrame {
 #[allow(dead_code)]
 struct BuffIconTip(u16);
 
-/// Row of active status icons with a remaining-time overlay and a name/description tooltip.
+/// Row of active status icons with a remaining-time overlay and a
+/// name/description tooltip.
 pub struct StatusBuffRow<A> {
     status_effects_path: A,
     marks: Vec<String>,
@@ -286,7 +288,11 @@ where
         self.tips.clear();
         for effect in effects {
             let name = status_effect_name(effect.status_index);
-            let mark = name.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_else(|| "?".into());
+            let mark = name
+                .chars()
+                .next()
+                .map(|ch| ch.to_uppercase().to_string())
+                .unwrap_or_else(|| "?".into());
             self.marks.push(mark);
             self.times.push(format_remaining(remaining_ms(effect, now)));
             let description = status_effect_description(effect.status_index);

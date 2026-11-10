@@ -202,7 +202,8 @@ pub fn status_effect_name(status_index: u16) -> String {
     name.to_owned()
 }
 
-/// Best-effort description for a status tooltip. Unknown IDs return an empty string.
+/// Best-effort description for a status tooltip. Unknown IDs return an empty
+/// string.
 pub fn status_effect_description(status_index: u16) -> String {
     let name = status_effect_name(status_index);
     // `status_effect_name` writes unknown ids as `SC#{id}`.

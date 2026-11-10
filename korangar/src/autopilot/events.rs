@@ -136,7 +136,7 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
     }
     #[cfg(feature = "debug")]
     {
-        return match name {
+        match name {
             "ReloadLanguage" => Some(InputEvent::ReloadLanguage),
             "SaveLanguage" => Some(InputEvent::SaveLanguage),
             "ToggleRenderOptionsWindow" => Some(InputEvent::ToggleRenderOptionsWindow),
@@ -156,7 +156,7 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
             "CameraAccelerate" => Some(InputEvent::CameraAccelerate),
             "CameraDecelerate" => Some(InputEvent::CameraDecelerate),
             _ => None,
-        };
+        }
     }
     #[cfg(not(feature = "debug"))]
     {

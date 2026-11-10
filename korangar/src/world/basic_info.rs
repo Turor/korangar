@@ -187,11 +187,7 @@ pub fn format_armor_reduction(label: &str, value: u32, magical: bool) -> String 
 }
 
 pub fn stat_up_feedback(success: bool) -> Option<&'static str> {
-    if success {
-        None
-    } else {
-        Some("Could not raise that stat.")
-    }
+    if success { None } else { Some("Could not raise that stat.") }
 }
 
 #[cfg(test)]
@@ -222,9 +218,7 @@ mod tests {
         // 1500/2000 is 75%: caution starts at 50%, overweight at 90%.
         assert_eq!(weight_pressure(stats.weight, stats.maximum_weight), WeightPressure::Caution);
 
-        let bytes = [
-            0x41, 0x01, 0xDB, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
-        ];
+        let bytes = [0x41, 0x01, 0xDB, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00];
         let mut reader = ByteReader::without_metadata(&bytes);
         let packet = UpdateStatPacket1::packet_from_bytes(&mut reader).unwrap();
         assert!(stats.apply(packet.stat_type));
@@ -256,7 +250,10 @@ mod tests {
         assert_eq!(exp_bar_ratio(250, 1000), 0.25);
         assert_eq!(format_zeny(1234567), "Zeny 1,234,567");
         assert_eq!(format_exp_pair(1234, 10000), "1,234 / 10,000");
-        assert_eq!(format_armor_reduction("DEF", 400, false), "DEF: 45.0%. Soft DEF/MDEF subtracts after");
+        assert_eq!(
+            format_armor_reduction("DEF", 400, false),
+            "DEF: 45.0%. Soft DEF/MDEF subtracts after"
+        );
         assert!((renewal_armor_reduction_percent(400, false) - 45.0).abs() < 0.001);
         assert!((renewal_armor_reduction_percent(100, true) - 45.0).abs() < 0.001);
         assert_eq!(renewal_armor_reduction_percent(0, false), 0.0);
