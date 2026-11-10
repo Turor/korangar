@@ -71,10 +71,7 @@ impl korangar_interface::application::WindowCache<ClientState> for WindowCache {
     }
 
     fn get_window_state(&self, class: WindowClass, screen: ScreenSize) -> Option<(Anchor<ClientState>, ScreenSize)> {
-        if let Some(entry) = self.entries.get(&class) {
-            return Some((entry.anchor, entry.size));
-        }
-        preset_window(class, screen.width, screen.height)
+        resolve_window_state(self.entries.get(&class), class, screen)
     }
 
     fn register_window(&mut self, class: WindowClass, anchor: Anchor<ClientState>, size: ScreenSize) {
@@ -104,10 +101,21 @@ impl korangar_interface::application::WindowCache<ClientState> for WindowCache {
     }
 }
 
+/// Saved anchor wins. With no save, [`preset_window`] supplies the default.
+fn resolve_window_state(saved: Option<&WindowState>, class: WindowClass, screen: ScreenSize) -> Option<(Anchor<ClientState>, ScreenSize)> {
+    if let Some(entry) = saved {
+        return Some((entry.anchor, entry.size));
+    }
+    preset_window(class, screen.width, screen.height)
+}
+
 /// Anchor and size for a window that has never been moved.
 ///
 /// Offsets come from [`first_open_hud`] at the live client size.
 fn preset_window(class: WindowClass, screen_width: f32, screen_height: f32) -> Option<(Anchor<ClientState>, ScreenSize)> {
+    if class == WindowClass::MenuBar {
+        return Some(super::menu_bar::default_menu_bar_window(screen_width, screen_height));
+    }
     let hud = first_open_hud(screen_width, screen_height);
     let (anchor_kind, frame) = match class {
         WindowClass::Equipment => (ScreenAnchor::TopLeft, hud.gear),
@@ -154,5 +162,42 @@ fn preset_window(class: WindowClass, screen_width: f32, screen_height: f32) -> O
 impl Drop for WindowCache {
     fn drop(&mut self) {
         self.save();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{WindowState, resolve_window_state};
+    use crate::graphics::{ScreenPosition, ScreenSize};
+    use crate::interface::windows::WindowClass;
+
+    #[test]
+    fn menu_bar_position_persists_like_other_windows() {
+        let screen = ScreenSize {
+            width: 1280.0,
+            height: 720.0,
+        };
+        let (anchor, size) = resolve_window_state(None, WindowClass::MenuBar, screen).expect("menu bar preset");
+        let start = anchor.to_position(screen);
+        let expected = super::super::menu_bar::default_menu_bar_frame(screen.width, screen.height);
+        assert!((start.left - expected.left).abs() < 0.5);
+        assert!((start.top - expected.top).abs() < 0.5);
+        assert!((size.width - expected.width).abs() < 0.5);
+        assert!((size.height - expected.height).abs() < 0.5);
+        assert!(
+            screen.height - (start.top + size.height) > 40.0,
+            "default bar still covers the bottom HUD"
+        );
+
+        let mut moved = anchor;
+        let dragged = ScreenPosition { left: 40.0, top: 90.0 };
+        moved.update(screen, dragged, size);
+        let saved = WindowState::new(moved, size);
+        let (again, again_size) = resolve_window_state(Some(&saved), WindowClass::MenuBar, screen).expect("saved menu bar");
+        let remembered = again.to_position(screen);
+        assert!((remembered.left - dragged.left).abs() < 0.5);
+        assert!((remembered.top - dragged.top).abs() < 0.5);
+        assert_eq!(again_size.width, size.width);
+        assert_eq!(again_size.height, size.height);
     }
 }

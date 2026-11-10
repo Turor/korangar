@@ -1657,6 +1657,7 @@ impl Client {
                     ));
                     self.interface
                         .open_window(HotbarWindow::new(client_state().hotbar(), client_state().inventory()));
+                    self.interface.open_window(MenuBarWindow);
 
                     // Put the dialog system in a well-defined state.
                     crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
@@ -4600,6 +4601,53 @@ impl Client {
                         }
                     }
                 }
+                InputEvent::MenuBarPress { index } => {
+                    match press_menu_bar(index as usize, |class| self.interface.is_window_with_class_open(class)) {
+                        Some(MenuBarPress::Dispatch(event)) => self.input_event_buffer.push(*event),
+                        Some(MenuBarPress::Close(class)) => self.interface.close_window_with_class(class),
+                        None => {}
+                    }
+                }
+                InputEvent::ToggleChatWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Chat) {
+                            true => self.interface.close_window_with_class(WindowClass::Chat),
+                            false => self
+                                .interface
+                                .open_window(ChatWindow::new(client_state().chat_window(), client_state().chat_messages())),
+                        }
+                    }
+                }
+                InputEvent::ToggleHotbarWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Hotbar) {
+                            true => self.interface.close_window_with_class(WindowClass::Hotbar),
+                            false => self
+                                .interface
+                                .open_window(HotbarWindow::new(client_state().hotbar(), client_state().inventory())),
+                        }
+                    }
+                }
+                InputEvent::ToggleEmotesWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Emotes) {
+                            true => self.interface.close_window_with_class(WindowClass::Emotes),
+                            false => self.interface.open_window(EmotesWindow),
+                        }
+                    }
+                }
+                InputEvent::ToggleCharacterOverviewWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::CharacterOverview) {
+                            true => self.interface.close_window_with_class(WindowClass::CharacterOverview),
+                            false => self.interface.open_window(CharacterOverviewWindow::new(
+                                client_state().player_name(),
+                                this_player().manually_asserted().base_level(),
+                                this_player().manually_asserted().job_level(),
+                            )),
+                        }
+                    }
+                }
                 InputEvent::ToggleWorldMap => {
                     if self.map.is_some() && self.client_state.try_follow(this_entity()).is_some() {
                         if self.interface.is_window_with_class_open(WindowClass::WorldMap) {
@@ -7012,6 +7060,12 @@ impl Client {
                     };
                     self.input_system.synthesize_click(x * factor, y * factor, button);
                 }
+                autopilot::Effect::Drag { x0, y0, x1, y1 } => {
+                    let factor = self.client_state.follow(client_state().interface_settings().scaling()).get_factor();
+                    let factor = if factor.is_finite() && factor > 0.0 { factor } else { 1.0 };
+                    self.input_system
+                        .begin_synthetic_drag(x0 * factor, y0 * factor, x1 * factor, y1 * factor);
+                }
                 autopilot::Effect::Key { code, alt, ctrl, shift } => self.input_system.synthesize_key(code, alt, ctrl, shift),
                 autopilot::Effect::Dump(path) => {
                     let body = self.autopilot_dump(path);
@@ -7134,6 +7188,7 @@ impl Client {
         }
 
         self.input_system.expire_synthesized();
+        self.input_system.advance_synthetic_drag();
         self.drive_autopilot();
 
         if SHUTDOWN_SIGNAL.load(Ordering::SeqCst) {
@@ -7381,6 +7436,8 @@ impl Client {
                 _ => None,
             };
             let is_chat_open = self.interface.is_window_with_class_open(WindowClass::Chat);
+            let menu_bar_bits = menu_bar_open_bits(|class| self.interface.is_window_with_class_open(class));
+            *self.client_state.follow_mut(client_state().menu_bar_open()) = menu_bar_bits;
 
             let mut interface_frame = self
                 .interface

@@ -60,6 +60,17 @@ pub struct InputSystem {
     synthetic_release: Vec<KeyCode>,
     synthetic_mouse: bool,
     synthetic_double: bool,
+    /// Left button stays down across frames while a scripted drag is running.
+    synthetic_hold: bool,
+    drag_phase: SyntheticDragPhase,
+    drag_end: ScreenPosition,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SyntheticDragPhase {
+    Idle,
+    MoveNext,
+    ReleaseNext,
 }
 
 impl InputSystem {
@@ -95,6 +106,9 @@ impl InputSystem {
             synthetic_release: Vec::new(),
             synthetic_mouse: false,
             synthetic_double: false,
+            synthetic_hold: false,
+            drag_phase: SyntheticDragPhase::Idle,
+            drag_end: ScreenPosition::default(),
         }
     }
 
@@ -103,10 +117,43 @@ impl InputSystem {
         for code in self.synthetic_release.drain(..) {
             self.keys[code as usize].set_down(false);
         }
-        if self.synthetic_mouse {
+        if self.synthetic_mouse && !self.synthetic_hold {
             self.left_mouse_button.set_down(false);
             self.right_mouse_button.set_down(false);
             self.synthetic_mouse = false;
+        }
+    }
+
+    /// Press at `start`, move to `end` on the next frame, and release on the
+    /// frame after that. Coordinates are physical pixels.
+    pub fn begin_synthetic_drag(&mut self, start_x: f32, start_y: f32, end_x: f32, end_y: f32) {
+        let start = ScreenPosition {
+            left: start_x,
+            top: start_y,
+        };
+        self.new_mouse_position = start;
+        self.previous_mouse_position = start;
+        self.drag_end = ScreenPosition { left: end_x, top: end_y };
+        self.left_mouse_button.arm_press();
+        self.synthetic_hold = true;
+        self.synthetic_mouse = false;
+        self.drag_phase = SyntheticDragPhase::MoveNext;
+    }
+
+    /// Advance a drag started on an earlier frame. Call this before
+    /// [`Self::begin_synthetic_drag`] in the same frame.
+    pub fn advance_synthetic_drag(&mut self) {
+        match self.drag_phase {
+            SyntheticDragPhase::Idle => {}
+            SyntheticDragPhase::MoveNext => {
+                self.new_mouse_position = self.drag_end;
+                self.drag_phase = SyntheticDragPhase::ReleaseNext;
+            }
+            SyntheticDragPhase::ReleaseNext => {
+                self.left_mouse_button.set_down(false);
+                self.synthetic_hold = false;
+                self.drag_phase = SyntheticDragPhase::Idle;
+            }
         }
     }
 

@@ -57,6 +57,19 @@ pub enum InputEvent {
     ResetCameraRotation,
     /// Open or close the menu window. Only works while playing.
     ToggleMenuWindow,
+    /// Menu-bar button. `index` is the position in
+    /// [`crate::interface::windows::menu_bar::menu_bar_entries`].
+    MenuBarPress {
+        index: u8,
+    },
+    /// Open or close the chat window.
+    ToggleChatWindow,
+    /// Open or close the hotbar.
+    ToggleHotbarWindow,
+    /// Open or close the emotion picker.
+    ToggleEmotesWindow,
+    /// Open or close the character overview.
+    ToggleCharacterOverviewWindow,
     /// Open or close the inventory window. Only works while playing.
     ToggleInventoryWindow,
     /// Open or close the player cart window. Only works while playing.
