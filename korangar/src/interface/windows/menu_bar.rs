@@ -191,7 +191,14 @@ impl MenuBarEntry {
     }
 
     fn group(caption: &'static str, icon: Option<&'static str>, group: WindowGroup) -> Self {
-        let tabs: Vec<&str> = group.tabs().iter().map(|tab| tab.label).collect();
+        let tabs: Vec<String> = group
+            .tabs()
+            .iter()
+            .map(|tab| match tab.hotkey {
+                Some(hotkey) => format!("{} ({hotkey})", tab.label),
+                None => tab.label.to_owned(),
+            })
+            .collect();
         let label = format!("{}: {}", group.name(), tabs.join(", "));
         Self::new(&label, caption, None, icon, group.tabs()[0].class, MenuBarKind::Group(group))
     }
@@ -971,7 +978,10 @@ mod tests {
         let inventory = entries.iter().find(|entry| entry.class == WindowClass::Inventory).unwrap();
         assert_eq!(inventory.tooltip, "Inventory (Alt+E)");
         let settings = entries.iter().find(|entry| entry.covers(WindowClass::AudioSettings)).unwrap();
-        assert_eq!(settings.tooltip, "Settings: Interface, Graphics, Audio, Game, Keys");
+        assert_eq!(
+            settings.tooltip,
+            "Settings: Interface (Ctrl+I), Graphics (Ctrl+G), Audio (Ctrl+A), Game (Ctrl+S), Keys"
+        );
         let chat = entries.iter().find(|entry| entry.class == WindowClass::Chat).unwrap();
         assert_eq!(chat.tooltip, "Chat");
     }

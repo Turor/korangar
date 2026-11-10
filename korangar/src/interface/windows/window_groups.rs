@@ -37,30 +37,44 @@ pub enum WindowGroup {
 pub struct GroupTab {
     pub label: &'static str,
     pub class: WindowClass,
+    /// The window's own hotkey, shown in the menu-bar tooltip.
+    pub hotkey: Option<&'static str>,
 }
 
 const fn tab(label: &'static str, class: WindowClass) -> GroupTab {
-    GroupTab { label, class }
+    GroupTab {
+        label,
+        class,
+        hotkey: None,
+    }
+}
+
+const fn keyed(label: &'static str, class: WindowClass, hotkey: &'static str) -> GroupTab {
+    GroupTab {
+        label,
+        class,
+        hotkey: Some(hotkey),
+    }
 }
 
 const SETTINGS_TABS: [GroupTab; 5] = [
-    tab("Interface", WindowClass::InterfaceSettings),
-    tab("Graphics", WindowClass::GraphicsSettings),
-    tab("Audio", WindowClass::AudioSettings),
-    tab("Game", WindowClass::GameSettings),
+    keyed("Interface", WindowClass::InterfaceSettings, "Ctrl+I"),
+    keyed("Graphics", WindowClass::GraphicsSettings, "Ctrl+G"),
+    keyed("Audio", WindowClass::AudioSettings, "Ctrl+A"),
+    keyed("Game", WindowClass::GameSettings, "Ctrl+S"),
     tab("Keys", WindowClass::Keybinds),
 ];
 const CHARACTER_TABS: [GroupTab; 5] = [
-    tab("Stats", WindowClass::Stats),
-    tab("Gear", WindowClass::Equipment),
+    keyed("Stats", WindowClass::Stats, "Alt+A"),
+    keyed("Gear", WindowClass::Equipment, "Alt+Q"),
     tab("Sets", WindowClass::SwitchEquip),
     tab("Buffs", WindowClass::StatusEffects),
     tab("Profile", WindowClass::CharacterOverview),
 ];
 const SOCIAL_TABS: [GroupTab; 3] = [
-    tab("Party", WindowClass::FriendList),
-    tab("Guild", WindowClass::Guild),
-    tab("Clan", WindowClass::Clan),
+    keyed("Party", WindowClass::FriendList, "Alt+Z"),
+    keyed("Guild", WindowClass::Guild, "Alt+G"),
+    keyed("Clan", WindowClass::Clan, "Alt+C"),
 ];
 const JOURNAL_TABS: [GroupTab; 2] = [
     tab("Quests", WindowClass::QuestJournal),
