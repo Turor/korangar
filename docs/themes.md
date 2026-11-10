@@ -55,7 +55,6 @@ slot_size = 44.0
 | `hp` | Player HP (keep warm) |
 | `sp` | Player SP (keep cool) |
 | `gold` | Refine, rarity, zeny, and small gold accents only |
-| `cast` | Cast-bar fill above a caster (default `#48C478` when omitted) |
 | `slot_size` | Optional socket side in pixels (default 44) |
 | `corner_radius` | Optional corner radius (default 8) |
 | `font_size` | Optional body font size (default 13) |

@@ -39,8 +39,6 @@ pub struct ThemeTokens {
     pub sp: Color,
     /// Refine, rarity, and other small gold accents only.
     pub gold: Color,
-    /// Fill of the cast bar above a caster.
-    pub cast: Color,
     pub slot_size: f32,
     pub corner_radius: f32,
     pub font_size: f32,
@@ -80,7 +78,6 @@ impl ThemeTokens {
             hp: Color::rgb_u8(62, 168, 96),
             sp: Color::rgb_u8(64, 156, 210),
             gold: Color::rgb_u8(220, 150, 72),
-            cast: Color::rgb_u8(96, 214, 150),
             slot_size: 44.0,
             corner_radius: 10.0,
             font_size: 13.0,
@@ -115,9 +112,6 @@ pub struct ThemeFile {
     pub hp: String,
     pub sp: String,
     pub gold: String,
-    /// Cast-bar fill. Older theme files keep the default green.
-    #[serde(default = "default_cast_hex")]
-    pub cast: String,
     #[serde(default = "default_slot_size")]
     pub slot_size: f32,
     #[serde(default = "default_corner_radius")]
@@ -131,9 +125,6 @@ fn default_slot_size() -> f32 {
 }
 fn default_corner_radius() -> f32 {
     8.0
-}
-fn default_cast_hex() -> String {
-    "#48C478".to_owned()
 }
 fn default_font_size() -> f32 {
     13.0
@@ -169,7 +160,6 @@ impl ThemeFile {
             hp: parse_hex_color(&self.hp)?,
             sp: parse_hex_color(&self.sp)?,
             gold: parse_hex_color(&self.gold)?,
-            cast: parse_hex_color(&self.cast)?,
             slot_size: if self.slot_size > 0.0 { self.slot_size } else { 44.0 },
             corner_radius: self.corner_radius.max(0.0),
             font_size: if self.font_size > 0.0 { self.font_size } else { 13.0 },
@@ -223,7 +213,6 @@ fn parse_theme_toml(source: &str) -> Option<ThemeFile> {
         hp: strings.remove("hp")?,
         sp: strings.remove("sp")?,
         gold: strings.remove("gold")?,
-        cast: strings.remove("cast").unwrap_or_else(default_cast_hex),
         slot_size: nums.get("slot_size").copied().unwrap_or(44.0),
         corner_radius: nums.get("corner_radius").copied().unwrap_or(8.0),
         font_size: nums.get("font_size").copied().unwrap_or(13.0),
@@ -327,7 +316,6 @@ impl WorldTheme {
                 activity_point_height: 5.0,
                 border_size: ScreenSize { width: 3.0, height: 2.0 },
                 gap: 2.0,
-                cast_color: tokens.cast,
             },
             indicator: super::IndicatorTheme {
                 walking: tokens.accent.with_alpha_u8(180),

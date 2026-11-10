@@ -1136,7 +1136,9 @@ impl Client {
                 range,
                 repeating,
             ));
-            if position.is_some() {
+            // Repeating ground units are removed by `RemoveSkillUnit`. One-shot
+            // effects, even when placed on a cell, must not be keyed by the caster.
+            if position.is_some() && repeating {
                 self.effect_holder.add_unit(built, entity_id);
             } else {
                 self.effect_holder.add_effect(built);
@@ -1151,6 +1153,7 @@ impl Client {
 
     fn handle_network_events(&mut self, client_tick: ClientTick) {
         *self.client_state.follow_mut(client_state().client_tick()) = client_tick;
+        self.cast_bars.expire(client_tick.0);
         self.client_state.follow_mut(client_state().navigation()).expire(client_tick.0);
         self.client_state.follow_mut(client_state()).expire_chat_overlays(client_tick.0);
         self.client_state
@@ -1933,10 +1936,6 @@ impl Client {
                     attack_duration,
                     is_critical,
                 } => {
-                    if damage_amount.is_some() {
-                        self.cast_bars.interrupt_for_damage(destination_entity_id.0);
-                    }
-
                     let target_position = self
                         .client_state
                         .follow(client_state().entities())
@@ -2256,7 +2255,6 @@ impl Client {
                     if damage > 0 {
                         self.play_skill_field(skill_id, SkillField::Hit, destination_entity_id, None, false);
                         self.play_skill_field(skill_id, SkillField::HitOnCaster, source_entity_id, None, false);
-                        self.cast_bars.interrupt_for_damage(destination_entity_id.0);
                     }
                 }
                 NetworkEvent::UpdateEntityHealth {
@@ -3949,19 +3947,20 @@ impl Client {
                         .begin(source_entity_id.0, skill_id.0, delay_time, client_tick.0);
                     self.play_skill_field(skill_id, SkillField::BeginCast, source_entity_id, None, false);
                 }
-                NetworkEvent::ToUseSkillSuccess { skill_id, flag, .. } => {
-                    // `0x0110` is the local ack. `flag == 0` is a failed cast (roBrowser
-                    // `onSkillResult`). A non-zero flag plays the success STR on this client.
-                    let entity_id = self.client_state.try_follow(this_entity()).map(|player| player.get_entity_id());
-                    let Some(entity_id) = entity_id else {
+                NetworkEvent::ToUseSkillSuccess { flag, .. } => {
+                    // `0x0110` is the failure packet. Hercules always sends `flag == 0`.
+                    // Success STR is `HealEffect` when `result == 1` (`0x09CB`).
+                    if flag != 0 {
+                        continue;
+                    }
+                    let Some(entity_id) = self
+                        .client_state
+                        .try_follow(this_entity())
+                        .map(|player| player.get_entity_id())
+                    else {
                         continue;
                     };
-                    if flag == 0 {
-                        self.cast_bars.cancel(entity_id.0);
-                    } else {
-                        self.play_skill_field(skill_id, SkillField::Success, entity_id, None, false);
-                        self.play_skill_field(skill_id, SkillField::SuccessOnCaster, entity_id, None, false);
-                    }
+                    self.cast_bars.cancel(entity_id.0);
                 }
                 NetworkEvent::NotifyGroundSkill {
                     skill_id,
@@ -3969,17 +3968,13 @@ impl Client {
                     position,
                     ..
                 } => {
-                    let world_position = self.map.as_ref().and_then(|map| map.get_world_position(position));
-                    if let Some(position) = world_position {
-                        let ground = effects::skill_effect_refs(skill_id.0, SkillField::Ground);
-                        if ground.is_empty() {
-                            self.play_skill_field(skill_id, SkillField::Effect, entity_id, Some(position), true);
-                        } else {
-                            self.play_skill_field(skill_id, SkillField::Ground, entity_id, Some(position), true);
-                        }
-                    }
-                    self.play_skill_field(skill_id, SkillField::Effect, entity_id, None, false);
-                    self.play_skill_field(skill_id, SkillField::EffectOnCaster, entity_id, None, false);
+                    // `0x0117` is the caster's cell, not a skill unit. Play the cast
+                    // STR once there. Persistent zones arrive as `AddSkillUnit`.
+                    let Some(position) = self.map.as_ref().and_then(|map| map.get_world_position(position)) else {
+                        continue;
+                    };
+                    self.play_skill_field(skill_id, SkillField::Effect, entity_id, Some(position), false);
+                    self.play_skill_field(skill_id, SkillField::EffectOnCaster, entity_id, Some(position), false);
                 }
                 NetworkEvent::StatusChange {
                     status_index,
@@ -7332,6 +7327,8 @@ impl Client {
             interface_frame
         };
 
+        self.cast_bars.expire(client_tick.0);
+
         {
             let mut render_context = MapRenderContext {
                 map: &map,
@@ -8228,14 +8225,14 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
     }
 
     fn render_cast_bars(&mut self) {
-        let (bar_width, bar_height, border, background, cast_color) = {
+        let (bar_width, bar_height, border, background, spell_point_color) = {
             let theme = self.client_state.follow(client_state().world_theme());
             (
                 theme.status_bar.enemy_bar_width,
                 theme.status_bar.spell_point_height,
                 theme.status_bar.border_size,
                 theme.status_bar.background_color,
-                theme.status_bar.cast_color,
+                theme.status_bar.spell_point_color,
             )
         };
         let entities = self.client_state.follow(client_state().entities());
@@ -8267,7 +8264,7 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
                     width: bar_width,
                     height: bar_height,
                 },
-                cast_color,
+                spell_point_color,
                 1.0,
                 progress,
             );

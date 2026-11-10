@@ -16,6 +16,9 @@ use super::generated::{EFFECT_REFS, LAYERS, NAMED_EFFECTS, NUMERIC_EFFECTS, SKIL
 pub enum SkillField {
     Effect,
     EffectOnCaster,
+    /// Zone STR from the roBrowser table. Persistent zones are `AddSkillUnit`,
+    /// so the client does not construct this slot at playback. Tests still read it.
+    #[cfg_attr(not(test), allow(dead_code))]
     Ground,
     Hit,
     HitOnCaster,

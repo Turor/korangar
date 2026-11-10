@@ -1,6 +1,6 @@
 //! Cast-bar timing. Rendering lives in the client; this type only tracks state.
 //!
-//! roBrowser shows the bar from `ZC_USESKILL_ACK` (`0x07FB`) when `delayTime > 0`,
+//! roBrowser shows the bar from `ZC_USESKILL_ACK` (`0x0B1A` on this profile) when `delayTime > 0`,
 //! except skills with `hideCastBar`. Auto Counter has no delay and still shows a
 //! one-second bar. `ZC_DISPEL` (`0x01B9`) clears it. That is the packet Hercules
 //! sends for a damage interrupt (`clif_skillcastcancel`). The client stop packet
@@ -78,7 +78,15 @@ impl CastBars {
         self.bars.retain(|bar| bar.entity_id != entity_id);
     }
 
-    /// A hit on the caster. Uninterruptible bars stay until dispel.
+    /// Drop bars whose cast time has elapsed.
+    pub fn expire(&mut self, now_ms: u32) {
+        self.bars.retain(|bar| bar.progress(now_ms) < 1.0);
+    }
+
+    /// A hit on the caster. The client does not call this: Hercules sends
+    /// `0x01B9` only when `skillcastcancel` is set. Kept so tests can show an
+    /// uninterruptible bar surviving a hit.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn interrupt_for_damage(&mut self, entity_id: u32) {
         self.bars.retain(|bar| bar.entity_id != entity_id || !bar.interruptible);
     }
@@ -110,6 +118,9 @@ mod tests {
         let halfway = bars.progress(9, 1_000).unwrap();
         assert!((halfway - 0.5).abs() < f32::EPSILON);
         assert!(bars.progress(9, 1_500).is_none());
+        assert_eq!(bars.bars.len(), 1);
+        bars.expire(1_500);
+        assert!(bars.bars.is_empty());
         assert!(bars.iter_visible(1_500).next().is_none());
     }
 

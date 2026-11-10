@@ -997,7 +997,9 @@ pub enum NetworkEvent {
     SkillCastCancelled {
         entity_id: EntityId,
     },
-    /// A skill cast was acknowledged (`UseSkillSuccessPacket`, 0x07FB).
+    /// A skill cast was acknowledged. PACKETVER 20250716 sends
+    /// `UseSkillAck3Packet` (`0x0B1A`, 29 bytes). Older profiles that still
+    /// emit `UseSkillSuccessPacket` (`0x07FB`, 25 bytes) do not start a bar.
     UseSkillSuccess {
         source_entity_id: EntityId,
         destination_entity_id: EntityId,
@@ -1007,8 +1009,9 @@ pub enum NetworkEvent {
         delay_time: u32,
         disposable: u8,
     },
-    /// The server accepted a skill the client is about to use
-    /// (`ToUseSkillSuccessPacket`, 0x0110).
+    /// Skill use failed (`ToUseSkillSuccessPacket`, `0x0110`). Hercules
+    /// `clif_skill_fail` always sets `flag` to 0. Success STR comes from
+    /// `0x09CB` when `result == 1`, not from this packet.
     ToUseSkillSuccess {
         skill_id: SkillId,
         btype: i32,

@@ -5064,6 +5064,8 @@ pub struct SkillCastCancelPacket {
     pub entity_id: EntityId,
 }
 
+/// Pre-20181212 cast acknowledgement (`ZC_USESKILL_ACK`, `0x07FB`, 25 bytes).
+/// PACKETVER 20250716 sends [`UseSkillAck3Packet`] instead.
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x07FB)]
@@ -5075,6 +5077,22 @@ pub struct UseSkillSuccessPacket {
     pub element: u32,
     pub delay_time: u32,
     pub disposable: u8,
+}
+
+/// Cast acknowledgement for PACKETVER >= 20181212 (`ZC_USESKILL_ACK`, `0x0B1A`).
+/// roBrowser calls this `USESKILL_ACK3`. `attack_mt` follows `disposable` (29 bytes).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B1A)]
+pub struct UseSkillAck3Packet {
+    pub source_entity: EntityId,
+    pub destination_entity: EntityId,
+    pub position: TilePosition,
+    pub skill_id: SkillId,
+    pub element: u32,
+    pub delay_time: u32,
+    pub disposable: u8,
+    pub attack_mt: u32,
 }
 
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]

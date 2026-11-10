@@ -953,7 +953,9 @@ where
     packet_handler.register(|packet: SkillCastCancelPacket| NetworkEvent::SkillCastCancelled {
         entity_id: packet.entity_id,
     })?;
-    packet_handler.register(|packet: UseSkillSuccessPacket| NetworkEvent::UseSkillSuccess {
+    // 20250716 MAIN emits 0x0B1A. The pre-20181212 0x07FB ack is ignored here.
+    packet_handler.register_noop::<UseSkillSuccessPacket>()?;
+    packet_handler.register(|packet: UseSkillAck3Packet| NetworkEvent::UseSkillSuccess {
         source_entity_id: packet.source_entity,
         destination_entity_id: packet.destination_entity,
         position: packet.position,

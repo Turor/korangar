@@ -39,13 +39,6 @@ pub struct StatusBarTheme {
     pub activity_point_height: f32,
     pub border_size: ScreenSize,
     pub gap: f32,
-    /// Fill color of the cast bar drawn above a caster.
-    #[serde(default = "default_cast_bar_color")]
-    pub cast_color: Color,
-}
-
-fn default_cast_bar_color() -> Color {
-    Color::rgb_u8(72, 196, 120)
 }
 
 impl Default for StatusBarTheme {
@@ -64,7 +57,6 @@ impl Default for StatusBarTheme {
             activity_point_height: 4.0,
             border_size: ScreenSize { width: 2.0, height: 1.0 },
             gap: 1.0,
-            cast_color: default_cast_bar_color(),
         }
     }
 }
@@ -129,7 +121,6 @@ impl WorldTheme {
                 activity_point_height: 5.0,
                 border_size: ScreenSize { width: 3.0, height: 2.0 },
                 gap: 2.0,
-                cast_color: Color::rgb_u8(96, 214, 150),
             },
             indicator: IndicatorTheme {
                 walking: Color::rgba_u8(80, 220, 190, 180),
@@ -164,7 +155,6 @@ impl WorldTheme {
                 activity_point_height: 5.0,
                 border_size: ScreenSize { width: 3.0, height: 2.0 },
                 gap: 2.0,
-                cast_color: Color::rgb_hex("8FD6A8"),
             },
             indicator: IndicatorTheme {
                 walking: Color::rgb_hex("4CC3A0").with_alpha_u8(180),
