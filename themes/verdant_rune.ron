@@ -13,6 +13,7 @@ ThemeFile(
     hp: "#D2524A",
     sp: "#4A86D8",
     gold: "#CFAE5A",
+    cast: "#8FD6A8",
     slot_size: 44.0,
     corner_radius: 8.0,
     font_size: 13.0,
