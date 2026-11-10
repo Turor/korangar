@@ -152,7 +152,8 @@ fn description_lines(table: &mlua::Table, key: &str) -> mlua::Result<Vec<String>
     Ok(result)
 }
 
-/// Test entry that skips the embedded English snapshot so fixtures stay isolated.
+/// Test entry that skips the embedded English snapshot so fixtures stay
+/// isolated.
 #[cfg(test)]
 fn load_item_infos(game_file_loader: &impl FileLoader) -> mlua::Result<HashMap<ItemId, ItemInfo>> {
     load_item_infos_with(game_file_loader, false)
