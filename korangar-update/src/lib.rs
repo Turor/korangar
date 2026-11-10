@@ -16,9 +16,11 @@
 //! <url>\n
 //! ```
 //!
-//! `version` is `[0-9A-Za-z._+-]{1,64}`. Paths are relative, slash-separated,
+//! `version` is `[0-9A-Za-z._+-]{1,64}`. `build` is a positive decimal integer
+//! (monotonic counter or unix timestamp). Paths are relative, slash-separated,
 //! with no `.` or `..` components. `url` is that same relative path, an
-//! `http://` loopback URL, a `file://` URL, or `https://ro.turoran.com/...`.
+//! `http://` loopback URL, a `file://` URL, or HTTPS on an allowlisted host
+//! (`ro.turoran.com`, `korangar-releases.turoran.com`).
 //! Every other host, including other `https` hosts, is rejected.
 //!
 //! # Envelope
@@ -44,6 +46,12 @@ use std::time::Duration;
 
 pub use manifest::EMBEDDED_UPDATE_PUBLIC_KEY as UPDATE_PUBLIC_KEY;
 use manifest::ReleaseManifest;
+
+/// Public main-channel manifest. Requires HTTPS DNS+HAProxy for
+/// `korangar-releases.turoran.com` to the Garage website endpoint (port 3902).
+/// Until that vhost exists, a fetch failure is skipped and the current binary runs.
+pub const DEFAULT_UPDATE_MANIFEST_URL: &str =
+    "https://korangar-releases.turoran.com/main/manifest.jsonup";
 
 const MANIFEST_LIMIT: usize = 256 * 1024;
 const FILE_LIMIT: u64 = 512 * 1024 * 1024;
@@ -86,14 +94,23 @@ pub fn run_startup_update(request: &StartupRequest<'_>) -> Result<StartupOutcome
     if request.public_key == &[0u8; 32] {
         return Err("embedded update public key is unset; refusing to apply a manifest".into());
     }
-    let envelope = fetch_url(url, MANIFEST_LIMIT as u64)?;
+    let envelope = match fetch_url(url, MANIFEST_LIMIT as u64) {
+        Ok(bytes) => bytes,
+        Err(error) if is_unreachable_fetch(&error) => {
+            return Ok(StartupOutcome::Skipped);
+        }
+        Err(error) => return Err(error),
+    };
     let manifest = manifest::open_envelope(&envelope, request.public_key)?;
-    if manifest.version == request.current_version {
+    let installed = installed_build(request.install_root);
+    if manifest.build == installed && installed != 0 {
         return Ok(StartupOutcome::UpToDate);
     }
-    let marker = request.install_root.join("updates").join("applied.version");
-    if fs::read_to_string(&marker).ok().as_deref().map(str::trim) == Some(manifest.version.as_str()) {
-        return Ok(StartupOutcome::UpToDate);
+    if !manifest::is_newer_build(manifest.build, installed) {
+        return Err(format!(
+            "rollback protection: manifest build {} is not newer than installed {installed}",
+            manifest.build
+        ));
     }
     apply_manifest(&manifest, url, request)
 }
@@ -144,6 +161,15 @@ fn apply_manifest(manifest: &ReleaseManifest, manifest_url: &str, request: &Star
         rollback(&swapped);
         return Err(error);
     }
+    if let Err(error) = write_full(
+        &request.install_root.join("updates").join("applied.build"),
+        manifest.build.to_string().as_bytes(),
+    ) {
+        rollback(&swapped);
+        let _ = fs::remove_file(request.install_root.join("updates").join("applied.version"));
+                let _ = fs::remove_file(request.install_root.join("updates").join("applied.build"));
+        return Err(error);
+    }
     let _ = fs::remove_dir_all(&staging);
     for item in &swapped {
         if let Some(aside) = &item.displaced_backup {
@@ -157,6 +183,7 @@ fn apply_manifest(manifest: &ReleaseManifest, manifest_url: &str, request: &Star
             Err(error) => {
                 rollback(&swapped);
                 let _ = fs::remove_file(request.install_root.join("updates").join("applied.version"));
+                let _ = fs::remove_file(request.install_root.join("updates").join("applied.build"));
                 return Err(format!("relaunch failed; previous files restored: {error}"));
             }
         }
@@ -335,7 +362,7 @@ pub fn join_url(base: &str, url: &str) -> Result<String, String> {
         if url.starts_with("http://") || url.starts_with("file://") || is_allowed_https(url) {
             return Ok(url.to_string());
         }
-        return Err("only http loopback, file, and https://ro.turoran.com URLs are enabled".into());
+        return Err("only http loopback, file, and allowlisted https release hosts are enabled".into());
     }
     if url.starts_with("//") {
         return Err("unsafe artifact url".into());
@@ -367,11 +394,11 @@ fn fetch_url(url: &str, max_bytes: u64) -> Result<Vec<u8>, String> {
     if let Some(rest) = url.strip_prefix("https://") {
         let (host, port, path) = split_http(rest, 443)?;
         if !is_release_host(&host) {
-            return Err("https updates are limited to ro.turoran.com".into());
+            return Err("https updates are limited to allowlisted release hosts".into());
         }
         return https_get(&host, port, &path, max_bytes);
     }
-    Err("only http loopback, file, and https://ro.turoran.com URLs are enabled".into())
+    Err("only http loopback, file, and allowlisted https release hosts are enabled".into())
 }
 
 fn is_allowed_https(url: &str) -> bool {
@@ -394,7 +421,35 @@ fn is_loopback(host: &str) -> bool {
 }
 
 fn is_release_host(host: &str) -> bool {
-    host == "ro.turoran.com"
+    matches!(host, "ro.turoran.com" | "korangar-releases.turoran.com")
+}
+
+fn installed_build(install_root: &Path) -> u64 {
+    let path = install_root.join("updates").join("applied.build");
+    fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| text.trim().parse::<u64>().ok())
+        .unwrap_or(0)
+}
+
+fn is_unreachable_fetch(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("connection")
+        || lower.contains("timed out")
+        || lower.contains("timeout")
+        || lower.contains("connection refused")
+        || lower.contains("not found")
+        || lower.contains("no such file")
+        || lower.contains("failed to lookup")
+        || lower.contains("no such host")
+        || lower.contains("name or service not known")
+        || lower.contains("temporary failure")
+        || lower.contains("network is unreachable")
+        || lower.contains("http 404")
+        || lower.contains("http 502")
+        || lower.contains("http 503")
+        || lower.contains("http 504")
+        || lower.contains("read ")
 }
 
 fn split_http(rest: &str, default_port: u16) -> Result<(String, u16, String), String> {

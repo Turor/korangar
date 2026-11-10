@@ -22,6 +22,9 @@ pub struct ReleaseFile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReleaseManifest {
     pub version: String,
+    /// Monotonic build counter or unix timestamp. A manifest is applied only
+    /// when this is newer than the installed build.
+    pub build: u64,
     pub files: Vec<ReleaseFile>,
 }
 
@@ -45,6 +48,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 
 pub fn canonical_payload(manifest: &ReleaseManifest) -> Result<String, String> {
     validate_version(&manifest.version)?;
+    validate_build(manifest.build)?;
     if manifest.files.is_empty() {
         return Err("manifest has no files".into());
     }
@@ -54,6 +58,8 @@ pub fn canonical_payload(manifest: &ReleaseManifest) -> Result<String, String> {
     let mut body = String::new();
     body.push_str("KRUP1\n");
     body.push_str(&manifest.version);
+    body.push('\n');
+    body.push_str(&manifest.build.to_string());
     body.push('\n');
     body.push_str(&files.len().to_string());
     body.push('\n');
@@ -130,6 +136,8 @@ pub fn parse_payload(payload: &str) -> Result<ReleaseManifest, String> {
     }
     let version = lines.next().ok_or("missing version")?.to_string();
     validate_version(&version)?;
+    let build: u64 = lines.next().ok_or("missing build")?.parse().map_err(|_| "bad build")?;
+    validate_build(build)?;
     let count: usize = lines.next().ok_or("missing file count")?.parse().map_err(|_| "bad file count")?;
     if count == 0 || count > 10_000 {
         return Err("file count out of range".into());
@@ -147,12 +155,13 @@ pub fn parse_payload(payload: &str) -> Result<ReleaseManifest, String> {
     }
     let canonical = canonical_payload(&ReleaseManifest {
         version: version.clone(),
+        build,
         files: files.clone(),
     })?;
     if canonical != payload {
         return Err("payload is not canonical".into());
     }
-    Ok(ReleaseManifest { version, files })
+    Ok(ReleaseManifest { version, build, files })
 }
 
 fn validate_version(version: &str) -> Result<(), String> {
@@ -165,6 +174,19 @@ fn validate_version(version: &str) -> Result<(), String> {
     } else {
         Err(format!("unsafe version {version}"))
     }
+}
+
+fn validate_build(build: u64) -> Result<(), String> {
+    if build == 0 {
+        return Err("build must be a positive monotonic counter or timestamp".into());
+    }
+    Ok(())
+}
+
+/// True when `incoming` is a strictly newer build than `installed`.
+/// `installed == 0` means no build has been applied yet.
+pub fn is_newer_build(incoming: u64, installed: u64) -> bool {
+    incoming > installed
 }
 
 fn validate_token(label: &str, value: &str) -> Result<(), String> {
