@@ -37,8 +37,8 @@ pub use self::entity::EntityData;
 pub use self::equip_switch::EquipSwitchSlotPathExt;
 pub use self::equip_switch::{EquipSwitchSlot, assign_slot, position_label, replace_slots};
 pub use self::event::{
-    CashShopOffer, DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, GuildSkillSnapshot, HuntIndexUpdate,
-    NetworkEvent, OwnShopLine, RefineMaterialOffer, RoulettePrize, SearchStoreHit, StatusChangeState, WeaponRefineOffer,
+    DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, GuildSkillSnapshot, HuntIndexUpdate, NetworkEvent,
+    OwnShopLine, RefineMaterialOffer, RoulettePrize, SearchStoreHit, StatusChangeState, WeaponRefineOffer,
 };
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
@@ -1944,33 +1944,6 @@ where
         self.send_map_server_packet(WithdrawBankPacket { account_id, zeny })
     }
 
-    /// Ask the map server to open the cash shop. 20190530 sends `0x0844`.
-    /// Later profiles send `0x0B6D` with the tab.
-    pub fn open_cash_shop(&mut self, tab: u32) -> Result<(), NotConnectedError> {
-        match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20190530 => self.send_map_server_packet(CashShopOpenRequestPacket {}),
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20250716 => {
-                self.send_map_server_packet(CashShopOpenRequestV2Packet { tab })
-            }
-        }
-    }
-
-    pub fn close_cash_shop(&mut self) -> Result<(), NotConnectedError> {
-        self.send_map_server_packet(CashShopClosePacket {})
-    }
-
-    pub fn request_cash_shop_tab(&mut self, tab: i16) -> Result<(), NotConnectedError> {
-        self.send_map_server_packet(CashShopTabRequestPacket { tab })
-    }
-
-    pub fn buy_cash_shop_item(&mut self, item_id: u32, amount: u32, tab: u16, kafra_points: u32) -> Result<(), NotConnectedError> {
-        self.send_map_server_packet(CashShopBuyPacket {
-            count: 1,
-            kafra_points,
-            items: vec![CashShopBuyItem { item_id, amount, tab }],
-        })
-    }
-
     pub fn open_roulette(&mut self) -> Result<(), NotConnectedError> {
         self.send_map_server_packet(RouletteOpenPacket {})
     }
@@ -2954,7 +2927,7 @@ mod packet_handlers {
         assert_eq!(request, [0x25, 0x0A, 12, 0, 0, 0, 0xEF, 0x0A]);
     }
 
-    fn map_handler(
+    pub(crate) fn map_handler(
         version: SupportedPacketVersion,
     ) -> ragnarok_packets::handler::PacketHandler<crate::event::NetworkEventList, NoPacketCallback> {
         NetworkingSystem::create_map_server_packet_handler(NoPacketCallback, version).unwrap()
@@ -5142,13 +5115,11 @@ mod transport_tests {
     }
 
     #[test]
-    fn bank_cash_shop_and_roulette_packets_round_trip() {
+    fn bank_and_roulette_packets_round_trip() {
         use ragnarok_bytes::FixedByteSize;
         use ragnarok_packets::{
-            AccountId, BankCheckPacket, BankDepositAckPacket, CashShopBuyItem, CashShopBuyPacket, CashShopItemEntry,
-            CashShopItemListPacket, CashShopOpenPacket, CashShopOpenRequestPacket, CashShopOpenRequestV2Packet, CashShopOpenV2Packet,
-            DepositBankPacket, PacketExt, RouletteGenerateAckPacket, RouletteInfoPacket, RouletteOpenAckPacket, RouletteOpenPacket,
-            RoulettePrizeEntry,
+            AccountId, BankCheckPacket, BankDepositAckPacket, DepositBankPacket, PacketExt, RouletteGenerateAckPacket, RouletteInfoPacket,
+            RouletteOpenAckPacket, RouletteOpenPacket, RoulettePrizeEntry,
         };
 
         use super::packet_handlers::process_one;
@@ -5199,80 +5170,6 @@ mod transport_tests {
                 zeny: 20
             }]
         ));
-
-        let mut writer = ByteWriter::new();
-        CashShopOpenRequestPacket {}.packet_to_bytes(&mut writer).unwrap();
-        assert_eq!(writer.as_slice(), &[0x44, 0x08]);
-        let mut writer = ByteWriter::new();
-        CashShopOpenRequestV2Packet { tab: 3 }.packet_to_bytes(&mut writer).unwrap();
-        assert_eq!(writer.as_slice(), &[0x6D, 0x0B, 3, 0, 0, 0]);
-
-        let opened = CashShopOpenPacket {
-            cash_points: 10,
-            kafra_points: 4,
-            tab: 1,
-        };
-        let mut writer = ByteWriter::new();
-        opened.packet_to_bytes(&mut writer).unwrap();
-        assert_eq!(writer.as_slice().len(), 14);
-        assert!(matches!(
-            process_one(SupportedPacketVersion::_20190530, writer.as_slice()).as_slice(),
-            [NetworkEvent::CashShopOpened {
-                cash_points: 10,
-                kafra_points: 4,
-                tab: 1
-            }]
-        ));
-        let opened_v2 = CashShopOpenV2Packet {
-            cash_points: 11,
-            kafra_points: 5,
-            tab: 2,
-        };
-        let mut writer = ByteWriter::new();
-        opened_v2.packet_to_bytes(&mut writer).unwrap();
-        assert!(matches!(
-            process_one(SupportedPacketVersion::_20250716, writer.as_slice()).as_slice(),
-            [NetworkEvent::CashShopOpened {
-                cash_points: 11,
-                kafra_points: 5,
-                tab: 2
-            }]
-        ));
-        assert!(matches!(
-            process_one(SupportedPacketVersion::_20220406, writer.as_slice()).as_slice(),
-            [NetworkEvent::CashShopOpened {
-                cash_points: 11,
-                kafra_points: 5,
-                tab: 2
-            }]
-        ));
-
-        let list = CashShopItemListPacket {
-            tab: 0,
-            count: 1,
-            items: vec![CashShopItemEntry { item_id: 501, price: 9 }],
-        };
-        let mut writer = ByteWriter::new();
-        list.packet_to_bytes(&mut writer).unwrap();
-        assert!(matches!(
-            process_one(SupportedPacketVersion::_20190530, writer.as_slice()).as_slice(),
-            [NetworkEvent::CashShopItems { tab: 0, items }] if items.len() == 1 && items[0].item_id == 501 && items[0].price == 9
-        ));
-
-        let buy = CashShopBuyPacket {
-            count: 1,
-            kafra_points: 2,
-            items: vec![CashShopBuyItem {
-                item_id: 501,
-                amount: 1,
-                tab: 0,
-            }],
-        };
-        let mut writer = ByteWriter::new();
-        buy.packet_to_bytes(&mut writer).unwrap();
-        assert_eq!(writer.as_slice()[0], 0x48);
-        assert_eq!(writer.as_slice()[1], 0x08);
-        assert_eq!(writer.as_slice().len(), 4 + 2 + 4 + 10);
 
         let mut writer = ByteWriter::new();
         RouletteOpenPacket {}.packet_to_bytes(&mut writer).unwrap();
@@ -5341,5 +5238,120 @@ mod transport_tests {
                 ..
             }]
         ));
+    }
+
+    #[test]
+    fn cash_shop_open_and_result_are_consumed_without_events() {
+        use ragnarok_packets::{
+            CashItemDeletePacket, CashPointUpdatePacket, CashShopBuyResultPacket, CashShopItemEntry, CashShopItemListPacket,
+            CashShopOpenLegacyPacket, CashShopOpenPacket, CashShopOpenV2Packet, CashTimeCounterPacket, Packet, PacketExt, PacketHeader,
+        };
+
+        use super::packet_handlers::{map_handler, process_one};
+        use crate::packet_versions::{framing_20190530, framing_20250716};
+
+        let open = CashShopOpenV2Packet {
+            cash_points: 11,
+            kafra_points: 5,
+            tab: 2,
+        };
+        let mut writer = ByteWriter::new();
+        open.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 14);
+        assert_eq!(writer.as_slice()[..2], [0x6E, 0x0B]);
+        assert_eq!(framing_20250716::frame_length(writer.as_slice()), Ok(Some(14)));
+        assert_eq!(framing_20190530::frame_length(writer.as_slice()), Ok(Some(14)));
+
+        let result = CashShopBuyResultPacket {
+            item_id: 501,
+            result: 6,
+            cash_points: 11,
+            kafra_points: 5,
+        };
+        let mut result_writer = ByteWriter::new();
+        result.packet_to_bytes(&mut result_writer).unwrap();
+        assert_eq!(result_writer.as_slice().len(), 16);
+        assert_eq!(result_writer.as_slice()[..2], [0x49, 0x08]);
+        assert_eq!(framing_20250716::frame_length(result_writer.as_slice()), Ok(Some(16)));
+        assert_eq!(framing_20250716::packet_length(0x0849), Some(16));
+
+        let legacy = CashShopOpenLegacyPacket {
+            cash_points: 1,
+            kafra_points: 2,
+        };
+        let mut legacy_writer = ByteWriter::new();
+        legacy.packet_to_bytes(&mut legacy_writer).unwrap();
+        assert_eq!(legacy_writer.as_slice().len(), 10);
+
+        let with_tab = CashShopOpenPacket {
+            cash_points: 3,
+            kafra_points: 4,
+            tab: 1,
+        };
+        let mut tab_writer = ByteWriter::new();
+        with_tab.packet_to_bytes(&mut tab_writer).unwrap();
+        assert_eq!(tab_writer.as_slice().len(), 14);
+
+        let list = CashShopItemListPacket {
+            tab: 0,
+            count: 1,
+            items: vec![CashShopItemEntry { item_id: 501, price: 9 }],
+        };
+        let mut list_writer = ByteWriter::new();
+        list.packet_to_bytes(&mut list_writer).unwrap();
+
+        let points = CashPointUpdatePacket {
+            cash_points: 8,
+            kafra_points: 1,
+            error: 0,
+        };
+        let mut points_writer = ByteWriter::new();
+        points.packet_to_bytes(&mut points_writer).unwrap();
+        assert_eq!(points_writer.as_slice().len(), 12);
+        assert_eq!(framing_20250716::packet_length(0x0289), Some(12));
+
+        let timer = CashTimeCounterPacket { item_id: 501, seconds: 30 };
+        let mut timer_writer = ByteWriter::new();
+        timer.packet_to_bytes(&mut timer_writer).unwrap();
+        assert_eq!(timer_writer.as_slice().len(), 10);
+        assert_eq!(framing_20250716::packet_length(0x0298), Some(10));
+
+        let deleted = CashItemDeletePacket { index: 3, item_id: 501 };
+        let mut deleted_writer = ByteWriter::new();
+        deleted.packet_to_bytes(&mut deleted_writer).unwrap();
+        assert_eq!(deleted_writer.as_slice().len(), 8);
+        assert_eq!(framing_20250716::packet_length(0x0299), Some(8));
+
+        let fixtures = [
+            writer.as_slice(),
+            result_writer.as_slice(),
+            legacy_writer.as_slice(),
+            tab_writer.as_slice(),
+            list_writer.as_slice(),
+            points_writer.as_slice(),
+            timer_writer.as_slice(),
+            deleted_writer.as_slice(),
+        ];
+        for version in [
+            SupportedPacketVersion::_20190530,
+            SupportedPacketVersion::_20220406,
+            SupportedPacketVersion::_20250716,
+        ] {
+            for fixture in fixtures {
+                assert!(process_one(version, fixture).is_empty(), "cash-shop frame produced an event");
+            }
+            let handler = map_handler(version);
+            assert!(handler.has_handler(CashShopOpenV2Packet::HEADER));
+            assert!(handler.has_handler(CashShopBuyResultPacket::HEADER));
+            // Variable-length lists have no struct. Framing drops them whole.
+            assert!(!handler.has_handler(PacketHeader(0x0287)));
+            assert!(!handler.has_handler(PacketHeader(0x08CA)));
+        }
+
+        let item_list = [0x87, 0x02, 10, 0, 1, 2, 3, 4, 5, 6];
+        assert_eq!(framing_20250716::frame_length(&item_list), Ok(Some(10)));
+        assert_eq!(framing_20190530::frame_length(&item_list), Ok(Some(10)));
+        let scheduler = [0xCA, 0x08, 8, 0, 1, 0, 2, 0];
+        assert_eq!(framing_20250716::frame_length(&scheduler), Ok(Some(8)));
     }
 }

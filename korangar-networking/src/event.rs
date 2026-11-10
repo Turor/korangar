@@ -1333,24 +1333,6 @@ pub enum NetworkEvent {
     BankClosed {
         unknown: i16,
     },
-    /// Cash shop points. `tab` is 0 when the older 10-byte open packet arrives.
-    CashShopOpened {
-        cash_points: u32,
-        kafra_points: u32,
-        tab: u32,
-    },
-    /// One cash-shop tab (`ZC_ACK_SE_CASH_ITEM_LIST`).
-    CashShopItems {
-        tab: u32,
-        items: Vec<CashShopOffer>,
-    },
-    /// A cash-shop purchase finished (`ZC_SE_PC_BUY_CASHITEM_RESULT`).
-    CashShopBuyResult {
-        item_id: u32,
-        result: u16,
-        cash_points: u32,
-        kafra_points: u32,
-    },
     /// Roulette opened (`ZC_ACK_OPEN_ROULETTE`).
     RouletteOpened {
         result: i8,
@@ -1417,13 +1399,6 @@ impl StatusChangeState {
             other => Self::Other(other),
         }
     }
-}
-
-/// One cash-shop catalog row.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CashShopOffer {
-    pub item_id: u32,
-    pub price: i32,
 }
 
 /// One roulette prize cell.

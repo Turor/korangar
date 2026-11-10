@@ -1,6 +1,7 @@
 pub mod achievements;
-pub mod bank_cash_roulette;
+pub mod bank_roulette;
 pub mod barter;
+pub mod cash_shop_ignore;
 pub mod clan;
 pub mod guild;
 pub mod companions;
