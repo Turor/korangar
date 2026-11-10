@@ -276,6 +276,8 @@ impl Client {
         let search_open = self.interface.is_window_with_class_open(WindowClass::SearchStore);
         let report_open = self.interface.is_window_with_class_open(WindowClass::VendingReport);
         let selection_open = self.interface.is_window_with_class_open(WindowClass::ItemSkillSelection);
+        let enchant_open = self.interface.is_window_with_class_open(WindowClass::Enchant);
+        let grade_open = self.interface.is_window_with_class_open(WindowClass::EnchantGrade);
         self.interface.close_top_window(&self.client_state);
         self.on_shop_windows_dismissed(setup_open, search_open, report_open);
         crate::interface::windows::item_skill_selection::on_window_dismissed(
@@ -284,6 +286,7 @@ impl Client {
             &mut self.networking_system,
             &mut self.interface,
         );
+        self.note_dismissed_workshops(enchant_open, grade_open);
     }
 
     fn reopen_shop_setup(&mut self) {
