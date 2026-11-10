@@ -29,7 +29,7 @@ where
             let data = packet.data.max(0) as u32;
             Some(NetworkEvent::AttendanceOpened {
                 days_attended: data / 10,
-                claimed_today: data % 10 != 0,
+                claimed_today: !data.is_multiple_of(10),
             })
         } else {
             None
