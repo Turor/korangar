@@ -1505,6 +1505,11 @@ impl Client {
                     }
                 }
                 NetworkEvent::AccountId { .. } => {}
+                NetworkEvent::CharacterList { characters }
+                    if self
+                        .client_state
+                        .follow(client_state().character_screen())
+                        .is_list_tail(characters.is_empty()) => {}
                 NetworkEvent::CharacterList { characters } => {
                     self.audio_engine.play_sound_effect(self.main_menu_click_sound_effect);
 

@@ -79,6 +79,9 @@ pub struct CharacterScreen {
     pub status: String,
     pub delete_confirmation: String,
     pub bans: Vec<CharacterBan>,
+    /// A `0x0B72` list arrived on this character server connection.
+    #[hidden_element]
+    list_received: bool,
     #[hidden_element]
     pending_delete: Option<CharacterId>,
     #[hidden_element]
@@ -118,6 +121,7 @@ impl Default for CharacterScreen {
             status: String::new(),
             delete_confirmation: String::new(),
             bans: Vec::new(),
+            list_received: false,
             pending_delete: None,
             preview: None,
             head_textures: None,
@@ -150,6 +154,7 @@ impl CharacterScreen {
         self.page = 0;
         self.page_count = 0;
         self.bans.clear();
+        self.list_received = false;
         self.status.clear();
         self.pending_delete = None;
         self.delete_confirmation.clear();
@@ -157,8 +162,17 @@ impl CharacterScreen {
         self.clear_preview();
     }
 
+    /// Hercules `char_send_HC_ACK_CHARINFO_PER_PAGE` follows a list of exactly
+    /// three characters with an empty `0x0B72` tail. That tail must not wipe
+    /// the list. An account with no characters gets one empty packet, which is
+    /// still applied because no list arrived before it.
+    pub fn is_list_tail(&self, incoming_is_empty: bool) -> bool {
+        incoming_is_empty && self.list_received
+    }
+
     pub fn on_character_list(&mut self) {
         // `0x020D` arrives before `0x0B72`. Bans stay until the next character server.
+        self.list_received = true;
         self.page = 0;
         self.refresh_page_label();
     }
@@ -486,6 +500,20 @@ pub fn is_preview_entity(entity_id: u32) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn empty_tail_after_three_characters_keeps_the_list() {
+        let mut screen = super::CharacterScreen::default();
+        // No characters yet: the single empty packet is the real list.
+        assert!(!screen.is_list_tail(true));
+        screen.on_character_list();
+        // Three characters, then the empty tail.
+        assert!(screen.is_list_tail(true));
+        assert!(!screen.is_list_tail(false));
+        // A new character server connection starts over.
+        screen.reset_for_server();
+        assert!(!screen.is_list_tail(true));
+    }
+
     use super::*;
 
     #[test]
