@@ -2695,7 +2695,7 @@ impl Client {
                     self.interface.open_window(CompanionWindow::new());
                 }
                 NetworkEvent::MonsterInfo { info } => {
-                    let name = crate::world::QuestTextSource::monster_name(&self.library, u32::from(info.job))
+                    let name = crate::world::QuestTextSource::monster_name(&*self.library, u32::from(info.job))
                         .map(str::to_owned)
                         .unwrap_or_else(|| format!("Monster {}", info.job));
                     let text = korangar_networking::format_sense(&info, &name);
