@@ -61,6 +61,9 @@ pub struct AsyncLoader {
     video_loader: Arc<VideoLoader>,
     library: Arc<Library>,
     pending_loads: Arc<Mutex<HashMap<LoaderId, LoadStatus>>>,
+    /// Maps whose load failed since the last
+    /// [`take_failed_maps`](Self::take_failed_maps).
+    failed_maps: Arc<Mutex<Vec<String>>>,
     thread_pool: ThreadPool,
 }
 
@@ -93,6 +96,7 @@ impl AsyncLoader {
             video_loader,
             library,
             pending_loads: Arc::new(Mutex::new(HashMap::new())),
+            failed_maps: Arc::new(Mutex::new(Vec::new())),
             thread_pool,
         }
     }
@@ -467,9 +471,15 @@ impl AsyncLoader {
         });
     }
 
+    /// Names of maps that failed to load. Each failure is reported once.
+    pub fn take_failed_maps(&self) -> Vec<String> {
+        std::mem::take(&mut *self.failed_maps.lock().unwrap())
+    }
+
     pub fn take_completed(&self) -> impl Iterator<Item = (LoaderId, LoadableResource)> + '_ {
         std::iter::from_fn({
             let pending_loads = Arc::clone(&self.pending_loads);
+            let failed_maps = Arc::clone(&self.failed_maps);
 
             move || {
                 let mut pending_loads = pending_loads.lock().unwrap();
@@ -483,6 +493,9 @@ impl AsyncLoader {
                     match pending_loads.remove(&id).unwrap() {
                         LoadStatus::Failed(error) => {
                             eprintln!("Async load error ({id:?}): {error:?}");
+                            if let LoaderId::Map(map_name) = &id {
+                                failed_maps.lock().unwrap().push(map_name.clone());
+                            }
                             #[cfg(feature = "debug")]
                             print_debug!("Async load error: {:?}", error);
                             None

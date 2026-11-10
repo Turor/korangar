@@ -6817,6 +6817,13 @@ impl Client {
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
     fn update_loaded_resources(&mut self, client_tick: ClientTick) {
         let mut autopilot_effects = Vec::new();
+        for map_name in self.async_loader.take_failed_maps() {
+            let failure = crate::world::map_load_failure::on_map_load_failed(&map_name, self.networking_system.is_map_server_connected());
+            self.interface.open_window(ErrorWindow::new(failure.message));
+            if failure.return_to_character_selection {
+                let _ = self.networking_system.log_out();
+            }
+        }
         for completed in self.async_loader.take_completed() {
             match completed {
                 (LoaderId::AnimationData(entity_id), LoadableResource::AnimationData(animation_data)) => {
