@@ -242,14 +242,20 @@ impl ChatFilterState {
 pub enum OutgoingChat {
     Public(String),
     Whisper { target: String, text: String },
+    /// Guild channel. The caller formats `{name} : {text}` for `0x017E`.
+    Guild(String),
 }
 
-/// `/w name text`, `/whisper name text`, `name : text`, or the whisper-target
-/// box.
-pub fn parse_outgoing_chat(raw: &str, whisper_target: &str) -> OutgoingChat {
+/// `/w` and `/whisper`, then `/g` and `/guild`, then `name : text`, then the
+/// whisper-target box. A guild chat tab sends guild chat when the text is not
+/// a command and no whisper target is set. `@` commands stay public.
+pub fn parse_outgoing_chat(raw: &str, whisper_target: &str, send_to_guild: bool) -> OutgoingChat {
     let trimmed = raw.trim();
     if let Some(whisper) = parse_whisper_command(trimmed) {
         return whisper;
+    }
+    if let Some(guild) = parse_guild_command(trimmed) {
+        return guild;
     }
     if let Some((name, text)) = trimmed.split_once(" : ") {
         let name = name.trim();
@@ -270,7 +276,20 @@ pub fn parse_outgoing_chat(raw: &str, whisper_target: &str) -> OutgoingChat {
         };
     }
 
+    if send_to_guild && !trimmed.is_empty() && !trimmed.starts_with('/') && !trimmed.starts_with('@') {
+        return OutgoingChat::Guild(trimmed.to_string());
+    }
+
     OutgoingChat::Public(trimmed.to_string())
+}
+
+fn parse_guild_command(trimmed: &str) -> Option<OutgoingChat> {
+    let rest = trimmed
+        .strip_prefix("/guild ")
+        .or_else(|| trimmed.strip_prefix("/g "))
+        .or_else(|| trimmed.strip_prefix("/G "))?;
+    let text = rest.trim();
+    if text.is_empty() { None } else { Some(OutgoingChat::Guild(text.to_string())) }
 }
 
 fn parse_whisper_command(trimmed: &str) -> Option<OutgoingChat> {
@@ -536,26 +555,40 @@ mod tests {
     #[test]
     fn outgoing_chat_routes_whispers() {
         assert!(matches!(
-            parse_outgoing_chat("hello", ""),
+            parse_outgoing_chat("hello", "", false),
             OutgoingChat::Public(text) if text == "hello"
         ));
         assert!(matches!(
-            parse_outgoing_chat("/w Bob hi there", ""),
+            parse_outgoing_chat("/w Bob hi there", "", false),
             OutgoingChat::Whisper { target, text } if target == "Bob" && text == "hi there"
         ));
         assert!(matches!(
-            parse_outgoing_chat("/whisper Cara ping", ""),
+            parse_outgoing_chat("/whisper Cara ping", "", false),
             OutgoingChat::Whisper { target, text } if target == "Cara" && text == "ping"
         ));
         assert!(matches!(
-            parse_outgoing_chat("Dana : secret", ""),
+            parse_outgoing_chat("Dana : secret", "", false),
             OutgoingChat::Whisper { target, text } if target == "Dana" && text == "secret"
         ));
         assert!(matches!(
-            parse_outgoing_chat("hello", "Eve"),
+            parse_outgoing_chat("hello", "Eve", true),
             OutgoingChat::Whisper { target, text } if target == "Eve" && text == "hello"
         ));
-        assert!(matches!(parse_outgoing_chat("@broadcast hi", "Eve"), OutgoingChat::Public(_)));
+        assert!(matches!(parse_outgoing_chat("@broadcast hi", "Eve", true), OutgoingChat::Public(_)));
+        assert!(matches!(parse_outgoing_chat("@guild", "", true), OutgoingChat::Public(_)));
+        assert!(matches!(
+            parse_outgoing_chat("/g rally at the castle", "", false),
+            OutgoingChat::Guild(text) if text == "rally at the castle"
+        ));
+        assert!(matches!(
+            parse_outgoing_chat("/guild on my way", "", false),
+            OutgoingChat::Guild(text) if text == "on my way"
+        ));
+        assert!(matches!(
+            parse_outgoing_chat("hello guild", "", true),
+            OutgoingChat::Guild(text) if text == "hello guild"
+        ));
+        assert!(matches!(parse_outgoing_chat("/where", "", true), OutgoingChat::Public(_)));
     }
 
     #[test]

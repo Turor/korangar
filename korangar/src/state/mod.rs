@@ -9,6 +9,7 @@ pub mod clan;
 pub mod equip_switch;
 pub mod friends;
 pub mod guild;
+pub mod guild_emblem;
 pub mod hotbar;
 pub mod inventory;
 pub mod item_drop;
@@ -320,6 +321,8 @@ pub struct ClientState {
     /// The name of the active character. This information is not available
     /// while playing if we don't save it here.
     player_name: String,
+    /// Character id of the active character. Leave and expel send this as GID.
+    player_character_id: CharacterId,
     /// Player configured hotbar.
     hotbar: Hotbar,
     /// Player inventory.
@@ -546,6 +549,7 @@ impl ClientState {
             let shop_search = ShopSearchState::default();
             let shop_report = ShopReportState::default();
             let player_name = String::new();
+            let player_character_id = CharacterId(0);
             let hotbar = Hotbar::default();
             let inventory = Inventory::default();
             let item_drop = ItemDropPrompt::default();
@@ -662,6 +666,7 @@ impl ClientState {
             shop_search,
             shop_report,
             player_name,
+            player_character_id,
             hotbar,
             inventory,
             item_drop,
@@ -721,7 +726,11 @@ impl ClientState {
     }
 
     pub(crate) fn outgoing_chat(&self, text: &str) -> chat::OutgoingChat {
-        chat::parse_outgoing_chat(text, self.chat_window.whisper_target_text())
+        chat::parse_outgoing_chat(
+            text,
+            self.chat_window.whisper_target_text(),
+            self.chat_window.sends_guild_chat(),
+        )
     }
 
     pub(crate) fn begin_whisper(&mut self, target: String, text: String) -> (String, String) {

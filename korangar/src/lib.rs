@@ -74,8 +74,8 @@ use networking::{PacketHistory, PacketHistoryCallback};
 use ragnarok_packets::handler::NoPacketCallback;
 use ragnarok_packets::{
     AccountId, AttackRange, BuyShopItemsResult, CharacterServerInformation, ClientTick, Direction, DisappearanceReason, EffectId, EntityId,
-    EquipPosition, EquippableItemFlags, ExperienceSource, ExperienceType, HealType, HotbarSlot, InventoryIndex, SellItemsResult, SkillId,
-    SkillLevel, SkillType, TilePosition, UnitId, WorldPosition,
+    EquipPosition, EquippableItemFlags, ExperienceSource, ExperienceType, GuildPositionEdit, HealType, HotbarSlot, InventoryIndex,
+    SellItemsResult, SkillId, SkillLevel, SkillType, TilePosition, UnitId, WorldPosition,
 };
 use renderer::InterfaceRenderer;
 use rust_state::{ManuallyAssertExt, State};
@@ -1463,6 +1463,7 @@ impl Client {
                     ));
 
                     *self.client_state.follow_mut(client_state().player_name()) = character_information.name;
+                    *self.client_state.follow_mut(client_state().player_character_id()) = login_data.character_id;
 
                     let entity_id = player.get_entity_id();
                     let entity_type = player.get_entity_type();
@@ -1547,9 +1548,13 @@ impl Client {
                         .open_window(ErrorWindow::new("Failed to switch character slots".to_owned()));
                 }
                 NetworkEvent::AddEntity { entity_data } => {
+                    let appeared_guild_id = entity_data.guild_id;
+                    let appeared_emblem_version = entity_data.emblem_version;
+                    let mut spawned = false;
                     if let Some(map) = &self.map
                         && let Some(npc) = Npc::new(&self.library, map, &mut self.path_finder, entity_data, client_tick)
                     {
+                        spawned = true;
                         let mut npc = Entity::Npc(npc);
 
                         let entity_id = npc.get_entity_id();
@@ -1579,6 +1584,14 @@ impl Client {
                         npc.generate_pathing_mesh(&self.device, &self.queue, self.graphics_engine.bindless_support(), map);
 
                         entities.push(npc);
+                    }
+                    if spawned {
+                        request_emblem_if_needed(
+                            &mut self.client_state,
+                            &mut self.networking_system,
+                            appeared_guild_id,
+                            appeared_emblem_version,
+                        );
                     }
                 }
                 NetworkEvent::RemoveEntity { entity_id, reason } => {
@@ -2844,16 +2857,19 @@ impl Client {
                     name,
                     is_master,
                     master_character_id,
+                    emblem_version,
                 } => {
                     let previous_id = self.client_state.follow(client_state().guild()).guild_id;
                     let joined = {
                         let guild = self.client_state.follow_mut(client_state().guild());
-                        guild.apply_affiliation(guild_id, name, is_master, master_character_id);
+                        guild.apply_affiliation(guild_id, name, is_master, master_character_id, emblem_version);
                         guild.joined
                     };
                     if !joined || previous_id != guild_id {
                         self.client_state.follow_mut(client_state().guild_window()).clear();
                     }
+                    let version = u32::try_from(emblem_version).unwrap_or(0);
+                    apply_local_guild_mark(&mut self.client_state, &mut self.networking_system, guild_id, version);
                 }
                 NetworkEvent::GuildInfo {
                     guild_id,
@@ -2863,6 +2879,9 @@ impl Client {
                     average_level,
                     experience,
                     next_experience,
+                    tax_points,
+                    honor,
+                    virtue,
                     emblem_version,
                     name,
                     master_name,
@@ -2880,6 +2899,9 @@ impl Client {
                             average_level,
                             experience,
                             next_experience,
+                            tax_points,
+                            honor,
+                            virtue,
                             emblem_version,
                             name,
                             master_name,
@@ -2889,6 +2911,8 @@ impl Client {
                     if previous_id != guild_id {
                         self.client_state.follow_mut(client_state().guild_window()).clear();
                     }
+                    let version = u32::try_from(emblem_version).unwrap_or(0);
+                    apply_local_guild_mark(&mut self.client_state, &mut self.networking_system, guild_id, version);
                 }
                 NetworkEvent::GuildMembers { members } => {
                     self.client_state.follow_mut(client_state().guild()).set_members(members);
@@ -2950,8 +2974,104 @@ impl Client {
                         if player_name == name {
                             self.client_state.follow_mut(client_state().guild()).clear();
                             self.client_state.follow_mut(client_state().guild_window()).clear();
+                            apply_local_guild_mark(&mut self.client_state, &mut self.networking_system, 0, 0);
                         }
                     }
+                }
+                NetworkEvent::GuildMakeResult { result } => {
+                    let text = crate::state::guild::make_guild_result_text(result);
+                    self.client_state.follow_mut(client_state().guild()).set_status(text.clone());
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(text, MessageColor::Information));
+                    if result == 0 {
+                        let _ = self.networking_system.request_guild_window();
+                    }
+                }
+                NetworkEvent::GuildInviteRequest { guild_id, name } => {
+                    self.interface.open_window(GuildInviteWindow::new(guild_id, name));
+                }
+                NetworkEvent::GuildInviteResult { result } => {
+                    let text = crate::state::guild::invite_result_text(result);
+                    self.client_state.follow_mut(client_state().guild()).set_status(text.clone());
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(text, MessageColor::Information));
+                }
+                NetworkEvent::GuildRelations { relations } => {
+                    self.client_state.follow_mut(client_state().guild()).set_relations(relations);
+                }
+                NetworkEvent::GuildRelationRemoved { guild_id, opposition } => {
+                    self.client_state
+                        .follow_mut(client_state().guild())
+                        .remove_relation(guild_id, opposition);
+                }
+                NetworkEvent::GuildRelationAdded {
+                    opposition,
+                    guild_id,
+                    name,
+                } => {
+                    self.client_state
+                        .follow_mut(client_state().guild())
+                        .add_relation(opposition, guild_id, name);
+                }
+                NetworkEvent::GuildPositionRights { positions } => {
+                    self.client_state
+                        .follow_mut(client_state().guild())
+                        .set_position_rights(positions);
+                }
+                NetworkEvent::GuildPositionsUpdated { positions } => {
+                    let guild = self.client_state.follow_mut(client_state().guild());
+                    for (id, mode, ranking, pay_rate, name) in positions {
+                        guild.apply_position_changed(id, mode, ranking, pay_rate, name);
+                    }
+                }
+                NetworkEvent::GuildMemberPositions { entries } => {
+                    let guild = self.client_state.follow_mut(client_state().guild());
+                    for (account_id, character_id, position_id) in entries {
+                        guild.set_member_position(account_id, character_id, position_id);
+                    }
+                }
+                NetworkEvent::GuildSkills { skill_points, skills } => {
+                    self.client_state
+                        .follow_mut(client_state().guild())
+                        .set_skills(skill_points, skills);
+                }
+                NetworkEvent::GuildChatMessage { text } => {
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(text, MessageColor::Guild));
+                }
+                NetworkEvent::GuildEmblemImage {
+                    result,
+                    guild_id,
+                    emblem_version,
+                    bytes,
+                } => {
+                    self.client_state.follow_mut(client_state().guild()).push_emblem_chunk(
+                        result,
+                        guild_id,
+                        emblem_version,
+                        &bytes,
+                    );
+                }
+                NetworkEvent::GuildEmblemOnEntity {
+                    account_id,
+                    guild_id,
+                    emblem_version,
+                } => {
+                    if let Some(entity) = self
+                        .client_state
+                        .follow_mut(client_state().entities())
+                        .iter_mut()
+                        .find(|entity| entity.get_entity_id().0 == account_id.0)
+                    {
+                        entity.set_guild(guild_id, emblem_version);
+                    }
+                    request_emblem_if_needed(&mut self.client_state, &mut self.networking_system, guild_id, emblem_version);
+                }
+                NetworkEvent::GuildMemberAdded { member } => {
+                    self.client_state.follow_mut(client_state().guild()).add_member(member);
                 }
                 NetworkEvent::FriendAdded { friend } => {
                     self.client_state
@@ -3663,6 +3783,14 @@ impl Client {
                         attack_range,
                         upgradable,
                     );
+                    if skill_id.0 >= 10_000 {
+                        self.client_state.follow_mut(client_state().guild()).apply_skill_update(
+                            skill_id.0,
+                            skill_level.0,
+                            spell_point_cost,
+                            upgradable,
+                        );
+                    }
                 }
                 NetworkEvent::RemoveSkill { skill_id } => {
                     self.client_state.follow_mut(client_state().skill_tree()).remove_skill(skill_id);
@@ -4440,6 +4568,124 @@ impl Client {
                         let _ = self.networking_system.update_guild_notice(guild_id, subject, notice);
                     }
                 }
+                InputEvent::CreateGuild { name } => {
+                    let character_id = *self.client_state.follow(client_state().player_character_id());
+                    let _ = self.networking_system.create_guild(character_id, name);
+                }
+                InputEvent::InviteToGuild { name } => {
+                    let player_name = self.client_state.follow(client_state().player_name()).clone();
+                    let allowed = self
+                        .client_state
+                        .follow(client_state().guild())
+                        .can(&player_name, crate::state::guild::GPERM_INVITE);
+                    if allowed {
+                        let _ = self.networking_system.invite_guild_by_name(name);
+                    }
+                }
+                InputEvent::AcceptGuildInvite { guild_id } => {
+                    let _ = self.networking_system.reply_guild_invite(guild_id, 1);
+                    self.interface.close_window_with_class(WindowClass::GuildInvite);
+                }
+                InputEvent::RejectGuildInvite { guild_id } => {
+                    let _ = self.networking_system.reply_guild_invite(guild_id, 0);
+                    self.interface.close_window_with_class(WindowClass::GuildInvite);
+                }
+                InputEvent::LeaveGuild { reason } => {
+                    let guild_id = self.client_state.follow(client_state().guild()).guild_id;
+                    let character_id = *self.client_state.follow(client_state().player_character_id());
+                    let account_id = self
+                        .client_state
+                        .try_follow(this_entity())
+                        .map(|player| AccountId(player.get_entity_id().0))
+                        .unwrap_or(AccountId(0));
+                    if guild_id != 0 && account_id.0 != 0 {
+                        let _ = self.networking_system.leave_guild(guild_id, account_id, character_id, reason);
+                    }
+                }
+                InputEvent::ExpelGuildMember {
+                    account_id,
+                    character_id,
+                    reason,
+                } => {
+                    let player_name = self.client_state.follow(client_state().player_name()).clone();
+                    let guild_id = self.client_state.follow(client_state().guild()).guild_id;
+                    let allowed = self
+                        .client_state
+                        .follow(client_state().guild())
+                        .can(&player_name, crate::state::guild::GPERM_EXPEL);
+                    if allowed && guild_id != 0 {
+                        let _ = self
+                            .networking_system
+                            .expel_guild_member(guild_id, account_id, character_id, reason);
+                    }
+                }
+                InputEvent::SetGuildMemberPosition {
+                    account_id,
+                    character_id,
+                    position_id,
+                } => {
+                    let is_master = self.client_state.follow(client_state().guild()).is_master;
+                    if is_master && position_id >= 0 {
+                        let _ = self
+                            .networking_system
+                            .change_guild_member_position(account_id, character_id, position_id);
+                    }
+                }
+                InputEvent::SaveGuildPosition {
+                    position_id,
+                    name,
+                    mode,
+                    ranking,
+                    pay_rate,
+                } => {
+                    let is_master = self.client_state.follow(client_state().guild()).is_master;
+                    if is_master && position_id >= 0 && (0..=100).contains(&pay_rate) {
+                        let _ = self.networking_system.change_guild_positions(vec![GuildPositionEdit {
+                            position_id,
+                            mode,
+                            ranking,
+                            pay_rate,
+                            name,
+                        }]);
+                    }
+                }
+                InputEvent::LevelUpGuildSkill { skill_id } => {
+                    let guild = self.client_state.follow(client_state().guild());
+                    let ready = guild.skill_points > 0
+                        && guild
+                            .skills
+                            .iter()
+                            .any(|skill| skill.skill_id == skill_id && skill.upgradable);
+                    if ready {
+                        let _ = self.networking_system.level_up_skill(SkillId(skill_id));
+                    }
+                }
+                InputEvent::SendGuildMessage { text } => {
+                    let player_name = self.client_state.follow(client_state().player_name()).clone();
+                    let _ = self.networking_system.send_guild_chat(&player_name, &text);
+                }
+                InputEvent::UploadGuildEmblem => {
+                    match crate::state::guild_emblem::load_upload_file() {
+                        Ok(bytes) => {
+                            let _ = self.networking_system.upload_guild_emblem(bytes);
+                            self.client_state
+                                .follow_mut(client_state().guild())
+                                .set_status("Emblem sent.".to_owned());
+                        }
+                        Err(message) => {
+                            self.client_state.follow_mut(client_state().guild()).set_status(message.clone());
+                            self.client_state
+                                .follow_mut(client_state().chat_messages())
+                                .push(ChatMessage::new(message, MessageColor::Information));
+                        }
+                    }
+                }
+                InputEvent::BreakGuildRelation { guild_id, opposition } => {
+                    let is_master = self.client_state.follow(client_state().guild()).is_master;
+                    if is_master {
+                        let _ = self.networking_system.break_guild_relation(guild_id, opposition);
+                    }
+                }
                 InputEvent::CloseTopWindow => self.on_close_top_window(),
                 InputEvent::Escape => {
                     if self.interface.is_window_with_class_open(WindowClass::WorldMap) {
@@ -4647,6 +4893,10 @@ impl Client {
                         state::chat::OutgoingChat::Whisper { target, text } => {
                             let (target, text) = self.client_state.follow_mut(client_state()).begin_whisper(target, text);
                             let _ = self.networking_system.send_whisper(&target, &text);
+                        }
+                        state::chat::OutgoingChat::Guild(text) => {
+                            let player_name = self.client_state.follow(client_state().player_name()).clone();
+                            let _ = self.networking_system.send_guild_chat(&player_name, &text);
                         }
                         state::chat::OutgoingChat::Public(text) => {
                             if let Some(entity_id) = self.client_state.try_follow(this_entity()).map(|player| player.get_entity_id()) {
@@ -7041,6 +7291,42 @@ impl Client {
             self.graphics_engine.render_next_frame(frame, render_instruction);
         }
     }
+
+}
+
+/// Sets the local entity's guild mark, then asks for the emblem image.
+///
+/// These take the two fields they touch so the network-event drain can keep
+/// its borrow of `network_event_buffer`.
+fn apply_local_guild_mark<Callback>(
+    state: &mut State<ClientState>,
+    networking: &mut NetworkingSystem<Callback>,
+    guild_id: u32,
+    version: u32,
+) where
+    Callback: ragnarok_packets::handler::PacketCallback + Send,
+{
+    if let Some(player) = state.try_follow_mut(this_entity()) {
+        player.set_guild(guild_id, version);
+    }
+    request_emblem_if_needed(state, networking, guild_id, version);
+}
+
+fn request_emblem_if_needed<Callback>(
+    state: &mut State<ClientState>,
+    networking: &mut NetworkingSystem<Callback>,
+    guild_id: u32,
+    version: u32,
+) where
+    Callback: ragnarok_packets::handler::PacketCallback + Send,
+{
+    if guild_id == 0 || version == 0 {
+        return;
+    }
+    if state.follow(client_state().guild()).wants_emblem(guild_id, version) {
+        state.follow_mut(client_state().guild()).note_emblem_request(guild_id, version);
+        let _ = networking.request_guild_emblem(guild_id);
+    }
 }
 
 impl ApplicationHandler for Client {
@@ -7581,6 +7867,30 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
                 self.client_state.follow(client_state().world_theme()),
                 self.screen_size,
             );
+        }
+
+        let emblem_sprites: Vec<crate::interface::guild_emblem_overlay::EmblemSprite> = self
+            .client_state
+            .follow(client_state().guild())
+            .emblems
+            .iter()
+            .filter(|emblem| !emblem.pixels.is_empty())
+            .map(|emblem| crate::interface::guild_emblem_overlay::EmblemSprite {
+                guild_id: emblem.guild_id,
+                version: emblem.version,
+                width: emblem.width,
+                height: emblem.height,
+                pixels: emblem.pixels.clone(),
+            })
+            .collect();
+        if !emblem_sprites.is_empty() {
+            crate::interface::guild_emblem_overlay::render(&crate::interface::guild_emblem_overlay::EmblemOverlayFrame {
+                renderer: self.middle_interface_renderer,
+                camera: self.current_camera,
+                entities: self.client_state.follow(client_state().entities()),
+                emblems: &emblem_sprites,
+                window_size: self.screen_size,
+            });
         }
 
         let font_size = self.client_state.follow(client_state().in_game_theme()).text.font_size;
