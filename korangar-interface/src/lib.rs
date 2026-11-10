@@ -475,7 +475,19 @@ where
             .windows
             .iter()
             .find(|wrapper| wrapper.window.get_class().is_some_and(|class| class == from))
-            .map(|wrapper| wrapper.data.anchor)
+            .map(|wrapper| {
+                // The drawn area, not the stored anchor: a window taller than
+                // the screen is clamped, and the next tab should start where
+                // this one is seen.
+                let area = wrapper.display_information.real_area;
+                let mut anchor = wrapper.data.anchor;
+                anchor.update(
+                    self.window_size,
+                    App::Position::new(area.left, area.top),
+                    App::Size::new(area.width, area.height),
+                );
+                anchor
+            })
         else {
             return;
         };
