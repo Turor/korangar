@@ -11,8 +11,12 @@ use super::styling_catalog::{CLOTH_COLOR, HAIR, HAIR_COLOR, HEAD_BOTTOM, HEAD_MI
 use crate::world::{AnimationData, ItemName, ItemNameKey, Library};
 
 /// Summoner jobs that use the Doram price rows.
+///
+/// 4218 and 4220 are the base Doram jobs. 4308 is Spirit Handler
+/// (`MAPID_SPIRIT_HANDLER` still sits on `MAPID_SUMMONER`). 4315 is the
+/// riding Doram id roBrowser treats the same way.
 pub fn job_is_doram(job_id: u16) -> bool {
-    matches!(job_id, 4218 | 4220)
+    matches!(job_id, 4218 | 4220 | 4308 | 4315)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -434,6 +438,35 @@ mod tests {
         let cost = shop.cost(true);
         assert_eq!(cost.zeny, 0);
         assert!(cost.coupons.iter().any(|coupon| coupon.contains("Coupon")));
+    }
+
+    #[test]
+    fn spirit_handler_4308_skips_human_styles_and_pays_the_coupon() {
+        assert!(job_is_doram(4218));
+        assert!(job_is_doram(4220));
+        assert!(job_is_doram(4308));
+        assert!(job_is_doram(4315));
+        assert!(!job_is_doram(4217));
+        assert!(!job_is_doram(4219));
+
+        let doram = job_is_doram(4308);
+        let visible = visible_options(HAIR, doram);
+        assert!(HAIR.iter().any(|goods| !goods.allow_doram));
+        assert!(visible.iter().all(|goods| goods.allow_doram));
+        assert!(visible.len() < HAIR.len());
+
+        let coupon = HAIR.iter().find(|goods| goods.has_doram_cost).unwrap();
+        assert!(matches!(price_of(coupon, doram), Priced::Coupon(ref name) if name.contains("Coupon")));
+
+        let mut shop = StylingShopState::default();
+        shop.open_shop(doram, None);
+        for _ in 0..coupon.server_index {
+            shop.step(0, 1, doram, None);
+        }
+        assert_eq!(shop.hair_style, coupon.server_index);
+        let cost = shop.cost(doram);
+        assert_eq!(cost.zeny, 0);
+        assert!(cost.coupons.iter().any(|name| name.contains("Coupon")));
     }
 
     #[test]

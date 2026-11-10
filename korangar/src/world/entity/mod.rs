@@ -970,7 +970,9 @@ impl Player {
     /// the correct position we need to position the player to.
     pub fn new(library: &Library, account_id: AccountId, character_information: &CharacterInformation, client_tick: ClientTick) -> Self {
         let hair_id = character_information.head as usize;
-        let hair_color = u16::from(character_information.hair_color);
+        // `hair_color` on the character block is the high half of the slot id.
+        // The dye Hercules writes is `head_palette`.
+        let hair_color = u16::try_from(character_information.head_palette).unwrap_or(0);
         let cloth_color = u16::try_from(character_information.body_palette).unwrap_or(0);
         let head_bottom = u16::try_from(character_information.accessory).unwrap_or(0);
         let head_top = u16::try_from(character_information.accessory2).unwrap_or(0);
