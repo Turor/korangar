@@ -104,6 +104,11 @@ impl AsyncLoader {
         entity_type: EntityType,
         entity_part_files: Vec<String>,
     ) -> Option<Arc<AnimationData>> {
+        // An empty list is an actor with no body (hidden warp). The animation
+        // loader indexes part 0, so do not hand it an empty slice.
+        if entity_part_files.is_empty() {
+            return None;
+        }
         match self.animation_loader.get(&entity_part_files) {
             Some(animation_data) => Some(animation_data),
             None => {

@@ -154,13 +154,44 @@ pub(crate) fn remote_prefetch_enabled() -> bool {
     remote_prefetch_enabled_value(std::env::var("KORANGAR_REMOTE_PREFETCH").ok().as_deref())
 }
 
+/// Offline harness sessions still have a staged `asset-cache` (loose index, no
+/// snapshot). Attach it when no base URL was set, so those bytes are readable.
+pub(crate) fn staged_offline_cache(
+    base: Option<&str>,
+    offline: Option<&str>,
+    cache_override: Option<&Path>,
+    discovered: &Path,
+) -> Option<RemoteConfig> {
+    if base.is_some() || offline != Some("1") {
+        return None;
+    }
+    let cache = cache_override.unwrap_or(discovered);
+    let ready = cache.join("loose-index.json").is_file() || cache.join("manifest.json").is_file();
+    if !ready {
+        return None;
+    }
+    Some(RemoteConfig {
+        base_url: TEST_ASSETS.to_owned(),
+        cache_dir: cache.to_path_buf(),
+        offline: true,
+        allow_http: false,
+    })
+}
+
 pub(crate) fn remote_config() -> Option<RemoteConfig> {
-    resolve_remote(PORTABLE.get(), RemoteOverrides {
+    let overrides = RemoteOverrides {
         base: std::env::var("KORANGAR_REMOTE_BASE_URL").ok(),
         cache: std::env::var_os("KORANGAR_REMOTE_CACHE").map(PathBuf::from),
         offline: std::env::var("KORANGAR_REMOTE_OFFLINE").ok(),
         allow_http: std::env::var("KORANGAR_REMOTE_ALLOW_HTTP").ok(),
-    })
+    };
+    let staged = staged_offline_cache(
+        overrides.base.as_deref(),
+        overrides.offline.as_deref(),
+        overrides.cache.as_deref(),
+        Path::new("asset-cache"),
+    );
+    resolve_remote(PORTABLE.get(), overrides).or(staged)
 }
 pub(crate) fn is_portable() -> bool {
     PORTABLE.get().is_some()
@@ -347,6 +378,21 @@ mod tests {
         assert!(!remote_prefetch_enabled_value(Some("0")));
         assert!(!remote_prefetch_enabled_value(Some("true")));
         assert!(remote_prefetch_enabled_value(Some("1")));
+    }
+    #[test]
+    fn staged_loose_cache_is_used_when_offline_and_no_base_url() {
+        let dir = std::env::temp_dir().join(format!("korangar-staged-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("loose-index.json"), b"{\"files\":[]}").unwrap();
+        let config = staged_offline_cache(None, Some("1"), None, &dir).unwrap();
+        assert!(config.offline);
+        assert_eq!(config.base_url, TEST_ASSETS);
+        assert_eq!(config.cache_dir, dir);
+        assert!(staged_offline_cache(Some(TEST_ASSETS), Some("1"), None, &dir).is_none());
+        assert!(staged_offline_cache(None, None, None, &dir).is_none());
+        assert!(staged_offline_cache(None, Some("1"), None, Path::new("/no/such/korangar-cache")).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
     #[test]
     fn legacy_nonportable_remote_behavior_preserved() {

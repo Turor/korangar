@@ -41,8 +41,6 @@ use crate::world::{MarkerIdentifier, SubMesh};
 #[cfg(feature = "debug")]
 use crate::{Buffer, Color, ModelVertex};
 
-const MALE_HAIR_LOOKUP: &[usize] = &[2, 2, 1, 7, 5, 4, 3, 6, 8, 9, 10, 12, 11];
-const FEMALE_HAIR_LOOKUP: &[usize] = &[2, 2, 4, 7, 1, 5, 3, 6, 12, 10, 9, 11, 8];
 const SOUND_COOLDOWN_DURATION: u32 = 200;
 const SPATIAL_SOUND_RANGE: f32 = 250.0;
 const FADE_IN_DURATION_MS: u32 = 500;
@@ -185,193 +183,38 @@ pub struct Common {
     pub emblem_version: u32,
 }
 
-#[cfg_attr(feature = "debug", korangar_debug::profile)]
-#[allow(clippy::invisible_characters)]
-fn get_sprite_path_for_player_job(job_id: JobId) -> &'static str {
-    match job_id.0 {
-        0 => "초보자",             // NOVICE
-        1 => "검사",               // SWORDMAN
-        2 => "마법사",             // MAGICIAN
-        3 => "궁수",               // ARCHER
-        4 => "성직자",             // ACOLYTE
-        5 => "상인",               // MERCHANT
-        6 => "도둑",               // THIEF
-        7 => "기사",               // KNIGHT
-        8 => "성투사",             // PRIEST
-        9 => "위저드",             // WIZARD
-        10 => "제철공",            // BLACKSMITH
-        11 => "헌터",              // HUNTER
-        12 => "어세신",            // ASSASSIN
-        13 => "페코페코_기사",     // KNIGHT2
-        14 => "크루세이더",        // CRUSADER
-        15 => "몽크",              // MONK
-        16 => "세이지",            // SAGE
-        17 => "로그",              // ROGUE
-        18 => "연금술사",          // ALCHEMIST
-        19 => "바드",              // BARD
-        20 => "무희",              // DANCER
-        23 => "슈퍼노비스",        // SUPERNOVICE
-        24 => "건너",              // GUNSLINGER
-        25 => "닌자",              // NINJA
-        4001 => "초보자",          // NOVICE_H
-        4002 => "검사",            // SWORDMAN_H
-        4003 => "마법사",          // MAGICIAN_H
-        4004 => "궁수",            // ARCHER_H
-        4005 => "성직자",          // ACOLYTE_H
-        4006 => "상인",            // MERCHANT_H
-        4007 => "도둑",            // THIEF_H
-        4008 => "로드나이트",      // KNIGHT_H
-        4009 => "하이프리",        // PRIEST_H
-        4010 => "하이위저드",      // WIZARD_H
-        4011 => "화이트스미스",    // BLACKSMITH_H
-        4012 => "스나이퍼",        // HUNTER_H
-        4013 => "어쌔신크로스",    // ASSASSIN_H
-        4014 => "엔대운",          // CHICKEN_H
-        4015 => "팔라딘",          // CRUSADER_H
-        4016 => "챔피온",          // MONK_H
-        4017 => "프로페서",        // SAGE_H
-        4018 => "스토커",          // ROGUE_H
-        4019 => "크리에이터",      // ALCHEMIST_H
-        4020 => "클라운",          // BARD_H
-        4021 => "집시",            // DANCER_H
-        4023 => "초보자",          // NOVICE_B
-        4024 => "검사",            // SWORDMAN_B
-        4025 => "마법사",          // MAGICIAN_B
-        4026 => "궁수",            // ARCHER_B
-        4027 => "성직자",          // ACOLYTE_B
-        4028 => "상인",            // MERCHANT_B
-        4029 => "도둑",            // THIEF_B
-        4030 => "기사",            // KNIGHT_B
-        4031 => "성투사",          // PRIEST_B
-        4032 => "위저드",          // WIZARD_B
-        4033 => "제철공",          // BLACKSMITH_B
-        4034 => "헌터",            // HUNTER_B
-        4035 => "어세신",          // ASSASSIN_B
-        4037 => "크루세이더",      // CRUSADER_B
-        4038 => "몽크",            // MONK_B
-        4039 => "세이지",          // SAGE_B
-        4040 => "로그",            // ROGUE_B
-        4041 => "연금술사",        // ALCHEMIST_B
-        4042 => "바드",            // BARD_B
-        4043 => "무희",            // DANCER_B
-        4045 => "슈퍼노비스",      // SUPERNOVICE_B
-        4054 => "룬나이트",        // RUNE_KNIGHT
-        4055 => "워록",            // WARLOCK
-        4056 => "레인져",          // RANGER
-        4057 => "아크비숍",        // ARCH_BISHOP
-        4058 => "미케닉",          // MECHANIC
-        4059 => "길로틴크로스",    // GUILLOTINE_CROSS
-        4066 => "가드",            // ROYAL_GUARD
-        4067 => "소서러",          // SORCERER
-        4068 => "민스트럴",        // MINSTREL
-        4069 => "원더러",          // WANDERER
-        4070 => "슈라",            // SURA
-        4071 => "제네릭",          // GENETIC
-        4072 => "쉐도우체이서",    // SHADOW_CHASER
-        4060 => "룬나이트",        // RUNE_KNIGHT_H
-        4061 => "워록",            // WARLOCK_H
-        4062 => "레인져",          // RANGER_H
-        4063 => "아크비숍",        // ARCH_BISHOP_H
-        4064 => "미케닉",          // MECHANIC_H
-        4065 => "길로틴크로스",    // GUILLOTINE_CROSS_H
-        4073 => "가드",            // ROYAL_GUARD_H
-        4074 => "소서러",          // SORCERER_H
-        4075 => "민스트럴",        // MINSTREL_H
-        4076 => "원더러",          // WANDERER_H
-        4077 => "슈라",            // SURA_H
-        4078 => "제네릭",          // GENETIC_H
-        4079 => "쉐도우체이서",    // SHADOW_CHASER_H
-        4096 => "룬나이트",        // RUNE_KNIGHT_B
-        4097 => "워록",            // WARLOCK_B
-        4098 => "레인져",          // RANGER_B
-        4099 => "아크비숍",        // ARCHBISHOP_B
-        4100 => "미케닉",          // MECHANIC_B
-        4101 => "길로틴크로스",    // GUILLOTINE_CROSS_B
-        4102 => "가드",            // ROYAL_GUARD_B
-        4103 => "소서러",          // SORCERER_B
-        4104 => "민스트럴",        // MINSTREL_B
-        4105 => "원더러",          // WANDERER_B
-        4106 => "슈라",            // SURA_B
-        4107 => "제네릭",          // GENETIC_B
-        4108 => "쉐도우체이서",    // SHADOW_CHASER_B
-        4046 => "태권소년",        // TAEKWON
-        4047 => "권성",            // STAR
-        4049 => "소울링커",        // LINKER
-        4190 => "슈퍼노비스",      // SUPERNOVICE2
-        4191 => "슈퍼노비스",      // SUPERNOVICE2_B
-        4211 => "KAGEROU",         // KAGEROU
-        4212 => "OBORO",           // OBORO
-        4215 => "REBELLION",       // REBELLION
-        4222 => "닌자",            // NINJA_B
-        4223 => "KAGEROU",         // KAGEROU_B
-        4224 => "OBORO",           // OBORO_B
-        4225 => "태권소년",        // TAEKWON_B
-        4226 => "권성",            // STAR_B
-        4227 => "소울링커",        // LINKER_B
-        4228 => "건너",            // GUNSLINGER_B
-        4229 => "REBELLION",       // REBELLION_B
-        4239 => "성제",            // STAR EMPEROR
-        4240 => "소울리퍼",        // SOUL REAPER
-        4241 => "성제",            // STAR_EMPEROR_B
-        4242 => "소울리퍼",        // SOUL_REAPER_B
-        4252 => "DRAGON_KNIGHT",   // DRAGON KNIGHT
-        4253 => "MEISTER",         // MEISTER
-        4254 => "SHADOW_CROSS",    // SHADOW CROSS
-        4255 => "ARCH_MAGE",       // ARCH MAGE
-        4256 => "CARDINAL",        // CARDINAL
-        4257 => "WINDHAWK",        // WINDHAWK
-        4258 => "IMPERIAL_GUARD",  // IMPERIAL GUARD
-        4259 => "BIOLO",           // BIOLO
-        4260 => "ABYSS_CHASER",    // ABYSS CHASER
-        4261 => "ELEMETAL_MASTER", // ELEMENTAL MASTER
-        4262 => "INQUISITOR",      // INQUISITOR
-        4263 => "TROUBADOUR",      // TROUBADOUR
-        4264 => "TROUVERE",        // TROUVERE
-        4302 => "SKY_EMPEROR",     // SKY EMPEROR
-        4303 => "SOUL_ASCETIC",    // SOUL ASCETIC
-        4304 => "SHINKIRO",        // SHINKIRO
-        4305 => "SHIRANUI",        // SHIRANUI
-        4306 => "NIGHT_WATCH",     // NIGHT WATCH
-        4307 => "HYPER_NOVICE",    // HYPER NOVICE
-        _ => "초보자",             // NOVICE,
+/// Hercules `HIDDEN_WARP_CLASS` and the other `JT_HIDDEN_*` rows have no body
+/// sprite. Loading them asks for `npc\missing.spr`, the white `!`.
+fn is_unseen_actor(identity: &str) -> bool {
+    identity.starts_with("HIDDEN_")
+}
+
+/// Sprite file under `npc\`, without an extension.
+/// `WARPNPC` is not a file on the release CDN. The portal body is `portal`.
+fn npc_sprite_name(identity: &str) -> Option<&str> {
+    if is_unseen_actor(identity) {
+        None
+    } else if identity.eq_ignore_ascii_case("WARPNPC") {
+        Some("portal")
+    } else {
+        Some(identity)
+    }
+}
+
+fn npc_sprite_file(library: &Library, job_id: JobId) -> Vec<String> {
+    let name = library.get::<JobIdentity>(job_id).to_string();
+    match npc_sprite_name(&name) {
+        Some(file) => vec![format!("npc\\{file}")],
+        None => Vec::new(),
     }
 }
 
 fn get_entity_part_files(library: &Library, entity_type: EntityType, job_id: JobId, sex: Sex, head: Option<usize>) -> Vec<String> {
-    let sex_sprite_path = match sex == Sex::Female {
-        true => "여",
-        false => "남",
-    };
-
-    fn player_body_path(sex_sprite_path: &str, job_id: JobId) -> String {
-        format!(
-            "인간족\\몸통\\{}\\{}_{}",
-            sex_sprite_path,
-            get_sprite_path_for_player_job(job_id),
-            sex_sprite_path
-        )
-    }
-
-    fn player_head_path(sex_sprite_path: &str, head_id: usize) -> String {
-        format!("인간족\\머리통\\{}\\{}_{}", sex_sprite_path, head_id, sex_sprite_path)
-    }
-
-    let head_id = match (sex, head) {
-        (Sex::Male, Some(head)) if (0..MALE_HAIR_LOOKUP.len()).contains(&head) => MALE_HAIR_LOOKUP[head],
-        (Sex::Male, Some(head)) => head,
-        (Sex::Female, Some(head)) if (0..FEMALE_HAIR_LOOKUP.len()).contains(&head) => FEMALE_HAIR_LOOKUP[head],
-        (Sex::Female, Some(head)) => head,
-        _ => 1,
-    };
-
     match entity_type {
-        EntityType::Player => vec![
-            player_body_path(sex_sprite_path, job_id),
-            player_head_path(sex_sprite_path, head_id),
-        ],
-        EntityType::Npc => vec![format!("npc\\{}", library.get::<JobIdentity>(job_id).to_string())],
+        EntityType::Player => super::sprite_paths::player_part_files(job_id, sex, head),
+        EntityType::Npc => npc_sprite_file(library, job_id),
         EntityType::Monster => vec![format!("몬스터\\{}", library.get::<JobIdentity>(job_id).to_string())],
-        EntityType::Warp | EntityType::Hidden => vec![format!("npc\\{}", library.get::<JobIdentity>(job_id).to_string())], // TODO: change
+        EntityType::Warp | EntityType::Hidden => npc_sprite_file(library, job_id),
     }
 }
 
@@ -1649,5 +1492,21 @@ impl StateWindow<ClientState> for Entity {
             // None and dispaly a message if the entity disappeared.
             elements: (),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_unseen_actor, npc_sprite_name};
+
+    #[test]
+    fn hidden_warp_is_not_a_visible_sprite() {
+        assert!(is_unseen_actor("HIDDEN_WARP_NPC"));
+        assert!(is_unseen_actor("HIDDEN_NPC"));
+        assert!(!is_unseen_actor("4_TOWER_01"));
+        assert!(!is_unseen_actor("4_F_LGTGIRL"));
+        assert_eq!(npc_sprite_name("WARPNPC"), Some("portal"));
+        assert_eq!(npc_sprite_name("4_TOWER_01"), Some("4_TOWER_01"));
+        assert_eq!(npc_sprite_name("HIDDEN_WARP_NPC"), None);
     }
 }

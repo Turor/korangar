@@ -7,6 +7,7 @@ mod list;
 
 use core::panic;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use blake3::Hash;
@@ -50,6 +51,14 @@ pub struct GameFileLoader {
     remote: RwLock<Option<Arc<PersistentAssets>>>,
 }
 
+fn note_missing_game_file(path: &str) {
+    static SEEN: AtomicUsize = AtomicUsize::new(0);
+    let index = SEEN.fetch_add(1, Ordering::Relaxed);
+    if index < 20 {
+        eprintln!("missing game file ({}/20): {path}", index + 1);
+    }
+}
+
 impl FileLoader for GameFileLoader {
     fn get(&self, path: &str) -> Result<Vec<u8>, FileNotFoundError> {
         let archive_path = normalize_archive_path(path);
@@ -64,16 +73,16 @@ impl FileLoader for GameFileLoader {
         }
         // Local archives win. A pinned manifest is next; paths missing from that
         // snapshot fall through to a loose fetch under the same base URL.
-        self.remote
-            .read()
-            .unwrap()
-            .as_ref()
-            .map(|remote| {
-                remote
-                    .get(&archive_path)
-                    .map_err(|error| FileNotFoundError::new(format!("{path}: verified remote retrieval failed: {error}")))
-            })
-            .unwrap_or_else(|| Err(FileNotFoundError::new(path.to_owned())))
+        match self.remote.read().unwrap().as_ref() {
+            Some(remote) => remote.get(&archive_path).map_err(|error| {
+                note_missing_game_file(path);
+                FileNotFoundError::new(format!("{path}: verified remote retrieval failed: {error}"))
+            }),
+            None => {
+                note_missing_game_file(path);
+                Err(FileNotFoundError::new(path.to_owned()))
+            }
+        }
     }
 }
 
