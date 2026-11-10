@@ -17,6 +17,29 @@ pub struct Inventory {
 }
 
 impl Inventory {
+    pub fn stacked_amount(&self, item_id: ItemId) -> u16 {
+        self.items
+            .iter()
+            .filter(|item| item.item_id == item_id)
+            .map(|item| match &item.details {
+                InventoryItemDetails::Regular { amount, .. } => *amount,
+                InventoryItemDetails::Equippable { .. } => 1,
+            })
+            .fold(0, u16::saturating_add)
+    }
+
+    pub fn find_by_item_id(&self, item_id: ItemId) -> Option<&InventoryItem<ResourceMetadata>> {
+        self.items.iter().find(|item| item.item_id == item_id)
+    }
+
+    /// Names and icons for hotbar item slots. The hotkey packet has no texture.
+    pub fn item_visuals(&self) -> Vec<(u32, String, Option<Arc<Texture>>)> {
+        self.items
+            .iter()
+            .map(|item| (item.item_id.0, item.metadata.name.clone(), item.metadata.texture.clone()))
+            .collect()
+    }
+
     pub fn fill(&mut self, async_loader: &AsyncLoader, items: Vec<InventoryItem<NoMetadata>>) {
         self.items = items
             .into_iter()
