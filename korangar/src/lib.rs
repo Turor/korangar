@@ -2003,6 +2003,10 @@ impl Client {
                     self.game_timer.set_client_tick(client_tick, received_at);
                 }
                 NetworkEvent::ChatMessage { text, color } => {
+                    let color = {
+                        let player_name = self.client_state.follow(client_state().player_name());
+                        crate::state::chat::own_chat_echo_color(&text, player_name, color)
+                    };
                     self.client_state
                         .follow_mut(client_state().chat_messages())
                         .push(ChatMessage::new(text, color));

@@ -596,6 +596,19 @@ pub fn record_broadcast(
     messages.push(ChatMessage::with_channel(text, color, ChatChannel::Announce));
 }
 
+/// 0x008E carries both server notices and the echo of the player's own
+/// public line (`"<name> : text"`). roBrowser shows that echo as public chat,
+/// so it is filed under Public, not System, and follows the Pub filter.
+pub fn own_chat_echo_color(text: &str, player_name: &str, color: MessageColor) -> MessageColor {
+    if !matches!(color, MessageColor::Server) || player_name.is_empty() {
+        return color;
+    }
+    match text.strip_prefix(player_name) {
+        Some(rest) if rest.starts_with(" : ") => MessageColor::Public,
+        _ => color,
+    }
+}
+
 pub fn record_whisper(messages: &mut Vec<ChatMessage>, recent: &mut Vec<String>, sender: &str, text: &str) {
     let sender = sender.trim();
     let text = strip_whisper_code(text).trim();
@@ -633,6 +646,32 @@ pub fn record_whisper_ack(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn own_public_echo_is_public_chat() {
+        use super::own_chat_echo_color;
+        assert!(matches!(
+            own_chat_echo_color("kgap04 : hello", "kgap04", MessageColor::Server),
+            MessageColor::Public
+        ));
+        assert!(matches!(
+            own_chat_echo_color("kgap04x : hello", "kgap04", MessageColor::Server),
+            MessageColor::Server
+        ));
+        assert!(matches!(
+            own_chat_echo_color("Party created.", "kgap04", MessageColor::Server),
+            MessageColor::Server
+        ));
+        assert!(matches!(
+            own_chat_echo_color("kgap04 : hello", "", MessageColor::Server),
+            MessageColor::Server
+        ));
+        assert!(matches!(
+            own_chat_echo_color("kgap04 : hi", "kgap04", MessageColor::Party),
+            MessageColor::Party
+        ));
+    }
+
     use super::*;
 
     fn message(color: MessageColor) -> ChatMessage {

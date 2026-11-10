@@ -484,10 +484,10 @@ where
                         button! { text: "System", event: select_tab(ChatTab::System) },
                     ),
                 },
-                text! { text: label_path },
                 split! {
                     gaps: theme().window().gaps(),
                     children: (
+                        text! { text: label_path, overflow_behavior: OverflowBehavior::Shrink },
                         state_button! {
                             text: "Pub",
                             state: filters_path.shown().public_chat(),
@@ -520,30 +520,38 @@ where
                         },
                     ),
                 },
+                // roBrowser layout: name box and recents take the left half, the
+                // message box the right half. One row instead of two leaves the
+                // message list room for several lines under the Menu bar.
                 split! {
                     gaps: theme().window().gaps(),
                     children: (
+                        split! {
+                            gaps: theme().window().gaps(),
+                            children: (
+                                text_box! {
+                                    ghost_text: "Whisper to",
+                                    state: whisper_target_path,
+                                    input_handler: whisper_name_input,
+                                    background_color: client_theme().chat().text_box_background_color(),
+                                    focused_background_color: client_theme().text_box().focused_background_color(),
+                                    focus_id: WhisperTargetTextBox,
+                                },
+                                drop_down! {
+                                    options: recent_path,
+                                    selected: whisper_target_path,
+                                },
+                            ),
+                        },
                         text_box! {
-                            ghost_text: "Whisper to",
-                            state: whisper_target_path,
-                            input_handler: whisper_name_input,
+                            ghost_text: client_state().localization().chat_text_box_message(),
+                            state: current_text_path,
+                            input_handler: DefaultHandler::<_, _, MAXIMUM_CHAT_MESSAGE_LENGTH>::new(current_text_path, send_action),
                             background_color: client_theme().chat().text_box_background_color(),
                             focused_background_color: client_theme().text_box().focused_background_color(),
-                            focus_id: WhisperTargetTextBox,
-                        },
-                        drop_down! {
-                            options: recent_path,
-                            selected: whisper_target_path,
+                            focus_id: ChatTextBox,
                         },
                     ),
-                },
-                text_box! {
-                    ghost_text: client_state().localization().chat_text_box_message(),
-                    state: current_text_path,
-                    input_handler: DefaultHandler::<_, _, MAXIMUM_CHAT_MESSAGE_LENGTH>::new(current_text_path, send_action),
-                    background_color: client_theme().chat().text_box_background_color(),
-                    focused_background_color: client_theme().text_box().focused_background_color(),
-                    focus_id: ChatTextBox,
                 },
                 ChatElement::new(messages_path, window_state),
             ),
