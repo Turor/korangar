@@ -28,8 +28,8 @@ use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::renderer::LayoutExt;
 use crate::state::equip_switch::{EquipLoadoutPathExt, EquipSwitch, EquipSwitchPathExt};
-use crate::state::theme::InterfaceThemeType;
-use crate::state::{ClientState, ClientStatePathExt, this_entity, this_player};
+use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
+use crate::state::{ClientState, ClientStatePathExt, client_theme, this_entity, this_player};
 use crate::world::{AnimationData, AnimationFramePart, Entity, PlayerPathExt, ResourceMetadata};
 
 /// Square equipment socket: one item icon plus a small border. Width and height
@@ -116,7 +116,8 @@ pub(crate) fn slot_caption_fits(label: &str) -> bool {
 /// Inner height of the left column: titles, the tall portrait, costume, shadow,
 /// and the loadout name box, buttons, and one empty-set line.
 pub(crate) fn gear_left_column_content_height() -> f32 {
-    // Equipment, Costume, Shadow. Sets is the control row under Shadow, not a title.
+    // Equipment, Costume, Shadow. Sets is the control row under Shadow, not a
+    // title.
     let titles = 3.0 * SECTION_TITLE_HEIGHT;
     let paperdoll = paperdoll_block_height();
     let strips = strip_block_height(COSTUME_SLOTS.len()) + strip_block_height(SHADOW_SLOTS.len());
@@ -375,7 +376,8 @@ pub(crate) fn square_strip_frames(count: usize, origin_left: f32, origin_top: f3
 }
 
 /// roBrowser `WinStats` renewal ASPD. Hercules `SP_ASPD` is amotion.
-/// `Math.floor(200 - val / 10)` equals `(2000 - amotion) / 10` for integer amotion.
+/// `Math.floor(200 - val / 10)` equals `(2000 - amotion) / 10` for integer
+/// amotion.
 pub(crate) fn display_aspd(amotion: u32) -> u32 {
     let delay = amotion.min(2000);
     (2000 - delay) / 10
@@ -771,7 +773,12 @@ where
             elements: Vec::new(),
             signature: usize::MAX,
             rename_click: BeginRenameClick,
-            dropdown: Cell::new(Area { left: 0.0, top: 0.0, width: 0.0, height: 0.0 }),
+            dropdown: Cell::new(Area {
+                left: 0.0,
+                top: 0.0,
+                width: 0.0,
+                height: 0.0,
+            }),
         }
     }
 }
@@ -842,9 +849,24 @@ where
             let origin = resolver.with_height(height);
             let (dropdown, plus, minus) = set_row_widths(origin.width);
             let frames = [
-                GearFrame { left: origin.left, top: origin.top, width: dropdown, height: CONTROL_HEIGHT },
-                GearFrame { left: origin.left + dropdown, top: origin.top, width: plus, height: CONTROL_HEIGHT },
-                GearFrame { left: origin.left + dropdown + plus, top: origin.top, width: minus, height: CONTROL_HEIGHT },
+                GearFrame {
+                    left: origin.left,
+                    top: origin.top,
+                    width: dropdown,
+                    height: CONTROL_HEIGHT,
+                },
+                GearFrame {
+                    left: origin.left + dropdown,
+                    top: origin.top,
+                    width: plus,
+                    height: CONTROL_HEIGHT,
+                },
+                GearFrame {
+                    left: origin.left + dropdown + plus,
+                    top: origin.top,
+                    width: minus,
+                    height: CONTROL_HEIGHT,
+                },
             ];
             self.dropdown.set(Area {
                 left: frames[0].left,
@@ -890,7 +912,7 @@ fn paint_portrait(state: &State<ClientState>, layout: &mut WindowLayout<ClientSt
     layout.add_rectangle(
         area,
         CornerDiameter::uniform(6.0),
-        Color::rgba_u8(12, 14, 20, 230),
+        state.get(&client_theme().tokens().raised()).with_alpha_u8(230),
         Color::rgba_u8(0, 0, 0, 120),
         ShadowPadding::diagonal(2.0, 4.0),
     );
@@ -951,7 +973,7 @@ fn paint_portrait(state: &State<ClientState>, layout: &mut WindowLayout<ClientSt
     }
 }
 
-fn paint_slot_label(layout: &mut WindowLayout<ClientState>, slot: GearFrame, label: &'static str) {
+fn paint_slot_label(state: &State<ClientState>, layout: &mut WindowLayout<ClientState>, slot: GearFrame, label: &'static str) {
     layout.add_text(
         Area {
             left: slot.left,
@@ -961,8 +983,8 @@ fn paint_slot_label(layout: &mut WindowLayout<ClientState>, slot: GearFrame, lab
         },
         label,
         FontSize(9.0),
-        Color::rgb_u8(176, 180, 192),
-        Color::rgb_u8(255, 152, 48),
+        *state.get(&client_theme().tokens().muted()),
+        *state.get(&client_theme().tokens().gold()),
         HorizontalAlignment::Center { offset: 0.0, border: 0.0 },
         VerticalAlignment::Top { offset: 0.0 },
         OverflowBehavior::Shrink,
@@ -1070,13 +1092,13 @@ where
         let geometry = paperdoll_geometry(layout_info.left - GEAR_SLOT_SIDE - GEAR_SLOT_GAP, layout_info.top);
         for (index, row) in PAPERDOLL_ROWS.into_iter().enumerate() {
             self.slots[index].lay_out(state, store.child_store(index as u64), &(), layout);
-            paint_slot_label(layout, geometry.left_slots[index], equip_slot_label(row.left));
+            paint_slot_label(state, layout, geometry.left_slots[index], equip_slot_label(row.left));
             let right_index = index + 5;
             self.slots[right_index].lay_out(state, store.child_store(right_index as u64), &(), layout);
-            paint_slot_label(layout, geometry.right_slots[index], equip_slot_label(row.right));
+            paint_slot_label(state, layout, geometry.right_slots[index], equip_slot_label(row.right));
         }
         self.slots[10].lay_out(state, store.child_store(10), &(), layout);
-        paint_slot_label(layout, geometry.ammo, equip_slot_label(EquipPosition::AMMO));
+        paint_slot_label(state, layout, geometry.ammo, equip_slot_label(EquipPosition::AMMO));
     }
 }
 
@@ -1136,7 +1158,7 @@ impl Element<ClientState> for LabeledStrip {
     ) {
         for (index, position) in self.positions.iter().copied().enumerate() {
             self.slots[index].lay_out(state, store.child_store(index as u64), &(), layout);
-            paint_slot_label(layout, layout_info[index], equip_slot_label(position));
+            paint_slot_label(state, layout, layout_info[index], equip_slot_label(position));
         }
     }
 }
@@ -1473,12 +1495,12 @@ mod tests {
 
     use super::{
         BASE_STAT_PART_WIDTHS, COMBAT_STAT_LABELS, COMBAT_STAT_PART_WIDTHS, COSTUME_SLOTS, EQUIP_LABEL_MAX_CHARS, GEAR_COLUMN_COUNT,
-        GEAR_EMBEDS_INVENTORY, GEAR_PORTRAIT_WIDTH, GEAR_SLOT_GAP, GEAR_SLOT_SIDE, GEAR_WINDOW_HEIGHT, GEAR_WINDOW_WIDTH, INVENTORY_COLUMNS,
-        INVENTORY_ROWS, LOADOUT_CONTROLS, PAPERDOLL_COLUMN_COUNT, PAPERDOLL_ROWS, PORTRAIT_SPANS_ALL_ROWS, PREVIEW_RENDERS_CHARACTER,
-        SHADOW_SLOTS, STAT_PART_GAP, STRIP_SLOTS_PER_ROW, display_aspd, display_packet_stat, draw_world_entity, equip_slot_label,
-        equip_slot_tooltip, fit_sprite_part, gear_content_budget, gear_left_column_content_height, packed_width, paperdoll_geometry,
-        slot_caption_fits,
-        set_row_widths, shown_equip_positions, sprite_part_top_left, square_strip_frames, strip_block_height,
+        GEAR_EMBEDS_INVENTORY, GEAR_PORTRAIT_WIDTH, GEAR_SLOT_GAP, GEAR_SLOT_SIDE, GEAR_WINDOW_HEIGHT, GEAR_WINDOW_WIDTH,
+        INVENTORY_COLUMNS, INVENTORY_ROWS, LOADOUT_CONTROLS, PAPERDOLL_COLUMN_COUNT, PAPERDOLL_ROWS, PORTRAIT_SPANS_ALL_ROWS,
+        PREVIEW_RENDERS_CHARACTER, SHADOW_SLOTS, STAT_PART_GAP, STRIP_SLOTS_PER_ROW, display_aspd, display_packet_stat, draw_world_entity,
+        equip_slot_label, equip_slot_tooltip, fit_sprite_part, gear_content_budget, gear_left_column_content_height, packed_width,
+        paperdoll_geometry, set_row_widths, shown_equip_positions, slot_caption_fits, sprite_part_top_left, square_strip_frames,
+        strip_block_height,
     };
 
     #[test]
@@ -1581,7 +1603,10 @@ mod tests {
         assert!(base < GEAR_WINDOW_WIDTH / 2.0, "base stats spread too wide: {base}");
         assert!(combat < base);
         let paperdoll_width = GEAR_SLOT_SIDE * 2.0 + GEAR_PORTRAIT_WIDTH + GEAR_SLOT_GAP * 2.0;
-        assert!(paperdoll_width <= GEAR_WINDOW_WIDTH / 2.0 + 8.0, "left half is wider than the stats half");
+        assert!(
+            paperdoll_width <= GEAR_WINDOW_WIDTH / 2.0 + 8.0,
+            "left half is wider than the stats half"
+        );
     }
 
     #[test]

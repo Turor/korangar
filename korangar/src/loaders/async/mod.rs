@@ -18,8 +18,8 @@ use crate::state::skills::{LearnableSkill, SkillTabLayout, SkillTreeLayout};
 #[cfg(feature = "debug")]
 use crate::threads;
 use crate::world::{
-    Actions, AnimationData, EntityType, ItemName, ItemNameKey, ItemResourceKey, Library, Map, ResourceMetadata,
-    SkillListInformation, SkillListKey, SkillListRequirements, SpriteAnimationState,
+    Actions, AnimationData, EntityType, ItemName, ItemNameKey, ItemResourceKey, Library, Map, ResourceMetadata, SkillListInformation,
+    SkillListKey, SkillListRequirements, SpriteAnimationState,
 };
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
@@ -178,7 +178,13 @@ impl AsyncLoader {
     }
 
     #[must_use]
-    pub fn request_item_sprite_load(&self, item_id: ItemId, resource_name: &str, path: &str, image_type: ImageType) -> Option<Arc<Texture>> {
+    pub fn request_item_sprite_load(
+        &self,
+        item_id: ItemId,
+        resource_name: &str,
+        path: &str,
+        image_type: ImageType,
+    ) -> Option<Arc<Texture>> {
         match self.texture_loader.get(path, image_type) {
             Some(texture) => Some(texture),
             None => {
@@ -198,7 +204,8 @@ impl AsyncLoader {
                                 let detail = format!("{error:?}");
                                 let reason = crate::world::classify_item_icon_failure(&detail);
                                 eprintln!(
-                                    "item icon miss: item_id={item_number} resname={resource_name} path=data\\texture\\{path} reason={reason} ({detail})"
+                                    "item icon miss: item_id={item_number} resname={resource_name} path=data\\texture\\{path} \
+                                     reason={reason} ({detail})"
                                 );
                                 return Err(error);
                             }
@@ -216,13 +223,10 @@ impl AsyncLoader {
     pub fn request_inventory_item_metadata_load(&self, item: InventoryItem<NoMetadata>) -> InventoryItem<ResourceMetadata> {
         let is_identified = item.is_identified();
 
-        let resource = <crate::world::ItemResource as crate::world::Table>::try_get(
-            &self.library,
-            ItemResourceKey {
-                item_id: item.item_id,
-                is_identified,
-            },
-        );
+        let resource = <crate::world::ItemResource as crate::world::Table>::try_get(&self.library, ItemResourceKey {
+            item_id: item.item_id,
+            is_identified,
+        });
         let texture = match resource {
             Some(resource) => match crate::world::inventory_icon_texture_path(resource.as_str()) {
                 Ok(full_path) => self.request_item_sprite_load(item.item_id, resource.as_str(), &full_path, ImageType::Color),
@@ -249,20 +253,22 @@ impl AsyncLoader {
                 is_identified,
             })
             .to_string();
+        let description = self.library.item_description(item.item_id, is_identified);
 
-        let metadata = ResourceMetadata { texture, name };
+        let metadata = ResourceMetadata {
+            texture,
+            name,
+            description,
+        };
 
         InventoryItem { metadata, ..item }
     }
 
     pub fn request_shop_item_metadata_load(&self, item: ShopItem<NoMetadata>) -> ShopItem<ResourceMetadata> {
-        let resource = <crate::world::ItemResource as crate::world::Table>::try_get(
-            &self.library,
-            ItemResourceKey {
-                item_id: item.item_id,
-                is_identified: true,
-            },
-        );
+        let resource = <crate::world::ItemResource as crate::world::Table>::try_get(&self.library, ItemResourceKey {
+            item_id: item.item_id,
+            is_identified: true,
+        });
         let texture = match resource {
             Some(resource) => match crate::world::inventory_icon_texture_path(resource.as_str()) {
                 Ok(full_path) => self.request_item_sprite_load(item.item_id, resource.as_str(), &full_path, ImageType::Color),
@@ -289,8 +295,13 @@ impl AsyncLoader {
                 is_identified: true,
             })
             .to_string();
+        let description = self.library.item_description(item.item_id, true);
 
-        let metadata = ResourceMetadata { texture, name };
+        let metadata = ResourceMetadata {
+            texture,
+            name,
+            description,
+        };
 
         ShopItem { metadata, ..item }
     }

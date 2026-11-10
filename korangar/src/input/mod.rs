@@ -1,4 +1,5 @@
 mod clipboard;
+mod escape;
 mod event;
 mod key;
 mod mode;
@@ -13,6 +14,7 @@ use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 use winit::keyboard::KeyCode;
 
 pub(crate) use self::clipboard::{is_paste_shortcut, read_clipboard_text};
+pub use self::escape::{EscapeAction, escape_action};
 pub use self::event::InputEvent;
 pub use self::key::Key;
 pub use self::mode::{Grabbed, MouseInputMode, MouseModeExt};
@@ -218,7 +220,11 @@ impl InputSystem {
         let control_down = self.get_key(KeyCode::ControlLeft).down();
 
         if self.get_key(KeyCode::Escape).pressed() {
-            events.push(InputEvent::ToggleMenuWindow);
+            events.push(InputEvent::Escape);
+        }
+
+        if self.get_key(KeyCode::F10).pressed() {
+            events.push(InputEvent::ReloadTheme);
         }
 
         if alt_down && self.get_key(KeyCode::KeyE).pressed() {

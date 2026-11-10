@@ -1,4 +1,5 @@
 use std::any::{Any, TypeId};
+use std::time::Duration;
 
 use rust_state::RustState;
 
@@ -42,4 +43,5 @@ where
 pub struct Tooltip<'a> {
     pub text: &'a str,
     pub id: TooltipId,
+    pub delay: Duration,
 }

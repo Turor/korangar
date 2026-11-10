@@ -4,6 +4,7 @@ mod item_name;
 mod item_resource;
 mod job_identity;
 mod lua;
+mod map_display_name;
 mod map_sky_data;
 mod signboard;
 mod skill_information;
@@ -22,6 +23,7 @@ pub use self::item_name::{ItemName, ItemNameKey};
 pub use self::item_resource::{ItemResource, ItemResourceKey, classify_item_icon_failure, inventory_icon_texture_path};
 pub use self::job_identity::JobIdentity;
 use self::lua::{execute_chunk, game_string};
+pub use self::map_display_name::{display_name_from_table, load_map_display_names};
 pub use self::map_sky_data::MapSkyData;
 pub use self::signboard::MapSignboards;
 pub use self::skill_tree::SkillTreeLayout;
@@ -38,6 +40,7 @@ pub struct Library {
     skill_tree_table: <SkillTreeLayout as Table>::Storage,
     baby_job_table: <IsBabyJob as Table>::Storage,
     signboard_table: <MapSignboards as Table>::Storage,
+    map_display_names: HashMap<String, String>,
 }
 
 impl Library {
@@ -50,6 +53,7 @@ impl Library {
         let skill_tree_table = SkillTreeLayout::load(game_file_loader).context("loading SkillTreeLayout")?;
         let baby_job_table = IsBabyJob::load(game_file_loader).context("loading IsBabyJob")?;
         let signboard_table = MapSignboards::load(game_file_loader).context("loading MapSignboards")?;
+        let map_display_names = load_map_display_names(game_file_loader);
 
         Ok(Self {
             job_identity_table,
@@ -60,7 +64,25 @@ impl Library {
             skill_tree_table,
             baby_job_table,
             signboard_table,
+            map_display_names,
         })
+    }
+
+    pub fn map_display_name(&self, internal: &str) -> String {
+        display_name_from_table(&self.map_display_names, internal)
+    }
+
+    pub fn item_description(&self, item_id: ragnarok_packets::ItemId, identified: bool) -> String {
+        ItemInfo::try_get(self, item_id)
+            .map(|info| {
+                let lines = if identified {
+                    info.identified_description()
+                } else {
+                    info.unidentified_description()
+                };
+                lines.join("\n")
+            })
+            .unwrap_or_default()
     }
 
     #[inline(always)]

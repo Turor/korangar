@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 #[cfg(feature = "debug")]
 use korangar_debug::logging::{Colorize, print_debug};
 use korangar_interface::element::StateElement;
@@ -26,6 +28,49 @@ pub const TURORAN_DARK_THEME_NAME: &str = "turoran_dark";
 /// overrides the built-in palette when present. First-run defaults and
 /// `KORANGAR_HEADLESS_AUTO` screenshots use this theme.
 pub const VERDANT_RUNE_THEME_NAME: &str = "verdant_rune";
+/// Built-in Ember Forge theme (token file `themes/ember_forge.ron`).
+pub const EMBER_FORGE_THEME_NAME: &str = "ember_forge";
+/// Built-in Arcane Violet theme (token file `themes/arcane_violet.ron`).
+pub const ARCANE_VIOLET_THEME_NAME: &str = "arcane_violet";
+
+/// Linux: `$XDG_CONFIG_HOME/korangar/themes` or `~/.config/korangar/themes`.
+/// Windows: `%APPDATA%\korangar\themes`. Override with `KORANGAR_THEMES_DIR`.
+pub fn user_themes_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("KORANGAR_THEMES_DIR") {
+        return PathBuf::from(path);
+    }
+    if cfg!(windows)
+        && let Some(appdata) = std::env::var_os("APPDATA")
+    {
+        return PathBuf::from(appdata).join("korangar").join("themes");
+    }
+    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+        return PathBuf::from(xdg).join("korangar").join("themes");
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        return PathBuf::from(home).join(".config").join("korangar").join("themes");
+    }
+    PathBuf::from("themes")
+}
+
+fn bundled_theme_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        dirs.push(parent.join("themes"));
+    }
+    dirs.push(PathBuf::from("themes"));
+    dirs.push(PathBuf::from("client/themes"));
+    dirs
+}
+
+/// Directories searched for `<name>.ron` / `<name>.toml`, user config first.
+pub fn theme_search_dirs() -> Vec<PathBuf> {
+    let mut dirs = vec![user_themes_dir()];
+    dirs.extend(bundled_theme_dirs());
+    dirs
+}
 
 fn headless_auto_session() -> bool {
     std::env::var_os("KORANGAR_HEADLESS_AUTO").is_some()
@@ -132,20 +177,43 @@ impl InterfaceSettingsCapabilities {
     fn load_themes(directory: &str) -> Vec<String> {
         let mut themes = vec![DEFAULT_THEME_NAME.to_string()];
 
-        // Always expose the built-in Turoran dark HUD theme for in-game windows.
-        if directory == IN_GAME_THEMES_PATH {
-            themes.push(TURORAN_DARK_THEME_NAME.to_string());
-            themes.push(VERDANT_RUNE_THEME_NAME.to_string());
-        }
-        if directory == WORLD_THEMES_PATH {
-            themes.push(VERDANT_RUNE_THEME_NAME.to_string());
+        if directory == IN_GAME_THEMES_PATH || directory == WORLD_THEMES_PATH {
+            for name in [
+                VERDANT_RUNE_THEME_NAME,
+                EMBER_FORGE_THEME_NAME,
+                ARCANE_VIOLET_THEME_NAME,
+                TURORAN_DARK_THEME_NAME,
+            ] {
+                if !themes.iter().any(|existing| existing == name) {
+                    themes.push(name.to_string());
+                }
+            }
+            for dir in theme_search_dirs() {
+                let Ok(entries) = std::fs::read_dir(dir) else { continue };
+                for entry in entries.filter_map(|entry| entry.ok()) {
+                    let file_name = entry.file_name();
+                    let Some(stem) = file_name.to_str().and_then(|name| {
+                        name.strip_suffix(".ron")
+                            .or_else(|| name.strip_suffix(".toml"))
+                            .map(ToOwned::to_owned)
+                    }) else {
+                        continue;
+                    };
+                    if !stem.is_empty() && !themes.iter().any(|existing| existing == &stem) {
+                        themes.push(stem);
+                    }
+                }
+            }
         }
 
         if let Ok(entries) = std::fs::read_dir(directory) {
-            for name in entries
-                .filter_map(|entry| entry.ok())
-                .filter_map(|entry| entry.file_name().to_string_lossy().strip_suffix(".ron").map(ToOwned::to_owned))
-            {
+            for name in entries.filter_map(|entry| entry.ok()).filter_map(|entry| {
+                let file_name = entry.file_name();
+                let name = file_name.to_string_lossy();
+                name.strip_suffix(".ron")
+                    .or_else(|| name.strip_suffix(".toml"))
+                    .map(ToOwned::to_owned)
+            }) {
                 if !themes.iter().any(|existing| existing == &name) {
                     themes.push(name);
                 }
@@ -211,6 +279,14 @@ mod interface_settings_theme_tests {
         assert!(
             themes.iter().any(|name| name == VERDANT_RUNE_THEME_NAME),
             "expected {VERDANT_RUNE_THEME_NAME} in {themes:?}"
+        );
+        assert!(
+            themes.iter().any(|name| name == super::EMBER_FORGE_THEME_NAME),
+            "expected ember_forge in {themes:?}"
+        );
+        assert!(
+            themes.iter().any(|name| name == super::ARCANE_VIOLET_THEME_NAME),
+            "expected arcane_violet in {themes:?}"
         );
     }
 

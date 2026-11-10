@@ -1,6 +1,7 @@
 use korangar_interface::window::{CustomWindow, Window};
 use rust_state::Path;
 
+use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::loaders::OverflowBehavior;
 use crate::settings::{InterfaceSettings, InterfaceSettingsCapabilities, InterfaceSettingsCapabilitiesPathExt, InterfaceSettingsPathExt};
@@ -94,6 +95,10 @@ where
                         options: self.capabilities_path.world_themes(),
                     }
                 )
+            },
+            button! {
+                text: "Reload theme",
+                event: InputEvent::ReloadTheme,
             },
         );
 

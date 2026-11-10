@@ -1,0 +1,19 @@
+// Verdant Rune — default HUD theme (first-run and headless screenshots).
+ThemeFile(
+    name: "Verdant Rune",
+    bg: "#0F1714",
+    panel: "#17221E",
+    raised: "#203029",
+    border: "#34483F",
+    text: "#E3EDE6",
+    muted: "#93A69C",
+    accent: "#4CC3A0",
+    accent2: "#E0708A",
+    hover: "#CFAE5A",
+    hp: "#D2524A",
+    sp: "#4A86D8",
+    gold: "#CFAE5A",
+    slot_size: 44.0,
+    corner_radius: 8.0,
+    font_size: 13.0,
+)

@@ -11,8 +11,8 @@ use rust_state::{Path, RustState, State};
 use super::WindowClass;
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::loaders::{FontSize, OverflowBehavior};
-use crate::state::theme::InterfaceThemeType;
-use crate::state::{ClientState, ClientStatePathExt, client_state, this_entity};
+use crate::state::theme::InterfaceThemePathExt;
+use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme, this_entity};
 
 /// Square minimap in interface pixels.
 const MINIMAP_SIZE: f32 = 180.0;
@@ -26,6 +26,12 @@ pub struct MvpMinimapState {
     map_height: u16,
     markers: Vec<MvpMinimapEntry>,
     summary: String,
+    /// Visible window title: the map display name, falling back to `iz_int`.
+    title: String,
+    /// "Prontera (132, 98)" — rewritten as the player walks.
+    caption: String,
+    player_x: u16,
+    player_y: u16,
 }
 
 impl Default for MvpMinimapState {
@@ -35,7 +41,11 @@ impl Default for MvpMinimapState {
             map_width: 0,
             map_height: 0,
             markers: Vec::new(),
-            summary: "No alive MVPs.".to_owned(),
+            summary: String::new(),
+            title: "Minimap".to_owned(),
+            caption: String::new(),
+            player_x: 0,
+            player_y: 0,
         }
     }
 }
@@ -43,19 +53,46 @@ impl Default for MvpMinimapState {
 impl MvpMinimapState {
     pub fn replace(&mut self, flags: u8, markers: Vec<MvpMinimapEntry>) {
         self.flags = flags;
-        self.summary = korangar_networking::format_mvp_markers(&markers);
+        self.summary = if markers.is_empty() {
+            String::new()
+        } else {
+            korangar_networking::format_mvp_markers(&markers)
+        };
         self.markers = markers;
+        self.refresh_caption();
     }
 
     pub fn clear_markers(&mut self) {
         self.flags = 0;
         self.markers.clear();
-        self.summary = "No alive MVPs.".to_owned();
+        self.summary = String::new();
+        self.refresh_caption();
     }
 
     pub fn set_map_size(&mut self, width: u16, height: u16) {
         self.map_width = width;
         self.map_height = height;
+    }
+
+    pub fn set_display_name(&mut self, display_name: impl Into<String>) {
+        let display_name = display_name.into();
+        self.title = display_name;
+        self.refresh_caption();
+    }
+
+    pub fn set_player_cell(&mut self, x: u16, y: u16) {
+        self.player_x = x;
+        self.player_y = y;
+        self.refresh_caption();
+    }
+
+    fn refresh_caption(&mut self) {
+        let head = format!("{} ({}, {})", self.title, self.player_x, self.player_y);
+        self.caption = if self.summary.is_empty() {
+            head
+        } else {
+            format!("{head}\n{}", self.summary)
+        };
     }
 }
 
@@ -89,20 +126,26 @@ where
         resolvers: &mut dyn Resolvers<ClientState>,
     ) -> Self::LayoutInfo {
         let root = client_state();
-        let (map_width, map_height, mvp_dots, lines) = {
+        let (map_width, map_height, mvp_dots, extra_lines) = {
             let board = state.get(&self.board_path);
             let mvp_dots = board
                 .markers
                 .iter()
                 .filter_map(|marker| minimap_point(board.map_width, board.map_height, marker.position, MINIMAP_SIZE))
                 .collect();
-            let lines = board.summary.lines().count().max(1) as f32;
-            (board.map_width, board.map_height, mvp_dots, lines)
+            let extra_lines = if board.summary.is_empty() {
+                1.0
+            } else {
+                board.summary.lines().count().max(1) as f32 + 1.0
+            };
+            (board.map_width, board.map_height, mvp_dots, extra_lines)
         };
         let player_dot = this_entity()
             .follow(state.get(&root))
             .and_then(|player| minimap_point(map_width, map_height, player.get_tile_position(), MINIMAP_SIZE));
-        let area = with_single_resolver(resolvers, |resolver| resolver.with_height(MINIMAP_SIZE + 8.0 + lines * 16.0));
+        let area = with_single_resolver(resolvers, |resolver| {
+            resolver.with_height(MINIMAP_SIZE + 8.0 + extra_lines * 16.0)
+        });
         MinimapLayout {
             area,
             mvp_dots,
@@ -117,6 +160,8 @@ where
         info: &'a Self::LayoutInfo,
         layout: &mut WindowLayout<'a, ClientState>,
     ) {
+        let token_path = client_theme().tokens();
+        let tokens = state.get(&token_path);
         let canvas = Area {
             left: info.area.left,
             top: info.area.top,
@@ -126,7 +171,7 @@ where
         layout.add_rectangle(
             canvas,
             CornerDiameter::uniform(4.0),
-            Color::rgb_u8(28, 40, 32),
+            tokens.raised,
             Color::rgba_u8(0, 0, 0, 80),
             ShadowPadding::diagonal(1.0, 2.0),
         );
@@ -140,7 +185,7 @@ where
                     height: DOT,
                 },
                 CornerDiameter::uniform(DOT / 2.0),
-                Color::rgb_u8(220, 48, 48),
+                tokens.accent2,
                 Color::rgba_u8(0, 0, 0, 0),
                 ShadowPadding::default(),
             );
@@ -155,7 +200,7 @@ where
                     height: DOT,
                 },
                 CornerDiameter::uniform(DOT / 2.0),
-                Color::rgb_u8(80, 170, 255),
+                tokens.accent,
                 Color::rgba_u8(0, 0, 0, 0),
                 ShadowPadding::default(),
             );
@@ -167,12 +212,13 @@ where
             width: info.area.width,
             height: info.area.height - MINIMAP_SIZE - 4.0,
         };
+        let board = state.get(&self.board_path);
         layout.add_text(
             text_area,
-            state.get(&self.board_path).summary.as_str(),
+            board.caption.as_str(),
             FontSize(14.0),
-            Color::monochrome_u8(220),
-            Color::rgb_u8(40, 40, 40),
+            tokens.text,
+            tokens.gold,
             HorizontalAlignment::Left { offset: 0.0, border: 0.0 },
             VerticalAlignment::Top { offset: 0.0 },
             OverflowBehavior::Shrink,
@@ -191,9 +237,9 @@ impl CustomWindow<ClientState> for MvpMinimapWindow {
         use korangar_interface::prelude::*;
 
         window! {
-            title: "MVP map",
+            title: client_state().mvp_minimap().title(),
             class: Self::window_class(),
-            theme: InterfaceThemeType::InGame,
+            theme: crate::state::theme::InterfaceThemeType::InGame,
             closable: true,
             minimum_width: 220.0,
             elements: (

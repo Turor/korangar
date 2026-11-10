@@ -5,15 +5,17 @@ use korangar_interface::event::{ClickHandler, DropHandler, Event, EventQueue};
 use korangar_interface::layout::area::Area;
 use korangar_interface::layout::tooltip::TooltipExt;
 use korangar_interface::layout::{MouseButton, Resolvers, WindowLayout, with_single_resolver};
-use korangar_interface::prelude::{ButtonThemePathExt, HorizontalAlignment, TextThemePathExt, VerticalAlignment, WindowThemePathExt};
+use korangar_interface::prelude::{HorizontalAlignment, TextThemePathExt, VerticalAlignment};
 use korangar_networking::{InventoryItem, InventoryItemDetails};
 use rust_state::{Path, State};
 
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::input::{InputEvent, MouseInputMode};
 use crate::interface::resource::ItemSource;
+use crate::interface::windows::{format_item_details, item_details_key};
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::renderer::LayoutExt;
+use crate::state::theme::{InterfaceThemePathExt, SkillTreeThemePathExt, ThemeTokensPathExt};
 use crate::state::{ClientState, client_theme};
 use crate::world::ResourceMetadata;
 
@@ -78,9 +80,32 @@ where
     }
 }
 
+struct ItemDetailsHandler<P> {
+    item_path: P,
+    source: ItemSource,
+}
+
+impl<P> ClickHandler<ClientState> for ItemDetailsHandler<P>
+where
+    P: Path<ClientState, InventoryItem<ResourceMetadata>, false>,
+{
+    fn handle_click(&self, state: &State<ClientState>, queue: &mut EventQueue<ClientState>) {
+        let Some(item) = state.try_get(&self.item_path) else {
+            return;
+        };
+        let gold = *state.get(&client_theme().tokens().gold());
+        queue.queue(InputEvent::OpenItemDetails {
+            key: item_details_key(self.source, item),
+            title: item.metadata.name.clone(),
+            body: format_item_details(item, gold),
+        });
+    }
+}
+
 pub struct ItemBox<A> {
     item_path: A,
     handler: ItemBoxHandler<A>,
+    details_handler: ItemDetailsHandler<A>,
     amount_display: AmountDisplay,
     /// `0.0` keeps the historical 40px-tall stretched cell. A positive value is
     /// a square icon frame of that side, centered in the cell.
@@ -88,6 +113,7 @@ pub struct ItemBox<A> {
     /// Native icon size inside `side`. `0.0` stretches the texture to the cell.
     icon_side: f32,
     tooltip: &'static str,
+    tooltip_text: String,
 }
 
 impl<A> ItemBox<A>
@@ -101,11 +127,60 @@ where
         Self {
             item_path,
             handler: ItemBoxHandler::new(item_path, source),
+            details_handler: ItemDetailsHandler { item_path, source },
             amount_display: AmountDisplay::default(),
             side,
             icon_side,
             tooltip,
+            tooltip_text: String::new(),
         }
+    }
+}
+
+/// Slot chrome from theme tokens: neutral `border` on `raised`, gold `hover`,
+/// `accent` for a drop target. Default slot borders are never gold.
+pub fn slot_border_and_fill(state: &State<ClientState>, is_hovered: bool, is_drop_target: bool) -> (Color, Color) {
+    let fill = *state.get(&client_theme().skill_tree().slot_background_color());
+    let border = if is_hovered && is_drop_target {
+        *state.get(&client_theme().skill_tree().slot_selected_border_color())
+    } else if is_hovered {
+        *state.get(&client_theme().skill_tree().slot_hovered_border_color())
+    } else {
+        *state.get(&client_theme().skill_tree().slot_border_color())
+    };
+    (border, fill)
+}
+
+pub fn paint_item_slot(layout: &mut WindowLayout<ClientState>, area: Area, border: Color, fill: Color, corner: f32, framed: bool) {
+    if framed {
+        layout.add_rectangle(
+            area,
+            CornerDiameter::uniform(corner),
+            border,
+            Color::rgba_u8(0, 0, 0, 140),
+            ShadowPadding::diagonal(0.0, 0.0),
+        );
+        let inset = 2.0;
+        layout.add_rectangle(
+            Area {
+                left: area.left + inset,
+                top: area.top + inset,
+                width: (area.width - inset * 2.0).max(1.0),
+                height: (area.height - inset * 2.0).max(1.0),
+            },
+            CornerDiameter::uniform(corner),
+            fill,
+            Color::rgba_u8(0, 0, 0, 0),
+            ShadowPadding::diagonal(0.0, 0.0),
+        );
+    } else {
+        layout.add_rectangle(
+            area,
+            CornerDiameter::uniform(corner),
+            fill,
+            Color::rgba_u8(0, 0, 0, 100),
+            ShadowPadding::diagonal(2.0, 5.0),
+        );
     }
 }
 
@@ -137,11 +212,16 @@ where
                 resolver.with_height(40.0)
             };
 
-            if let Some(item) = state.try_get(&self.item_path)
-                && item.metadata.texture.as_ref().is_some()
-                && let InventoryItemDetails::Regular { amount, .. } = &item.details
-            {
-                self.amount_display.update(*amount);
+            if let Some(item) = state.try_get(&self.item_path) {
+                if item.metadata.texture.as_ref().is_some()
+                    && let InventoryItemDetails::Regular { amount, .. } = &item.details
+                {
+                    self.amount_display.update(*amount);
+                }
+                let gold = *state.get(&client_theme().tokens().gold());
+                self.tooltip_text = format_item_details(item, gold);
+            } else {
+                self.tooltip_text.clear();
             }
 
             Self::LayoutInfo { area }
@@ -155,67 +235,28 @@ where
         layout_info: &'a Self::LayoutInfo,
         layout: &mut WindowLayout<'a, ClientState>,
     ) {
-        use crate::state::theme::{InterfaceThemePathExt, SkillTreeThemePathExt};
-        let (is_hovered, background_color) = match layout.get_mouse_mode() {
-            MouseMode::Custom {
-                mode: MouseInputMode::MoveItem { .. },
-            } => match layout_info.area.check().any_mouse_mode().run(layout) {
-                true => {
-                    // Since we are not in default mouse mode we need to mark the window as
-                    // hovered.
-                    layout.set_hovered();
+        let is_move_mode = matches!(layout.get_mouse_mode(), MouseMode::Custom {
+            mode: MouseInputMode::MoveItem { .. },
+        });
 
-                    (true, *state.get(&client_theme().button().highlight_color()))
-                }
-                false => (false, *state.get(&client_theme().skill_tree().highlight_color())),
-            },
-            _ => match layout_info.area.check().run(layout) {
-                true => (true, *state.get(&client_theme().button().hovered_background_color())),
-                false => (false, *state.get(&client_theme().skill_tree().slot_background_color())),
-            },
-        };
-
-        let corner = match self.side > 0.0 {
-            true => 4.0,
-            false => 20.0,
-        };
-        if self.side > 0.0 {
-            layout.add_rectangle(
-                layout_info.area,
-                CornerDiameter::uniform(corner),
-                *state.get(&client_theme().window().closest_anchor_color()),
-                Color::rgba_u8(0, 0, 0, 140),
-                ShadowPadding::diagonal(0.0, 0.0),
-            );
-            let inset = 2.0;
-            layout.add_rectangle(
-                Area {
-                    left: layout_info.area.left + inset,
-                    top: layout_info.area.top + inset,
-                    width: (layout_info.area.width - inset * 2.0).max(1.0),
-                    height: (layout_info.area.height - inset * 2.0).max(1.0),
-                },
-                CornerDiameter::uniform(corner),
-                background_color,
-                Color::rgba_u8(0, 0, 0, 0),
-                ShadowPadding::diagonal(0.0, 0.0),
-            );
+        let is_hovered = if is_move_mode {
+            let hovered = layout_info.area.check().any_mouse_mode().run(layout);
+            if hovered {
+                // Since we are not in default mouse mode we need to mark the window as
+                // hovered.
+                layout.set_hovered();
+            }
+            hovered
         } else {
-            layout.add_rectangle(
-                layout_info.area,
-                CornerDiameter::uniform(corner),
-                background_color,
-                Color::rgba_u8(0, 0, 0, 100),
-                ShadowPadding::diagonal(2.0, 5.0),
-            );
-        }
+            layout_info.area.check().run(layout)
+        };
+
+        let (border, fill) = slot_border_and_fill(state, is_hovered, is_move_mode);
+        let corner = if self.side > 0.0 { 4.0 } else { 20.0 };
+        paint_item_slot(layout, layout_info.area, border, fill, corner, self.side > 0.0);
 
         if is_hovered {
             layout.register_drop_handler(&self.handler);
-            if !self.tooltip.is_empty() {
-                struct SlotTooltip;
-                layout.add_tooltip(self.tooltip, SlotTooltip.tooltip_id());
-            }
         }
 
         if let Some(item) = state.try_get(&self.item_path)
@@ -235,26 +276,31 @@ where
 
             layout.add_texture(texture_area, texture.clone(), Color::WHITE, false);
 
-            if is_hovered {
+            if is_hovered && !is_move_mode {
                 layout.register_click_handler(MouseButton::Left, &self.handler);
+                layout.register_click_handler(MouseButton::Right, &self.details_handler);
+            }
+
+            if is_hovered && !self.tooltip_text.is_empty() {
+                struct ItemDetailsTooltip;
+                layout.add_immediate_tooltip(&self.tooltip_text, ItemDetailsTooltip.tooltip_id());
             }
 
             if matches!(item.details, InventoryItemDetails::Regular { .. }) {
                 layout.add_text(
                     layout_info.area,
                     self.amount_display.string.as_ref().unwrap(),
-                    // TODO: Put this in the theme
                     FontSize(12.0),
-                    // TODO: Put this in the theme
                     *state.get(&client_theme().text().color()),
-                    *state.get(&client_theme().text().highlight_color()),
-                    // TODO: Put this in the theme
+                    *state.get(&client_theme().tokens().gold()),
                     HorizontalAlignment::Right { offset: 3.0, border: 3.0 },
-                    // TODO: Put this in the theme
                     VerticalAlignment::Bottom { offset: 3.0 },
                     OverflowBehavior::Shrink,
                 );
             }
+        } else if is_hovered && !self.tooltip.is_empty() {
+            struct SlotTooltip;
+            layout.add_tooltip(self.tooltip, SlotTooltip.tooltip_id());
         }
     }
 }
