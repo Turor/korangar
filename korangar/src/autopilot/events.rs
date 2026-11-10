@@ -101,10 +101,6 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
         "BankAdd10m" => Some(InputEvent::BankAdd10m),
         "BankSetMax" => Some(InputEvent::BankSetMax),
         "CloseBank" => Some(InputEvent::CloseBank),
-        "OpenCashShop" => Some(InputEvent::OpenCashShop),
-        "RequestCashShopTab" => Some(InputEvent::RequestCashShopTab),
-        "BuyCashShopItem" => Some(InputEvent::BuyCashShopItem),
-        "CloseCashShop" => Some(InputEvent::CloseCashShop),
         "OpenRoulette" => Some(InputEvent::OpenRoulette),
         "RequestRouletteInfo" => Some(InputEvent::RequestRouletteInfo),
         "SpinRoulette" => Some(InputEvent::SpinRoulette),
@@ -275,7 +271,6 @@ pub fn parse_window_class(name: &str) -> Option<WindowClass> {
         "audiosettings" => Some(WindowClass::AudioSettings),
         "bank" => Some(WindowClass::Bank),
         "barter" => Some(WindowClass::Barter),
-        "cashshop" => Some(WindowClass::CashShop),
         "buy" => Some(WindowClass::Buy),
         "buycart" => Some(WindowClass::BuyCart),
         "cart" => Some(WindowClass::Cart),
@@ -387,13 +382,6 @@ pub fn window_command(class: WindowClass, open: bool) -> Result<WindowCommand, S
                 return Err("barter opens from the server".to_owned());
             }
             InputEvent::CloseBarter
-        }
-        WindowClass::CashShop => {
-            if open {
-                InputEvent::OpenCashShop
-            } else {
-                InputEvent::CloseCashShop
-            }
         }
         WindowClass::Roulette => {
             if open {

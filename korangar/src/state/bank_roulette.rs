@@ -1,8 +1,8 @@
 use korangar_interface::element::StateElement;
-use korangar_networking::{CashShopOffer, RoulettePrize};
+use korangar_networking::RoulettePrize;
 use rust_state::RustState;
 
-/// Parse a positive zeny, cash amount, item id, or tab from a text box.
+/// Parse a positive zeny or item count from a text box.
 pub fn parse_positive_u32(text: &str) -> Option<u32> {
     let value = text.trim().parse::<u32>().ok()?;
     (value > 0).then_some(value)
@@ -26,21 +26,6 @@ pub fn withdraw_reason_label(reason: i16) -> &'static str {
         0 => "ok",
         1 => "not enough zeny",
         2 => "failed",
-        _ => "unknown",
-    }
-}
-
-pub fn cash_shop_result_label(result: u16) -> &'static str {
-    match result {
-        0 => "purchased",
-        1 => "no shop",
-        2 => "shop error",
-        3 => "over weight",
-        4 => "busy",
-        5 => "bad item",
-        6 => "not enough points",
-        7 => "too many items",
-        8 => "partial purchase",
         _ => "unknown",
     }
 }
@@ -178,17 +163,6 @@ fn decode_prize_table(text: &str) -> Vec<RoulettePrize> {
         .collect()
 }
 
-fn format_offers(items: &[CashShopOffer]) -> String {
-    if items.is_empty() {
-        return "This tab is empty.".to_owned();
-    }
-    items
-        .iter()
-        .map(|item| format!("item {} — {} points", item.item_id, item.price))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 #[derive(RustState, StateElement)]
 pub struct BankWindowState {
     pub status: String,
@@ -293,85 +267,6 @@ impl BankWindowState {
 }
 
 #[derive(RustState, StateElement)]
-pub struct CashShopWindowState {
-    pub status: String,
-    pub catalog: String,
-    pub tab_text: String,
-    pub tab_ghost: String,
-    pub item_text: String,
-    pub item_ghost: String,
-    pub amount_text: String,
-    pub amount_ghost: String,
-    pub kafra_text: String,
-    pub kafra_ghost: String,
-    pub cash_points: u32,
-    pub kafra_points: u32,
-}
-
-impl Default for CashShopWindowState {
-    fn default() -> Self {
-        Self {
-            status: "Cash shop is off until Game settings enables it.".to_owned(),
-            catalog: String::new(),
-            tab_text: "0".to_owned(),
-            tab_ghost: "tab".to_owned(),
-            item_text: String::new(),
-            item_ghost: "item id".to_owned(),
-            amount_text: "1".to_owned(),
-            amount_ghost: "amount".to_owned(),
-            kafra_text: "0".to_owned(),
-            kafra_ghost: "kafra points to spend".to_owned(),
-            cash_points: 0,
-            kafra_points: 0,
-        }
-    }
-}
-
-impl CashShopWindowState {
-    pub fn tab(&self) -> Result<u16, &'static str> {
-        let value = self.tab_text.trim().parse::<u32>().map_err(|_| "Enter a tab.")?;
-        u16::try_from(value).map_err(|_| "Tab is too large.")
-    }
-
-    pub fn item_id(&self) -> Result<u32, &'static str> {
-        parse_positive_u32(&self.item_text).ok_or("Enter an item id.")
-    }
-
-    pub fn amount(&self) -> Result<u32, &'static str> {
-        parse_positive_u32(&self.amount_text).ok_or("Enter an amount.")
-    }
-
-    pub fn kafra_spend(&self) -> Result<u32, &'static str> {
-        self.kafra_text.trim().parse::<u32>().map_err(|_| "Enter kafra points, or 0.")
-    }
-
-    pub fn note_open(&mut self, cash_points: u32, kafra_points: u32, tab: u32) {
-        self.cash_points = cash_points;
-        self.kafra_points = kafra_points;
-        self.status = format!("Cash {cash_points}, kafra {kafra_points}, tab {tab}");
-    }
-
-    pub fn note_items(&mut self, tab: u32, items: &[CashShopOffer]) {
-        self.catalog = format_offers(items);
-        self.status = format!(
-            "Tab {tab}: {} item(s). Cash {}, kafra {}.",
-            items.len(),
-            self.cash_points,
-            self.kafra_points
-        );
-    }
-
-    pub fn note_buy(&mut self, item_id: u32, result: u16, cash_points: u32, kafra_points: u32) {
-        self.cash_points = cash_points;
-        self.kafra_points = kafra_points;
-        self.status = format!(
-            "Item {item_id} {} — cash {cash_points}, kafra {kafra_points}",
-            cash_shop_result_label(result)
-        );
-    }
-}
-
-#[derive(RustState, StateElement)]
 pub struct RouletteWindowState {
     pub status: String,
     pub points: String,
@@ -440,11 +335,7 @@ impl RouletteWindowState {
     fn row_positions(&self) -> Vec<u16> {
         let table = decode_prize_table(&self.prize_table);
         let row = u16::try_from(self.last_stage).unwrap_or(0);
-        let mut cells: Vec<u16> = table
-            .iter()
-            .filter(|prize| prize.row == row)
-            .map(|prize| prize.position)
-            .collect();
+        let mut cells: Vec<u16> = table.iter().filter(|prize| prize.row == row).map(|prize| prize.position).collect();
         if cells.is_empty() {
             cells = table.iter().map(|prize| prize.position).collect();
             cells.sort_unstable();
@@ -556,14 +447,6 @@ mod tests {
     }
 
     #[test]
-    fn cash_shop_starts_disabled_in_the_window_copy() {
-        let shop = CashShopWindowState::default();
-        assert!(shop.status.contains("off"));
-        assert_eq!(shop.tab().unwrap(), 0);
-        assert!(shop.item_id().is_err());
-    }
-
-    #[test]
     fn withdraw_reasons_are_not_the_deposit_table() {
         assert_eq!(bank_reason_label(1), "failed");
         assert_eq!(bank_reason_label(2), "not enough zeny");
@@ -632,10 +515,10 @@ mod tests {
             },
             1_000,
         );
-                assert!(roulette.status.contains("Spinning"));
+        assert!(roulette.status.contains("Spinning"));
         assert!(roulette.wheel.contains("*[") || roulette.wheel.contains(">>["));
         roulette.tick_spin(1_000 + ROULETTE_SPIN_MS);
-                assert!(roulette.wheel.contains(">>[4] 501x3<<"));
+        assert!(roulette.wheel.contains(">>[4] 501x3<<"));
         assert!(roulette.status.contains("landed"));
         roulette.note_claim(0, 777);
         assert!(roulette.prizes.contains("row 2:"));

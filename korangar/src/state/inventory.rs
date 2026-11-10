@@ -242,7 +242,7 @@ pub fn use_ack_targets_self(our_account: Option<AccountId>, packet_account: Opti
     packet_account.is_none_or(|id| our_account == Some(id))
 }
 
-/// roBrowser `ItemType`: healing 0, usable 2, delayed consume 11, cash 18 are
+/// roBrowser `ItemType`: healing 0, usable 2, delayed consume 11, type 18 are
 /// used. Weapon, armor, shadow, pet armor, and ammo (4, 5, 8, 12, 10) equip
 /// when identified. Ammo that arrived as a regular stack equips in the ammo
 /// slot.

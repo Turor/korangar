@@ -8,7 +8,6 @@ mod buy_cart;
 mod buy_or_sell;
 mod cache;
 mod cart;
-mod cash_shop;
 mod character_creation;
 mod character_overview;
 mod character_selection;
@@ -93,7 +92,6 @@ pub use self::buy_cart::BuyCartWindow;
 pub use self::buy_or_sell::BuyOrSellWindow;
 pub use self::cache::WindowCache;
 pub use self::cart::CartWindow;
-pub use self::cash_shop::CashShopWindow;
 pub use self::character_creation::CharacterCreationWindow;
 pub use self::character_overview::CharacterOverviewWindow;
 pub use self::character_selection::CharacterSelectionWindow;
@@ -175,7 +173,6 @@ pub enum WindowClass {
     AudioSettings,
     Bank,
     Barter,
-    CashShop,
     Buy,
     BuyCart,
     Cart,

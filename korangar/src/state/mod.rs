@@ -1,5 +1,5 @@
 pub mod achievements;
-pub mod bank_cash_roulette;
+pub mod bank_roulette;
 pub mod barter;
 #[cfg(feature = "debug")]
 pub mod cache_statistics;
@@ -243,12 +243,9 @@ pub struct ClientState {
     /// Rodex inbox and the unread-mail flag.
     mail_window: crate::interface::windows::MailWindowState,
     /// Kafra bank vault.
-    bank_window: crate::state::bank_cash_roulette::BankWindowState,
-    /// Cash shop catalog. The menu still shows "Cash shop". Open, tab, and buy
-    /// requests run only while `GameSettings.enable_cash_shop` is on.
-    cash_shop_window: crate::state::bank_cash_roulette::CashShopWindowState,
+    bank_window: crate::state::bank_roulette::BankWindowState,
     /// Roulette points and prize table.
-    roulette_window: crate::state::bank_cash_roulette::RouletteWindowState,
+    roulette_window: crate::state::bank_roulette::RouletteWindowState,
     /// Internal state of the skill tree window.
     skill_tree_window: SkillTreeWindowState,
 
@@ -532,9 +529,8 @@ impl ClientState {
             let companion_window = crate::interface::windows::CompanionWindowState::default();
             let mvp_minimap = crate::interface::windows::MvpMinimapState::default();
             let mail_window = crate::interface::windows::MailWindowState::default();
-            let bank_window = crate::state::bank_cash_roulette::BankWindowState::default();
-            let cash_shop_window = crate::state::bank_cash_roulette::CashShopWindowState::default();
-            let roulette_window = crate::state::bank_cash_roulette::RouletteWindowState::default();
+            let bank_window = crate::state::bank_roulette::BankWindowState::default();
+            let roulette_window = crate::state::bank_roulette::RouletteWindowState::default();
 
             let shop_items = Vec::default();
             let buy_cart = Vec::default();
@@ -639,7 +635,6 @@ impl ClientState {
             mvp_minimap,
             mail_window,
             bank_window,
-            cash_shop_window,
             roulette_window,
             skill_tree_window,
             entities: Vec::new(),

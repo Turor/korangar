@@ -5,7 +5,7 @@ use rust_state::State;
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::loaders::OverflowBehavior;
-use crate::state::bank_cash_roulette::BankWindowStatePathExt;
+use crate::state::bank_roulette::BankWindowStatePathExt;
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, ClientStatePathExt, client_state};
 

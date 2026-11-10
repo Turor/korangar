@@ -909,7 +909,8 @@ where
     })?;
     packet_handler.register(|packet: RemoveSkillPacket| NetworkEvent::RemoveSkill { skill_id: packet.skill_id })?;
     crate::packet_versions::refine::register_refine_packets(packet_handler)?;
-    crate::packet_versions::bank_cash_roulette::register_bank_cash_roulette(packet_handler)?;
+    crate::packet_versions::bank_roulette::register_bank_and_roulette(packet_handler)?;
+    crate::packet_versions::cash_shop_ignore::register_ignored_cash_shop(packet_handler)?;
     crate::packet_versions::item_workshop::register_laphine(packet_handler)?;
     crate::packet_versions::styling_shop::register_style_packets(packet_handler, true)?;
 

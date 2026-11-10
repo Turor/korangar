@@ -40,11 +40,6 @@ where
                     state: self.game_settings_path.auto_attack(),
                     event: Toggle(self.game_settings_path.auto_attack()),
                 },
-                state_button! {
-                    text: "Cash shop",
-                    state: self.game_settings_path.enable_cash_shop(),
-                    event: Toggle(self.game_settings_path.enable_cash_shop()),
-                },
             ),
         }
     }
