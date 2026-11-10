@@ -85,7 +85,21 @@ pub fn session_theme_name(saved: &str) -> &str {
 }
 
 fn theme_name_to_load(saved: &str, headless: bool) -> &str {
-    if headless { VERDANT_RUNE_THEME_NAME } else { saved }
+    if headless { headless_theme_name() } else { saved }
+}
+
+/// Headless sessions default to [`VERDANT_RUNE_THEME_NAME`];
+/// `KORANGAR_HEADLESS_THEME` picks another theme for screenshots.
+fn headless_theme_name() -> &'static str {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| headless_theme_from(std::env::var("KORANGAR_HEADLESS_THEME").ok()))
+}
+
+fn headless_theme_from(requested: Option<String>) -> String {
+    requested
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or_else(|| VERDANT_RUNE_THEME_NAME.to_string())
 }
 
 fn should_persist_interface_settings(headless: bool) -> bool {
@@ -311,6 +325,14 @@ mod interface_settings_theme_tests {
         );
         assert!(!super::should_persist_interface_settings(true));
         assert!(super::should_persist_interface_settings(false));
+    }
+
+    #[test]
+    fn headless_theme_override_is_sanitised() {
+        assert_eq!(super::headless_theme_from(None), VERDANT_RUNE_THEME_NAME);
+        assert_eq!(super::headless_theme_from(Some(" ember_forge ".into())), "ember_forge");
+        assert_eq!(super::headless_theme_from(Some("../etc".into())), VERDANT_RUNE_THEME_NAME);
+        assert_eq!(super::headless_theme_from(Some(String::new())), VERDANT_RUNE_THEME_NAME);
     }
 
     #[test]

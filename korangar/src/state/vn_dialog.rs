@@ -415,6 +415,50 @@ impl ChoiceKeys {
     }
 }
 
+/// Typed characters plus the dialog keys pressed this frame. Synthetic or
+/// layout-less key presses carry no text, so Enter, Space and the number row
+/// would otherwise do nothing. A key that also typed its character is not
+/// counted twice.
+pub fn dialog_characters(characters: &[char], pressed: impl Fn(winit::keyboard::KeyCode) -> bool) -> Vec<char> {
+    use winit::keyboard::KeyCode;
+
+    const KEYS: [(KeyCode, char); 21] = [
+        (KeyCode::Enter, '\r'),
+        (KeyCode::NumpadEnter, '\r'),
+        (KeyCode::Space, ' '),
+        (KeyCode::Digit1, '1'),
+        (KeyCode::Digit2, '2'),
+        (KeyCode::Digit3, '3'),
+        (KeyCode::Digit4, '4'),
+        (KeyCode::Digit5, '5'),
+        (KeyCode::Digit6, '6'),
+        (KeyCode::Digit7, '7'),
+        (KeyCode::Digit8, '8'),
+        (KeyCode::Digit9, '9'),
+        (KeyCode::Numpad1, '1'),
+        (KeyCode::Numpad2, '2'),
+        (KeyCode::Numpad3, '3'),
+        (KeyCode::Numpad4, '4'),
+        (KeyCode::Numpad5, '5'),
+        (KeyCode::Numpad6, '6'),
+        (KeyCode::Numpad7, '7'),
+        (KeyCode::Numpad8, '8'),
+        (KeyCode::Numpad9, '9'),
+    ];
+
+    let mut merged = characters.to_vec();
+    for (code, character) in KEYS {
+        let typed = match character {
+            '\r' => merged.iter().any(|typed| matches!(typed, '\r' | '\n')),
+            _ => merged.contains(&character),
+        };
+        if pressed(code) && !typed {
+            merged.push(character);
+        }
+    }
+    merged
+}
+
 /// New focus and the option to pick (zero based), if any. Focus wraps.
 pub fn choice_key_outcome(focus: usize, count: usize, keys: ChoiceKeys) -> (usize, Option<usize>) {
     if count == 0 {
@@ -701,6 +745,17 @@ mod tests {
         assert_eq!(choice_grid(2), (2, 1));
         assert_eq!(choice_grid(5), (5, 1));
         assert_eq!(choice_grid(9), (5, 2));
+    }
+
+    #[test]
+    fn pressed_keys_count_once_as_characters() {
+        use winit::keyboard::KeyCode;
+
+        assert_eq!(dialog_characters(&[], |code| code == KeyCode::Enter), vec!['\r']);
+        assert_eq!(dialog_characters(&['\r'], |code| code == KeyCode::Enter), vec!['\r']);
+        assert_eq!(dialog_characters(&[' '], |code| code == KeyCode::Space), vec![' ']);
+        assert_eq!(dialog_characters(&[], |code| code == KeyCode::Numpad3), vec!['3']);
+        assert_eq!(dialog_characters(&['a'], |_| false), vec!['a']);
     }
 
     #[test]

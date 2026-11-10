@@ -7679,11 +7679,13 @@ impl Client {
         let focus_npc_input = self.client_state.follow_mut(client_state().dialog_window()).take_input_focus();
         let dialog_npc_id = self.client_state.follow(client_state().dialog_window()).npc_id();
         let (dialog_key, dialog_ate_confirm) = if !interface_has_focus {
+            let characters =
+                crate::state::vn_dialog::dialog_characters(&input_report.characters, |code| self.input_system.key_pressed(code));
             let ate = self
                 .client_state
                 .follow_mut(client_state().dialog_window())
-                .take_confirm_key(&input_report.characters);
-            let mut choice_keys = crate::state::vn_dialog::ChoiceKeys::from_characters(&input_report.characters);
+                .take_confirm_key(&characters);
+            let mut choice_keys = crate::state::vn_dialog::ChoiceKeys::from_characters(&characters);
             choice_keys.previous = self.input_system.key_pressed(KeyCode::ArrowLeft) || self.input_system.key_pressed(KeyCode::ArrowUp);
             choice_keys.next |= self.input_system.key_pressed(KeyCode::ArrowRight)
                 || self.input_system.key_pressed(KeyCode::ArrowDown)
@@ -7708,7 +7710,7 @@ impl Client {
                         dialog.is_awaiting_close(),
                         dialog.is_awaiting_choice(),
                         dialog.input_is_open(),
-                        &input_report.characters,
+                        &characters,
                     ),
                     false,
                 )
