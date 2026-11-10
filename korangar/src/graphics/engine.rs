@@ -30,6 +30,38 @@ use crate::graphics::shader_compiler::ShaderCompiler;
 use crate::loaders::TextureLoader;
 use crate::{NUMBER_OF_POINT_LIGHTS_WITH_SHADOWS, init_tls_rand};
 
+/// One step of the post-processing composite, in draw order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CompositeStep {
+    /// World-space overlays under effects (ground markers).
+    BottomRectangles,
+    /// Spell and hit effects in the world.
+    Effects,
+    /// World overlays: name labels, HP bars, chat bubbles, emblems.
+    MiddleRectangles,
+    /// Every UI window.
+    Interface,
+    /// Reserved for the mouse cursor and FPS counter.
+    TopRectangles,
+}
+
+impl CompositeStep {
+    /// Steps that belong to the 3D world and must stay under every window.
+    pub(crate) fn is_world(self) -> bool {
+        matches!(self, Self::BottomRectangles | Self::Effects | Self::MiddleRectangles)
+    }
+}
+
+/// The world (forward pass, effects, and world overlays) composites before the
+/// interface buffer, so no entity, label, or bubble can draw over a window.
+pub(crate) const COMPOSITE_ORDER: [CompositeStep; 5] = [
+    CompositeStep::BottomRectangles,
+    CompositeStep::Effects,
+    CompositeStep::MiddleRectangles,
+    CompositeStep::Interface,
+    CompositeStep::TopRectangles,
+];
+
 pub struct GraphicsEngineDescriptor {
     pub capabilities: Capabilities,
     pub instance: Instance,
@@ -1410,53 +1442,65 @@ impl GraphicsEngine {
                     engine_context.debug_circle_drawer.draw(&mut render_pass, None);
                 }
 
-                let rectangle_data = PostProcessingRectangleDrawData {
-                    layer: PostProcessingRectangleLayer::Bottom,
-                    instructions: instruction.bottom_layer_rectangles,
-                };
-                engine_context
-                    .post_processing_rectangle_drawer
-                    .draw(&mut render_pass, rectangle_data);
+                // World layers first, then the interface, then only the cursor
+                // and FPS counter. See [`COMPOSITE_ORDER`].
+                for step in COMPOSITE_ORDER {
+                    match step {
+                        CompositeStep::BottomRectangles => {
+                            let rectangle_data = PostProcessingRectangleDrawData {
+                                layer: PostProcessingRectangleLayer::Bottom,
+                                instructions: instruction.bottom_layer_rectangles,
+                            };
+                            engine_context
+                                .post_processing_rectangle_drawer
+                                .draw(&mut render_pass, rectangle_data);
+                        }
+                        CompositeStep::Effects => {
+                            engine_context
+                                .post_processing_effect_drawer
+                                .draw(&mut render_pass, instruction.effects);
+                        }
+                        CompositeStep::MiddleRectangles => {
+                            let rectangle_data = PostProcessingRectangleDrawData {
+                                layer: PostProcessingRectangleLayer::Middle,
+                                instructions: instruction.middle_layer_rectangles,
+                            };
+                            engine_context
+                                .post_processing_rectangle_drawer
+                                .draw(&mut render_pass, rectangle_data);
 
-                engine_context
-                    .post_processing_effect_drawer
-                    .draw(&mut render_pass, instruction.effects);
+                            #[cfg(feature = "debug")]
+                            {
+                                let buffer_data = DebugBufferDrawData {
+                                    render_options: &instruction.render_options,
+                                    debug_bind_group: &engine_context.global_context.debug_bind_group,
+                                };
 
-                let rectangle_data = PostProcessingRectangleDrawData {
-                    layer: PostProcessingRectangleLayer::Middle,
-                    instructions: instruction.middle_layer_rectangles,
-                };
-                engine_context
-                    .post_processing_rectangle_drawer
-                    .draw(&mut render_pass, rectangle_data);
-
-                #[cfg(feature = "debug")]
-                {
-                    let buffer_data = DebugBufferDrawData {
-                        render_options: &instruction.render_options,
-                        debug_bind_group: &engine_context.global_context.debug_bind_group,
-                    };
-
-                    engine_context.debug_buffer_drawer.draw(&mut render_pass, buffer_data);
+                                engine_context.debug_buffer_drawer.draw(&mut render_pass, buffer_data);
+                            }
+                        }
+                        CompositeStep::Interface => {
+                            if instruction.show_interface {
+                                let blitter_data = PostProcessingBlitterDrawData {
+                                    target_texture_format: RENDER_TO_TEXTURE_FORMAT,
+                                    source_texture: &engine_context.global_context.interface_buffer_texture,
+                                    luma_in_alpha: false,
+                                    alpha_blending: true,
+                                };
+                                engine_context.post_processing_blitter_drawer.draw(&mut render_pass, blitter_data);
+                            }
+                        }
+                        CompositeStep::TopRectangles => {
+                            let rectangle_data = PostProcessingRectangleDrawData {
+                                layer: PostProcessingRectangleLayer::Top,
+                                instructions: instruction.top_layer_rectangles,
+                            };
+                            engine_context
+                                .post_processing_rectangle_drawer
+                                .draw(&mut render_pass, rectangle_data);
+                        }
+                    }
                 }
-
-                if instruction.show_interface {
-                    let blitter_data = PostProcessingBlitterDrawData {
-                        target_texture_format: RENDER_TO_TEXTURE_FORMAT,
-                        source_texture: &engine_context.global_context.interface_buffer_texture,
-                        luma_in_alpha: false,
-                        alpha_blending: true,
-                    };
-                    engine_context.post_processing_blitter_drawer.draw(&mut render_pass, blitter_data);
-                }
-
-                let rectangle_data = PostProcessingRectangleDrawData {
-                    layer: PostProcessingRectangleLayer::Top,
-                    instructions: instruction.top_layer_rectangles,
-                };
-                engine_context
-                    .post_processing_rectangle_drawer
-                    .draw(&mut render_pass, rectangle_data);
 
                 // We can now do the final blit to the surface texture.
                 drop(render_pass);
@@ -1662,6 +1706,28 @@ impl PostProcessingResources {
             debug_circle_drawer,
             #[cfg(feature = "debug")]
             debug_rectangle_drawer,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{COMPOSITE_ORDER, CompositeStep};
+
+    #[test]
+    fn world_layers_composite_before_every_window() {
+        let interface = COMPOSITE_ORDER
+            .iter()
+            .position(|step| *step == CompositeStep::Interface)
+            .expect("the interface is composited");
+        for (index, step) in COMPOSITE_ORDER.iter().enumerate() {
+            if step.is_world() {
+                assert!(index < interface, "{step:?} draws over the interface");
+            }
+        }
+        assert_eq!(&COMPOSITE_ORDER[interface + 1..], &[CompositeStep::TopRectangles]);
+        for step in [CompositeStep::BottomRectangles, CompositeStep::Effects, CompositeStep::MiddleRectangles] {
+            assert_eq!(COMPOSITE_ORDER.iter().filter(|other| **other == step).count(), 1);
         }
     }
 }
