@@ -2698,6 +2698,9 @@ impl Client {
                     }
                 }
                 NetworkEvent::PartyInvite { party_id, party_name } => {
+                    self.client_state
+                        .follow_mut(client_state().party())
+                        .set_pending_invite(party_id);
                     self.interface.open_window(PartyInviteWindow::new(party_id, party_name));
                 }
                 NetworkEvent::PartyInvitationState { invitations_allowed } => {
@@ -5006,12 +5009,20 @@ impl Client {
                     self.interface.close_window_with_class(WindowClass::FriendRequest);
                 }
                 InputEvent::RejectPartyInvite { party_id } => {
+                    let _ = self.client_state.follow_mut(client_state().party()).take_pending_invite();
                     let _ = self.networking_system.reject_party_invite(party_id);
                     self.interface.close_window_with_class(WindowClass::PartyInvite);
                 }
                 InputEvent::AcceptPartyInvite { party_id } => {
+                    let _ = self.client_state.follow_mut(client_state().party()).take_pending_invite();
                     let _ = self.networking_system.accept_party_invite(party_id);
                     self.interface.close_window_with_class(WindowClass::PartyInvite);
+                }
+                InputEvent::AcceptPendingPartyInvite => {
+                    if let Some(party_id) = self.client_state.follow_mut(client_state().party()).take_pending_invite() {
+                        let _ = self.networking_system.accept_party_invite(party_id);
+                        self.interface.close_window_with_class(WindowClass::PartyInvite);
+                    }
                 }
                 InputEvent::CreateParty {
                     name,
@@ -6163,26 +6174,28 @@ impl Client {
                 format!("[{}]", rows.join(", "))
             }
             autopilot::DumpPath::Windows => format!("{:?}", self.interface.open_window_classes()),
-            autopilot::DumpPath::Player => self
-                .client_state
-                .try_follow(this_player())
-                .map(|player| {
-                    format!(
-                        "(base_level: {}, job_level: {}, strength: {}, agility: {}, vitality: {}, intelligence: {}, dexterity: {}, luck: \
-                         {}, spell_points: {}, stat_points: {})",
-                        player.base_level,
-                        player.job_level,
-                        player.strength,
-                        player.agility,
-                        player.vitality,
-                        player.intelligence,
-                        player.dexterity,
-                        player.luck,
-                        player.spell_points,
-                        player.stat_points,
-                    )
-                })
-                .unwrap_or_else(|| "none".to_owned()),
+            autopilot::DumpPath::Player => {
+                let name = self.client_state.follow(client_state().player_name()).clone();
+                self.client_state
+                    .try_follow(this_player())
+                    .map(|player| {
+                        format!(
+                            "(name: {name:?}, base_level: {}, job_level: {}, strength: {}, agility: {}, vitality: {}, intelligence: {}, \
+                             dexterity: {}, luck: {}, spell_points: {}, stat_points: {})",
+                            player.base_level,
+                            player.job_level,
+                            player.strength,
+                            player.agility,
+                            player.vitality,
+                            player.intelligence,
+                            player.dexterity,
+                            player.luck,
+                            player.spell_points,
+                            player.stat_points,
+                        )
+                    })
+                    .unwrap_or_else(|| "none".to_owned())
+            }
         }
     }
 

@@ -232,6 +232,26 @@ mod tests {
             Command::Dump(DumpPath::ChatMessages)
         ));
         assert!(matches!(parse_command("quit").unwrap(), Command::Quit));
+        assert!(matches!(
+            parse_command(r#"event CreateParty(name: "Gap", item_pickup: false, item_division: true)"#).unwrap(),
+            Command::Event(InputEvent::CreateParty {
+                name,
+                item_pickup: false,
+                item_division: true,
+            }) if name == "Gap"
+        ));
+        assert!(matches!(
+            parse_command(r#"event InviteToParty("Nova")"#).unwrap(),
+            Command::Event(InputEvent::InviteToParty { character_name }) if character_name == "Nova"
+        ));
+        assert!(matches!(
+            parse_command("event AcceptPendingPartyInvite").unwrap(),
+            Command::Event(InputEvent::AcceptPendingPartyInvite)
+        ));
+        assert!(matches!(
+            parse_command("event LeaveParty").unwrap(),
+            Command::Event(InputEvent::LeaveParty)
+        ));
     }
 
     #[test]

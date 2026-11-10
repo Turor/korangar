@@ -5,7 +5,7 @@
 
 use korangar_interface::element::StateElement;
 use korangar_networking::{PartyRosterEntry, PartyUpdate};
-use ragnarok_packets::{AccountId, CharacterId, EntityId};
+use ragnarok_packets::{AccountId, CharacterId, EntityId, PartyId};
 use rust_state::RustState;
 
 /// Text shown in chat for a party result.
@@ -51,6 +51,8 @@ pub struct PartyState {
     pub invitations_allowed: bool,
     pub local_account_id: AccountId,
     pub self_is_leader: bool,
+    /// Invite window that is still open. The autopilot accepts this id.
+    pub pending_invite: Option<PartyId>,
 }
 
 impl Default for PartyState {
@@ -66,6 +68,7 @@ impl Default for PartyState {
             invitations_allowed: true,
             local_account_id: AccountId(0),
             self_is_leader: false,
+            pending_invite: None,
         }
     }
 }
@@ -75,6 +78,14 @@ impl PartyState {
         let invitations_allowed = self.invitations_allowed;
         *self = Self::default();
         self.invitations_allowed = invitations_allowed;
+    }
+
+    pub fn set_pending_invite(&mut self, party_id: PartyId) {
+        self.pending_invite = Some(party_id);
+    }
+
+    pub fn take_pending_invite(&mut self) -> Option<PartyId> {
+        self.pending_invite.take()
     }
 
     pub fn set_invitations_allowed(&mut self, invitations_allowed: bool) {

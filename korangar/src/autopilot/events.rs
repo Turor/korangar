@@ -110,6 +110,8 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
         "ClaimRoulette" => Some(InputEvent::ClaimRoulette),
         "CloseRoulette" => Some(InputEvent::CloseRoulette),
         "CloseShop" => Some(InputEvent::CloseShop),
+        "LeaveParty" => Some(InputEvent::LeaveParty),
+        "AcceptPendingPartyInvite" => Some(InputEvent::AcceptPendingPartyInvite),
         "AcceptTrade" => Some(InputEvent::AcceptTrade),
         "DeclineTrade" => Some(InputEvent::DeclineTrade),
         "TradeConfirm" => Some(InputEvent::TradeConfirm),
@@ -190,6 +192,8 @@ enum ScriptedEvent {
     StatUpLuck(u8),
     RequestStableHomunculus { homunculus_id: i32 },
     RequestStablePet { action: i16, id: i32 },
+    CreateParty { name: String, item_pickup: bool, item_division: bool },
+    InviteToParty(String),
 }
 
 pub fn scripted_event(spec: &str) -> Result<InputEvent, String> {
@@ -242,6 +246,16 @@ pub fn scripted_event(spec: &str) -> Result<InputEvent, String> {
         },
         ScriptedEvent::RequestStableHomunculus { homunculus_id } => InputEvent::RequestStableHomunculus { homunculus_id },
         ScriptedEvent::RequestStablePet { action, id } => InputEvent::RequestStablePet { action, id },
+        ScriptedEvent::CreateParty {
+            name,
+            item_pickup,
+            item_division,
+        } => InputEvent::CreateParty {
+            name,
+            item_pickup,
+            item_division,
+        },
+        ScriptedEvent::InviteToParty(character_name) => InputEvent::InviteToParty { character_name },
     })
 }
 
