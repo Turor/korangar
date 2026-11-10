@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use korangar_interface::Interface;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::{BaseLayoutInfo, Element};
 use korangar_interface::event::{ClickHandler, EventQueue};
@@ -13,7 +14,6 @@ use korangar_interface::layout::area::Area;
 use korangar_interface::layout::{MouseButton, Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::prelude::{HorizontalAlignment, TextThemePathExt, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
-use korangar_interface::Interface;
 use korangar_networking::{MessageColor, NetworkingSystem};
 use ragnarok_packets::handler::PacketCallback;
 use ragnarok_packets::{InventoryIndex, ItemId, SkillId};
@@ -26,13 +26,15 @@ use crate::loaders::{AsyncLoader, FontSize, ImageType, OverflowBehavior};
 use crate::renderer::LayoutExt;
 use crate::state::inventory::InventoryPathExt;
 use crate::state::item_skill_selection::{
-    ItemSkillSelectionStatePathExt, SelectionCommand, SelectionKind, SelectionRow, catalog_label, card_message, change_cart_types,
+    ItemSkillSelectionStatePathExt, SelectionCommand, SelectionKind, SelectionRow, card_message, catalog_label, change_cart_types,
     identify_chat, making_title, produce_message, skill_icon_sprite_path, skill_label, warp_destinations, warp_title,
     weapon_refine_applies_refine, weapon_refine_message,
 };
 use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
 use crate::state::{ChatMessage, ClientState, ClientStatePathExt, client_state, client_theme, this_player};
-use crate::world::{ItemName, ItemNameKey, ItemResource, ItemResourceKey, Library, SkillListInformation, Table, inventory_icon_texture_path};
+use crate::world::{
+    ItemName, ItemNameKey, ItemResource, ItemResourceKey, Library, SkillListInformation, Table, inventory_icon_texture_path,
+};
 
 type GameInterface = Interface<'static, ClientState>;
 
@@ -331,10 +333,9 @@ fn show_or_tell(state: &mut State<ClientState>, interface: &mut GameInterface, e
 fn dispatch<C: PacketCallback + Send>(network: &mut NetworkingSystem<C>, command: SelectionCommand) {
     let result = match command {
         SelectionCommand::Identify { wire_index } => network.request_item_identify(wire_index),
-        SelectionCommand::InsertCard {
-            card_index,
-            equip_index,
-        } => network.request_item_composition(InventoryIndex(card_index), InventoryIndex(equip_index)),
+        SelectionCommand::InsertCard { card_index, equip_index } => {
+            network.request_item_composition(InventoryIndex(card_index), InventoryIndex(equip_index))
+        }
         SelectionCommand::Warp { skill_id, map_name } => network.select_warp_point(SkillId(skill_id), map_name),
         SelectionCommand::AutoSpell { skill_id } => network.select_auto_spell(skill_id),
         SelectionCommand::Shadow { flag, skill_id } => network.select_skill_menu(flag, skill_id),
@@ -351,7 +352,8 @@ fn dispatch<C: PacketCallback + Send>(network: &mut NetworkingSystem<C>, command
 }
 
 fn identify_index(wire: u16) -> Option<InventoryIndex> {
-    // `0xFFFF` is the cancel ack (`idx == -1` on the server, then written back as -1).
+    // `0xFFFF` is the cancel ack (`idx == -1` on the server, then written back as
+    // -1).
     if wire < 2 || wire == 0xFFFF {
         None
     } else {
@@ -398,9 +400,7 @@ pub(crate) fn on_identify_result(
     }
     let success = result == 0;
     let index = identify_index(wire);
-    if success
-        && let Some(index) = index
-    {
+    if success && let Some(index) = index {
         apply_identified(state, library, loader, index);
     }
     let name = index
@@ -462,7 +462,13 @@ pub(crate) fn on_composition_result(
     close_window(state, interface);
 }
 
-pub(crate) fn open_warp_list(state: &mut State<ClientState>, interface: &mut GameInterface, library: &Library, skill_id: SkillId, maps: Vec<String>) {
+pub(crate) fn open_warp_list(
+    state: &mut State<ClientState>,
+    interface: &mut GameInterface,
+    library: &Library,
+    skill_id: SkillId,
+    maps: Vec<String>,
+) {
     let rows = warp_destinations(maps, |map| {
         let label = library.map_display_name(map);
         if label.is_empty() { map.to_owned() } else { label }
@@ -605,7 +611,13 @@ pub(crate) fn open_weapon_refine_list(
     show_or_tell(state, interface, "No equipment can be refined.");
 }
 
-pub(crate) fn on_weapon_refine_result(state: &mut State<ClientState>, library: &Library, loader: &AsyncLoader, result: i32, item_id: ItemId) {
+pub(crate) fn on_weapon_refine_result(
+    state: &mut State<ClientState>,
+    library: &Library,
+    loader: &AsyncLoader,
+    result: i32,
+    item_id: ItemId,
+) {
     let (name, _) = catalog_face(library, loader, item_id);
     let message = weapon_refine_message(result, &name);
     if weapon_refine_applies_refine(result) {
@@ -657,7 +669,9 @@ pub(crate) fn on_confirm<C: PacketCallback + Send>(
         (selection.confirm(), selection.closes_after_confirm())
     };
     let Some(command) = command else {
-        state.follow_mut(client_state().item_skill_selection()).set_status("Select an entry.");
+        state
+            .follow_mut(client_state().item_skill_selection())
+            .set_status("Select an entry.");
         return;
     };
     dispatch(network, command);

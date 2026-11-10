@@ -2,9 +2,9 @@
 #![cfg_attr(feature = "interface", feature(negative_impls))]
 
 mod entity;
-mod guild;
 mod equip_switch;
 mod event;
+mod guild;
 mod hotkey;
 mod inventory_lists;
 mod items;

@@ -3032,9 +3032,7 @@ impl Client {
                         .add_relation(opposition, guild_id, name);
                 }
                 NetworkEvent::GuildPositionRights { positions } => {
-                    self.client_state
-                        .follow_mut(client_state().guild())
-                        .set_position_rights(positions);
+                    self.client_state.follow_mut(client_state().guild()).set_position_rights(positions);
                 }
                 NetworkEvent::GuildPositionsUpdated { positions } => {
                     let guild = self.client_state.follow_mut(client_state().guild());
@@ -3066,12 +3064,9 @@ impl Client {
                     emblem_version,
                     bytes,
                 } => {
-                    self.client_state.follow_mut(client_state().guild()).push_emblem_chunk(
-                        result,
-                        guild_id,
-                        emblem_version,
-                        &bytes,
-                    );
+                    self.client_state
+                        .follow_mut(client_state().guild())
+                        .push_emblem_chunk(result, guild_id, emblem_version, &bytes);
                 }
                 NetworkEvent::GuildEmblemOnEntity {
                     account_id,
@@ -3435,7 +3430,11 @@ impl Client {
                         .push(ChatMessage::new(status, MessageColor::Information));
                 }
                 NetworkEvent::ItemIdentifyList { indexes } => {
-                    crate::interface::windows::item_skill_selection::open_identify_list(&mut self.client_state, &mut self.interface, indexes);
+                    crate::interface::windows::item_skill_selection::open_identify_list(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        indexes,
+                    );
                 }
                 NetworkEvent::ItemIdentifyResult { index, result } => {
                     crate::interface::windows::item_skill_selection::on_identify_result(
@@ -3454,9 +3453,7 @@ impl Client {
                         indexes,
                     );
                 }
-                NetworkEvent::ItemCompositionResult {
-                    equip_index, result, ..
-                } => {
+                NetworkEvent::ItemCompositionResult { equip_index, result, .. } => {
                     crate::interface::windows::item_skill_selection::on_composition_result(
                         &mut self.client_state,
                         &mut self.interface,
@@ -4786,11 +4783,7 @@ impl Client {
                 }
                 InputEvent::LevelUpGuildSkill { skill_id } => {
                     let guild = self.client_state.follow(client_state().guild());
-                    let ready = guild.skill_points > 0
-                        && guild
-                            .skills
-                            .iter()
-                            .any(|skill| skill.skill_id == skill_id && skill.upgradable);
+                    let ready = guild.skill_points > 0 && guild.skills.iter().any(|skill| skill.skill_id == skill_id && skill.upgradable);
                     if ready {
                         let _ = self.networking_system.level_up_skill(SkillId(skill_id));
                     }
@@ -4799,22 +4792,20 @@ impl Client {
                     let player_name = self.client_state.follow(client_state().player_name()).clone();
                     let _ = self.networking_system.send_guild_chat(&player_name, &text);
                 }
-                InputEvent::UploadGuildEmblem => {
-                    match crate::state::guild_emblem::load_upload_file() {
-                        Ok(bytes) => {
-                            let _ = self.networking_system.upload_guild_emblem(bytes);
-                            self.client_state
-                                .follow_mut(client_state().guild())
-                                .set_status("Emblem sent.".to_owned());
-                        }
-                        Err(message) => {
-                            self.client_state.follow_mut(client_state().guild()).set_status(message.clone());
-                            self.client_state
-                                .follow_mut(client_state().chat_messages())
-                                .push(ChatMessage::new(message, MessageColor::Information));
-                        }
+                InputEvent::UploadGuildEmblem => match crate::state::guild_emblem::load_upload_file() {
+                    Ok(bytes) => {
+                        let _ = self.networking_system.upload_guild_emblem(bytes);
+                        self.client_state
+                            .follow_mut(client_state().guild())
+                            .set_status("Emblem sent.".to_owned());
                     }
-                }
+                    Err(message) => {
+                        self.client_state.follow_mut(client_state().guild()).set_status(message.clone());
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(message, MessageColor::Information));
+                    }
+                },
                 InputEvent::BreakGuildRelation { guild_id, opposition } => {
                     let is_master = self.client_state.follow(client_state().guild()).is_master;
                     if is_master {
@@ -5538,7 +5529,13 @@ impl Client {
                                     learned_skill.skill_id == learnable_skill.skill_id
                                         && learned_skill.skill_level.0 >= learnable_skill.maximum_level.0
                                 })
-                                .map(|learned_skill| (learnable_skill.skill_id, learnable_skill.maximum_level, learned_skill.skill_type))
+                                .map(|learned_skill| {
+                                    (
+                                        learnable_skill.skill_id,
+                                        learnable_skill.maximum_level,
+                                        learned_skill.skill_type,
+                                    )
+                                })
                         });
                     if let Some((skill_id, skill_level, skill_type)) = cast {
                         if skill_id == SkillId(crate::state::item_skill_selection::CHANGE_CART_SKILL) {
@@ -7418,7 +7415,6 @@ impl Client {
             self.graphics_engine.render_next_frame(frame, render_instruction);
         }
     }
-
 }
 
 /// Loads each guild skill's sprite from `SkillListInformation.file_name`.

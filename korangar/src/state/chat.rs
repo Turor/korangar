@@ -241,7 +241,10 @@ impl ChatFilterState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OutgoingChat {
     Public(String),
-    Whisper { target: String, text: String },
+    Whisper {
+        target: String,
+        text: String,
+    },
     /// Guild channel. The caller formats `{name} : {text}` for `0x017E`.
     Guild(String),
 }
@@ -289,7 +292,11 @@ fn parse_guild_command(trimmed: &str) -> Option<OutgoingChat> {
         .or_else(|| trimmed.strip_prefix("/g "))
         .or_else(|| trimmed.strip_prefix("/G "))?;
     let text = rest.trim();
-    if text.is_empty() { None } else { Some(OutgoingChat::Guild(text.to_string())) }
+    if text.is_empty() {
+        None
+    } else {
+        Some(OutgoingChat::Guild(text.to_string()))
+    }
 }
 
 fn parse_whisper_command(trimmed: &str) -> Option<OutgoingChat> {
@@ -574,7 +581,10 @@ mod tests {
             parse_outgoing_chat("hello", "Eve", true),
             OutgoingChat::Whisper { target, text } if target == "Eve" && text == "hello"
         ));
-        assert!(matches!(parse_outgoing_chat("@broadcast hi", "Eve", true), OutgoingChat::Public(_)));
+        assert!(matches!(
+            parse_outgoing_chat("@broadcast hi", "Eve", true),
+            OutgoingChat::Public(_)
+        ));
         assert!(matches!(parse_outgoing_chat("@guild", "", true), OutgoingChat::Public(_)));
         assert!(matches!(
             parse_outgoing_chat("/g rally at the castle", "", false),

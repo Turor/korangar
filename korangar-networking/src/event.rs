@@ -772,7 +772,8 @@ pub enum NetworkEvent {
     ItemIdentifyList {
         indexes: Vec<InventoryIndex>,
     },
-    /// `ZC_ACK_ITEMIDENTIFY`. `index` is the raw wire value (`0xFFFF` on cancel).
+    /// `ZC_ACK_ITEMIDENTIFY`. `index` is the raw wire value (`0xFFFF` on
+    /// cancel).
     ItemIdentifyResult {
         index: u16,
         result: u8,

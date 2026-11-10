@@ -23,16 +23,12 @@ pub fn register_item_skill_selection_packets<Callback>(
 where
     Callback: PacketCallback,
 {
-    packet_handler.register(|packet: ItemIdentifyListPacket| NetworkEvent::ItemIdentifyList {
-        indexes: packet.indexes,
-    })?;
+    packet_handler.register(|packet: ItemIdentifyListPacket| NetworkEvent::ItemIdentifyList { indexes: packet.indexes })?;
     packet_handler.register(|packet: ItemIdentifyAckPacket| NetworkEvent::ItemIdentifyResult {
         index: packet.index,
         result: packet.result,
     })?;
-    packet_handler.register(|packet: ItemCompositionListPacket| NetworkEvent::ItemCompositionList {
-        indexes: packet.indexes,
-    })?;
+    packet_handler.register(|packet: ItemCompositionListPacket| NetworkEvent::ItemCompositionList { indexes: packet.indexes })?;
     packet_handler.register(|packet: ItemCompositionAckPacket| NetworkEvent::ItemCompositionResult {
         equip_index: packet.equip_index,
         card_index: packet.card_index,
@@ -56,15 +52,9 @@ where
         flag: packet.flag,
         skill_ids: packet.skill_ids,
     })?;
-    packet_handler.register(|packet: MakingArrowListPacket| NetworkEvent::MakingArrowList {
-        item_ids: packet.item_ids,
-    })?;
+    packet_handler.register(|packet: MakingArrowListPacket| NetworkEvent::MakingArrowList { item_ids: packet.item_ids })?;
     packet_handler.register(|packet: MakableItemListPacket| NetworkEvent::MakableItemList {
-        items: packet
-            .items
-            .into_iter()
-            .map(|entry| (entry.item_id, entry.material))
-            .collect(),
+        items: packet.items.into_iter().map(|entry| (entry.item_id, entry.material)).collect(),
     })?;
     packet_handler.register(|packet: ProduceResultPacket| NetworkEvent::ProduceResult {
         result: packet.result,
@@ -109,10 +99,7 @@ impl<Callback: PacketCallback + Send> NetworkingSystem<Callback> {
         card_index: ragnarok_packets::InventoryIndex,
         equip_index: ragnarok_packets::InventoryIndex,
     ) -> Result<(), NotConnectedError> {
-        self.send_any(RequestItemCompositionPacket {
-            card_index,
-            equip_index,
-        })
+        self.send_any(RequestItemCompositionPacket { card_index, equip_index })
     }
 
     /// `CZ_SELECT_WARPPOINT`. The map name `cancel` leaves the menu.
@@ -148,7 +135,8 @@ impl<Callback: PacketCallback + Send> NetworkingSystem<Callback> {
         self.send_current(RequestMakingItemPacket { make_type, item_id })
     }
 
-    /// `CZ_REQ_WEAPONREFINE`. Zero cancels. A choice is the inventory index plus 2.
+    /// `CZ_REQ_WEAPONREFINE`. Zero cancels. A choice is the inventory index
+    /// plus 2.
     pub fn request_weapon_refine(&mut self, index: i32) -> Result<(), NotConnectedError> {
         self.send_any(RequestWeaponRefinePacket { index })
     }
