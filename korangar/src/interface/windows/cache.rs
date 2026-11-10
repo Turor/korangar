@@ -7,7 +7,9 @@ use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
 
 use super::WindowClass;
-use super::placement::{REFERENCE_SCREEN_HEIGHT, REFERENCE_SCREEN_WIDTH, ScreenAnchor, first_open_hud, frame_anchor_offset};
+use super::placement::{
+    HudFrame, REFERENCE_SCREEN_HEIGHT, REFERENCE_SCREEN_WIDTH, ScreenAnchor, first_open_hud, frame_anchor_offset,
+};
 use crate::graphics::{ScreenPosition, ScreenSize};
 use crate::state::ClientState;
 
@@ -123,7 +125,21 @@ fn preset_window(class: WindowClass, screen_width: f32, screen_height: f32) -> O
         WindowClass::QuestJournal => (ScreenAnchor::TopRight, hud.quest),
         WindowClass::FriendList => (ScreenAnchor::TopRight, hud.friends),
         WindowClass::PartyInvite => (ScreenAnchor::TopRight, hud.party),
-        WindowClass::Guild => (ScreenAnchor::TopRight, hud.guild),
+        // The social slot for guild sits on the hotbar. A create form or roster
+        // does not fit there, so open guild windows in the upper middle.
+        WindowClass::Guild | WindowClass::GuildInvite => {
+            let width = 480.0_f32.min(screen_width - 32.0);
+            let height = (screen_height - 160.0).clamp(200.0, 520.0);
+            (
+                ScreenAnchor::TopLeft,
+                HudFrame {
+                    left: (screen_width - width) / 2.0,
+                    top: 64.0,
+                    width,
+                    height,
+                },
+            )
+        }
         _ => return None,
     };
     let (left, top) = frame_anchor_offset(anchor_kind, frame, screen_width, screen_height);
