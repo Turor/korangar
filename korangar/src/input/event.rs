@@ -240,10 +240,16 @@ pub enum InputEvent {
     CloseEnchant,
     /// Ask the map server for the Turoran stable board (`0x0EF0`).
     OpenStable,
-    /// Request one stored homunculus (`0x0EF1`).
-    RequestStableHomunculus,
-    /// Request one stored pet (`0x0EF2`).
-    RequestStablePet,
+    /// Request one stored homunculus (`0x0EF1`). Id 0 stores the active one.
+    RequestStableHomunculus {
+        homunculus_id: i32,
+    },
+    /// Pet stable action (`0x0EF2`). `id` is a pet id, an evolution egg, or an
+    /// inventory index.
+    RequestStablePet {
+        action: i16,
+        id: i32,
+    },
     /// Ask the map server for the Turoran Eden board (`0x0EF3`, action 0).
     OpenEden,
     /// Accept the typed Eden quest (`0x0EF3`, action 1).

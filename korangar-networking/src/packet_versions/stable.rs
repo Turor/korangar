@@ -16,16 +16,28 @@ pub fn register_stable_packets<Callback>(
 where
     Callback: PacketCallback,
 {
-    packet_handler.register(|packet: StableHomunculusListPacket| NetworkEvent::StableHomunculusList {
-        active_id: packet.active_homunculus_id,
-        summary: format_homunculus_list(packet.active_homunculus_id, &packet.homunculi),
+    packet_handler.register(|packet: StableHomunculusListPacket| {
+        let summary = format_homunculus_list(packet.active_homunculus_id, &packet.homunculi);
+        NetworkEvent::StableHomunculusList {
+            active_id: packet.active_homunculus_id,
+            homunculi: packet.homunculi,
+            summary,
+        }
     })?;
-    packet_handler.register(|packet: StablePetListPacket| NetworkEvent::StablePetList {
-        active_id: packet.active_pet_id,
-        summary: format_pet_list(packet.active_pet_id, &packet.pets),
+    packet_handler.register(|packet: StablePetListPacket| {
+        let summary = format_pet_list(packet.active_pet_id, &packet.pets);
+        NetworkEvent::StablePetList {
+            active_id: packet.active_pet_id,
+            pets: packet.pets,
+            summary,
+        }
     })?;
-    packet_handler.register(|packet: StableOwnedListPacket| NetworkEvent::StableOwnedList {
-        summary: format_owned_list(&packet.items),
+    packet_handler.register(|packet: StableOwnedListPacket| {
+        let summary = format_owned_list(&packet.items);
+        NetworkEvent::StableOwnedList {
+            items: packet.items,
+            summary,
+        }
     })?;
     packet_handler.register(|packet: StableResultPacket| NetworkEvent::StableResult {
         result: packet.result,
@@ -99,7 +111,22 @@ pub fn format_owned_list(items: &[ragnarok_packets::StableOwnedEntry]) -> String
 }
 
 pub fn format_stable_result(result: i16, id: i32) -> String {
-    format!("Stable result {result} (id {id})")
+    match result {
+        0 => "Done.".to_owned(),
+        2 => "No homunculus in that slot.".to_owned(),
+        3 => "You already have that homunculus type.".to_owned(),
+        4 => "That pet is already out on another character.".to_owned(),
+        5 => "Inventory is full.".to_owned(),
+        6 => "That companion does not belong here.".to_owned(),
+        7 => "No pet found.".to_owned(),
+        8 => "Return your current pet to its egg first, or Store it.".to_owned(),
+        9 => "Revive your homunculus first.".to_owned(),
+        10 => "Summon that pet first.".to_owned(),
+        11 => "No pet food in inventory or storage.".to_owned(),
+        12 => "Could not equip or unequip that accessory.".to_owned(),
+        13 => "Evolution failed (loyalty, materials, or recipe).".to_owned(),
+        _ => format!("Stable action failed (id {id})."),
+    }
 }
 
 #[cfg(test)]
@@ -112,6 +139,7 @@ mod tests {
         assert_eq!(parse_stable_id("nope"), None);
         assert_eq!(parse_stable_action("2"), Some(2));
         assert_eq!(parse_stable_action("99999"), None);
-        assert_eq!(format_stable_result(1, 9), "Stable result 1 (id 9)");
+        assert_eq!(format_stable_result(1, 9), "Stable action failed (id 9).");
+        assert_eq!(format_stable_result(11, 4), "No pet food in inventory or storage.");
     }
 }

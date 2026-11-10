@@ -2174,20 +2174,31 @@ impl Client {
                         .follow_mut(client_state().enchant_window())
                         .show_result(message_id, item_id);
                 }
-                NetworkEvent::StableHomunculusList { summary, .. } => {
-                    self.client_state.follow_mut(client_state().stable_window()).show_homunculi(summary);
+                NetworkEvent::StableHomunculusList { active_id, homunculi, .. } => {
+                    self.client_state
+                        .follow_mut(client_state().stable_window())
+                        .show_homunculi(active_id, &homunculi);
                     self.interface.open_window(StableWindow::new());
                 }
-                NetworkEvent::StablePetList { summary, .. } => {
-                    self.client_state.follow_mut(client_state().stable_window()).show_pets(summary);
+                NetworkEvent::StablePetList { active_id, pets, .. } => {
+                    let faces = crate::interface::windows::stable::pet_face_list(&self.async_loader, &pets);
+                    self.client_state
+                        .follow_mut(client_state().stable_window())
+                        .show_pets(active_id, &pets, &faces);
                     self.interface.open_window(StableWindow::new());
                 }
-                NetworkEvent::StableOwnedList { summary } => {
-                    self.client_state.follow_mut(client_state().stable_window()).show_owned(summary);
+                NetworkEvent::StableOwnedList { items, .. } => {
+                    let ids: Vec<i32> = items.iter().map(|item| item.item_id).collect();
+                    let faces = crate::interface::windows::stable::item_faces(&self.async_loader, &ids);
+                    self.client_state
+                        .follow_mut(client_state().stable_window())
+                        .show_owned(&items, &faces);
                     self.interface.open_window(StableWindow::new());
                 }
-                NetworkEvent::StableResult { summary, .. } => {
-                    self.client_state.follow_mut(client_state().stable_window()).show_result(summary);
+                NetworkEvent::StableResult { result, id, .. } => {
+                    self.client_state
+                        .follow_mut(client_state().stable_window())
+                        .show_result(result, id);
                     self.interface.open_window(StableWindow::new());
                 }
                 NetworkEvent::EdenQuestList { summary, .. } => {
@@ -4564,26 +4575,12 @@ impl Client {
                         self.interface.open_window(StableWindow::new());
                     }
                 }
-                InputEvent::RequestStableHomunculus => {
-                    match self.client_state.follow(client_state().stable_window()).homunculus_request() {
-                        Ok(homunculus_id) => {
-                            let _ = self.networking_system.request_stable_homunculus(homunculus_id);
-                        }
-                        Err(message) => self
-                            .client_state
-                            .follow_mut(client_state().stable_window())
-                            .set_status(message.to_owned()),
-                    }
+                InputEvent::RequestStableHomunculus { homunculus_id } => {
+                    let _ = self.networking_system.request_stable_homunculus(homunculus_id);
                 }
-                InputEvent::RequestStablePet => match self.client_state.follow(client_state().stable_window()).pet_request() {
-                    Ok((action, pet_id)) => {
-                        let _ = self.networking_system.request_stable_pet(action, pet_id);
-                    }
-                    Err(message) => self
-                        .client_state
-                        .follow_mut(client_state().stable_window())
-                        .set_status(message.to_owned()),
-                },
+                InputEvent::RequestStablePet { action, id } => {
+                    let _ = self.networking_system.request_stable_pet(action, id);
+                }
                 InputEvent::OpenEden => {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         let _ = self.networking_system.request_eden(korangar_networking::EDEN_ACTION_LIST, 0);
@@ -5662,6 +5659,11 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().inventory())
                         .update_item_sprite(item_id, texture.clone());
+                    if let Ok(stable_item_id) = i32::try_from(item_id.0) {
+                        self.client_state
+                            .follow_mut(client_state().stable_window())
+                            .set_item_texture(stable_item_id, texture.clone());
+                    }
                     self.client_state
                         .follow_mut(client_state().cart())
                         .update_item_sprite(item_id, texture);

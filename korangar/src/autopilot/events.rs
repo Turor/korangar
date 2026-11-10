@@ -65,8 +65,6 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
         "RequestResetEnchant" => Some(InputEvent::RequestResetEnchant),
         "CloseEnchant" => Some(InputEvent::CloseEnchant),
         "OpenStable" => Some(InputEvent::OpenStable),
-        "RequestStableHomunculus" => Some(InputEvent::RequestStableHomunculus),
-        "RequestStablePet" => Some(InputEvent::RequestStablePet),
         "OpenEden" => Some(InputEvent::OpenEden),
         "EdenAccept" => Some(InputEvent::EdenAccept),
         "EdenComplete" => Some(InputEvent::EdenComplete),
@@ -190,6 +188,8 @@ enum ScriptedEvent {
     StatUpIntelligence(u8),
     StatUpDexterity(u8),
     StatUpLuck(u8),
+    RequestStableHomunculus { homunculus_id: i32 },
+    RequestStablePet { action: i16, id: i32 },
 }
 
 pub fn scripted_event(spec: &str) -> Result<InputEvent, String> {
@@ -240,6 +240,8 @@ pub fn scripted_event(spec: &str) -> Result<InputEvent, String> {
         ScriptedEvent::StatUpLuck(amount) => InputEvent::StatUp {
             stat_type: StatUpType::Luck { amount },
         },
+        ScriptedEvent::RequestStableHomunculus { homunculus_id } => InputEvent::RequestStableHomunculus { homunculus_id },
+        ScriptedEvent::RequestStablePet { action, id } => InputEvent::RequestStablePet { action, id },
     })
 }
 

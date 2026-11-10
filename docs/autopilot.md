@@ -60,6 +60,8 @@ Each line is logged as `AUTOPILOT_CMD ok|err <line>`. Blank lines and `#` commen
 - `ZoomCamera(1.0)` / `RotateCamera(0.1)`
 - `SendEmotion(1)`
 - `StatUpStrength(1)`, `StatUpAgility(1)`, `StatUpVitality(1)`, `StatUpIntelligence(1)`, `StatUpDexterity(1)`, `StatUpLuck(1)`
+- `RequestStableHomunculus(homunculus_id: 0)` (id 0 stores the active homunculus)
+- `RequestStablePet(action: 0, id: 0)` (`action` is the stable pet word; id 0 stores the current pet)
 
 `event LogIn` is rejected so a command file cannot be asked to print a password.
 

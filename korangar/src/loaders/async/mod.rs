@@ -306,6 +306,37 @@ impl AsyncLoader {
         ShopItem { metadata, ..item }
     }
 
+    /// Name and inventory icon for an identified item. A missing texture is
+    /// requested and arrives later on [`LoaderId::ItemSprite`].
+    pub fn identified_item_face(&self, item_id: i32) -> (String, Option<Arc<Texture>>) {
+        if item_id <= 0 {
+            return ("None".to_owned(), None);
+        }
+        let item_id = ItemId(u32::try_from(item_id).unwrap_or(0));
+        let resource = <crate::world::ItemResource as crate::world::Table>::try_get(&self.library, ItemResourceKey {
+            item_id,
+            is_identified: true,
+        });
+        let texture = match resource {
+            Some(resource) => match crate::world::inventory_icon_texture_path(resource.as_str()) {
+                Ok(full_path) => self.request_item_sprite_load(item_id, resource.as_str(), &full_path, ImageType::Color),
+                Err(_) => None,
+            },
+            None => None,
+        };
+        let mut name = self
+            .library
+            .get::<ItemName>(ItemNameKey {
+                item_id,
+                is_identified: true,
+            })
+            .to_string();
+        if name.is_empty() || name == "NOTFOUND" {
+            name = format!("Item {}", item_id.0);
+        }
+        (name, texture)
+    }
+
     pub fn request_learnable_skill_load(&self, job_id: JobId, skill_id: SkillId, client_tick: ClientTick) -> LearnableSkill {
         let skill_information = self.library.get::<SkillListInformation>(skill_id);
         let skill_requirements = self.library.get::<SkillListRequirements>(SkillListKey::with_job(job_id, skill_id));
