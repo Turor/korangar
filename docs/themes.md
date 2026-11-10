@@ -58,6 +58,7 @@ slot_size = 44.0
 | `slot_size` | Optional socket side in pixels (default 44) |
 | `corner_radius` | Optional corner radius (default 8) |
 | `font_size` | Optional body font size (default 13) |
+| `window_alpha` | Optional window and chat background opacity, 0.0–1.0 (default 1.0, opaque) |
 
 ### Status panel bars
 

@@ -260,7 +260,7 @@ impl InterfaceTheme {
             window: WindowTheme {
                 title_color: text,
                 hovered_title_color: accent,
-                background_color: panel.with_alpha_u8(215),
+                background_color: panel.with_alpha_u8(tokens.window_alpha_u8()),
                 highlight_color: accent,
                 shadow_color: Color::rgba_u8(0, 0, 0, 120),
                 shadow_padding: ShadowPadding::diagonal(4.0, 8.0),
@@ -433,8 +433,8 @@ impl InterfaceTheme {
                 hovered_background_color: gold,
             },
             chat: ChatTheme {
-                window_color: panel.with_alpha_u8(205),
-                text_box_background_color: bg.with_alpha_u8(190),
+                window_color: panel.with_alpha_u8(tokens.window_alpha_u8()),
+                text_box_background_color: bg.with_alpha_u8(tokens.window_alpha_u8()),
                 broadcast_color: gold,
                 server_color: sp,
                 error_color: accent2,
