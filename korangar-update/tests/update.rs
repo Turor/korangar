@@ -97,11 +97,47 @@ fn unsafe_paths_and_remote_urls_are_rejected() {
     assert!(korangar_update::safe_relative("updates/applied.version").is_err());
     assert!(korangar_update::safe_relative("runtime/data.bin").is_ok());
     assert!(korangar_update::join_url("http://127.0.0.1:9/manifest.krup", "https://cdn.example/a").is_err());
+    assert!(korangar_update::join_url("http://127.0.0.1:9/manifest.krup", "https://ro.turoran.com.evil/a").is_err());
     assert!(korangar_update::join_url("http://127.0.0.1:9/manifest.krup", "../x").is_err());
     assert_eq!(
         korangar_update::join_url("file:///tmp/stage/manifest.krup", "korangar.exe").unwrap(),
         "file:///tmp/stage/korangar.exe"
     );
+    assert_eq!(
+        korangar_update::join_url(
+            "https://ro.turoran.com/client/releases/manifest.krup",
+            "https://ro.turoran.com/client/releases/korangar.exe"
+        )
+        .unwrap(),
+        "https://ro.turoran.com/client/releases/korangar.exe"
+    );
+    assert_eq!(
+        korangar_update::join_url("https://ro.turoran.com/client/releases/manifest.krup", "korangar.exe").unwrap(),
+        "https://ro.turoran.com/client/releases/korangar.exe"
+    );
+}
+
+#[test]
+fn embedded_release_key_rejects_ephemeral_signatures() {
+    const EXPECTED: [u8; 32] = [
+        251, 61, 211, 214, 185, 225, 149, 94, 224, 58, 71, 134, 89, 111, 125, 85, 98, 183, 217, 109, 123, 108, 23, 126, 109, 56, 207, 122, 188,
+        167, 222, 24,
+    ];
+    assert_eq!(manifest::EMBEDDED_UPDATE_PUBLIC_KEY, EXPECTED);
+    assert_ne!(manifest::EMBEDDED_UPDATE_PUBLIC_KEY, [0u8; 32]);
+    let payload = manifest::canonical_payload(&ReleaseManifest {
+        version: "1.2.3".into(),
+        files: vec![file_entry("a.txt", b"hello", "a.txt")],
+    })
+    .unwrap();
+    let good = manifest::sign_envelope(&payload, &SEED).unwrap();
+    assert!(manifest::open_envelope(good.as_bytes(), public_key()).is_ok());
+    let rejected = manifest::open_envelope(good.as_bytes(), &manifest::EMBEDDED_UPDATE_PUBLIC_KEY).unwrap_err();
+    assert!(rejected.contains("rejected"), "{rejected}");
+    let other_seed = [9u8; 32];
+    let other = manifest::sign_envelope(&payload, &other_seed).unwrap();
+    assert!(manifest::open_envelope(other.as_bytes(), public_key()).is_err());
+    assert!(manifest::open_envelope(other.as_bytes(), &manifest::EMBEDDED_UPDATE_PUBLIC_KEY).is_err());
 }
 
 #[test]
@@ -320,6 +356,14 @@ fn loopback_http_apply_uses_no_external_host() {
     assert_eq!(fs::read(&exe).unwrap(), exe_bytes);
     let remote = korangar_update::run_startup_update(&request(&install, &exe, "http://example.com/manifest.krup", "0.1.1")).unwrap_err();
     assert!(remote.contains("disabled") || remote.contains("only http"), "{remote}");
+    let foreign = korangar_update::run_startup_update(&request(&install, &exe, "https://cdn.example/manifest.krup", "0.1.1")).unwrap_err();
+    assert!(
+        foreign.contains("limited to ro.turoran.com") || foreign.contains("only http"),
+        "{foreign}"
+    );
+    let lookalike =
+        korangar_update::run_startup_update(&request(&install, &exe, "https://ro.turoran.com.evil/manifest.krup", "0.1.1")).unwrap_err();
+    assert!(lookalike.contains("limited to ro.turoran.com") || lookalike.contains("only http"), "{lookalike}");
     let _ = fs::remove_dir_all(&root);
 }
 

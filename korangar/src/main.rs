@@ -67,8 +67,8 @@ fn main() {
 }
 
 /// No-op unless `KORANGAR_UPDATE_MANIFEST_URL` is set. `KORANGAR_SKIP_UPDATE=1`
-/// disables the hook. The embedded public key is unset in this tree, so a URL
-/// without a release key fails closed and does not contact a CDN.
+/// disables the hook. The client verifies manifests with the embedded Turoran
+/// release public key. The signing seed is not in this tree.
 fn startup_update() -> Result<(), String> {
     let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let install_root = current_exe.parent().ok_or("executable has no directory")?.to_path_buf();
