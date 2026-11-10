@@ -34,7 +34,7 @@ use rust_state::{PathExt, State};
 use serde::{Deserialize, Serialize};
 
 use super::WindowClass;
-use super::placement::{HudFrame, ScreenAnchor, first_open_hud, frame_anchor_offset};
+use super::placement::{CHAT_WINDOW_MIN_HEIGHT, HudFrame, ScreenAnchor, first_open_hud, frame_anchor_offset};
 use crate::graphics::{Color, ScreenPosition, ScreenSize, Texture};
 use crate::input::InputEvent;
 use crate::loaders::OverflowBehavior;
@@ -607,10 +607,20 @@ pub fn default_menu_bar_frame_for(layout: MenuBarLayout, screen_width: f32, scre
     let width = width.min(screen_width);
     let height = height.min(screen_height);
     let hud = first_open_hud(screen_width, screen_height);
-    let ceiling = (hud.chat.top.min(hud.hotbar.top) - MENU_BAR_HUD_CLEARANCE).min(screen_height);
+    let chat = chat_as_shown(hud.chat, screen_height);
+    let ceiling = (chat.top.min(hud.hotbar.top) - MENU_BAR_HUD_CLEARANCE).min(screen_height);
     let top = (ceiling - height).max(0.0).min(screen_height - height);
     let left = ((screen_width - width) * 0.5).max(0.0);
     HudFrame { left, top, width, height }
+}
+
+/// Chat as it is drawn. The preset frame can be shorter than the chat
+/// window's minimum height (under Gear), and the window is then moved up to
+/// stay on screen.
+pub fn chat_as_shown(preset: HudFrame, screen_height: f32) -> HudFrame {
+    let height = preset.height.max(CHAT_WINDOW_MIN_HEIGHT).min(screen_height);
+    let top = preset.top.min(screen_height - height).max(0.0);
+    HudFrame { top, height, ..preset }
 }
 
 /// [`default_menu_bar_frame_for`] with the default layout. The window cache
@@ -1034,6 +1044,12 @@ mod tests {
         for (screen_width, screen_height) in [(1280.0, 720.0), (1279.0, 700.0), (1920.0, 1080.0)] {
             let frame = default_menu_bar_frame(screen_width, screen_height);
             let hud = first_open_hud(screen_width, screen_height);
+            let shown = super::chat_as_shown(hud.chat, screen_height);
+            assert!(shown.height >= super::CHAT_WINDOW_MIN_HEIGHT);
+            assert!(
+                !rects_overlap(frame, shown),
+                "bar covers the drawn chat at {screen_width}x{screen_height}"
+            );
             assert!(
                 !rects_overlap(frame, hud.chat),
                 "bar covers chat at {screen_width}x{screen_height}"
