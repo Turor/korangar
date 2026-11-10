@@ -169,6 +169,11 @@ impl Display for ChatTab {
 }
 
 impl ChatTab {
+    /// Chat window title for this tab, such as `Chat - Party`.
+    pub fn window_title(self) -> String {
+        format!("Chat - {}", self.label())
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::All => "All",
@@ -646,6 +651,13 @@ pub fn record_whisper_ack(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn window_title_names_the_active_tab() {
+        assert_eq!(ChatTab::All.window_title(), "Chat - All");
+        assert_eq!(ChatTab::Party.window_title(), "Chat - Party");
+    }
+
 
     #[test]
     fn own_public_echo_is_public_chat() {

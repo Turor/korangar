@@ -261,7 +261,7 @@ where
         let label_path = self.label_path;
         let tab = self.tab;
         state.update_value_with(filters_path, move |filters| filters.select(tab));
-        state.update_value(label_path, tab.label().to_string());
+        state.update_value(label_path, tab.window_title());
     }
 }
 
@@ -364,7 +364,7 @@ impl Default for ChatWindowState {
             recent_whisper_targets: Vec::new(),
             pending_whisper_name: String::new(),
             pending_whisper_text: String::new(),
-            active_tab_label: ChatTab::All.label().to_string(),
+            active_tab_label: ChatTab::All.window_title(),
             filters: ChatFilterState::default(),
         }
     }
@@ -463,7 +463,8 @@ where
         let toggle_channel = |channel: ChatChannel| ToggleChannel { filters_path, channel };
 
         window! {
-            title: client_state().localization().chat_window_title(),
+            // The title names the active tab, so it needs no row of its own.
+            title: label_path,
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
             background_color: client_theme().chat().window_color(),
@@ -487,7 +488,6 @@ where
                 split! {
                     gaps: theme().window().gaps(),
                     children: (
-                        text! { text: label_path, overflow_behavior: OverflowBehavior::Shrink },
                         state_button! {
                             text: "Pub",
                             state: filters_path.shown().public_chat(),
