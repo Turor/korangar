@@ -5056,7 +5056,8 @@ pub struct EndUseSkillPacket {
 }
 
 /// Server tells the area a cast was cancelled (`ZC_DISPEL`, `0x01B9`).
-/// Hercules sends this from `clif_skillcastcancel`, including damage interrupts.
+/// Hercules sends this from `clif_skillcastcancel`, including damage
+/// interrupts.
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x01B9)]
@@ -5079,8 +5080,9 @@ pub struct UseSkillSuccessPacket {
     pub disposable: u8,
 }
 
-/// Cast acknowledgement for PACKETVER >= 20181212 (`ZC_USESKILL_ACK`, `0x0B1A`).
-/// roBrowser calls this `USESKILL_ACK3`. `attack_mt` follows `disposable` (29 bytes).
+/// Cast acknowledgement for PACKETVER >= 20181212 (`ZC_USESKILL_ACK`,
+/// `0x0B1A`). roBrowser calls this `USESKILL_ACK3`. `attack_mt` follows
+/// `disposable` (29 bytes).
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0B1A)]

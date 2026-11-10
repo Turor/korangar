@@ -1,10 +1,11 @@
 //! Cast-bar timing. Rendering lives in the client; this type only tracks state.
 //!
-//! roBrowser shows the bar from `ZC_USESKILL_ACK` (`0x0B1A` on this profile) when `delayTime > 0`,
-//! except skills with `hideCastBar`. Auto Counter has no delay and still shows a
-//! one-second bar. `ZC_DISPEL` (`0x01B9`) clears it. That is the packet Hercules
-//! sends for a damage interrupt (`clif_skillcastcancel`). The client stop packet
-//! `CZ_USE_SKILL_END` (`0x0B11`) clears the local bar as well.
+//! roBrowser shows the bar from `ZC_USESKILL_ACK` (`0x0B1A` on this profile)
+//! when `delayTime > 0`, except skills with `hideCastBar`. Auto Counter has no
+//! delay and still shows a one-second bar. `ZC_DISPEL` (`0x01B9`) clears it.
+//! That is the packet Hercules sends for a damage interrupt
+//! (`clif_skillcastcancel`). The client stop packet `CZ_USE_SKILL_END`
+//! (`0x0B11`) clears the local bar as well.
 
 use super::table;
 

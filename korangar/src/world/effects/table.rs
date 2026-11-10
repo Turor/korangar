@@ -1,15 +1,14 @@
 //! Lookups over the roBrowser effect, skill, and skill-unit tables.
 //!
-//! STR files are the kind [`crate::loaders::EffectLoader`] can play. Sprite rows
-//! are kept in the table and skipped at playback, same as cylinder, 3D, and
-//! function effects.
+//! STR files are the kind [`crate::loaders::EffectLoader`] can play. Sprite
+//! rows are kept in the table and skipped at playback, same as cylinder, 3D,
+//! and function effects.
 
 use ragnarok_bytes::{ByteWriter, ToBytes};
 use ragnarok_packets::{EffectId, UnitId};
 
-pub use super::generated::{EffectRef, Layer, LayerKind, SkillVisual};
-
 use super::generated::{EFFECT_REFS, LAYERS, NAMED_EFFECTS, NUMERIC_EFFECTS, SKILL_UNITS, SKILL_VISUALS};
+pub use super::generated::{EffectRef, Layer, LayerKind, SkillVisual};
 
 /// Which skill-effect slot to read. Names match roBrowser's `SkillEffect.js`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -17,7 +16,8 @@ pub enum SkillField {
     Effect,
     EffectOnCaster,
     /// Zone STR from the roBrowser table. Persistent zones are `AddSkillUnit`,
-    /// so the client does not construct this slot at playback. Tests still read it.
+    /// so the client does not construct this slot at playback. Tests still read
+    /// it.
     #[cfg_attr(not(test), allow(dead_code))]
     Ground,
     Hit,
@@ -203,7 +203,11 @@ mod tests {
         assert!(coin.iter().any(|layer| layer.kind == LayerKind::Str && layer.file == "maemor.str"));
 
         let firewall = numeric_layers(25).expect("firewall");
-        assert!(firewall.iter().any(|layer| layer.file.starts_with("firewall") && layer.kind == LayerKind::Str));
+        assert!(
+            firewall
+                .iter()
+                .any(|layer| layer.file.starts_with("firewall") && layer.kind == LayerKind::Str)
+        );
 
         // EffectTable.js comments out 157 (`EF_LVUP`) because `levelup.str` is missing.
         // The level-up STR is effect 371 (`EF_ANGEL`, `angel.str`).

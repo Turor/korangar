@@ -1146,7 +1146,14 @@ impl Client {
         }
     }
 
-    fn play_skill_field(&mut self, skill_id: SkillId, field: SkillField, entity_id: EntityId, position: Option<Point3<f32>>, repeating: bool) {
+    fn play_skill_field(
+        &mut self,
+        skill_id: SkillId,
+        field: SkillField,
+        entity_id: EntityId,
+        position: Option<Point3<f32>>,
+        repeating: bool,
+    ) {
         let paths = effects::collect_str_paths(effects::skill_effect_refs(skill_id.0, field));
         self.spawn_str_effects(&paths, entity_id, position, repeating);
     }
@@ -3896,8 +3903,7 @@ impl Client {
                     delay_time,
                     ..
                 } => {
-                    self.cast_bars
-                        .begin(source_entity_id.0, skill_id.0, delay_time, client_tick.0);
+                    self.cast_bars.begin(source_entity_id.0, skill_id.0, delay_time, client_tick.0);
                     self.play_skill_field(skill_id, SkillField::BeginCast, source_entity_id, None, false);
                 }
                 NetworkEvent::ToUseSkillSuccess { flag, .. } => {
@@ -3906,11 +3912,7 @@ impl Client {
                     if flag != 0 {
                         continue;
                     }
-                    let Some(entity_id) = self
-                        .client_state
-                        .try_follow(this_entity())
-                        .map(|player| player.get_entity_id())
-                    else {
+                    let Some(entity_id) = self.client_state.try_follow(this_entity()).map(|player| player.get_entity_id()) else {
                         continue;
                     };
                     self.cast_bars.cancel(entity_id.0);
@@ -5590,7 +5592,8 @@ impl Client {
                         && skill.skill_id == ROLLING_CUTTER_ID
                     {
                         let _ = self.networking_system.stop_channeling_skill(skill.skill_id);
-                        // `0x0B11` is outbound. The server cancel is `0x01B9`; this clears the local bar.
+                        // `0x0B11` is outbound. The server cancel is `0x01B9`; this clears the local
+                        // bar.
                         let player_id = self.client_state.try_follow(this_entity()).map(|player| player.get_entity_id().0);
                         if let Some(player_id) = player_id {
                             self.cast_bars.cancel(player_id);
