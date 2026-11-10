@@ -113,6 +113,8 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
         "CloseShop" => Some(InputEvent::CloseShop),
         "LeaveParty" => Some(InputEvent::LeaveParty),
         "AcceptPendingPartyInvite" => Some(InputEvent::AcceptPendingPartyInvite),
+        "PurchaseBarter" => Some(InputEvent::PurchaseBarter),
+        "CloseBarter" => Some(InputEvent::CloseBarter),
         "AcceptTrade" => Some(InputEvent::AcceptTrade),
         "DeclineTrade" => Some(InputEvent::DeclineTrade),
         "TradeConfirm" => Some(InputEvent::TradeConfirm),
@@ -264,6 +266,7 @@ pub fn parse_window_class(name: &str) -> Option<WindowClass> {
     match name.trim().to_ascii_lowercase().as_str() {
         "audiosettings" => Some(WindowClass::AudioSettings),
         "bank" => Some(WindowClass::Bank),
+        "barter" => Some(WindowClass::Barter),
         "cashshop" => Some(WindowClass::CashShop),
         "buy" => Some(WindowClass::Buy),
         "buycart" => Some(WindowClass::BuyCart),
@@ -367,6 +370,12 @@ pub fn window_command(class: WindowClass, open: bool) -> Result<WindowCommand, S
             } else {
                 InputEvent::CloseBank
             }
+        }
+        WindowClass::Barter => {
+            if open {
+                return Err("barter opens from the server".to_owned());
+            }
+            InputEvent::CloseBarter
         }
         WindowClass::CashShop => {
             if open {

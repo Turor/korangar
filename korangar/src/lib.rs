@@ -138,6 +138,28 @@ fn headless_auto() -> bool {
     std::env::var_os("KORANGAR_HEADLESS_AUTO").is_some()
 }
 
+fn finish_barter_purchase<Callback>(
+    networking_system: &mut NetworkingSystem<Callback>,
+    state: &mut State<ClientState>,
+    interface: &mut Interface<'static, ClientState>,
+    result: u8,
+) where
+    Callback: ragnarok_packets::handler::PacketCallback + Send,
+{
+    let expanded = state.follow(client_state().barter()).is_expanded();
+    let color = match korangar_networking::barter_result_ok(result) {
+        true => MessageColor::Information,
+        false => MessageColor::Error,
+    };
+    state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
+        korangar_networking::barter_result_text(result).to_owned(),
+        color,
+    ));
+    let _ = networking_system.close_barter(expanded);
+    state.follow_mut(client_state().barter()).mark_button_close();
+    interface.close_window_with_class(WindowClass::Barter);
+}
+
 fn autopilot_println(line: &str) {
     println!("{line}");
     let _ = std::io::Write::flush(&mut std::io::stdout());
@@ -1791,6 +1813,14 @@ impl Client {
                         let _ = self.networking_system.close_rodex();
                         self.interface.close_window_with_class(WindowClass::Mail);
                     }
+                    if self.client_state.follow(client_state().barter()).is_open()
+                        || self.interface.is_window_with_class_open(WindowClass::Barter)
+                    {
+                        let expanded = self.client_state.follow(client_state().barter()).is_expanded();
+                        let _ = self.networking_system.close_barter(expanded);
+                        self.client_state.follow_mut(client_state().barter()).mark_button_close();
+                        self.interface.close_window_with_class(WindowClass::Barter);
+                    }
 
                     self.client_state
                         .follow_mut(client_state().navigation())
@@ -3153,6 +3183,13 @@ impl Client {
                         MessageColor::Information,
                     ));
                 }
+                NetworkEvent::BarterShopOpened { expanded, offers } => {
+                    self.client_state.follow_mut(client_state().dialog_window()).end();
+                    self.interface.close_window_with_class(WindowClass::Dialog);
+                    let offers = crate::state::barter::offers_from_catalog(&self.async_loader, offers);
+                    self.client_state.follow_mut(client_state().barter()).open_shop(expanded, offers);
+                    self.interface.open_window(BarterWindow::new());
+                }
                 NetworkEvent::OpenShop { items } => {
                     // Close the dialog. Some NPCs don't use the `BuyOrSellPacket` and instead use
                     // the regular `DialogMenuPacket`. When opening the shop that dialog should be
@@ -3187,6 +3224,13 @@ impl Client {
                             .push(ChatMessage::new("Failed to buy items".to_owned(), MessageColor::Error));
                     }
                 },
+                NetworkEvent::NpcBuyResult { result } => {
+                    // Regular NPC buy also uses 0x00CA and previously ignored it. Only barter
+                    // treats this byte as the exchange result and answers with a barter close.
+                    if self.client_state.follow(client_state().barter()).is_open() {
+                        finish_barter_purchase(&mut self.networking_system, &mut self.client_state, &mut self.interface, result);
+                    }
+                }
                 NetworkEvent::SellItemList { items } => {
                     // Close the dialog. Some NPCs don't use the `BuyOrSellPacket` and instead use
                     // the regular `DialogMenuPacket`. When opening the shop that dialog should be
@@ -5616,6 +5660,15 @@ impl Client {
                         }
                     }
                 }
+                InputEvent::PurchaseBarter => {
+                    crate::state::barter::submit_barter_purchase(&mut self.networking_system, &mut self.client_state);
+                }
+                InputEvent::CloseBarter => {
+                    let expanded = self.client_state.follow(client_state().barter()).is_expanded();
+                    let _ = self.networking_system.close_barter(expanded);
+                    self.client_state.follow_mut(client_state().barter()).mark_button_close();
+                    self.interface.close_window_with_class(WindowClass::Barter);
+                }
                 #[cfg(feature = "debug")]
                 InputEvent::ReloadLanguage => {
                     let language = *self.client_state.follow(client_state().interface_settings().language());
@@ -5777,6 +5830,7 @@ impl Client {
         }
 
         self.sync_styling_shop_close();
+        self.sync_barter_close();
 
         interface_has_focus
     }
@@ -5846,6 +5900,16 @@ impl Client {
             .take_unsolicited_close(open)
         {
             let _ = self.networking_system.close_styling_shop();
+        }
+    }
+
+    /// Escape and the title-bar close remove the window without the Close
+    /// button.
+    fn sync_barter_close(&mut self) {
+        let open = self.interface.is_window_with_class_open(WindowClass::Barter);
+        if self.client_state.follow_mut(client_state().barter()).take_unsolicited_close(open) {
+            let expanded = self.client_state.follow(client_state().barter()).is_expanded();
+            let _ = self.networking_system.close_barter(expanded);
         }
     }
 
@@ -5928,6 +5992,9 @@ impl Client {
                             .follow_mut(client_state().stable_window())
                             .set_item_texture(stable_item_id, texture.clone());
                     }
+                    self.client_state
+                        .follow_mut(client_state().barter())
+                        .apply_icon(item_id, texture.clone());
                     self.client_state
                         .follow_mut(client_state().cart())
                         .update_item_sprite(item_id, texture);

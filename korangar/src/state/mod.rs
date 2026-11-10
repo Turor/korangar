@@ -1,5 +1,6 @@
 pub mod achievements;
 pub mod bank_cash_roulette;
+pub mod barter;
 #[cfg(feature = "debug")]
 pub mod cache_statistics;
 pub mod character_slots;
@@ -289,6 +290,9 @@ pub struct ClientState {
     // TODO: Unhide this
     #[hidden_element]
     sell_cart: Vec<SellItem<(ResourceMetadata, u16)>>,
+    /// Open NPC barter or expanded barter shop.
+    #[hidden_element]
+    barter: crate::state::barter::BarterShopState,
     /// Players on this map who have a vend or buying store open.
     player_shops: Vec<ShopSign>,
     /// Account that owns the shop currently shown in the vendor window.
@@ -529,6 +533,7 @@ impl ClientState {
             let buy_cart = Vec::default();
             let sell_items = Vec::default();
             let sell_cart = Vec::default();
+            let barter = crate::state::barter::BarterShopState::default();
             let player_shops = Vec::default();
             let vendor_account_id = AccountId(0);
             let vendor_shop_id = 0;
@@ -644,6 +649,7 @@ impl ClientState {
             buy_cart,
             sell_items,
             sell_cart,
+            barter,
             player_shops,
             vendor_account_id,
             vendor_shop_id,

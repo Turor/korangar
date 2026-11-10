@@ -1,6 +1,7 @@
 mod achievements;
 mod audio_settings;
 mod bank;
+mod barter;
 mod basic_info_view;
 mod buy;
 mod buy_cart;
@@ -84,6 +85,7 @@ use serde::{Deserialize, Serialize};
 pub use self::achievements::AchievementsWindow;
 pub use self::audio_settings::AudioSettingsWindow;
 pub use self::bank::BankWindow;
+pub use self::barter::BarterWindow;
 pub use self::buy::BuyWindow;
 pub use self::buy_cart::BuyCartWindow;
 pub use self::buy_or_sell::BuyOrSellWindow;
@@ -169,6 +171,7 @@ pub use self::world_map::interface_texture_candidates;
 pub enum WindowClass {
     AudioSettings,
     Bank,
+    Barter,
     CashShop,
     Buy,
     BuyCart,

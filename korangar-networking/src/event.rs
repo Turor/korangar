@@ -732,6 +732,16 @@ pub enum NetworkEvent {
     BuyingCompleted {
         result: BuyShopItemsResult,
     },
+    /// A barter or expanded barter catalog (`0x0B78` / `0x0B0E` / `0x0B79` /
+    /// `0x0B56`).
+    BarterShopOpened {
+        expanded: bool,
+        offers: Vec<crate::packet_versions::barter::BarterOfferData>,
+    },
+    /// `ZC_PC_PURCHASE_RESULT` (`0x00CA`). Barter success is `12`.
+    NpcBuyResult {
+        result: u8,
+    },
     SellItemList {
         items: Vec<SellItemInformation>,
     },

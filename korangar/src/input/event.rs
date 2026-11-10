@@ -515,6 +515,10 @@ pub enum InputEvent {
     },
     /// Close the shop.
     CloseShop,
+    /// Exchange the barter cart.
+    PurchaseBarter,
+    /// Close the barter shop and tell the NPC.
+    CloseBarter,
     /// Choose whether to buy or sell items at a shop.
     BuyOrSell {
         /// Id of the open shop.
