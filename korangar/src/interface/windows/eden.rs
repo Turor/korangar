@@ -568,7 +568,7 @@ fn paint_button<'a>(
     let border = if hovered { tokens.hover } else { tokens.border };
     layout.add_rectangle(
         area,
-        CornerDiameter::uniform(4.0),
+        CornerDiameter::uniform(tokens.corner_radius),
         border,
         tokens.bg,
         ShadowPadding::diagonal(0.0, 0.0),
@@ -656,9 +656,6 @@ impl CustomWindow<ClientState> for EdenWindow {
                         },
                     ),
                 },
-                scroll_view! {
-                    children: EdenBoard::new(state_path),
-                },
                 either! {
                     selector: ComputedSelector::new_default(|state: &ClientState| {
                         client_state().eden_window().follow_safe(state).buying()
@@ -707,6 +704,9 @@ impl CustomWindow<ClientState> for EdenWindow {
                         text: "",
                         height: 0.0,
                     },
+                },
+                scroll_view! {
+                    children: EdenBoard::new(state_path),
                 },
             ),
         }
