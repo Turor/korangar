@@ -198,6 +198,31 @@ pub enum NetworkEvent {
         text: String,
         color: MessageColor,
     },
+    /// Nearby speech (`0x008D` or `0x02C1`). Also drives the overhead bubble.
+    EntitySpeech {
+        entity_id: EntityId,
+        text: String,
+        color: MessageColor,
+    },
+    /// Broadcast (`0x009A` or `0x01C3`). Shown in chat and on the announce
+    /// banner.
+    BroadcastMessage {
+        text: String,
+        color: MessageColor,
+    },
+    /// Incoming whisper (`ZC_WHISPER` `0x0097` or `0x09DE`).
+    WhisperReceived {
+        sender: String,
+        text: String,
+        is_admin: bool,
+    },
+    /// `ZC_ACK_WHISPER` (`0x0098` / `0x09DF`).
+    ///
+    /// `0` sent, `1` offline, `2` ignored, `3` everyone ignored, anything else
+    /// is treated as offline.
+    WhisperAck {
+        result: u8,
+    },
     CharacterSlotSwitched,
     CharacterSlotSwitchFailed,
     /// Update entity details. Mostly received when the client sends

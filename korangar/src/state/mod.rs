@@ -3,6 +3,7 @@ pub mod bank_cash_roulette;
 #[cfg(feature = "debug")]
 pub mod cache_statistics;
 pub mod character_slots;
+pub mod chat;
 pub mod clan;
 pub mod equip_switch;
 pub mod friends;
@@ -127,11 +128,21 @@ pub struct ChatMessage {
     pub text: String,
     /// Color of the message.
     pub color: MessageColor,
+    /// Tab this line belongs to. Derived from [`MessageColor`] unless a caller
+    /// sets it with [`ChatMessage::with_channel`].
+    pub channel: chat::ChatChannel,
 }
 
 impl ChatMessage {
     pub fn new(text: String, color: MessageColor) -> Self {
-        Self { text, color }
+        let channel = chat::ChatChannel::from_message_color(color);
+        Self { text, color, channel }
+    }
+
+    /// Party and guild tasks should pass [`chat::ChatChannel::Party`] or
+    /// [`chat::ChatChannel::Guild`] when the color alone is not enough.
+    pub fn with_channel(text: String, color: MessageColor, channel: chat::ChatChannel) -> Self {
+        Self { text, color, channel }
     }
 }
 
@@ -230,6 +241,10 @@ pub struct ClientState {
 
     /// List of all received chat messages.
     chat_messages: Vec<ChatMessage>,
+    /// Public speech drawn above speakers. Expires after about five seconds.
+    chat_bubbles: Vec<chat::ChatBubble>,
+    /// Top-of-screen broadcast (`0x009A` / `0x01C3`).
+    announce: Option<chat::AnnounceBanner>,
     /// List of all friends.
     friend_list: Vec<FriendListEntry>,
     /// Guild info, members, and notice for the local character.
@@ -580,6 +595,8 @@ impl ClientState {
             dead_entities: Vec::new(),
             ground_items: Vec::new(),
             chat_messages,
+            chat_bubbles: Vec::new(),
+            announce: None,
             friend_list,
             guild,
             guild_window,
@@ -645,6 +662,52 @@ impl ClientState {
             #[cfg(feature = "debug")]
             cache_statistics,
         }
+    }
+}
+
+impl ClientState {
+    pub(crate) fn expire_chat_overlays(&mut self, now: u32) {
+        chat::expire_bubbles(&mut self.chat_bubbles, now);
+        chat::expire_announce(&mut self.announce, now);
+    }
+
+    pub(crate) fn outgoing_chat(&self, text: &str) -> chat::OutgoingChat {
+        chat::parse_outgoing_chat(text, self.chat_window.whisper_target_text())
+    }
+
+    pub(crate) fn begin_whisper(&mut self, target: String, text: String) -> (String, String) {
+        self.chat_window.begin_whisper(target, text)
+    }
+
+    pub(crate) fn note_local_speech(&mut self, entity_id: EntityId, text: String, now: u32) {
+        chat::upsert_bubble(&mut self.chat_bubbles, entity_id, text, now);
+    }
+
+    pub(crate) fn record_entity_speech(&mut self, entity_id: EntityId, text: String, color: MessageColor, now: u32) {
+        chat::record_entity_speech(&mut self.chat_messages, &mut self.chat_bubbles, entity_id, text, color, now);
+    }
+
+    pub(crate) fn record_broadcast(&mut self, text: String, color: MessageColor, now: u32) {
+        chat::record_broadcast(&mut self.chat_messages, &mut self.announce, text, color, now);
+    }
+
+    pub(crate) fn record_whisper(&mut self, sender: String, text: String) {
+        let ClientState {
+            chat_messages,
+            chat_window,
+            ..
+        } = self;
+        chat::record_whisper(chat_messages, chat_window.recent_whisper_targets_mut(), &sender, &text);
+    }
+
+    pub(crate) fn record_whisper_ack(&mut self, result: u8) {
+        let ClientState {
+            chat_messages,
+            chat_window,
+            ..
+        } = self;
+        let (recent, pending_name, pending_text) = chat_window.pending_whisper_mut();
+        chat::record_whisper_ack(chat_messages, recent, pending_name, pending_text, result);
     }
 }
 

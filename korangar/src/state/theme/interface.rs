@@ -11,6 +11,7 @@ use korangar_interface::element::StateElement;
 use korangar_interface::layout::tooltip::TooltipTheme;
 use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_interface::window::{StateWindow, WindowTheme};
+use korangar_networking::MessageColor;
 use rust_state::RustState;
 use serde::{Deserialize, Serialize};
 
@@ -54,6 +55,52 @@ pub struct ChatTheme {
     error_color: Color,
     /// Default color for `MessageColor::Information`.
     information_color: Color,
+    /// Nearby public speech.
+    public_color: Color,
+    /// Whisper lines.
+    whisper_color: Color,
+    /// Party chat. G04 pushes `MessageColor::Party`.
+    party_color: Color,
+    /// Guild chat.
+    guild_color: Color,
+    /// Overhead speech bubble text.
+    bubble_color: Color,
+    /// Overhead speech bubble backing.
+    bubble_background_color: Color,
+    /// Announce banner backing.
+    announce_background_color: Color,
+}
+
+impl ChatTheme {
+    pub(crate) fn message_color(&self, color: MessageColor) -> Color {
+        match color {
+            MessageColor::Rgb { red, green, blue } => Color::rgb_u8(red, green, blue),
+            MessageColor::Broadcast => self.broadcast_color,
+            MessageColor::Server => self.server_color,
+            MessageColor::Error => self.error_color,
+            MessageColor::Information => self.information_color,
+            MessageColor::Public => self.public_color,
+            MessageColor::Whisper => self.whisper_color,
+            MessageColor::Party => self.party_color,
+            MessageColor::Guild => self.guild_color,
+        }
+    }
+
+    pub(crate) fn broadcast_color(&self) -> Color {
+        self.broadcast_color
+    }
+
+    pub(crate) fn bubble_color(&self) -> Color {
+        self.bubble_color
+    }
+
+    pub(crate) fn bubble_background_color(&self) -> Color {
+        self.bubble_background_color
+    }
+
+    pub(crate) fn announce_background_color(&self) -> Color {
+        self.announce_background_color
+    }
 }
 
 #[derive(Serialize, Deserialize, RustState, StateElement)]
@@ -351,6 +398,13 @@ impl InterfaceTheme {
                 server_color: sp,
                 error_color: accent2,
                 information_color: accent,
+                public_color: text,
+                whisper_color: sp,
+                party_color: gold,
+                guild_color: accent,
+                bubble_color: text,
+                bubble_background_color: panel.with_alpha_u8(180),
+                announce_background_color: bg.with_alpha_u8(170),
             },
             skill_tree: SkillTreeTheme {
                 slot_background_color: raised.with_alpha_u8(230),
@@ -649,6 +703,13 @@ impl InterfaceTheme {
                 server_color: Color::rgb_u8(180, 220, 255),
                 error_color: Color::rgb_u8(255, 120, 120),
                 information_color: Color::rgb_u8(200, 230, 180),
+                public_color: Color::rgb_u8(235, 236, 240),
+                whisper_color: Color::rgb_u8(181, 222, 239),
+                party_color: Color::rgb_u8(255, 180, 96),
+                guild_color: Color::rgb_u8(170, 220, 140),
+                bubble_color: Color::rgb_u8(235, 236, 240),
+                bubble_background_color: Color::rgba_u8(0, 0, 0, 150),
+                announce_background_color: Color::rgba_u8(0, 0, 0, 150),
             },
             skill_tree: SkillTreeTheme {
                 slot_background_color: Color::monochrome_u8(40),
@@ -865,6 +926,13 @@ impl InterfaceTheme {
                 server_color: Color::rgb_u8(180, 220, 255),
                 error_color: Color::rgb_u8(255, 120, 120),
                 information_color: Color::rgb_u8(200, 230, 180),
+                public_color: Color::rgb_u8(235, 236, 240),
+                whisper_color: Color::rgb_u8(181, 222, 239),
+                party_color: Color::rgb_u8(255, 180, 96),
+                guild_color: Color::rgb_u8(170, 220, 140),
+                bubble_color: Color::rgb_u8(235, 236, 240),
+                bubble_background_color: Color::rgba_u8(0, 0, 0, 160),
+                announce_background_color: Color::rgba_u8(0, 0, 0, 160),
             },
             skill_tree: SkillTreeTheme {
                 slot_background_color: Color::monochrome_u8(40),
