@@ -15,6 +15,7 @@ mod character_overview;
 mod character_preview;
 mod character_selection;
 mod chat;
+mod chat_room;
 mod clan;
 #[cfg(feature = "debug")]
 mod commands;
@@ -106,6 +107,7 @@ pub use self::character_overview::CharacterOverviewWindow;
 pub(crate) use self::character_preview::{sync_preview, take_preview_animation};
 pub use self::character_selection::CharacterSelectionWindow;
 pub use self::chat::{ChatTextBox, ChatWindow, ChatWindowState};
+pub use self::chat_room::{ChatRoomCreateWindow, ChatRoomPasswordWindow, ChatRoomTitleBox, ChatRoomWindow};
 pub use self::clan::ClanWindow;
 #[cfg(feature = "debug")]
 pub use self::commands::CommandsWindow;
@@ -212,6 +214,9 @@ pub enum WindowClass {
     Keybinds,
     Inventory,
     ItemDrop,
+    ChatRoom,
+    ChatRoomCreate,
+    ChatRoomPassword,
     Storage,
     Equipment,
     SwitchEquip,

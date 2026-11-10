@@ -7,6 +7,7 @@ pub mod cache_statistics;
 pub mod character_screen;
 pub mod character_slots;
 pub mod chat;
+pub mod chat_room;
 pub mod clan;
 pub mod context_menu;
 pub mod eden;
@@ -98,6 +99,7 @@ use crate::settings::{
 use crate::state::achievements::Achievements;
 use crate::state::character_screen::CharacterScreen;
 use crate::state::character_slots::CharacterSlots;
+use crate::state::chat_room::ChatRoomState;
 use crate::state::equip_switch::EquipSwitch;
 use crate::state::hotbar::Hotbar;
 use crate::state::inventory::Inventory;
@@ -348,6 +350,8 @@ pub struct ClientState {
     inventory: Inventory,
     /// Amount typed when a stack is dropped on the ground.
     item_drop: ItemDropPrompt,
+    /// Chat room boards, the joined room, and its forms.
+    chat_room: ChatRoomState,
     /// Kafra or guild storage. Replaced when a storage list arrives.
     storage: Inventory,
     /// Alternate equipment set. This does not change what is currently worn.
@@ -711,6 +715,7 @@ impl ClientState {
             hotbar,
             inventory,
             item_drop,
+            chat_room: ChatRoomState::default(),
             storage,
             equip_switch: EquipSwitch::default(),
             cart,

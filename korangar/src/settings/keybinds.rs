@@ -290,6 +290,7 @@ pub enum ActionKind {
     Friends,
     Guild,
     Clan,
+    ChatRoom,
     ItemFinder,
     Cart,
     GameSettings,
@@ -371,6 +372,7 @@ fn default_actions() -> Vec<ActionDef> {
         ),
         ("guild", "Guild", KeyName::G, true, false, false, ActionKind::Guild),
         ("clan", "Clan", KeyName::C, true, false, false, ActionKind::Clan),
+        ("chat-room", "Chat room", KeyName::C, true, false, true, ActionKind::ChatRoom),
         (
             "item-finder",
             "Item finder",
@@ -685,6 +687,7 @@ fn push_action(events: &mut Vec<InputEvent>, kind: ActionKind, active_tab: u8, r
         ActionKind::Friends if pressed => Some(InputEvent::ToggleFriendListWindow),
         ActionKind::Guild if pressed => Some(InputEvent::ToggleGuildWindow),
         ActionKind::Clan if pressed => Some(InputEvent::ToggleClanWindow),
+        ActionKind::ChatRoom if pressed => Some(InputEvent::OpenChatRoomCreate),
         ActionKind::ItemFinder if pressed => Some(InputEvent::ToggleItemFinderWindow),
         ActionKind::Cart if pressed => Some(InputEvent::ToggleCartWindow),
         ActionKind::GameSettings if pressed => Some(InputEvent::ToggleGameSettingsWindow),

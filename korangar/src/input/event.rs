@@ -475,6 +475,28 @@ pub enum InputEvent {
     ConfirmItemDrop,
     /// Close the drop window without sending a packet.
     CancelItemDrop,
+    /// Open the chat room create form. Only works while playing.
+    OpenChatRoomCreate,
+    /// Open the settings form of the room this client owns.
+    OpenChatRoomSettings,
+    /// Close the chat room create / settings form.
+    CloseChatRoomSettings,
+    /// Send the chat room create / settings form.
+    SubmitChatRoomSettings,
+    /// Leave the current chat room.
+    LeaveChatRoom,
+    /// Kick the member named in the chat room member box (owner only).
+    KickChatRoomMember,
+    /// Hand the room to the member named in the member box (owner only).
+    GiveChatRoomOwnership,
+    /// Join the private room the password prompt is for.
+    ConfirmChatRoomPassword,
+    /// Close the chat room password prompt.
+    CancelChatRoomPassword,
+    /// A click on the room board above a player.
+    ClickChatRoomBoard {
+        chat_id: ragnarok_packets::ChatRoomId,
+    },
     /// Highlight a row in the item or skill selection list.
     SelectItemSkillRow {
         /// Row index in the open list.

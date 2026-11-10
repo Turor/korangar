@@ -140,7 +140,7 @@ fn projected_boards(camera: &dyn Camera, state: &State<ClientState>, screen_size
     boards
 }
 
-fn project_head(camera: &dyn Camera, position: Point3<f32>, screen_size: ScreenSize) -> Option<(f32, f32)> {
+pub(crate) fn project_head(camera: &dyn Camera, position: Point3<f32>, screen_size: ScreenSize) -> Option<(f32, f32)> {
     let head = position + Vector3::new(0.0, HEAD_OFFSET_Y, 0.0);
     let clip = camera.view_projection_matrix() * head.to_homogeneous();
     if clip.w <= 0.0 {

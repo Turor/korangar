@@ -1,6 +1,7 @@
 #![cfg_attr(feature = "interface", feature(impl_trait_in_assoc_type))]
 #![cfg_attr(feature = "interface", feature(negative_impls))]
 
+mod chat_room;
 mod entity;
 mod equip_switch;
 mod event;
@@ -10,6 +11,7 @@ mod inventory_lists;
 mod items;
 mod message;
 mod packet_versions;
+pub use self::chat_room::{CHAT_ROOM_LIMITS, CHAT_ROOM_PASSWORD_LENGTH, CHAT_ROOM_TITLE_LENGTH, clip_chat_room_text};
 mod party;
 mod pincode;
 mod server;
@@ -37,8 +39,8 @@ pub use self::entity::EntityData;
 pub use self::equip_switch::EquipSwitchSlotPathExt;
 pub use self::equip_switch::{EquipSwitchSlot, assign_slot, position_label, replace_slots};
 pub use self::event::{
-    DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, GuildSkillSnapshot, HuntIndexUpdate, NetworkEvent,
-    OwnShopLine, RefineMaterialOffer, RoulettePrize, SearchStoreHit, StatusChangeState, ViewedEquipPiece, WeaponRefineOffer,
+    ChatRoomMember, DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, GuildSkillSnapshot, HuntIndexUpdate,
+    NetworkEvent, OwnShopLine, RefineMaterialOffer, RoulettePrize, SearchStoreHit, StatusChangeState, ViewedEquipPiece, WeaponRefineOffer,
 };
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
