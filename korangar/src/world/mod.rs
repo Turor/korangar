@@ -1,4 +1,5 @@
 mod action;
+mod basic_info;
 mod animation;
 mod cameras;
 mod effect;
@@ -18,6 +19,7 @@ mod video;
 use std::sync::Arc;
 
 pub use self::action::*;
+pub use self::basic_info::*;
 pub use self::animation::*;
 pub use self::cameras::*;
 pub use self::effect::*;

@@ -155,6 +155,40 @@ pub struct GlobalTheme {
     drop_area_outline: ShadowPadding,
 }
 
+
+/// Colors for the basic-info HUD, inventory footer, and experience bars.
+#[derive(Serialize, Deserialize, RustState, StateElement, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct BasicInfoTheme {
+    pub base_exp_color: Color,
+    pub job_exp_color: Color,
+    pub exp_track_color: Color,
+    pub zeny_color: Color,
+    pub weight_color: Color,
+    pub weight_caution_color: Color,
+    pub weight_over_color: Color,
+}
+
+impl Default for BasicInfoTheme {
+    fn default() -> Self {
+        Self::from_tokens(&crate::state::theme::ThemeTokens::turoran_dark())
+    }
+}
+
+impl BasicInfoTheme {
+    pub fn from_tokens(tokens: &crate::state::theme::ThemeTokens) -> Self {
+        Self {
+            base_exp_color: tokens.sp,
+            job_exp_color: tokens.gold,
+            exp_track_color: tokens.raised.with_alpha_u8(230),
+            zeny_color: tokens.gold,
+            weight_color: tokens.text,
+            weight_caution_color: tokens.hover,
+            weight_over_color: tokens.accent2,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, RustState, StateElement, StateWindow)]
 #[window_title("Theme Inspector")]
 pub struct InterfaceTheme {
@@ -184,6 +218,9 @@ pub struct InterfaceTheme {
     pub chat: ChatTheme,
     pub skill_tree: SkillTreeTheme,
     pub global: GlobalTheme,
+    /// Experience bars, zeny, and weight. Missing from older theme files.
+    #[serde(default)]
+    pub basic_info: BasicInfoTheme,
 }
 
 impl InterfaceTheme {
@@ -433,6 +470,8 @@ impl InterfaceTheme {
                 fill_alpha: 0.12,
                 drop_area_outline: ShadowPadding::uniform(3.0),
             },
+            basic_info: BasicInfoTheme::from_tokens(tokens),
+
         }
     }
 
@@ -738,6 +777,8 @@ impl InterfaceTheme {
                 fill_alpha: 0.1,
                 drop_area_outline: ShadowPadding::uniform(4.0),
             },
+            basic_info: BasicInfoTheme::default(),
+
         }
     }
 
@@ -961,6 +1002,8 @@ impl InterfaceTheme {
                 fill_alpha: 0.1,
                 drop_area_outline: ShadowPadding::uniform(4.0),
             },
+            basic_info: BasicInfoTheme::default(),
+
         }
     }
 }

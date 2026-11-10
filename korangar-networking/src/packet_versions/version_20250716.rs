@@ -1142,7 +1142,11 @@ where
     packet_handler.register_noop::<ParameterChangePacket>()?;
     packet_handler.register(|packet: SellListPacket| NetworkEvent::SellItemList { items: packet.items })?;
     packet_handler.register(|packet: SellItemsResultPacket| NetworkEvent::SellingCompleted { result: packet.result })?;
-    packet_handler.register_noop::<RequestStatUpResponsePacket>()?;
+    packet_handler.register(|packet: RequestStatUpResponsePacket| NetworkEvent::StatUpResult {
+        status_id: packet.staus_type,
+        success: packet.success == RequestStatUpResult::Success,
+        value: packet.value,
+    })?;
     packet_handler.register_noop::<EquipAmmunitionPacket>()?;
     packet_handler.register_noop::<AmmunitionActionPacket>()?;
     packet_handler.register(|packet: UpdateSkillPacket| {

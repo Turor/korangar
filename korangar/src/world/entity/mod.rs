@@ -33,8 +33,8 @@ use crate::renderer::MarkerRenderer;
 use crate::state::ClientState;
 use crate::state::theme::{InterfaceThemeType, WorldTheme};
 use crate::world::{
-    ActionEvent, AnimationData, AnimationState, Camera, FadeDirection, FadeState, IsBabyJob, JobIdentity, Library, MAX_WALK_PATH_SIZE, Map,
-    PathFinder,
+    ActionEvent, AnimationData, AnimationState, BasicInfoStats, Camera, FadeDirection, FadeState, IsBabyJob, JobIdentity, Library,
+    MAX_WALK_PATH_SIZE, Map, PathFinder,
 };
 #[cfg(feature = "debug")]
 use crate::world::{MarkerIdentifier, SubMesh};
@@ -951,6 +951,7 @@ pub struct Player {
     pub critical: u32,
     pub attack_speed: u32,
     pub skill_points: u32,
+    pub basic_info: BasicInfoStats,
 }
 
 impl Player {
@@ -1017,6 +1018,7 @@ impl Player {
             critical: 0,
             attack_speed: 0,
             skill_points: 0,
+            basic_info: BasicInfoStats::default(),
         }
     }
 
@@ -1029,6 +1031,9 @@ impl Player {
     }
 
     pub fn update_stat(&mut self, stat_type: StatType) {
+        if self.basic_info.apply(stat_type.clone()) {
+            return;
+        }
         match stat_type {
             StatType::MaximumHealthPoints(value) => self.common.maximum_health_points = value as usize,
             StatType::MaximumSpellPoints(value) => self.maximum_spell_points = value as usize,
@@ -1245,6 +1250,7 @@ impl Npc {
 }
 
 #[derive(Clone, StateElement)]
+#[allow(clippy::large_enum_variant)] // Player carries BasicInfoStats plus combat fields.
 pub enum Entity {
     Player(Player),
     Npc(Npc),

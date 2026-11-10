@@ -1,12 +1,15 @@
-//! First-open HUD frames, scaled from a 1280×720 reference.
+//! First-open HUD frames, scaled from a 1280x720 reference.
 //!
-//! Gear is the upper left and keeps its reference pixel size, so a 44px socket
-//! stays 44px at 1024×576. Inventory is its own window, immediately to the
-//! right of Gear. The character menu and standalone Stats stack under
-//! Inventory, clear of Gear (Gear already shows stats). Chat is the
+//! The status panel is the upper left. Gear keeps its reference pixel size, so
+//! a 44px socket stays 44px at 1024x576, and sits to the right of the status
+//! panel when that still clears the minimap. Inventory, the character menu,
+//! and standalone Stats stack in a column to the right of Gear when there is
+//! room; on a 1024x576 screen they pack under the status panel in the left
+//! gutter instead, with chat under that stack. Chat is otherwise the
 //! bottom-left corner, below Gear. The hotbar is bottom-center. The minimap
 //! is the top-right, with status under it. Quest, friends, party, and guild
-//! stack below Stats, clear of Gear. The skill tree opens in the center.
+//! stack below Stats (or below status, when the middle column is packed on
+//! the left), clear of Gear. The skill tree opens in the center.
 
 use super::equipment::{GEAR_WINDOW_HEIGHT, GEAR_WINDOW_WIDTH};
 
@@ -37,9 +40,14 @@ impl HudFrame {
     }
 }
 
+fn frames_overlap_x(a: HudFrame, b: HudFrame) -> bool {
+    a.left < b.right() && a.right() > b.left
+}
+
 /// Windows placed the first time each class is opened.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FirstOpenHud {
+    pub status_panel: HudFrame,
     pub gear: HudFrame,
     pub inventory: HudFrame,
     pub character: HudFrame,
@@ -85,13 +93,31 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
     let scale = (screen_width / REFERENCE_SCREEN_WIDTH).min(screen_height / REFERENCE_SCREEN_HEIGHT);
     let margin = 8.0 * scale;
 
-    // Unscaled. Scaling this frame is what drew ~36px sockets at 1024×576.
-    let gear = HudFrame {
+    // Unscaled. Scaling this frame is what drew ~36px sockets at 1024x576.
+    let status_panel = HudFrame {
+        left: margin,
+        top: 36.0 * scale,
+        width: 240.0,
+        height: 248.0,
+    };
+    let mut gear = HudFrame {
         left: margin,
         top: 36.0 * scale,
         width: GEAR_WINDOW_WIDTH,
         height: GEAR_WINDOW_HEIGHT,
     };
+
+    let minimap_side = (200.0 * scale).min(screen_width * 0.16);
+    let minimap_width = minimap_side.max(220.0);
+    let right_margin = margin.max(16.0);
+    let minimap_left = screen_width - minimap_width - right_margin;
+    let proposed_gear_left = status_panel.right() + margin;
+    // Sit beside the always-on status panel when Gear still clears the minimap.
+    if proposed_gear_left + GEAR_WINDOW_WIDTH <= minimap_left - margin {
+        gear.left = proposed_gear_left;
+    } else if status_panel.bottom() + margin + GEAR_WINDOW_HEIGHT <= screen_height - margin {
+        gear.top = status_panel.bottom() + margin;
+    }
 
     let mut chat = HudFrame {
         left: margin,
@@ -99,10 +125,6 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
         width: (340.0 * scale).min(gear.width),
         height: 160.0 * scale,
     };
-    if chat.top < gear.bottom() + margin {
-        chat.top = gear.bottom() + margin;
-        chat.height = screen_height - margin - chat.top;
-    }
     let mut hotbar = HudFrame {
         left: 0.0,
         top: screen_height - 48.0 * scale - margin,
@@ -110,43 +132,12 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
         height: 48.0 * scale,
     };
     hotbar.left = (screen_width - hotbar.width) / 2.0;
-    if hotbar.left < chat.right() + margin {
-        hotbar.left = chat.right() + margin;
-        hotbar.width = (screen_width - margin - hotbar.left).min(hotbar.width);
-    }
-    if hotbar.top < chat.top {
-        hotbar.top = chat.top;
-        hotbar.height = (screen_height - margin - hotbar.top).max(32.0);
-    }
 
-    let minimap_side = (200.0 * scale).min(screen_width * 0.16);
-    let minimap_width = minimap_side.max(220.0);
-    let right_margin = margin.max(16.0);
     let minimap = HudFrame {
-        left: screen_width - minimap_width - right_margin,
+        left: minimap_left,
         top: gear.top,
         width: minimap_width,
         height: minimap_side.max(220.0),
-    };
-    let column_left = gear.right() + margin;
-    let column_width = (minimap.left - margin - column_left).max(160.0);
-    let inventory = HudFrame {
-        left: column_left,
-        top: gear.top,
-        width: column_width,
-        height: 120.0 * scale,
-    };
-    let character = HudFrame {
-        left: column_left,
-        top: inventory.bottom() + margin,
-        width: column_width,
-        height: 150.0 * scale,
-    };
-    let stats = HudFrame {
-        left: column_left,
-        top: character.bottom() + margin,
-        width: column_width,
-        height: 150.0 * scale,
     };
     let status = HudFrame {
         left: minimap.left,
@@ -155,9 +146,87 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
         height: 64.0 * scale,
     };
 
+    let preferred_inventory_height = 120.0 * scale;
+    let preferred_body_height = 150.0 * scale;
+    let column_left_right = gear.right() + margin;
+    let column_gap = minimap.left - margin - column_left_right;
+    let pack_left_gutter = column_gap < 160.0;
+
+    let (column_left, column_top, column_width, inventory_height, character_height, stats_height) = if pack_left_gutter {
+        let top = status_panel.bottom() + margin;
+        let width = status_panel.width;
+        let chat_preferred = (160.0 * scale).max(80.0);
+        let budget = (screen_height - margin - top).max(0.0);
+        let available = (budget - margin * 3.0).max(24.1 * 4.0);
+        let chat_height = chat_preferred.min(available * 0.3).max(32.0);
+        let rest = (available - chat_height).max(24.1 * 3.0);
+        let preferred_sum = preferred_inventory_height + preferred_body_height * 2.0;
+        let (inv, body) = if preferred_sum <= rest {
+            (preferred_inventory_height, preferred_body_height)
+        } else {
+            (
+                (preferred_inventory_height / preferred_sum * rest).max(24.1),
+                (preferred_body_height / preferred_sum * rest).max(24.1),
+            )
+        };
+        (status_panel.left, top, width, inv, body, body)
+    } else {
+        (
+            column_left_right,
+            gear.top,
+            column_gap,
+            preferred_inventory_height,
+            preferred_body_height,
+            preferred_body_height,
+        )
+    };
+
+    let inventory = HudFrame {
+        left: column_left,
+        top: column_top,
+        width: column_width,
+        height: inventory_height,
+    };
+    let character = HudFrame {
+        left: column_left,
+        top: inventory.bottom() + margin,
+        width: column_width,
+        height: character_height,
+    };
+    let stats = HudFrame {
+        left: column_left,
+        top: character.bottom() + margin,
+        width: column_width,
+        height: stats_height,
+    };
+
+    if pack_left_gutter {
+        chat.left = status_panel.left;
+        chat.width = status_panel.width;
+        chat.top = stats.bottom() + margin;
+        chat.height = (screen_height - margin - chat.top).max(32.0);
+    } else if chat.top < gear.bottom() + margin {
+        chat.top = gear.bottom() + margin;
+        chat.height = screen_height - margin - chat.top;
+    }
+    if hotbar.left < chat.right() + margin {
+        hotbar.left = chat.right() + margin;
+        hotbar.width = (screen_width - margin - hotbar.left).min(hotbar.width);
+    }
+    if hotbar.top < chat.top && frames_overlap_x(hotbar, chat) {
+        hotbar.top = chat.top;
+        hotbar.height = (screen_height - margin - hotbar.top).max(32.0);
+    }
+
     let social_width = (420.0 * scale).min(screen_width - gear.right() - margin * 2.0);
     let social_left = screen_width - social_width - margin;
-    let social_top = stats.bottom().max(status.bottom()) + margin;
+    // When the middle column is packed under the status panel, social stays in
+    // the right stack under the minimap status strip.
+    let social_top = if pack_left_gutter {
+        status.bottom() + margin
+    } else {
+        stats.bottom().max(status.bottom()) + margin
+    };
     let social_bottom = hotbar.top - margin;
     let social_gap = margin;
     let social_height = ((social_bottom - social_top) - social_gap * 3.0) / 4.0;
@@ -176,6 +245,7 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
     };
 
     FirstOpenHud {
+        status_panel,
         gear,
         inventory,
         character,
@@ -211,6 +281,7 @@ mod tests {
     fn assert_layout(width: f32, height: f32) {
         let hud = first_open_hud(width, height);
         let frames = [
+            hud.status_panel,
             hud.gear,
             hud.inventory,
             hud.character,
@@ -237,10 +308,9 @@ mod tests {
 
         assert!(!frames_overlap(hud.gear, hud.stats), "standalone stats sit on Gear");
         assert!(!frames_overlap(hud.gear, hud.character), "character menu sits on Gear");
-        assert!(hud.character.left >= hud.gear.right() - 0.5);
-        assert!(hud.stats.left >= hud.gear.right() - 0.5);
-        assert!(hud.inventory.left >= hud.gear.right() - 0.5);
-        assert!(hud.chat.top >= hud.gear.bottom() - 0.5, "chat overlaps gear");
+        assert!(!frames_overlap(hud.chat, hud.gear), "chat overlaps gear");
+        assert!(hud.status_panel.left <= hud.gear.left + 0.5);
+        assert!((hud.status_panel.top - hud.gear.top).abs() < 0.5 || hud.gear.top >= hud.status_panel.bottom() - 0.5);
         assert!((hud.gear.width - super::GEAR_WINDOW_WIDTH).abs() < 0.5);
         assert!((hud.gear.height - super::GEAR_WINDOW_HEIGHT).abs() < 0.5);
         assert!(hud.quest.left >= hud.gear.right() - 0.5);
@@ -269,6 +339,20 @@ mod tests {
         assert!((small.gear.width - mid.gear.width).abs() < 0.5);
         assert!((large.gear.width - mid.gear.width).abs() < 0.5);
         assert!((small.gear.height - super::GEAR_WINDOW_HEIGHT).abs() < 0.5);
+        let wide = first_open_hud(1280.0, 720.0);
+        assert!(
+            !frames_overlap(wide.status_panel, wide.gear),
+            "status panel overlaps Gear at 1280"
+        );
+        assert!(!frames_overlap(wide.status_panel, wide.chat), "status panel overlaps chat");
+        let compact = first_open_hud(1024.0, 576.0);
+        assert!(compact.status_panel.left >= 0.0);
+        assert!(compact.status_panel.right() <= 1024.0);
+        assert!(
+            !frames_overlap(compact.status_panel, compact.chat),
+            "status panel overlaps chat at 1024"
+        );
+
         assert!(large.inventory.left > mid.inventory.left);
     }
 

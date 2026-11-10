@@ -908,7 +908,7 @@ where
     }
 }
 
-fn paint_portrait(state: &State<ClientState>, layout: &mut WindowLayout<ClientState>, area: Area) {
+pub(crate) fn paint_portrait(state: &State<ClientState>, layout: &mut WindowLayout<ClientState>, area: Area) {
     layout.add_rectangle(
         area,
         CornerDiameter::uniform(6.0),
