@@ -20,6 +20,8 @@ pub mod quest_log;
 pub mod refine;
 pub mod skill_cooldowns;
 pub mod skills;
+pub mod stable;
+pub mod stable_catalog;
 pub mod status_effects;
 pub mod status_names;
 pub mod styling_catalog;
