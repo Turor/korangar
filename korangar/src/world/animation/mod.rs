@@ -359,6 +359,36 @@ impl AnimationData {
         }
     }
 
+    /// Screen-space rectangle of the current frame, in pixels. Used to pick
+    /// an entity by its sprite box like roBrowser, instead of only its opaque
+    /// pixels.
+    #[allow(clippy::too_many_arguments)]
+    pub fn screen_bounds(
+        &self,
+        camera: &dyn Camera,
+        entity_position: Point3<f32>,
+        animation_state: &AnimationState,
+        direction: Direction,
+        scale: f32,
+        screen_size: crate::graphics::ScreenSize,
+    ) -> Option<super::entity_pick::ScreenBounds> {
+        let frame = self.get_frame(animation_state, camera, direction);
+        let world_matrix = self.calculate_world_matrix(camera, frame, entity_position, scale);
+        let view_projection = camera.view_projection_matrix();
+        // Billboard vertices are [-1, 0], [-1, 2], [1, 0] and [1, 2].
+        let mut points = [(0.0, 0.0); 4];
+        for (point, (x, y)) in points.iter_mut().zip([(-1.0, 0.0), (-1.0, 2.0), (1.0, 0.0), (1.0, 2.0)]) {
+            let clip = view_projection * world_matrix * cgmath::Vector4::new(x, y, 0.0, 1.0);
+            if clip.w <= 0.0 {
+                return None;
+            }
+            let uv = camera.clip_to_screen_space(clip);
+            *point = (uv.x * screen_size.width, uv.y * screen_size.height);
+        }
+        let distance = camera.distance_to(world_matrix.transform_point(Point3::from_value(0.0)));
+        super::entity_pick::ScreenBounds::from_points(&points, distance)
+    }
+
     #[cfg(feature = "debug")]
     #[allow(clippy::too_many_arguments)]
     pub fn render_debug(

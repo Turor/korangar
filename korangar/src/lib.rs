@@ -398,6 +398,7 @@ pub struct Client {
     effect_holder: EffectHolder,
     cast_bars: effects::CastBars,
     path_finder: PathFinder,
+    long_walk: crate::world::long_walk::LongWalk,
 
     point_light_set_buffer: ResourceSetBuffer<LightSourceKey>,
     directional_shadow_object_set_buffer: ResourceSetBuffer<ObjectKey>,
@@ -957,6 +958,7 @@ impl Client {
             effect_holder,
             cast_bars,
             path_finder,
+            long_walk: Default::default(),
             point_light_set_buffer,
             directional_shadow_object_set_buffer,
             point_shadow_object_set_buffer,
@@ -1871,6 +1873,7 @@ impl Client {
                     destination,
                     starting_timestamp,
                 } => {
+                    self.long_walk.on_server_move();
                     if let Some(map) = &self.map
                         && let Some(player) = self.client_state.try_follow_mut(this_entity())
                     {
@@ -1898,6 +1901,8 @@ impl Client {
                         .try_follow(this_entity())
                         .is_some_and(|player| player.get_entity_id() == entity_id);
                     if is_local_player {
+                        // The server stopped the walk; do not resume a long walk later.
+                        self.long_walk.cancel();
                         if let Some(map) = &self.map
                             && let Some(player) = self.client_state.try_follow_mut(this_entity())
                         {
@@ -3965,6 +3970,7 @@ impl Client {
                         let nearest_tile = path.last().unwrap();
 
                         crate::interface::npc_flow::abort_npc_progress_for_move(&mut self.client_state, &mut self.networking_system);
+                        self.long_walk.cancel();
                         let _ = self.networking_system.player_move(WorldPosition {
                             x: nearest_tile.x,
                             y: nearest_tile.y,
@@ -5028,13 +5034,7 @@ impl Client {
                 InputEvent::PlayerMove { destination } => {
                     crate::interface::npc_flow::abort_npc_progress_for_move(&mut self.client_state, &mut self.networking_system);
 
-                    if self.client_state.try_follow(this_entity()).is_some() {
-                        let _ = self.networking_system.player_move(WorldPosition {
-                            x: destination.x,
-                            y: destination.y,
-                            direction: Direction::North,
-                        });
-                    }
+                    self.request_walk(destination, AttackRange(0), client_tick);
 
                     // Unbuffer any buffered action.
                     *self.client_state.follow_mut(client_state().buffered_action()) = None;
@@ -5049,7 +5049,10 @@ impl Client {
 
                     if let Some((entity_type, tile_position)) = interaction {
                         let _ = match entity_type {
-                            EntityType::Npc => self.networking_system.start_dialog(entity_id),
+                            EntityType::Npc => {
+                                self.approach_npc(entity_id, tile_position, client_tick);
+                                Ok(())
+                            }
                             EntityType::Player => {
                                 let account_id = AccountId(entity_id.0);
                                 let buying_store = self
@@ -5079,11 +5082,9 @@ impl Client {
                                     &mut self.client_state,
                                     &mut self.networking_system,
                                 );
-                                self.networking_system.player_move(WorldPosition {
-                                    x: tile_position.x,
-                                    y: tile_position.y,
-                                    direction: Direction::North,
-                                })
+                                *self.client_state.follow_mut(client_state().buffered_action()) = None;
+                                self.request_walk(tile_position, AttackRange(0), client_tick);
+                                Ok(())
                             }
                             _ => Ok(()),
                         };
@@ -5120,6 +5121,7 @@ impl Client {
                                     &mut self.client_state,
                                     &mut self.networking_system,
                                 );
+                                self.long_walk.cancel();
                                 let _ = self.networking_system.player_move(WorldPosition {
                                     x: nearest_tile.x,
                                     y: nearest_tile.y,
@@ -6783,10 +6785,37 @@ impl Client {
     /// reflects this frame.
     #[inline(always)]
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
-    fn process_buffered_action(&mut self) {
-        let Some(true) = self.client_state.try_follow(this_entity()).map(|player| player.stopped_moving()) else {
+    fn process_buffered_action(&mut self, client_tick: ClientTick) {
+        if self.long_walk.tick(client_tick.0) {
+            // The server never accepted the segment; drop what waited on it.
+            *self.client_state.follow_mut(client_state().buffered_action()) = None;
+        }
+
+        let Some((true, current)) = self
+            .client_state
+            .try_follow(this_entity())
+            .map(|player| (player.stopped_moving(), player.get_tile_position()))
+        else {
             return;
         };
+
+        if let Some(map) = &self.map {
+            match self.long_walk.on_stopped(&mut self.path_finder, &**map, current, client_tick.0) {
+                crate::world::long_walk::WalkStep::Continue(next) => {
+                    let _ = self.networking_system.player_move(WorldPosition {
+                        x: next.x,
+                        y: next.y,
+                        direction: Direction::North,
+                    });
+                    return;
+                }
+                crate::world::long_walk::WalkStep::Aborted => {
+                    *self.client_state.follow_mut(client_state().buffered_action()) = None;
+                    return;
+                }
+                crate::world::long_walk::WalkStep::Idle | crate::world::long_walk::WalkStep::Arrived => {}
+            }
+        }
 
         let Some(buffered_action) = self.client_state.follow_mut(client_state().buffered_action()).take() else {
             return;
@@ -6811,6 +6840,55 @@ impl Client {
                     let _ = self.networking_system.pick_up_item(entity_id);
                 }
             }
+            BufferedAction::TalkToNpc { entity_id } => {
+                if self
+                    .client_state
+                    .follow(client_state().entities())
+                    .iter()
+                    .any(|entity| entity.get_entity_id() == entity_id)
+                {
+                    let _ = self.networking_system.start_dialog(entity_id);
+                }
+            }
+        }
+    }
+
+    /// Requests a walk to within `range` of `destination`. Paths longer than
+    /// the server accepts are split into segments (see
+    /// [`crate::world::long_walk`]). Returns `false` when the player is already
+    /// in range and nothing was sent.
+    fn request_walk(&mut self, destination: TilePosition, range: AttackRange, client_tick: ClientTick) -> bool {
+        let Some(start) = self.client_state.try_follow(this_entity()).map(|player| player.get_tile_position()) else {
+            return false;
+        };
+        let target = match &self.map {
+            Some(map) => self
+                .long_walk
+                .begin(&mut self.path_finder, &**map, start, destination, range, client_tick.0),
+            None => {
+                self.long_walk.cancel();
+                Some(destination)
+            }
+        };
+        let Some(target) = target else {
+            return false;
+        };
+        let _ = self.networking_system.player_move(WorldPosition {
+            x: target.x,
+            y: target.y,
+            direction: Direction::North,
+        });
+        true
+    }
+
+    /// Walks into talking range of an NPC and opens its dialog on arrival, or
+    /// opens it at once when the player is already close.
+    fn approach_npc(&mut self, entity_id: EntityId, npc_position: TilePosition, client_tick: ClientTick) {
+        if self.request_walk(npc_position, crate::world::long_walk::NPC_TALK_RANGE, client_tick) {
+            *self.client_state.follow_mut(client_state().buffered_action()) = Some(BufferedAction::TalkToNpc { entity_id });
+        } else {
+            *self.client_state.follow_mut(client_state().buffered_action()) = None;
+            let _ = self.networking_system.start_dialog(entity_id);
         }
     }
 
@@ -7091,7 +7169,7 @@ impl Client {
             animation_timer_ms,
         } = self.game_timer.update();
 
-        let input_report = self.input_system.update_delta(client_tick);
+        let mut input_report = self.input_system.update_delta(client_tick);
 
         self.request_entity_details(&input_report);
 
@@ -7147,7 +7225,7 @@ impl Client {
             &render_options,
         );
 
-        self.process_buffered_action();
+        self.process_buffered_action(client_tick);
 
         self.update_main_camera(
             screen_size,
@@ -7175,6 +7253,20 @@ impl Client {
             true => &self.player_camera,
             false => &self.start_camera,
         };
+
+        // The GPU picker only sees opaque sprite pixels. Fall back to the NPC
+        // sprite box so a click on the gaps of an NPC still talks to it.
+        if currently_playing
+            && matches!(input_report.mouse_target, PickerTarget::Tile { .. } | PickerTarget::Nothing)
+            && let Some(entity_id) = crate::world::entity_pick::npc_under_cursor(
+                current_camera,
+                self.client_state.follow(client_state().entities()),
+                screen_size,
+                input_report.mouse_position,
+            )
+        {
+            input_report.mouse_target = PickerTarget::Entity(entity_id);
+        }
 
         let (view_matrix, projection_matrix) = current_camera.view_projection_matrices();
         let camera_position = current_camera.camera_position().to_homogeneous();
