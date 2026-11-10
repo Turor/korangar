@@ -2466,6 +2466,8 @@ impl Client {
                     }
                 }
                 NetworkEvent::OpenEnchant { enchant_group } => {
+                    // `openenchantui` is followed by `end`; the NPC menu that led here is over.
+                    crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
                     Self::open_enchant_ui(
                         &mut self.interface,
                         self.game_file_loader.as_ref(),
@@ -3955,6 +3957,8 @@ impl Client {
                     );
                 }
                 NetworkEvent::EnchantGradeOpened { .. } => {
+                    // `opengradeui` is followed by `end`, like `openenchantui`.
+                    crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
                     Self::open_grade_ui(&mut self.interface, &mut self.client_state);
                 }
                 NetworkEvent::EnchantGradeMaterials {
