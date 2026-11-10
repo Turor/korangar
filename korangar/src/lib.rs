@@ -79,7 +79,8 @@ use rust_state::{ManuallyAssertExt, State};
 #[cfg(feature = "debug")]
 use rust_state::{VecIndexExt, VecLookupExt};
 use settings::{
-    AudioSettings, AudioSettingsPathExt, GraphicsSettingsCapabilities, GraphicsSettingsPathExt, InterfaceSettings, InterfaceSettingsPathExt,
+    AudioSettings, AudioSettingsPathExt, GraphicsSettingsCapabilities, GraphicsSettingsPathExt, InterfaceSettings,
+    InterfaceSettingsPathExt, session_theme_name,
 };
 use state::equip_switch::{EquipSwitchPathExt, switch_delta};
 use state::hotbar::HotbarPathExt;
@@ -991,8 +992,8 @@ impl Client {
 
         let interface_settings = self.client_state.follow(client_state().interface_settings());
 
-        if self.active_interface_settings.in_game_theme != interface_settings.in_game_theme {
-            let in_game_theme = interface_settings.in_game_theme.clone();
+        let in_game_theme = session_theme_name(&interface_settings.in_game_theme).to_string();
+        if self.active_interface_settings.in_game_theme != in_game_theme {
             let theme = InterfaceTheme::load(InterfaceThemeType::InGame, &in_game_theme);
             *self.client_state.follow_mut(client_state().in_game_theme()) = theme;
             self.active_interface_settings.in_game_theme = in_game_theme;
@@ -1000,8 +1001,8 @@ impl Client {
 
         let interface_settings = self.client_state.follow(client_state().interface_settings());
 
-        if self.active_interface_settings.world_theme != interface_settings.world_theme {
-            let world_theme = interface_settings.world_theme.clone();
+        let world_theme = session_theme_name(&interface_settings.world_theme).to_string();
+        if self.active_interface_settings.world_theme != world_theme {
             let theme = WorldTheme::load(&world_theme);
             *self.client_state.follow_mut(client_state().world_theme()) = theme;
             self.active_interface_settings.world_theme = world_theme;
@@ -1095,7 +1096,9 @@ impl Client {
                     if headless_auto()
                         && let Some(character_server_information) = auto_server
                     {
-                        self.input_event_buffer.push(InputEvent::SelectServer { character_server_information });
+                        self.input_event_buffer.push(InputEvent::SelectServer {
+                            character_server_information,
+                        });
                     }
                 }
                 NetworkEvent::LoginServerConnectionFailed { message, .. } => {
@@ -3738,8 +3741,7 @@ impl Client {
                             true => self.interface.close_window_with_class(WindowClass::ItemFinder),
                             false => {
                                 load_item_finder(self.game_file_loader.as_ref(), &mut self.client_state);
-                                self.interface
-                                    .open_window(ItemFinderWindow::new(client_state().item_finder()));
+                                self.interface.open_window(ItemFinderWindow::new(client_state().item_finder()));
                             }
                         }
                     }
@@ -3916,8 +3918,7 @@ impl Client {
                             self.client_state.follow_mut(client_state().item_finder()).query = query;
                             load_item_finder(self.game_file_loader.as_ref(), &mut self.client_state);
                             if !self.interface.is_window_with_class_open(WindowClass::ItemFinder) {
-                                self.interface
-                                    .open_window(ItemFinderWindow::new(client_state().item_finder()));
+                                self.interface.open_window(ItemFinderWindow::new(client_state().item_finder()));
                             }
                         }
                         continue;

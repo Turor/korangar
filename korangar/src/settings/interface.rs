@@ -19,6 +19,24 @@ pub const DEFAULT_THEME_NAME: &str = "^000001default^000000\0";
 /// A matching `client/in_game_themes/turoran_dark.ron` overrides the built-in
 /// palette when present.
 pub const TURORAN_DARK_THEME_NAME: &str = "turoran_dark";
+/// Built-in selectable Verdant Rune in-game HUD theme.
+///
+/// Always offered in Interface Settings even when no RON file is present.
+/// A matching `client/in_game_themes/verdant_rune.ron` (or world theme file)
+/// overrides the built-in palette when present. First-run defaults and
+/// `KORANGAR_HEADLESS_AUTO` screenshots use this theme.
+pub const VERDANT_RUNE_THEME_NAME: &str = "verdant_rune";
+
+/// Theme name to load for this process. Headless screenshots ignore the saved
+/// selection and use [`VERDANT_RUNE_THEME_NAME`] without rewriting the settings
+/// file.
+pub fn session_theme_name(saved: &str) -> &str {
+    if std::env::var_os("KORANGAR_HEADLESS_AUTO").is_some() {
+        VERDANT_RUNE_THEME_NAME
+    } else {
+        saved
+    }
+}
 pub const MENU_THEMES_PATH: &str = "client/menu_themes";
 pub const IN_GAME_THEMES_PATH: &str = "client/in_game_themes";
 pub const WORLD_THEMES_PATH: &str = "client/world_themes";
@@ -38,8 +56,8 @@ impl Default for InterfaceSettings {
             language: Language::English,
             scaling: Scaling::new(1.0),
             menu_theme: DEFAULT_THEME_NAME.to_string(),
-            in_game_theme: DEFAULT_THEME_NAME.to_string(),
-            world_theme: DEFAULT_THEME_NAME.to_string(),
+            in_game_theme: VERDANT_RUNE_THEME_NAME.to_string(),
+            world_theme: VERDANT_RUNE_THEME_NAME.to_string(),
         }
     }
 }
@@ -104,6 +122,10 @@ impl InterfaceSettingsCapabilities {
         // Always expose the built-in Turoran dark HUD theme for in-game windows.
         if directory == IN_GAME_THEMES_PATH {
             themes.push(TURORAN_DARK_THEME_NAME.to_string());
+            themes.push(VERDANT_RUNE_THEME_NAME.to_string());
+        }
+        if directory == WORLD_THEMES_PATH {
+            themes.push(VERDANT_RUNE_THEME_NAME.to_string());
         }
 
         if let Ok(entries) = std::fs::read_dir(directory) {
@@ -163,7 +185,7 @@ impl Default for InterfaceSettingsCapabilities {
 
 #[cfg(test)]
 mod interface_settings_theme_tests {
-    use super::{DEFAULT_THEME_NAME, InterfaceSettings, InterfaceSettingsCapabilities, TURORAN_DARK_THEME_NAME};
+    use super::{DEFAULT_THEME_NAME, InterfaceSettings, InterfaceSettingsCapabilities, TURORAN_DARK_THEME_NAME, VERDANT_RUNE_THEME_NAME};
 
     #[test]
     fn in_game_theme_capabilities_include_turoran_dark() {
@@ -173,6 +195,20 @@ mod interface_settings_theme_tests {
             themes.iter().any(|name| name == TURORAN_DARK_THEME_NAME),
             "expected {TURORAN_DARK_THEME_NAME} in {themes:?}"
         );
+        assert!(
+            themes.iter().any(|name| name == VERDANT_RUNE_THEME_NAME),
+            "expected {VERDANT_RUNE_THEME_NAME} in {themes:?}"
+        );
+    }
+
+    #[test]
+    fn first_run_defaults_to_verdant_rune() {
+        use std::mem::ManuallyDrop;
+
+        let settings = ManuallyDrop::new(InterfaceSettings::default());
+        assert_eq!(settings.in_game_theme, VERDANT_RUNE_THEME_NAME);
+        assert_eq!(settings.world_theme, VERDANT_RUNE_THEME_NAME);
+        assert_eq!(settings.menu_theme, DEFAULT_THEME_NAME);
     }
 
     #[test]

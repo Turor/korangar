@@ -50,9 +50,9 @@ use theme::{InterfaceTheme, InterfaceThemePathExt, InterfaceThemeType};
 #[cfg(feature = "debug")]
 use self::cache_statistics::CacheStatistics;
 use self::clan::ClanState;
-use self::item_finder::ItemFinderState;
 use self::friends::FriendListEntry;
 use self::guild::GuildState;
+use self::item_finder::ItemFinderState;
 #[cfg(feature = "debug")]
 use crate::PacketHistory;
 #[cfg(feature = "debug")]
@@ -69,6 +69,7 @@ use crate::loaders::{ClientInfo, FontLoader, FontSize, GameFileLoader, OverflowB
 use crate::renderer::InterfaceRenderer;
 use crate::settings::{
     GameSettings, GraphicsSettingsCapabilities, InterfaceSettings, InterfaceSettingsCapabilities, LoginSettings, ServiceSettings,
+    session_theme_name,
 };
 use crate::state::achievements::Achievements;
 use crate::state::character_slots::CharacterSlots;
@@ -392,8 +393,11 @@ impl ClientState {
 
         time_phase!("load themes", {
             let menu_theme = InterfaceTheme::load(InterfaceThemeType::Menu, &interface_settings.menu_theme);
-            let in_game_theme = InterfaceTheme::load(InterfaceThemeType::InGame, &interface_settings.in_game_theme);
-            let world_theme = WorldTheme::load(&interface_settings.world_theme);
+            let in_game_theme = InterfaceTheme::load(
+                InterfaceThemeType::InGame,
+                session_theme_name(&interface_settings.in_game_theme),
+            );
+            let world_theme = WorldTheme::load(session_theme_name(&interface_settings.world_theme));
         });
 
         time_phase!("create login window state", {

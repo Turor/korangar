@@ -131,8 +131,42 @@ impl WorldTheme {
         }
     }
 
+    /// Verdant Rune world overlay. HP, SP, and gold activity use the interface
+    /// palette. Used when the world theme name is `verdant_rune` and no
+    /// overriding RON file is present.
+    pub fn verdant_rune() -> Self {
+        Self {
+            overlay: OverlayTheme {
+                foreground_color: Color::rgb_hex("E3EDE6"),
+                text_offset: ScreenPosition { left: 18.0, top: 10.0 },
+                font_size: FontSize(22.0),
+            },
+            status_bar: StatusBarTheme {
+                background_color: Color::rgb_hex("0F1714").with_alpha_u8(220),
+                player_health_color: Color::rgb_hex("D2524A"),
+                enemy_health_color: Color::rgb_hex("E0708A"),
+                spell_point_color: Color::rgb_hex("4A86D8"),
+                activity_point_color: Color::rgb_hex("CFAE5A"),
+                player_bar_width: 96.0,
+                enemy_bar_width: 64.0,
+                health_height: 9.0,
+                enemy_health_height: 6.0,
+                spell_point_height: 5.0,
+                activity_point_height: 5.0,
+                border_size: ScreenSize { width: 3.0, height: 2.0 },
+                gap: 2.0,
+            },
+            indicator: IndicatorTheme {
+                walking: Color::rgb_hex("4CC3A0").with_alpha_u8(180),
+            },
+            cursor: CursorTheme {
+                color: Color::rgb_hex("E3EDE6"),
+            },
+        }
+    }
+
     pub fn load(name: &str) -> Self {
-        use crate::settings::{TURORAN_DARK_THEME_NAME, WORLD_THEMES_PATH};
+        use crate::settings::{TURORAN_DARK_THEME_NAME, VERDANT_RUNE_THEME_NAME, WORLD_THEMES_PATH};
 
         #[cfg(feature = "debug")]
         let timer = Timer::new("Load theme");
@@ -148,6 +182,9 @@ impl WorldTheme {
             .unwrap_or_else(|| {
                 if name == TURORAN_DARK_THEME_NAME {
                     return WorldTheme::turoran_dark();
+                }
+                if name == VERDANT_RUNE_THEME_NAME {
+                    return WorldTheme::verdant_rune();
                 }
                 #[cfg(feature = "debug")]
                 print_debug!("[{}] failed to load theme {}", "error".red(), name.magenta());
@@ -212,6 +249,46 @@ mod turoran_dark_world_theme_tests {
         assert_eq!(
             loaded.status_bar.background_color.alpha_as_u8(),
             expected.status_bar.background_color.alpha_as_u8()
+        );
+    }
+}
+
+#[cfg(test)]
+mod verdant_rune_world_theme_tests {
+    use super::WorldTheme;
+    use crate::settings::VERDANT_RUNE_THEME_NAME;
+
+    #[test]
+    fn verdant_rune_status_uses_palette() {
+        let theme = WorldTheme::verdant_rune();
+        assert_eq!(theme.status_bar.player_health_color.red_as_u8(), 210);
+        assert_eq!(theme.status_bar.player_health_color.green_as_u8(), 82);
+        assert_eq!(theme.status_bar.player_health_color.blue_as_u8(), 74);
+        assert_eq!(theme.status_bar.spell_point_color.red_as_u8(), 74);
+        assert_eq!(theme.status_bar.spell_point_color.green_as_u8(), 134);
+        assert_eq!(theme.status_bar.spell_point_color.blue_as_u8(), 216);
+        assert_eq!(theme.status_bar.activity_point_color.red_as_u8(), 207);
+        assert_ne!(
+            theme.status_bar.player_health_color,
+            WorldTheme::default().status_bar.player_health_color
+        );
+        assert_ne!(
+            theme.status_bar.player_health_color,
+            WorldTheme::turoran_dark().status_bar.player_health_color
+        );
+    }
+
+    #[test]
+    fn load_falls_back_to_built_in_verdant_rune() {
+        let loaded = WorldTheme::load(VERDANT_RUNE_THEME_NAME);
+        let expected = WorldTheme::verdant_rune();
+        assert_eq!(
+            loaded.status_bar.player_health_color.red_as_u8(),
+            expected.status_bar.player_health_color.red_as_u8()
+        );
+        assert_eq!(
+            loaded.status_bar.spell_point_color.blue_as_u8(),
+            expected.status_bar.spell_point_color.blue_as_u8()
         );
     }
 }
