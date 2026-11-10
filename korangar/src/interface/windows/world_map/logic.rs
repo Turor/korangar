@@ -1052,6 +1052,33 @@ mod tests {
     }
 
     #[test]
+    fn fitted_window_and_info_row_stay_inside_1024x560_and_1920x1080() {
+        let chrome = WorldMapChrome::stock();
+        for (width, height, scale) in [
+            (1024.0_f32, 560.0_f32, 1.0_f32),
+            (1024.0, 560.0, 1.5),
+            (1920.0, 1080.0, 1.0),
+            (1920.0, 1080.0, 2.0),
+        ] {
+            let fit = fit_world_map(width, height, WorldMapChrome { scaling: scale, ..chrome });
+            let label = format!("{width}x{height} at {scale}");
+            assert!(fit.window_left >= 0.0, "{label}: left {}", fit.window_left);
+            assert!(fit.window_top >= 0.0, "{label}: top {}", fit.window_top);
+            assert!(rendered_right(fit, scale) <= width - chrome.margin + 0.51, "{label}: right");
+            assert!(rendered_bottom(fit, scale) <= height - chrome.margin + 0.51, "{label}: bottom");
+            // The info row (caption + thumbnail) is the last thing in the window.
+            let caption_bottom = fit.window_top + (fit.caption_bottom - fit.window_top) * scale;
+            assert!(caption_bottom <= height - chrome.margin + 0.51, "{label}: info row cut off");
+            let aspect = fit.map.width / fit.map.height;
+            assert!((aspect - BASE_WIDTH / BASE_HEIGHT).abs() < 0.01, "{label}: aspect");
+        }
+        // The art scales with the viewport instead of keeping one size.
+        let small = fit_world_map(1024.0, 560.0, chrome);
+        let large = fit_world_map(1920.0, 1080.0, chrome);
+        assert!(large.map.width > small.map.width * 1.5);
+    }
+
+    #[test]
     fn scale_two_region_buttons_stay_inside_the_rail_and_above_the_caption() {
         let chrome = WorldMapChrome {
             scaling: 2.0,
