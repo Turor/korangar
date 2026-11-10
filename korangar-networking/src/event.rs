@@ -60,6 +60,17 @@ pub struct OwnShopLine {
     pub price: u32,
 }
 
+/// One guild skill from `ZC_GUILD_SKILLINFO` (`0x0162`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GuildSkillSnapshot {
+    pub skill_id: u16,
+    pub level: u16,
+    pub sp: u16,
+    pub range: u16,
+    pub name: String,
+    pub upgradable: bool,
+}
+
 /// One row from a shop-search result (`0x0B64`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchStoreHit {
@@ -462,6 +473,7 @@ pub enum NetworkEvent {
         name: String,
         is_master: bool,
         master_character_id: u32,
+        emblem_version: i32,
     },
     /// `ZC_GUILD_INFO` (`0x0B7B`).
     GuildInfo {
@@ -472,6 +484,9 @@ pub enum NetworkEvent {
         average_level: i32,
         experience: i32,
         next_experience: i32,
+        tax_points: i32,
+        honor: i32,
+        virtue: i32,
         emblem_version: i32,
         name: String,
         master_name: String,
@@ -500,6 +515,71 @@ pub enum NetworkEvent {
     /// Member left or was expelled (`0x0A83` / `0x0A82`).
     GuildMemberRemoved {
         character_id: CharacterId,
+    },
+    /// `ZC_RESULT_MAKE_GUILD` (`0x0167`). Not a skill level-up.
+    GuildMakeResult {
+        result: u8,
+    },
+    /// `ZC_REQ_JOIN_GUILD` (`0x016A`).
+    GuildInviteRequest {
+        guild_id: u32,
+        name: String,
+    },
+    /// `ZC_ACK_REQ_JOIN_GUILD` (`0x0169`).
+    GuildInviteResult {
+        result: u8,
+    },
+    /// `ZC_MYGUILD_BASIC_INFO` (`0x014C`). `opposition` 0 is ally, 1 is enemy.
+    GuildRelations {
+        relations: Vec<(i32, u32, String)>,
+    },
+    /// `ZC_DELETE_RELATED_GUILD` (`0x0184`) or a parsed `0x0185` add.
+    GuildRelationRemoved {
+        guild_id: u32,
+        opposition: i32,
+    },
+    GuildRelationAdded {
+        opposition: i32,
+        guild_id: u32,
+        name: String,
+    },
+    /// `ZC_POSITION_INFO` (`0x0160`). Rows are id, mode, ranking, pay rate.
+    GuildPositionRights {
+        positions: Vec<(i32, i32, i32, i32)>,
+    },
+    /// `ZC_ACK_CHANGE_GUILD_POSITIONINFO` (`0x0174`).
+    GuildPositionsUpdated {
+        positions: Vec<(i32, i32, i32, i32, String)>,
+    },
+    /// `ZC_ACK_REQ_CHANGE_MEMBERS` (`0x0156`).
+    GuildMemberPositions {
+        entries: Vec<(AccountId, CharacterId, i32)>,
+    },
+    /// `ZC_GUILD_SKILLINFO` (`0x0162`).
+    GuildSkills {
+        skill_points: i32,
+        skills: Vec<GuildSkillSnapshot>,
+    },
+    /// `ZC_GUILD_CHAT` (`0x017F`).
+    GuildChatMessage {
+        text: String,
+    },
+    /// Emblem image chunk (`0x0B36`) or a legacy `0x0152` body (`result` 2).
+    GuildEmblemImage {
+        result: u16,
+        guild_id: u32,
+        emblem_version: u32,
+        bytes: Vec<u8>,
+    },
+    /// Overhead guild id (`0x0B47` or legacy `0x01B4`).
+    GuildEmblemOnEntity {
+        account_id: AccountId,
+        guild_id: u32,
+        emblem_version: u32,
+    },
+    /// `ZC_MEMBER_ADD` (`0x0182`).
+    GuildMemberAdded {
+        member: GuildMemberSnapshot,
     },
     /// `ZC_CLANINFO` (`0x098A`).
     ClanInfo {

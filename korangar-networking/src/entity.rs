@@ -12,6 +12,9 @@ pub struct EntityData {
     pub maximum_health_points: i64,
     pub head_direction: usize,
     pub sex: Sex,
+    /// Spawn hint from the appear packet. `0x0B47` overwrites this.
+    pub guild_id: u32,
+    pub emblem_version: u32,
 }
 
 impl EntityData {
@@ -27,6 +30,8 @@ impl EntityData {
             maximum_health_points: character_information.maximum_health_points,
             head_direction: 0, // TODO: get correct rotation
             sex: character_information.sex,
+            guild_id: 0,
+            emblem_version: 0,
         }
     }
 }
@@ -44,6 +49,8 @@ impl From<EntityAppearPacket> for EntityData {
             maximum_health_points: i64::from(packet.maximum_health_points),
             head_direction: packet.head_direction as usize,
             sex: packet.sex,
+            guild_id: packet.guild_id,
+            emblem_version: u32::from(packet.emblem_version),
         }
     }
 }
@@ -61,6 +68,8 @@ impl From<EntityAppear2Packet> for EntityData {
             maximum_health_points: i64::from(packet.maximum_health_points),
             head_direction: packet.head_direction as usize,
             sex: packet.sex,
+            guild_id: packet.guild_id,
+            emblem_version: u32::from(packet.emblem_version),
         }
     }
 }
@@ -80,6 +89,8 @@ impl From<MovingEntityAppearPacket> for EntityData {
             maximum_health_points: i64::from(packet.maximum_health_points),
             head_direction: packet.head_direction as usize,
             sex: packet.sex,
+            guild_id: packet.guild_id,
+            emblem_version: u32::from(packet.emblem_version),
         }
     }
 }
