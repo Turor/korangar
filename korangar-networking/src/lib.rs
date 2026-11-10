@@ -57,6 +57,10 @@ pub use self::packet_versions::eden::{
     encode_eden_packet, format_eden_result,
 };
 pub use self::packet_versions::enchant::{format_enchant_result, parse_enchant_index, parse_enchant_item_id, parse_enchant_slot};
+pub use self::packet_versions::misc_info::{
+    BattlefieldUpdate, ELEMENT_NAMES, MemorialDungeonUpdate, ammunition_is_error, ammunition_message, format_remaining, format_reputation,
+    format_sense, memorial_dungeon_notice, memorial_dungeon_notice_closes,
+};
 pub use self::packet_versions::mvp_minimap::{format_mvp_markers, minimap_point};
 pub use self::packet_versions::npc_dialog::{
     DialogHotkey, NpcInputReply, ProgressOutcome, apply_npc_bgm, bgm_track_path, cutin_anchor, cutin_texture_candidates, decide_npc_input,
@@ -1617,6 +1621,17 @@ where
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(ragnarok_packets::RequestAttendancePacket {})
             }
+        }
+    }
+
+    /// `CZ_MEMORIALDUNGEON_COMMAND` destroy (the only command Hercules
+    /// handles).
+    pub fn destroy_memorial_dungeon(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(ragnarok_packets::MemorialDungeonCommandPacket {
+                    command: ragnarok_packets::MEMORIAL_DUNGEON_COMMAND_DESTROY,
+                }),
         }
     }
 

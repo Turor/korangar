@@ -787,6 +787,32 @@ pub enum NetworkEvent {
         item_count: u8,
         summary: String,
     },
+    /// Sense / Monster Information result (`0x018C`).
+    MonsterInfo {
+        info: ragnarok_packets::MonsterInfoPacket,
+    },
+    /// Open a book item (`0x0294`).
+    ReadBook {
+        book_item_id: u32,
+        page: u32,
+    },
+    /// Memorial dungeon window update (`0x02CB`–`0x02CE`).
+    MemorialDungeon(crate::packet_versions::misc_info::MemorialDungeonUpdate),
+    /// Battleground chat, camps, score, positions, and HP.
+    Battlefield(crate::packet_versions::misc_info::BattlefieldUpdate),
+    /// Reputation groups (`0x0B8D`).
+    Reputation {
+        success: bool,
+        entries: Vec<ragnarok_packets::ReputationEntry>,
+    },
+    /// Arrow, bullet, or dagger equipped (`0x013C`).
+    AmmunitionEquipped {
+        index: ragnarok_packets::InventoryIndex,
+    },
+    /// Ammunition or weight feedback (`0x013B`).
+    AmmunitionAction {
+        action: ragnarok_packets::AmmunitionActionType,
+    },
     /// Alive MVPs on the current map (`0x0EF5`). Replaces the previous list.
     MvpMinimap {
         flags: u8,

@@ -1112,7 +1112,6 @@ where
     packet_handler.register(|packet: GuildExpulsionPacket| NetworkEvent::GuildMemberRemoved {
         character_id: packet.character_id,
     })?;
-    packet_handler.register_noop::<ReputationPacket>()?;
     crate::packet_versions::clan::register_clan_packets(packet_handler)?;
     crate::packet_versions::party::register_party_packets(packet_handler)?;
     crate::packet_versions::guild::register_guild_action_packets(packet_handler)?;
@@ -1125,6 +1124,7 @@ where
     crate::packet_versions::warpra::register_warpra_packets(packet_handler)?;
     crate::packet_versions::companions::register_companion_packets(packet_handler, true)?;
     crate::packet_versions::mvp_minimap::register_mvp_minimap_packets(packet_handler)?;
+    crate::packet_versions::misc_info::register_misc_info_packets(packet_handler)?;
     crate::packet_versions::economy::register_player_shop_packets(packet_handler)?;
     crate::packet_versions::refine::register_refine_packets(packet_handler)?;
     crate::packet_versions::item_skill_selection::register_item_skill_selection_packets(packet_handler)?;
@@ -1161,8 +1161,6 @@ where
         success: packet.success == RequestStatUpResult::Success,
         value: packet.value,
     })?;
-    packet_handler.register_noop::<EquipAmmunitionPacket>()?;
-    packet_handler.register_noop::<AmmunitionActionPacket>()?;
     packet_handler.register(|packet: UpdateSkillPacket| {
         let UpdateSkillPacket {
             skill_id,

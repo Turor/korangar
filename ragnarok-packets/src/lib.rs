@@ -8,6 +8,7 @@ pub mod guild_actions;
 pub mod handler;
 mod item_skill_selection;
 mod item_use;
+mod misc_info;
 mod party;
 pub mod pincode;
 mod player_shops;
@@ -56,6 +57,7 @@ pub use self::item_skill_selection::{
     WeaponRefineAckPacket, WeaponRefineEntry, WeaponRefineListPacket,
 };
 pub use self::item_use::{DropItemAckPacket, DropItemPacket, UseItemAck2Packet, UseItemAckPacket, UseItemPacket};
+pub use self::misc_info::*;
 pub use self::party::*;
 pub use self::pincode::{
     AvailableSecondPasswdPacket, CheckSecondPasswdPacket, EditSecondPasswdPacket, EditSecondPasswdResultPacket, MakeSecondPasswdPacket,
@@ -4312,8 +4314,10 @@ pub struct EquipAmmunitionPacket {
     pub inventory_index: InventoryIndex,
 }
 
-#[derive(Debug, Clone, ByteConvertable)]
+/// `ZC_ACTION_FAILURE` type, a 16-bit word on the wire.
+#[derive(Debug, Clone, PartialEq, Eq, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[numeric_type(u16)]
 pub enum AmmunitionActionType {
     EquipProperAmmunitionFirst,
     WeightLimitExceeded1,

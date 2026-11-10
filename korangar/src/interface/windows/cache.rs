@@ -159,6 +159,16 @@ fn preset_window(class: WindowClass, screen_width: f32, screen_height: f32) -> O
                 height,
             })
         }
+        // Pickup popup: a short strip near the top middle, clear of the HUD.
+        WindowClass::ItemObtain => {
+            let width = 320.0_f32.min(screen_width - 32.0);
+            (ScreenAnchor::TopLeft, HudFrame {
+                left: (screen_width - width) / 2.0,
+                top: 48.0,
+                width,
+                height: 60.0,
+            })
+        }
         _ => return None,
     };
     let (left, top) = frame_anchor_offset(anchor_kind, frame, screen_width, screen_height);

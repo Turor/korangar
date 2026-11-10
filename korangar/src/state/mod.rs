@@ -254,6 +254,7 @@ pub struct ClientState {
     eden_window: crate::state::eden::EdenWindowState,
     /// Internal state of the Turoran Warpra menu.
     warpra_window: crate::interface::windows::WarpraWindowState,
+    misc_info: crate::interface::windows::MiscInfoState,
     /// World map region, hover, and dungeon floor picker.
     world_map_window: crate::interface::windows::WorldMapWindowState,
     /// Homunculus, pet, mercenary, and elemental info.
@@ -561,6 +562,7 @@ impl ClientState {
             let stable_window = crate::interface::windows::StableWindowState::default();
             let eden_window = crate::state::eden::EdenWindowState::default();
             let warpra_window = crate::interface::windows::WarpraWindowState::default();
+            let misc_info = crate::interface::windows::MiscInfoState::default();
             let world_map_window = crate::interface::windows::WorldMapWindowState::default();
             let companion_window = crate::interface::windows::CompanionWindowState::default();
             let mvp_minimap = crate::interface::windows::MvpMinimapState::default();
@@ -671,6 +673,7 @@ impl ClientState {
             stable_window,
             eden_window,
             warpra_window,
+            misc_info,
             world_map_window,
             companion_window,
             mvp_minimap,
