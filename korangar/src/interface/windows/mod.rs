@@ -88,6 +88,7 @@ mod vending_setup;
 mod vendor;
 mod view_equip;
 mod warpra;
+mod window_groups;
 mod world_map;
 
 use serde::{Deserialize, Serialize};
@@ -149,6 +150,7 @@ pub use self::misc_info::{
     BattlegroundWindow, ItemObtainWindow, MemorialDungeonWindow, MiscInfoState, ReputationWindow, SenseWindow, now_unix,
 };
 pub use self::mvp_minimap::{MvpMinimapState, MvpMinimapWindow};
+pub use self::window_groups::{WindowGroup, WindowGroupMemory, WindowGroupTabs, group_member_open_event};
 pub use self::navigation::NavigationWindow;
 pub use self::npc_input::{NpcInputBox, NpcInputWindow};
 #[cfg(feature = "debug")]

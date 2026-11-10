@@ -378,6 +378,8 @@ pub struct Client {
     point_shadow_camera: PointShadowCamera,
 
     input_event_buffer: Vec<InputEvent>,
+    /// Last shown member of each tabbed window group.
+    window_groups: interface::windows::WindowGroupMemory,
     autopilot: Option<autopilot::Autopilot>,
     network_event_buffer: NetworkEventBuffer,
     // TODO: Move or remove this.
@@ -950,6 +952,7 @@ impl Client {
             directional_shadow_partitions,
             point_shadow_camera,
             input_event_buffer,
+            window_groups: interface::windows::WindowGroupMemory::default(),
             autopilot,
             network_event_buffer,
             saved_login_data,
@@ -4901,7 +4904,32 @@ impl Client {
                     match press_menu_bar(index as usize, |class| self.interface.is_window_with_class_open(class)) {
                         Some(MenuBarPress::Dispatch(event)) => self.input_event_buffer.push(*event),
                         Some(MenuBarPress::Close(class)) => self.interface.close_window_with_class(class),
+                        Some(MenuBarPress::OpenGroup(group)) => {
+                            let class = self.window_groups.member_to_open(group);
+                            if let Some(event) = interface::windows::group_member_open_event(class) {
+                                self.input_event_buffer.push(event);
+                            }
+                        }
+                        Some(MenuBarPress::CloseAll(classes)) => {
+                            for class in classes {
+                                self.interface.close_window_with_class(class);
+                            }
+                        }
                         None => {}
+                    }
+                }
+                InputEvent::SwitchWindowTab { from, to } => {
+                    let same_group = interface::windows::WindowGroup::of(from).is_some_and(|group| group.contains(to));
+                    if same_group && from != to {
+                        self.window_groups.remember(to);
+                        if self.interface.is_window_with_class_open(to) {
+                            self.interface.close_window_with_class(from);
+                            self.interface.raise_window_classes(&[to]);
+                        } else if let Some(event) = interface::windows::group_member_open_event(to) {
+                            self.interface.share_window_anchor(from, to);
+                            self.interface.close_window_with_class(from);
+                            self.input_event_buffer.push(event);
+                        }
                     }
                 }
                 InputEvent::CycleMenuBarLayout => {
@@ -7943,6 +7971,8 @@ impl Client {
                 _ => None,
             };
             let is_chat_open = self.interface.is_window_with_class_open(WindowClass::Chat);
+            self.window_groups
+                .observe(|class| self.interface.is_window_with_class_open(class));
             let menu_bar_bits = menu_bar_open_bits(|class| self.interface.is_window_with_class_open(class));
             *self.client_state.follow_mut(client_state().menu_bar_open()) = menu_bar_bits;
 

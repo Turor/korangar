@@ -113,6 +113,7 @@ where
             maximum_width: 560.0,
             closable: true,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::Clan),
                 either! {
                     selector: self.clan_path.joined(),
                     on_true: ClanBody::new(self.clan_path),

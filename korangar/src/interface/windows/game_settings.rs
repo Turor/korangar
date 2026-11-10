@@ -42,6 +42,7 @@ where
             theme: InterfaceThemeType::InGame,
             closable: true,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::GameSettings),
                 state_button! {
                     text: client_state().localization().auto_attack_button_text(),
                     state: self.game_settings_path.auto_attack(),

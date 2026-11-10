@@ -235,6 +235,7 @@ where
             minimum_height: 180.0,
             maximum_height: 560.0,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::QuestJournal),
                 split! {
                     gaps: theme().window().gaps(),
                     children: (

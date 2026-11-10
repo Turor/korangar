@@ -122,6 +122,7 @@ where
             minimum_width: 160.0,
             maximum_width: 280.0,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::StatusEffects),
                 scroll_view! {
                     children: StatusEffectsElement::new(self.status_effects_path),
                 },

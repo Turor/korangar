@@ -8,6 +8,11 @@
 //! There is no separate party window. The roster is a tab on Friends, so
 //! Party is not a second button.
 //!
+//! Related windows share one button ([`super::WindowGroup`]): Character,
+//! Journal, Social, Settings and Pet Stable. The button opens the member that
+//! was shown last and closes whichever member is open; the member windows
+//! switch between each other with their tab strip.
+//!
 //! Buttons show the roBrowser `menu_icon/bt_*.bmp` art when the client has it
 //! and fall back to the caption at the normal button font size. The tooltip
 //! carries the window name and hotkey.
@@ -33,6 +38,7 @@ use korangar_interface::window::{Anchor, AnchorPoint, CustomWindow, Window};
 use rust_state::{Path, PathExt, State};
 use serde::{Deserialize, Serialize};
 
+use super::window_groups::WindowGroup;
 use super::WindowClass;
 use super::placement::{HudFrame, ScreenAnchor, first_open_hud, frame_anchor_offset, hud_bottom_margin};
 use crate::graphics::{Color, ScreenPosition, ScreenSize, Texture};
@@ -104,6 +110,10 @@ pub enum MenuBarPress {
     Dispatch(Box<InputEvent>),
     /// Remove the window. Used when the open event has no matching close event.
     Close(WindowClass),
+    /// Open the group member that was shown last.
+    OpenGroup(WindowGroup),
+    /// Close these open group members.
+    CloseAll(Vec<WindowClass>),
 }
 
 #[derive(Debug)]
@@ -117,6 +127,8 @@ enum MenuBarKind {
     },
     /// `open` shows the window. A second click only removes it.
     OpenOrDismiss(Box<InputEvent>),
+    /// One button for a tabbed window group.
+    Group(WindowGroup),
 }
 
 /// One button.
@@ -178,6 +190,28 @@ impl MenuBarEntry {
         })
     }
 
+    fn group(caption: &'static str, icon: Option<&'static str>, group: WindowGroup) -> Self {
+        let tabs: Vec<&str> = group.tabs().iter().map(|tab| tab.label).collect();
+        let label = format!("{}: {}", group.name(), tabs.join(", "));
+        Self::new(&label, caption, None, icon, group.tabs()[0].class, MenuBarKind::Group(group))
+    }
+
+    /// Whether this button's window, or any window of its group, is open.
+    pub fn is_open(&self, is_open: impl Fn(WindowClass) -> bool) -> bool {
+        match &self.kind {
+            MenuBarKind::Group(group) => group.tabs().iter().any(|tab| is_open(tab.class)),
+            _ => is_open(self.class),
+        }
+    }
+
+    /// Whether this button reaches `class`, directly or through a tab.
+    pub fn covers(&self, class: WindowClass) -> bool {
+        match &self.kind {
+            MenuBarKind::Group(group) => group.contains(class),
+            _ => self.class == class,
+        }
+    }
+
     fn open_or_dismiss(label: &str, caption: &'static str, class: WindowClass, open: InputEvent) -> Self {
         Self::new(label, caption, None, None, class, MenuBarKind::OpenOrDismiss(Box::new(open)))
     }
@@ -194,39 +228,19 @@ pub fn menu_bar_entries() -> &'static [MenuBarEntry] {
 
 fn menu_bar_entry_list() -> Vec<MenuBarEntry> {
     use InputEvent::{
-        CloseBank, CloseMail, CloseRoulette, OpenBank, OpenCompanions, OpenEden, OpenMail, OpenRoulette, OpenStable, OpenWarpra,
-        ToggleAchievementsWindow, ToggleAudioSettingsWindow, ToggleCartWindow, ToggleCharacterOverviewWindow, ToggleChatWindow,
-        ToggleClanWindow, ToggleEmotesWindow, ToggleEquipmentWindow, ToggleFriendListWindow, ToggleGameSettingsWindow,
-        ToggleGraphicsSettingsWindow, ToggleGuildWindow, ToggleHotbarWindow, ToggleInterfaceSettingsWindow, ToggleInventoryWindow,
-        ToggleItemFinderWindow, ToggleKeybindsWindow, ToggleMenuWindow, ToggleMvpMinimap, ToggleNavigationWindow, ToggleQuestJournalWindow,
-        ToggleSkillTreeWindow, ToggleStatsWindow, ToggleStatusEffectsWindow, ToggleStatusPanelWindow, ToggleSwitchEquipWindow,
-        ToggleWorldMap,
+        CloseBank, CloseMail, CloseRoulette, OpenBank, OpenEden, OpenMail, OpenRoulette, OpenWarpra, ToggleCartWindow, ToggleChatWindow,
+        ToggleEmotesWindow, ToggleHotbarWindow, ToggleInventoryWindow, ToggleItemFinderWindow, ToggleMenuWindow, ToggleMvpMinimap,
+        ToggleNavigationWindow, ToggleSkillTreeWindow, ToggleStatusPanelWindow, ToggleWorldMap,
     };
     use WindowClass::{
-        Achievements, AudioSettings, Bank, Cart, CharacterOverview, Chat, Clan, Companions, Eden, Emotes, Equipment, FriendList,
-        GameSettings, GraphicsSettings, Guild, Hotbar, InterfaceSettings, Inventory, ItemFinder, Keybinds, Mail, Menu, MvpMinimap,
-        Navigation, QuestJournal, Roulette, SkillTree, Stable, Stats, StatusEffects, StatusPanel, SwitchEquip, Warpra, WorldMap,
+        Bank, Cart, Chat, Eden, Emotes, Hotbar, Inventory, ItemFinder, Mail, Menu, MvpMinimap, Navigation, Roulette, SkillTree, StatusPanel,
+        Warpra, WorldMap,
     };
 
     let icon = |name: &'static str| Some(name);
 
     vec![
-        MenuBarEntry::toggle(
-            "Status",
-            "Status",
-            Some("Alt+A"),
-            icon("menu_icon\\bt_status.bmp"),
-            Stats,
-            ToggleStatsWindow,
-        ),
-        MenuBarEntry::toggle(
-            "Gear",
-            "Gear",
-            Some("Alt+Q"),
-            icon("menu_icon\\bt_equip.bmp"),
-            Equipment,
-            ToggleEquipmentWindow,
-        ),
+        MenuBarEntry::group("Char", icon("menu_icon\\bt_status.bmp"), WindowGroup::Character),
         MenuBarEntry::toggle(
             "Inventory",
             "Items",
@@ -243,41 +257,10 @@ fn menu_bar_entry_list() -> Vec<MenuBarEntry> {
             SkillTree,
             ToggleSkillTreeWindow,
         ),
-        MenuBarEntry::toggle(
-            "Quests",
-            "Quests",
-            None,
-            icon("menu_icon\\bt_quest.bmp"),
-            QuestJournal,
-            ToggleQuestJournalWindow,
-        ),
-        MenuBarEntry::toggle(
-            "Party / Friends",
-            "Party",
-            Some("Alt+Z"),
-            icon("menu_icon\\bt_party.bmp"),
-            FriendList,
-            ToggleFriendListWindow,
-        ),
-        MenuBarEntry::toggle(
-            "Guild",
-            "Guild",
-            Some("Alt+G"),
-            icon("menu_icon\\bt_guild.bmp"),
-            Guild,
-            ToggleGuildWindow,
-        ),
-        MenuBarEntry::toggle("Clan", "Clan", Some("Alt+C"), None, Clan, ToggleClanWindow),
+        MenuBarEntry::group("Quests", icon("menu_icon\\bt_quest.bmp"), WindowGroup::Journal),
+        MenuBarEntry::group("Social", icon("menu_icon\\bt_party.bmp"), WindowGroup::Social),
         MenuBarEntry::open_close("Mail", "Mail", icon("menu_icon\\bt_mail.bmp"), Mail, OpenMail, CloseMail),
         MenuBarEntry::open_close("Bank", "Bank", icon("menu_icon\\bt_bank.bmp"), Bank, OpenBank, CloseBank),
-        MenuBarEntry::toggle(
-            "Achievements",
-            "Achv",
-            None,
-            icon("menu_icon\\bt_achievement.bmp"),
-            Achievements,
-            ToggleAchievementsWindow,
-        ),
         MenuBarEntry::toggle("Minimap", "Map", None, None, MvpMinimap, ToggleMvpMinimap),
         MenuBarEntry::toggle(
             "World Map",
@@ -288,22 +271,7 @@ fn menu_bar_entry_list() -> Vec<MenuBarEntry> {
             ToggleWorldMap,
         ),
         MenuBarEntry::toggle("Chat", "Chat", None, None, Chat, ToggleChatWindow),
-        MenuBarEntry::toggle(
-            "Options",
-            "Option",
-            Some("Ctrl+I"),
-            icon("menu_icon\\bt_option.bmp"),
-            InterfaceSettings,
-            ToggleInterfaceSettingsWindow,
-        ),
-        MenuBarEntry::toggle(
-            "Keybinds",
-            "Keys",
-            None,
-            icon("menu_icon\\bt_keyboard.bmp"),
-            Keybinds,
-            ToggleKeybindsWindow,
-        ),
+        MenuBarEntry::group("Option", icon("menu_icon\\bt_option.bmp"), WindowGroup::Settings),
         MenuBarEntry::toggle("Emotes", "Emotes", Some("Alt+1-9"), None, Emotes, ToggleEmotesWindow),
         MenuBarEntry::toggle("Menu", "Menu", None, None, Menu, ToggleMenuWindow),
         MenuBarEntry::toggle("Cart", "Cart", None, None, Cart, ToggleCartWindow),
@@ -317,32 +285,11 @@ fn menu_bar_entry_list() -> Vec<MenuBarEntry> {
             ToggleNavigationWindow,
         ),
         MenuBarEntry::toggle("Item Finder", "Find", Some("Alt+F"), None, ItemFinder, ToggleItemFinderWindow),
-        MenuBarEntry::open_or_dismiss("Stable", "Stable", Stable, OpenStable),
+        MenuBarEntry::group("Pets", None, WindowGroup::PetStable),
         MenuBarEntry::open_or_dismiss("Eden", "Eden", Eden, OpenEden),
         MenuBarEntry::open_or_dismiss("Warpra", "Warp", Warpra, OpenWarpra),
-        MenuBarEntry::open_or_dismiss("Companions", "Pets", Companions, OpenCompanions),
-        MenuBarEntry::toggle("Switch gear", "Sets", None, None, SwitchEquip, ToggleSwitchEquipWindow),
-        MenuBarEntry::toggle("Audio", "Audio", Some("Ctrl+A"), None, AudioSettings, ToggleAudioSettingsWindow),
-        MenuBarEntry::toggle(
-            "Graphics",
-            "Video",
-            Some("Ctrl+G"),
-            None,
-            GraphicsSettings,
-            ToggleGraphicsSettingsWindow,
-        ),
-        MenuBarEntry::toggle("Game", "Game", Some("Ctrl+S"), None, GameSettings, ToggleGameSettingsWindow),
         MenuBarEntry::open_close("Roulette", "Wheel", None, Roulette, OpenRoulette, CloseRoulette),
-        MenuBarEntry::toggle("Status effects", "Buffs", None, None, StatusEffects, ToggleStatusEffectsWindow),
         MenuBarEntry::toggle("Basic info", "Info", None, None, StatusPanel, ToggleStatusPanelWindow),
-        MenuBarEntry::toggle(
-            "Character",
-            "Char",
-            None,
-            None,
-            CharacterOverview,
-            ToggleCharacterOverviewWindow,
-        ),
     ]
 }
 
@@ -356,7 +303,7 @@ pub fn menu_bar_cell_count() -> usize {
 pub fn menu_bar_open_bits(is_open: impl Fn(WindowClass) -> bool) -> u64 {
     let mut bits = 0;
     for (index, entry) in menu_bar_entries().iter().enumerate() {
-        if index < 64 && is_open(entry.class) {
+        if index < 64 && entry.is_open(&is_open) {
             bits |= 1_u64 << index;
         }
     }
@@ -368,6 +315,14 @@ pub fn press_menu_bar(index: usize, is_open: impl Fn(WindowClass) -> bool) -> Op
     let entry = menu_bar_entries().get(index)?;
     let open = is_open(entry.class);
     Some(match &entry.kind {
+        MenuBarKind::Group(group) => {
+            let open = group.open_members(&is_open);
+            if open.is_empty() {
+                MenuBarPress::OpenGroup(*group)
+            } else {
+                MenuBarPress::CloseAll(open)
+            }
+        }
         MenuBarKind::Toggle(event) => MenuBarPress::Dispatch(event.clone()),
         MenuBarKind::OpenClose { open: open_event, close } => MenuBarPress::Dispatch(if open { close.clone() } else { open_event.clone() }),
         MenuBarKind::OpenOrDismiss(open_event) => {
@@ -985,6 +940,17 @@ mod tests {
                     assert_eq!(class, entry.class);
                     assert_eq!(event_window(closed.as_ref()), Some(entry.class));
                 }
+                (MenuBarKind::Group(group), Some(MenuBarPress::OpenGroup(closed)), Some(MenuBarPress::CloseAll(opened))) => {
+                    assert_eq!(*group, closed);
+                    assert_eq!(opened, vec![entry.class]);
+                    for tab in group.tabs() {
+                        assert!(
+                            !entries.iter().any(|other| !matches!(other.kind, MenuBarKind::Group(_)) && other.class == tab.class),
+                            "{:?} has its own button and a tab",
+                            tab.class
+                        );
+                    }
+                }
                 other => panic!("{} press mismatch: {other:?}", entry.tooltip),
             }
         }
@@ -992,26 +958,24 @@ mod tests {
         assert!(entries.iter().any(|entry| matches!(entry.kind, MenuBarKind::OpenClose { .. })));
         assert!(entries.iter().any(|entry| entry.class == WindowClass::Stats));
         assert!(entries.iter().any(|entry| entry.class == WindowClass::Emotes));
-        assert!(entries.iter().any(|entry| entry.class == WindowClass::Keybinds));
+        assert!(entries.iter().any(|entry| entry.covers(WindowClass::Keybinds)));
         assert!(press_menu_bar(entries.len(), |_| false).is_none());
     }
 
     #[test]
     fn tooltips_carry_the_name_and_hotkey() {
         let entries = menu_bar_entries();
-        let status = entries.iter().find(|entry| entry.class == WindowClass::Stats).unwrap();
-        assert_eq!(status.tooltip, "Status (Alt+A)");
-        let quests = entries.iter().find(|entry| entry.class == WindowClass::QuestJournal).unwrap();
-        assert_eq!(quests.tooltip, "Quests");
+        let inventory = entries.iter().find(|entry| entry.class == WindowClass::Inventory).unwrap();
+        assert_eq!(inventory.tooltip, "Inventory (Alt+E)");
+        let settings = entries.iter().find(|entry| entry.covers(WindowClass::AudioSettings)).unwrap();
+        assert_eq!(settings.tooltip, "Settings: Interface, Graphics, Audio, Game, Keys");
+        let chat = entries.iter().find(|entry| entry.class == WindowClass::Chat).unwrap();
+        assert_eq!(chat.tooltip, "Chat");
     }
 
     #[test]
     fn robrowser_icons_cover_the_main_windows() {
-        let with_icon: Vec<WindowClass> = menu_bar_entries()
-            .iter()
-            .filter(|entry| entry.icon.is_some())
-            .map(|entry| entry.class)
-            .collect();
+        let with_icon: Vec<&super::MenuBarEntry> = menu_bar_entries().iter().filter(|entry| entry.icon.is_some()).collect();
         for class in [
             WindowClass::Stats,
             WindowClass::Equipment,
@@ -1022,7 +986,7 @@ mod tests {
             WindowClass::Guild,
             WindowClass::WorldMap,
         ] {
-            assert!(with_icon.contains(&class), "{class:?} has no icon");
+            assert!(with_icon.iter().any(|entry| entry.covers(class)), "{class:?} has no icon");
         }
     }
 
@@ -1033,7 +997,7 @@ mod tests {
         let bits = menu_bar_open_bits(|class| wanted.contains(&class));
         for (index, entry) in entries.iter().enumerate() {
             let on = bits & (1_u64 << index) != 0;
-            assert_eq!(on, wanted.contains(&entry.class));
+            assert_eq!(on, wanted.iter().any(|class| entry.covers(*class)));
         }
         assert_eq!(menu_bar_open_bits(|_| false), 0);
     }

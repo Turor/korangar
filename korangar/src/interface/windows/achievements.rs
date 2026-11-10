@@ -210,6 +210,7 @@ where
             minimum_height: 160.0,
             maximum_height: 520.0,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::Achievements),
                 button! {
                     text: "Claim attendance",
                     event: InputEvent::RequestAttendance,

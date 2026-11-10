@@ -147,6 +147,7 @@ where
             minimum_height: 160.0,
             maximum_height: 520.0,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::Keybinds),
                 text! {
                     text: "Click a row, then press a key. Escape cancels.",
                 },
