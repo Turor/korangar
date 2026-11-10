@@ -28,18 +28,34 @@ impl FontFile {
         font_system: &mut FontSystem,
         slug_data: &mut SlugFontData,
     ) -> Option<Self> {
+        let ttf_file_path = format!("{}\\{}.ttf", FONT_FOLDER_PATH, name);
+        let otf_file_path = format!("{}\\{}.otf", FONT_FOLDER_PATH, name);
+        let font_data = match game_file_loader.get(&ttf_file_path) {
+            Ok(font_data) => font_data,
+            Err(_) => match game_file_loader.get(&otf_file_path) {
+                Ok(font_data) => font_data,
+                Err(_) => {
+                    #[cfg(feature = "debug")]
+                    print_debug!(
+                        "[{}] failed to load font file '{}' or '{}'",
+                        "error".red(),
+                        ttf_file_path.magenta(),
+                        otf_file_path.magenta()
+                    );
+                    return None;
+                }
+            },
+        };
+
+        Self::from_bytes(name, &font_data, font_system, slug_data)
+    }
+
+    #[cfg_attr(not(feature = "debug"), allow(unused_variables))]
+    pub(crate) fn from_bytes(name: &str, font_data: &[u8], font_system: &mut FontSystem, slug_data: &mut SlugFontData) -> Option<Self> {
         #[cfg(feature = "debug")]
         let timer = Timer::new_dynamic(format!("load font: {}", name.magenta()));
 
-        let ttf_file_path = format!("{}\\{}.ttf", FONT_FOLDER_PATH, name);
-
-        let Ok(font_data) = game_file_loader.get(&ttf_file_path) else {
-            #[cfg(feature = "debug")]
-            print_debug!("[{}] failed to load font file '{}'", "error".red(), ttf_file_path.magenta());
-            return None;
-        };
-
-        let ids = font_system.db_mut().load_font_source(Source::Binary(Arc::new(font_data)));
+        let ids = font_system.db_mut().load_font_source(Source::Binary(Arc::new(font_data.to_vec())));
 
         let faces: Vec<(ID, FaceGlyphs)> = ids
             .iter()
@@ -57,7 +73,7 @@ impl FontFile {
 
         if faces.is_empty() {
             #[cfg(feature = "debug")]
-            print_debug!("[{}] failed to parse font file '{}'", "error".red(), ttf_file_path.magenta());
+            print_debug!("[{}] failed to parse font file '{}'", "error".red(), name.magenta());
             return None;
         }
 

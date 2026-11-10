@@ -2114,6 +2114,7 @@ dependencies = [
  "spin_sleep",
  "sys-locale",
  "ttf-parser",
+ "unicode-script",
  "walkdir",
  "wgpu",
  "winit",
