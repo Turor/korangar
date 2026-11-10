@@ -75,7 +75,7 @@ use ragnarok_packets::handler::NoPacketCallback;
 use ragnarok_packets::{
     AccountId, AttackRange, BuyShopItemsResult, CharacterServerInformation, ClientTick, Direction, DisappearanceReason, EffectId, EntityId,
     EquipPosition, EquippableItemFlags, ExperienceSource, ExperienceType, GuildPositionEdit, HealType, HotbarSlot, InventoryIndex,
-    SellItemsResult, SkillId, SkillLevel, SkillType, TilePosition, UnitId, WorldPosition,
+    SellItemsResult, SkillId, SkillLevel, SkillType, TilePosition, WorldPosition,
 };
 use renderer::InterfaceRenderer;
 use rust_state::{ManuallyAssertExt, State};
