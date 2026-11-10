@@ -931,15 +931,18 @@ pub enum NetworkEvent {
     /// Turoran stable homunculus list (`0x0EF8`).
     StableHomunculusList {
         active_id: i32,
+        homunculi: Vec<ragnarok_packets::StableHomunculusEntry>,
         summary: String,
     },
     /// Turoran stable pet list (`0x0EF9`).
     StablePetList {
         active_id: i32,
+        pets: Vec<ragnarok_packets::StablePetEntry>,
         summary: String,
     },
     /// Turoran stable evolution materials (`0x0EF6`).
     StableOwnedList {
+        items: Vec<ragnarok_packets::StableOwnedEntry>,
         summary: String,
     },
     /// Turoran stable result (`0x0EFA`).

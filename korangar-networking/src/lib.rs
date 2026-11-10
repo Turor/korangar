@@ -3150,7 +3150,7 @@ mod packet_handlers {
             SupportedPacketVersion::_20190530,
         ] {
             let events = process_one(version, writer.as_slice());
-            assert!(matches!(events.as_slice(), [NetworkEvent::StableHomunculusList { active_id: 3, summary }] if summary.contains("Lif")));
+            assert!(matches!(events.as_slice(), [NetworkEvent::StableHomunculusList { active_id: 3, summary, .. }] if summary.contains("Lif")));
         }
 
         let pets = StablePetListPacket {
@@ -3183,7 +3183,7 @@ mod packet_handlers {
         pets.packet_to_bytes(&mut writer).unwrap();
         assert_eq!(writer.as_slice().len(), 4 + 4 + 1 + 191);
         let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
-        assert!(matches!(events.as_slice(), [NetworkEvent::StablePetList { active_id: 9, summary }] if summary.contains("Picky")));
+        assert!(matches!(events.as_slice(), [NetworkEvent::StablePetList { active_id: 9, summary, .. }] if summary.contains("Picky")));
 
         let owned = StableOwnedListPacket {
             count: 1,
@@ -3193,7 +3193,7 @@ mod packet_handlers {
         owned.packet_to_bytes(&mut writer).unwrap();
         assert_eq!(writer.as_slice().len(), 4 + 2 + 8);
         let events = process_one(SupportedPacketVersion::_20190530, writer.as_slice());
-        assert!(matches!(events.as_slice(), [NetworkEvent::StableOwnedList { summary }] if summary.contains("714")));
+        assert!(matches!(events.as_slice(), [NetworkEvent::StableOwnedList { summary, .. }] if summary.contains("714")));
 
         let result = StableResultPacket { result: 0, id: 9 };
         let mut writer = ByteWriter::new();

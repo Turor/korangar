@@ -60,7 +60,7 @@ mod sell;
 mod sell_cart;
 mod server_selection;
 mod skill_tree;
-mod stable;
+pub(crate) mod stable;
 mod stats;
 mod status_effects;
 mod status_panel;
