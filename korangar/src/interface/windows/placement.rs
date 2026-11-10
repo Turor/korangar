@@ -223,6 +223,13 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
         hotbar.top = chat.top;
         hotbar.height = (screen_height - margin - hotbar.top).max(32.0);
     }
+    // Gear keeps its 500px reference height. On a 1024x576 screen that reaches
+    // the bottom-center hotbar, so the bar sits under Gear instead of covering it.
+    // Taller screens still open the bar at 96px.
+    if frames_overlap_x(hotbar, gear) && hotbar.top < gear.bottom() {
+        hotbar.top = gear.bottom();
+        hotbar.height = (screen_height - margin - hotbar.top).max(32.0);
+    }
 
     let social_width = (420.0 * scale).min(screen_width - gear.right() - margin * 2.0);
     let social_left = screen_width - social_width - margin;
