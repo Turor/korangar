@@ -658,7 +658,6 @@ mod tests {
         assert_eq!(ChatTab::Party.window_title(), "Chat - Party");
     }
 
-
     #[test]
     fn own_public_echo_is_public_chat() {
         use super::own_chat_echo_color;
