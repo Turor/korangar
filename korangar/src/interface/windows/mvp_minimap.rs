@@ -5,7 +5,7 @@ use korangar_interface::layout::{Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
 use korangar_networking::minimap_point;
-use ragnarok_packets::MvpMinimapEntry;
+use ragnarok_packets::{AccountId, MvpMinimapEntry, TilePosition};
 use rust_state::{Path, RustState, State};
 
 use super::WindowClass;
@@ -32,6 +32,8 @@ pub struct MvpMinimapState {
     caption: String,
     player_x: u16,
     player_y: u16,
+    /// Map id from the last map change, matched against party member maps.
+    map_id: String,
 }
 
 impl Default for MvpMinimapState {
@@ -46,6 +48,7 @@ impl Default for MvpMinimapState {
             caption: String::new(),
             player_x: 0,
             player_y: 0,
+            map_id: String::new(),
         }
     }
 }
@@ -80,6 +83,11 @@ impl MvpMinimapState {
         self.refresh_caption();
     }
 
+    pub fn set_map_id(&mut self, map_id: &str) {
+        self.map_id.clear();
+        self.map_id.push_str(map_id);
+    }
+
     pub fn set_player_cell(&mut self, x: u16, y: u16) {
         self.player_x = x;
         self.player_y = y;
@@ -99,6 +107,7 @@ impl MvpMinimapState {
 pub struct MinimapLayout {
     area: Area,
     mvp_dots: Vec<(f32, f32)>,
+    party_dots: Vec<(f32, f32)>,
     player_dot: Option<(f32, f32)>,
 }
 
@@ -140,6 +149,11 @@ where
             };
             (board.map_width, board.map_height, mvp_dots, extra_lines)
         };
+        let party_dots = {
+            let board = state.get(&self.board_path);
+            let positions = state.get(&root.party()).minimap_positions(&board.map_id);
+            party_minimap_dots(&positions, map_width, map_height, MINIMAP_SIZE)
+        };
         let player_dot = this_entity()
             .follow(state.get(&root))
             .and_then(|player| minimap_point(map_width, map_height, player.get_tile_position(), MINIMAP_SIZE));
@@ -149,6 +163,7 @@ where
         MinimapLayout {
             area,
             mvp_dots,
+            party_dots,
             player_dot,
         }
     }
@@ -191,6 +206,22 @@ where
             );
         }
 
+        // Party members from `0x0107`, under the local player's dot.
+        for (x, y) in &info.party_dots {
+            layout.add_rectangle(
+                Area {
+                    left: canvas.left + x - DOT / 2.0,
+                    top: canvas.top + y - DOT / 2.0,
+                    width: DOT,
+                    height: DOT,
+                },
+                CornerDiameter::uniform(DOT / 2.0),
+                tokens.hp,
+                Color::rgba_u8(0, 0, 0, 0),
+                ShadowPadding::default(),
+            );
+        }
+
         if let Some((x, y)) = info.player_dot {
             layout.add_rectangle(
                 Area {
@@ -226,6 +257,20 @@ where
     }
 }
 
+/// Canvas points for party member cells. Cells outside the map are dropped.
+fn party_minimap_dots(positions: &[(AccountId, i16, i16)], map_width: u16, map_height: u16, size: f32) -> Vec<(f32, f32)> {
+    positions
+        .iter()
+        .filter_map(|&(_, x, y)| {
+            let position = TilePosition {
+                x: u16::try_from(x).ok()?,
+                y: u16::try_from(y).ok()?,
+            };
+            minimap_point(map_width, map_height, position, size)
+        })
+        .collect()
+}
+
 pub struct MvpMinimapWindow;
 
 impl CustomWindow<ClientState> for MvpMinimapWindow {
@@ -246,5 +291,25 @@ impl CustomWindow<ClientState> for MvpMinimapWindow {
                 MvpMinimapView::new(client_state().mvp_minimap()),
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod party_dot_tests {
+    use ragnarok_packets::AccountId;
+
+    use super::party_minimap_dots;
+
+    #[test]
+    fn party_cells_map_onto_the_canvas() {
+        let dots = party_minimap_dots(&[(AccountId(2), 0, 0), (AccountId(3), 99, 99)], 100, 100, 100.0);
+        assert_eq!(dots, vec![(0.5, 99.5), (99.5, 0.5)]);
+    }
+
+    #[test]
+    fn party_cells_off_the_map_are_dropped() {
+        let dots = party_minimap_dots(&[(AccountId(2), -1, 5), (AccountId(3), 100, 5)], 100, 100, 100.0);
+        assert!(dots.is_empty());
+        assert!(party_minimap_dots(&[(AccountId(2), 5, 5)], 0, 0, 100.0).is_empty());
     }
 }
