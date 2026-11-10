@@ -14,12 +14,13 @@ const SIGNBOARD_PATH: &str = "data\\luafiles514\\lua files\\signboardlist.lub";
 const TOWNINFO_PATH: &str = "System\\Towninfo.lub";
 
 /// `KORANGAR_ENABLE_SIGNBOARDS` overrides the saved game setting.
-/// Unset or unrecognized values stay off.
+/// An unset env uses the setting. A missing setting defaults to on.
+/// An unrecognized env value stays off.
 pub fn resolve_signboards_enabled(env_value: Option<&str>, settings_flag: Option<bool>) -> bool {
     if let Some(value) = env_value {
         return matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on");
     }
-    settings_flag.unwrap_or(false)
+    settings_flag.unwrap_or(true)
 }
 
 pub fn signboards_enabled() -> bool {
@@ -328,8 +329,8 @@ fn value_i32(value: Value) -> Option<i32> {
 mod tests {
     use super::*;
 
-    const EMBEDDED_EMPTY_SIGNBOARDS: &str = include_str!("../../../archive/data/luafiles514/lua files/signboardlist.lub");
-    const EMBEDDED_EMPTY_TOWNINFO: &str = include_str!("../../../archive/System/Towninfo.lub");
+    const EMBEDDED_SIGNBOARDS: &[u8] = include_bytes!("../../../archive/data/luafiles514/lua files/signboardlist.lub");
+    const EMBEDDED_TOWNINFO: &[u8] = include_bytes!("../../../archive/System/Towninfo.lub");
 
     const SAMPLE_SIGNBOARDS: &str = r##"
         IT_NONE = 0
@@ -360,22 +361,48 @@ mod tests {
     "#;
 
     #[test]
-    fn signboards_stay_disabled_unless_explicitly_enabled() {
-        assert!(!resolve_signboards_enabled(None, None));
+    fn signboards_default_on_and_env_overrides() {
+        assert!(resolve_signboards_enabled(None, None));
+        assert!(resolve_signboards_enabled(None, Some(true)));
         assert!(!resolve_signboards_enabled(None, Some(false)));
         assert!(!resolve_signboards_enabled(Some("false"), Some(true)));
         assert!(!resolve_signboards_enabled(Some(""), Some(true)));
-        assert!(resolve_signboards_enabled(None, Some(true)));
         assert!(resolve_signboards_enabled(Some("1"), Some(false)));
         assert!(resolve_signboards_enabled(Some(" YES "), None));
     }
 
     #[test]
-    fn embedded_overlays_are_empty() {
-        let labels = parse_signboard_bytes(EMBEDDED_EMPTY_SIGNBOARDS.as_bytes()).unwrap();
-        let towns = parse_towninfo_bytes(EMBEDDED_EMPTY_TOWNINFO.as_bytes()).unwrap();
-        assert!(labels.is_empty());
-        assert!(towns.is_empty());
+    fn embedded_real_rows_are_labels_without_vendor_jobs() {
+        let labels = parse_signboard_bytes(EMBEDDED_SIGNBOARDS).expect("signboardlist.lub");
+        let towns = parse_towninfo_bytes(EMBEDDED_TOWNINFO).expect("Towninfo.lub");
+        assert!(labels.len() > 10, "expected ROenglishRE caption rows");
+        assert!(towns.len() > 10, "expected real town service markers");
+        assert!(labels.iter().all(|label| label.vendor_job_id().is_none()));
+        assert!(towns.iter().all(|marker| marker.vendor_job_id().is_none()));
+        assert!(labels.iter().all(|label| label.map != "default"));
+
+        let published = publish_markers(true, labels, towns);
+        let prontera = published.get("prontera").expect("prontera labels");
+        assert!(
+            prontera
+                .labels
+                .iter()
+                .any(|label| { label.icon_kind == SignboardIconKind::Signboard && label.caption.as_deref() == Some("  Eden Warper") })
+        );
+        assert!(prontera.town_services.iter().any(|marker| {
+            marker.kind == TownServiceKind::Kafra && marker.name == "Kafra Employee" && marker.x == 146 && marker.y == 89
+        }));
+        assert!(prontera.town_services.iter().any(|marker| marker.kind == TownServiceKind::Guide));
+        assert!(
+            prontera
+                .town_services
+                .iter()
+                .any(|marker| marker.kind == TownServiceKind::ToolDealer)
+        );
+        assert_eq!(prontera.vendor_job_id_count(), 0);
+
+        let total_jobs: usize = published.values().map(MapSignboards::vendor_job_id_count).sum();
+        assert_eq!(total_jobs, 0);
     }
 
     #[test]

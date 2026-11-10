@@ -5,11 +5,17 @@ use ron::ser::PrettyConfig;
 use rust_state::RustState;
 use serde::{Deserialize, Serialize};
 
+fn default_enable_signboards() -> bool {
+    true
+}
+
 #[derive(Clone, Serialize, Deserialize, RustState, StateElement)]
 pub struct GameSettings {
     pub auto_attack: bool,
     /// When false, signboard and town-info rows are not loaded.
-    #[serde(default)]
+    /// Missing settings default to on. `KORANGAR_ENABLE_SIGNBOARDS` still
+    /// overrides this.
+    #[serde(default = "default_enable_signboards")]
     pub enable_signboards: bool,
     /// Cash shop requests stay off until the player turns this on.
     #[serde(default)]
@@ -20,7 +26,7 @@ impl Default for GameSettings {
     fn default() -> Self {
         Self {
             auto_attack: true,
-            enable_signboards: false,
+            enable_signboards: default_enable_signboards(),
             enable_cash_shop: false,
         }
     }
@@ -42,7 +48,7 @@ impl GameSettings {
     pub fn read_enable_signboards() -> Option<bool> {
         #[derive(Deserialize)]
         struct Probe {
-            #[serde(default)]
+            #[serde(default = "default_enable_signboards")]
             enable_signboards: bool,
         }
 
