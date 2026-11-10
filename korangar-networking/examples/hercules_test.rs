@@ -109,7 +109,7 @@ fn main() {
                 NetworkEvent::CharacterList { characters } if !selected && !created => {
                     if characters.is_empty() {
                         created = true;
-                        net.create_character(0, "KorangarM1".into()).unwrap();
+                        net.create_character(0, "KorangarM1".into(), 1, 2, JobId(0), Sex::Male).unwrap();
                     } else {
                         println!("PASS character-list records={}", characters.len());
                         selected = true;

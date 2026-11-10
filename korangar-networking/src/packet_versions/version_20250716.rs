@@ -130,8 +130,7 @@ where
         characters: packet.character_information,
     })?;
     packet_handler.register_noop::<CharacterListPacket>()?;
-    packet_handler.register_noop::<CharacterSlotPagePacket>()?;
-    packet_handler.register_noop::<CharacterBanListPacket>()?;
+    super::character_select::register_character_select_packets(packet_handler)?;
     packet_handler.register(|packet: LoginPincodePacket| NetworkEvent::Pincode {
         notice: PincodeNotice::Login {
             seed: packet.pincode_seed,

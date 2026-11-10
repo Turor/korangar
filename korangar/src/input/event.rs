@@ -270,10 +270,29 @@ pub enum InputEvent {
         slot: usize,
         /// Name of the new character.
         name: String,
+        hair_color: u16,
+        hair_style: u16,
+        /// Novice (`0`) or Summoner (`4218`).
+        start_job: u16,
+        /// `0` female, `1` male.
+        sex: u8,
     },
-    /// Delete a character.
+    /// Reserve deletion (`0x0827`).
     DeleteCharacter {
         /// Id of the character to be deleted.
+        character_id: CharacterId,
+    },
+    /// Open the six-character confirmation window for `0x0829`.
+    OpenCharacterDeletionWindow {
+        character_id: CharacterId,
+    },
+    /// Confirm a reserved deletion (`0x0829`).
+    AcceptCharacterDeletion {
+        character_id: CharacterId,
+        confirmation: String,
+    },
+    /// Cancel a reserved deletion (`0x082B`).
+    CancelCharacterDeletion {
         character_id: CharacterId,
     },
     /// Switch the characters of two slots.

@@ -8,8 +8,11 @@ mod buy_cart;
 mod buy_or_sell;
 mod cache;
 mod cart;
+mod character_appearance;
 mod character_creation;
+mod character_deletion;
 mod character_overview;
+mod character_preview;
 mod character_selection;
 mod chat;
 mod clan;
@@ -96,7 +99,9 @@ pub use self::buy_or_sell::BuyOrSellWindow;
 pub use self::cache::WindowCache;
 pub use self::cart::CartWindow;
 pub use self::character_creation::CharacterCreationWindow;
+pub use self::character_deletion::CharacterDeletionWindow;
 pub use self::character_overview::CharacterOverviewWindow;
+pub(crate) use self::character_preview::{sync_preview, take_preview_animation};
 pub use self::character_selection::CharacterSelectionWindow;
 pub use self::chat::{ChatTextBox, ChatWindow, ChatWindowState};
 pub use self::clan::ClanWindow;
@@ -188,6 +193,7 @@ pub enum WindowClass {
     Chat,
     Companions,
     CharacterCreation,
+    CharacterDeletion,
     CharacterOverview,
     CharacterSelection,
     Dialog,

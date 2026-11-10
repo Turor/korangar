@@ -18,6 +18,9 @@ mod particles;
 mod pathing;
 mod sound;
 mod sprite_paths;
+pub(crate) use self::sprite_paths::{
+    JOB_NOVICE, JOB_SUMMONER, creation_part_files, hair_color_thumb_grf_path, hair_palette_grf_path, hair_palette_id, hair_thumb_grf_path,
+};
 mod video;
 
 use std::sync::Arc;

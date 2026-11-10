@@ -2,6 +2,7 @@ use korangar_interface::components::text_box::DefaultHandler;
 use korangar_interface::window::{CustomWindow, Window};
 use rust_state::{Path, PathExt, State};
 
+use super::character_appearance::CharacterAppearance;
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::loaders::OverflowBehavior;
@@ -14,12 +15,11 @@ const MAXIMUM_NAME_LENGTH: usize = 24;
 
 pub struct CharacterCreationWindow<A> {
     character_name_path: A,
-    slot: usize,
 }
 
 impl<A> CharacterCreationWindow<A> {
-    pub fn new(character_name_path: A, slot: usize) -> Self {
-        Self { character_name_path, slot }
+    pub fn new(character_name_path: A) -> Self {
+        Self { character_name_path }
     }
 }
 
@@ -36,13 +36,21 @@ where
 
         struct CharacterName;
 
-        let disabled = ComputedSelector::new_default(move |state: &ClientState| {
-            self.character_name_path.follow_safe(state).len() < MINIMUM_NAME_LENGTH
-        });
+        let name_path = self.character_name_path;
+        let disabled = ComputedSelector::new_default(move |state: &ClientState| name_path.follow_safe(state).len() < MINIMUM_NAME_LENGTH);
 
         let create_action = move |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
-            let name = state.get(&self.character_name_path).clone();
-            queue.queue(InputEvent::CreateCharacter { slot: self.slot, name });
+            let name = state.get(&name_path).clone();
+            let screen_path = client_state().character_screen();
+            let fields = state.get(&screen_path).packet_fields(&name);
+            queue.queue(InputEvent::CreateCharacter {
+                slot: fields.slot as usize,
+                name: fields.name,
+                hair_color: fields.hair_color,
+                hair_style: fields.hair_style,
+                start_job: fields.start_job,
+                sex: fields.sex,
+            });
         };
 
         window! {
@@ -50,14 +58,17 @@ where
             class: Self::window_class(),
             theme: InterfaceThemeType::Menu,
             closable: true,
+            minimum_width: 560.0,
+            maximum_width: 640.0,
             elements: (
                 text_box! {
                     ghost_text: client_state().localization().character_name_text(),
-                    state: self.character_name_path,
-                    input_handler: DefaultHandler::<_, _, MAXIMUM_NAME_LENGTH>::new(self.character_name_path, create_action),
+                    state: name_path,
+                    input_handler: DefaultHandler::<_, _, MAXIMUM_NAME_LENGTH>::new(name_path, create_action),
                     focus_id: CharacterName,
                     overflow_behavior: OverflowBehavior::Shrink,
                 },
+                CharacterAppearance::new(),
                 button! {
                     text: client_state().localization().create_character_button_text(),
                     disabled,

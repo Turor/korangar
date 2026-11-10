@@ -3,10 +3,11 @@ use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::{BaseLayoutInfo, Element};
 use korangar_interface::layout::{Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::window::{CustomWindow, Window};
-use rust_state::{Path, State};
+use rust_state::{Path, PathExt, State};
 
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
+use crate::state::character_screen::CharacterScreenPathExt;
 use crate::state::character_slots::{CharacterSlots, CharacterSlotsExt};
 use crate::state::localization::LocalizationPathExt;
 use crate::state::pincode::PincodeWindowStatePathExt;
@@ -29,7 +30,9 @@ mod character_slot_preview {
     use crate::graphics::{Color, CornerDiameter, ScreenPosition, ScreenSize, ShadowPadding};
     use crate::input::InputEvent;
     use crate::loaders::{FontSize, OverflowBehavior};
-    use crate::state::ClientState;
+    use crate::state::character_screen::{DeletionPhase, deletion_phase, format_countdown, unix_now};
+    use crate::state::theme::InterfaceThemePathExt;
+    use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 
     pub struct OverlayHandler<A, B> {
         position: ScreenPosition,
@@ -64,25 +67,45 @@ mod character_slot_preview {
         A: Path<ClientState, Option<usize>>,
         B: Path<ClientState, CharacterInformation, false>,
     {
-        fn handle_click(&self, _: &State<ClientState>, queue: &mut EventQueue<ClientState>) {
+        fn handle_click(&self, state: &State<ClientState>, queue: &mut EventQueue<ClientState>) {
             use korangar_interface::prelude::*;
 
             let slot = self.slot;
             let switch_request_path = self.switch_request_path;
             let character_information_path = self.character_information_path;
 
+            let character_information = state.try_get(&character_information_path).unwrap();
+            let character_id = character_information.character_id;
+            let phase = deletion_phase(character_information.deletion_reverse_date, unix_now());
+            let delete_label = match phase {
+                DeletionPhase::Waiting { .. } => "Cancel deletion",
+                DeletionPhase::Ready => "Confirm deletion",
+                DeletionPhase::None => "Delete",
+            };
+            let countdown = match phase {
+                DeletionPhase::Waiting { remaining_secs } => format_countdown(remaining_secs),
+                DeletionPhase::Ready => "Ready to confirm".to_owned(),
+                DeletionPhase::None => String::new(),
+            };
+
             let element = ErasedElement::new(fragment! {
                 gaps: 4.0,
                 children: (
+                    text! { text: countdown },
                     button! {
-                        text: "Delete",
-                        event: move |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
-                            // We should not be able to get here if the character is not present, so it's
-                            // fine to unwrap.
-                            let character_information = state.try_get(&character_information_path).unwrap();
-                            let character_id = character_information.character_id;
-
-                            queue.queue(InputEvent::DeleteCharacter { character_id });
+                        text: delete_label,
+                        event: move |_state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
+                            match phase {
+                                DeletionPhase::Waiting { .. } => {
+                                    queue.queue(InputEvent::CancelCharacterDeletion { character_id });
+                                }
+                                DeletionPhase::Ready => {
+                                    queue.queue(InputEvent::OpenCharacterDeletionWindow { character_id });
+                                }
+                                DeletionPhase::None => {
+                                    queue.queue(InputEvent::DeleteCharacter { character_id });
+                                }
+                            }
                             queue.queue(Event::CloseOverlay);
                         },
                     },
@@ -122,6 +145,9 @@ mod character_slot_preview {
         click_handler: CharacterSlotPreviewHandler<B>,
         overlay_handler: OverlayHandler<M, P>,
         slot: usize,
+        active: bool,
+        countdown_text: UnsafeCell<String>,
+        ban_text: UnsafeCell<String>,
     }
 
     impl<P, M, B> CharacterSlotPreview<P, M, B> {
@@ -131,6 +157,7 @@ mod character_slot_preview {
             click_handler: CharacterSlotPreviewHandler<B>,
             overlay_handler: OverlayHandler<M, P>,
             slot: usize,
+            active: bool,
         ) -> Self {
             Self {
                 character_information,
@@ -138,6 +165,16 @@ mod character_slot_preview {
                 click_handler,
                 overlay_handler,
                 slot,
+                active,
+                countdown_text: UnsafeCell::new(String::new()),
+                ban_text: UnsafeCell::new(String::new()),
+            }
+        }
+
+        fn store<'b>(&'b self, slot: &UnsafeCell<String>, text: String) -> &'b str {
+            unsafe {
+                *slot.get() = text;
+                &*slot.get()
             }
         }
     }
@@ -182,6 +219,19 @@ mod character_slot_preview {
             layout_info: &'a Self::LayoutInfo,
             layout: &mut WindowLayout<'a, ClientState>,
         ) {
+            if !self.active {
+                let token_path = client_theme().tokens();
+                let tokens = state.get(&token_path);
+                layout.add_rectangle(
+                    layout_info.area,
+                    CornerDiameter::uniform(tokens.corner_radius),
+                    tokens.panel,
+                    tokens.border,
+                    ShadowPadding::diagonal(1.0, 2.0),
+                );
+                return;
+            }
+
             if let Some(switch_request) = state.get(&self.switch_request) {
                 let is_hoverered = layout_info.area.check().run(layout);
 
@@ -332,8 +382,49 @@ mod character_slot_preview {
                     OverflowBehavior::Shrink,
                 );
 
+                let token_path = client_theme().tokens();
+                let screen_path = client_state().character_screen();
+                let tokens = state.get(&token_path);
+                let ban = state
+                    .get(&screen_path)
+                    .ban_label(character_information.character_id)
+                    .map(str::to_owned);
+                let phase = deletion_phase(character_information.deletion_reverse_date, unix_now());
+                let countdown = match phase {
+                    DeletionPhase::Waiting { remaining_secs } => Some(self.store(&self.countdown_text, format_countdown(remaining_secs))),
+                    DeletionPhase::Ready => Some(self.store(&self.countdown_text, "Ready to delete".to_owned())),
+                    DeletionPhase::None => None,
+                };
+                let ban = ban.map(|text| self.store(&self.ban_text, text));
+                if let Some(countdown) = countdown {
+                    layout.add_text(
+                        layout_info.area,
+                        countdown,
+                        FontSize(tokens.font_size),
+                        tokens.muted,
+                        tokens.border,
+                        HorizontalAlignment::Left { offset: 5.0, border: 3.0 },
+                        VerticalAlignment::Bottom { offset: 8.0 },
+                        OverflowBehavior::Shrink,
+                    );
+                }
+                if let Some(ban) = ban {
+                    layout.add_text(
+                        layout_info.area,
+                        ban,
+                        FontSize(tokens.font_size),
+                        tokens.muted,
+                        tokens.border,
+                        HorizontalAlignment::Left { offset: 5.0, border: 3.0 },
+                        VerticalAlignment::Bottom { offset: 28.0 },
+                        OverflowBehavior::Shrink,
+                    );
+                }
+
                 if is_hoverered {
-                    layout.register_click_handler(MouseButton::Left, &self.click_handler.select_character);
+                    if ban.is_none() {
+                        layout.register_click_handler(MouseButton::Left, &self.click_handler.select_character);
+                    }
                     layout.register_click_handler(MouseButton::Right, &self.overlay_handler);
 
                     {
@@ -521,6 +612,7 @@ where
             character_slots: C,
             switch_request: M,
             item_boxes: Vec<Box<dyn Element<ClientState, LayoutInfo = RowLayoutInfo>>>,
+            layout_key: (usize, u32, u32),
         }
 
         impl<C, M> CharacterWrapper<C, M>
@@ -533,62 +625,78 @@ where
                     character_slots,
                     switch_request,
                     item_boxes: Vec::new(),
+                    layout_key: (usize::MAX, u32::MAX, u32::MAX),
                 }
             }
 
             fn correct_element_size(&mut self, state: &State<ClientState>) {
+                use crate::state::character_screen::visible_slot_range;
+
                 let character_slots = state.get(&self.character_slots);
                 let slot_count = character_slots.get_slot_count();
+                let screen_path = client_state().character_screen();
+                let screen = state.get(&screen_path);
+                let key = (slot_count, screen.page, screen.page_count);
+                if self.layout_key == key {
+                    return;
+                }
+                self.layout_key = key;
+                self.item_boxes.clear();
 
-                // FIX: Very broken check
-                if self.item_boxes.len() != slot_count / 5 {
-                    self.item_boxes.clear();
+                let (start, end) = visible_slot_range(slot_count, screen.page, screen.page_count);
+                let visible = end.saturating_sub(start);
+                let padded = visible.div_ceil(5) * 5;
+                let rows = padded / 5;
+                for row in 0..rows {
+                    let slot = start + row * 5;
+                    let path = self.character_slots;
+                    let active = |offset| slot + offset < end;
 
-                    for row in 0..slot_count / 5 {
-                        let slot = row * 5;
-                        let path = self.character_slots;
-
-                        self.item_boxes.push(Box::new(split! {
-                            gaps: 10.0,
-                            children: (
-                                CharacterSlotPreview::new(
-                                    path.in_slot(slot),
-                                    self.switch_request,
-                                    CharacterSlotPreviewHandler::new(self.switch_request, slot),
-                                    OverlayHandler::new(slot, self.switch_request, path.in_slot(slot)),
-                                    slot,
-                                ),
-                                CharacterSlotPreview::new(
-                                    path.in_slot(slot + 1),
-                                    self.switch_request,
-                                    CharacterSlotPreviewHandler::new(self.switch_request, slot + 1),
-                                    OverlayHandler::new(slot + 1, self.switch_request, path.in_slot(slot + 1)),
-                                    slot + 1,
-                                ),
-                                CharacterSlotPreview::new(
-                                    path.in_slot(slot + 2),
-                                    self.switch_request,
-                                    CharacterSlotPreviewHandler::new(self.switch_request, slot + 2),
-                                    OverlayHandler::new(slot + 2, self.switch_request, path.in_slot(slot + 2)),
-                                    slot + 2,
-                                ),
-                                CharacterSlotPreview::new(
-                                    path.in_slot(slot + 3),
-                                    self.switch_request,
-                                    CharacterSlotPreviewHandler::new(self.switch_request, slot + 3),
-                                    OverlayHandler::new(slot + 3, self.switch_request, path.in_slot(slot + 3)),
-                                    slot + 3,
-                                ),
-                                CharacterSlotPreview::new(
-                                    path.in_slot(slot + 4),
-                                    self.switch_request,
-                                    CharacterSlotPreviewHandler::new(self.switch_request, slot + 4),
-                                    OverlayHandler::new(slot + 4, self.switch_request, path.in_slot(slot + 4)),
-                                    slot + 4,
-                                ),
-                            )
-                        }));
-                    }
+                    self.item_boxes.push(Box::new(split! {
+                        gaps: 10.0,
+                        children: (
+                            CharacterSlotPreview::new(
+                                path.in_slot(slot),
+                                self.switch_request,
+                                CharacterSlotPreviewHandler::new(self.switch_request, slot),
+                                OverlayHandler::new(slot, self.switch_request, path.in_slot(slot)),
+                                slot,
+                                active(0),
+                            ),
+                            CharacterSlotPreview::new(
+                                path.in_slot(slot + 1),
+                                self.switch_request,
+                                CharacterSlotPreviewHandler::new(self.switch_request, slot + 1),
+                                OverlayHandler::new(slot + 1, self.switch_request, path.in_slot(slot + 1)),
+                                slot + 1,
+                                active(1),
+                            ),
+                            CharacterSlotPreview::new(
+                                path.in_slot(slot + 2),
+                                self.switch_request,
+                                CharacterSlotPreviewHandler::new(self.switch_request, slot + 2),
+                                OverlayHandler::new(slot + 2, self.switch_request, path.in_slot(slot + 2)),
+                                slot + 2,
+                                active(2),
+                            ),
+                            CharacterSlotPreview::new(
+                                path.in_slot(slot + 3),
+                                self.switch_request,
+                                CharacterSlotPreviewHandler::new(self.switch_request, slot + 3),
+                                OverlayHandler::new(slot + 3, self.switch_request, path.in_slot(slot + 3)),
+                                slot + 3,
+                                active(3),
+                            ),
+                            CharacterSlotPreview::new(
+                                path.in_slot(slot + 4),
+                                self.switch_request,
+                                CharacterSlotPreviewHandler::new(self.switch_request, slot + 4),
+                                OverlayHandler::new(slot + 4, self.switch_request, path.in_slot(slot + 4)),
+                                slot + 4,
+                                active(4),
+                            ),
+                        )
+                    }));
                 }
             }
         }
@@ -635,6 +743,17 @@ where
             }
         }
 
+        let previous_disabled =
+            ComputedSelector::new_default(|state: &ClientState| !client_state().character_screen().follow_safe(state).can_page_back());
+        let next_disabled =
+            ComputedSelector::new_default(|state: &ClientState| !client_state().character_screen().follow_safe(state).can_page_forward());
+        let previous_page = |state: &State<ClientState>, _: &mut EventQueue<ClientState>| {
+            state.update_value_with(client_state().character_screen(), |screen| screen.step_page(-1));
+        };
+        let next_page = |state: &State<ClientState>, _: &mut EventQueue<ClientState>| {
+            state.update_value_with(client_state().character_screen(), |screen| screen.step_page(1));
+        };
+
         window! {
             title: "Select Character",
             class: Self::window_class(),
@@ -645,6 +764,27 @@ where
                 fragment! {
                     gaps: 8.0,
                     children: (
+                        split! {
+                            gaps: 8.0,
+                            children: (
+                                button! {
+                                    text: "Previous page",
+                                    disabled: previous_disabled,
+                                    event: previous_page,
+                                },
+                                text! {
+                                    text: client_state().character_screen().page_label(),
+                                },
+                                button! {
+                                    text: "Next page",
+                                    disabled: next_disabled,
+                                    event: next_page,
+                                },
+                            ),
+                        },
+                        text! {
+                            text: client_state().character_screen().status(),
+                        },
                         CharacterWrapper::new(self.character_slots, self.switch_request),
                         korangar_interface::components::either::Either::component_new(
                             client_state().pincode_window().needs_pin(),

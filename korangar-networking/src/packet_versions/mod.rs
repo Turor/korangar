@@ -2,6 +2,7 @@ pub mod achievements;
 pub mod bank_roulette;
 pub mod barter;
 pub mod cash_shop_ignore;
+pub mod character_select;
 pub mod clan;
 pub mod companions;
 pub mod economy;

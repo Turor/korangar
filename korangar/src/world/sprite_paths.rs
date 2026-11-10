@@ -18,18 +18,27 @@ fn sex_folder(sex: Sex) -> &'static str {
     if sex == Sex::Female { "여" } else { "남" }
 }
 
-pub(crate) fn head_style_id(sex: Sex, doram: bool, head: Option<usize>) -> usize {
-    if doram {
-        let Some(head) = head else {
-            return 1;
-        };
-        return DORAM_HAIR_LOOKUP.get(head).copied().unwrap_or(head);
+/// Head sprite file id. roBrowser `UpdateHead` turns style `0` into `1` and
+/// `getHeadPath` uses that style index for the file. `HairIndexTable` is only
+/// the palette id ([`hair_palette_id`]).
+pub(crate) fn head_style_id(head: Option<usize>) -> usize {
+    match head {
+        Some(0) | None => 1,
+        Some(head) => head,
     }
-    match (sex, head) {
-        (Sex::Male, Some(head)) => MALE_HAIR_LOOKUP.get(head).copied().unwrap_or(head),
-        (Sex::Female, Some(head)) => FEMALE_HAIR_LOOKUP.get(head).copied().unwrap_or(head),
-        _ => 1,
-    }
+}
+
+/// Palette file id for a head (`HairIndexTable`, roBrowser `getHeadPalPath`).
+pub(crate) fn hair_palette_id(sex: Sex, doram: bool, head: Option<usize>) -> usize {
+    let Some(head) = head else {
+        return 1;
+    };
+    let table = match (doram, sex) {
+        (true, _) => DORAM_HAIR_LOOKUP,
+        (false, Sex::Female) => FEMALE_HAIR_LOOKUP,
+        (false, _) => MALE_HAIR_LOOKUP,
+    };
+    table.get(head).copied().unwrap_or(head)
 }
 
 #[allow(clippy::invisible_characters)]
@@ -192,7 +201,7 @@ pub(crate) fn player_part_files(job_id: JobId, sex: Sex, head: Option<usize>) ->
     let sex_name = sex_folder(sex);
     let doram = is_doram_job(job_id);
     let tribe = if doram { "도람족" } else { "인간족" };
-    let head_id = head_style_id(sex, doram, head);
+    let head_id = head_style_id(head);
     let job = job_sprite_name(job_id);
     vec![
         format!("{tribe}\\몸통\\{sex_name}\\{job}_{sex_name}"),
@@ -207,6 +216,45 @@ pub(crate) fn player_part_files(job_id: JobId, sex: Sex, head: Option<usize>) ->
 pub(crate) fn headgear_sprite_path(sex: Sex, accessory_name: &str) -> String {
     let sex_name = sex_folder(sex);
     format!("악세사리\\{sex_name}\\{sex_name}{accessory_name}")
+}
+
+/// Hercules `JOB_NOVICE`.
+pub const JOB_NOVICE: u16 = 0;
+/// Hercules `JOB_SUMMONER`. The only other job `char_make_new_char_sql`
+/// accepts.
+pub const JOB_SUMMONER: u16 = 4218;
+
+/// Novice or Summoner files for the creation preview.
+pub(crate) fn creation_part_files(doram: bool, female: bool, style: u16) -> Vec<String> {
+    let sex = if female { Sex::Female } else { Sex::Male };
+    let job_id = JobId(if doram { JOB_SUMMONER } else { JOB_NOVICE });
+    player_part_files(job_id, sex, Some(usize::from(style)))
+}
+
+/// GRF path of the hair palette. `palette_id` is [`hair_palette_id`], not the
+/// style index.
+pub(crate) fn hair_palette_grf_path(doram: bool, female: bool, palette_id: usize, color: u16) -> String {
+    let sex = if female { "여" } else { "남" };
+    match doram {
+        true => format!("data\\palette\\도람족\\머리\\머리{palette_id}_{sex}_{color}.pal"),
+        false => format!("data\\palette\\머리\\머리{palette_id}_{sex}_{color}.pal"),
+    }
+}
+
+/// Path under `data\\texture\\` for a CharCreate v4 hair thumbnail.
+pub(crate) fn hair_thumb_grf_path(doram: bool, female: bool, style: u16) -> String {
+    let name = match (doram, female) {
+        (true, true) => format!("img_hairstyle_doramgirl{style:02}"),
+        (true, false) => format!("img_hairstyle_doramboy{style:02}"),
+        (false, true) => format!("img_hairstyle_girl{style:02}"),
+        (false, false) => format!("img_hairstyle{style:02}"),
+    };
+    format!("유저인터페이스\\make_character_ver2\\{name}.bmp")
+}
+
+/// Path under `data\\texture\\` for a hair-color swatch. `color` is 0-based.
+pub(crate) fn hair_color_thumb_grf_path(color: u16) -> String {
+    format!("유저인터페이스\\make_character_ver2\\color{:02}_off.bmp", color + 1)
 }
 
 #[cfg(test)]
@@ -224,9 +272,9 @@ mod tests {
     fn body_head_headgear_item_icon_and_doram_paths_match_the_release_keys() {
         let novice = player_part_files(JobId(0), Sex::Male, Some(0));
         assert_eq!(novice[0], "인간족\\몸통\\남\\초보자_남");
-        assert_eq!(novice[1], "인간족\\머리통\\남\\2_남");
+        assert_eq!(novice[1], "인간족\\머리통\\남\\1_남");
         assert_eq!(sprite_key(&novice[0]), "data/sprite/인간족/몸통/남/초보자_남.spr");
-        assert_eq!(sprite_key(&novice[1]), "data/sprite/인간족/머리통/남/2_남.spr");
+        assert_eq!(sprite_key(&novice[1]), "data/sprite/인간족/머리통/남/1_남.spr");
 
         let hat = headgear_sprite_path(Sex::Male, "_고글");
         assert_eq!(hat, "악세사리\\남\\남_고글");
@@ -269,5 +317,49 @@ mod tests {
         let tribe = player_part_files(JobId(4217), Sex::Female, None);
         assert!(tribe[0].starts_with("도람족\\몸통\\"));
         assert!(!tribe[0].contains("묘족"));
+    }
+
+    #[test]
+    fn human_head_file_is_the_style_index_and_palette_uses_the_table() {
+        assert_eq!(creation_part_files(false, false, 1)[1], "인간족\\머리통\\남\\1_남");
+        assert_eq!(creation_part_files(false, true, 2)[1], "인간족\\머리통\\여\\2_여");
+        assert_eq!(
+            player_part_files(JobId(JOB_NOVICE), Sex::Male, Some(0))[1],
+            "인간족\\머리통\\남\\1_남"
+        );
+        let palette_id = hair_palette_id(Sex::Male, false, Some(1));
+        assert_eq!(palette_id, 2);
+        assert_eq!(
+            hair_palette_grf_path(false, false, palette_id, 3),
+            "data\\palette\\머리\\머리2_남_3.pal"
+        );
+        assert_eq!(hair_palette_id(Sex::Female, false, Some(2)), 4);
+    }
+
+    #[test]
+    fn doram_creation_preview_is_the_summoner_body() {
+        let files = creation_part_files(true, true, 3);
+        assert_eq!(files[0], "도람족\\몸통\\여\\summoner_여");
+        assert_eq!(files[1], "도람족\\머리통\\여\\3_여");
+        assert_eq!(hair_palette_id(Sex::Female, true, Some(3)), 3);
+        assert_eq!(
+            hair_palette_grf_path(true, true, 3, 1),
+            "data\\palette\\도람족\\머리\\머리3_여_1.pal"
+        );
+    }
+
+    #[test]
+    fn hair_thumbnails_follow_the_grf() {
+        assert_eq!(
+            hair_thumb_grf_path(false, false, 2),
+            "유저인터페이스\\make_character_ver2\\img_hairstyle02.bmp"
+        );
+        assert!(hair_thumb_grf_path(false, true, 2).ends_with("img_hairstyle_girl02.bmp"));
+        assert!(hair_thumb_grf_path(true, false, 2).ends_with("img_hairstyle_doramboy02.bmp"));
+        assert!(hair_thumb_grf_path(true, true, 6).ends_with("img_hairstyle_doramgirl06.bmp"));
+        assert_eq!(
+            hair_color_thumb_grf_path(0),
+            "유저인터페이스\\make_character_ver2\\color01_off.bmp"
+        );
     }
 }

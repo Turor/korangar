@@ -49,6 +49,16 @@ impl CharacterSlots {
             .and_then(|slot| slot.as_ref())
     }
 
+    pub fn set_deletion_date(&mut self, character_id: CharacterId, delete_at: i32) {
+        self.slots.iter_mut().for_each(|slot| {
+            if let Some(character_information) = slot.as_mut()
+                && character_information.character_id == character_id
+            {
+                character_information.deletion_reverse_date = delete_at;
+            }
+        });
+    }
+
     pub fn set_characters(&mut self, characters: Vec<CharacterInformation>) {
         // Clear the character list.
         self.slots.iter_mut().for_each(|slot| *slot = None);

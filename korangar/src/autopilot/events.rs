@@ -175,6 +175,18 @@ pub fn toggle_event(name: &str) -> Result<InputEvent, String> {
     unit_event(name).ok_or_else(|| format!("unknown unit event {name} (Open*/Toggle* with fields use `event`)"))
 }
 
+fn default_hair_color() -> u16 {
+    3
+}
+
+fn default_hair_style() -> u16 {
+    2
+}
+
+fn default_sex() -> u8 {
+    1
+}
+
 #[derive(Deserialize)]
 enum ScriptedEvent {
     SendMessage(String),
@@ -186,6 +198,14 @@ enum ScriptedEvent {
     CreateCharacter {
         slot: usize,
         name: String,
+        #[serde(default = "default_hair_color")]
+        hair_color: u16,
+        #[serde(default = "default_hair_style")]
+        hair_style: u16,
+        #[serde(default)]
+        start_job: u16,
+        #[serde(default = "default_sex")]
+        sex: u8,
     },
     OpenCharacterCreationWindow(usize),
     CastSkill(u8),
@@ -235,7 +255,21 @@ pub fn scripted_event(spec: &str) -> Result<InputEvent, String> {
             destination: TilePosition { x, y },
         },
         ScriptedEvent::SelectCharacter(slot) => InputEvent::SelectCharacter { slot },
-        ScriptedEvent::CreateCharacter { slot, name } => InputEvent::CreateCharacter { slot, name },
+        ScriptedEvent::CreateCharacter {
+            slot,
+            name,
+            hair_color,
+            hair_style,
+            start_job,
+            sex,
+        } => InputEvent::CreateCharacter {
+            slot,
+            name,
+            hair_color,
+            hair_style,
+            start_job,
+            sex,
+        },
         ScriptedEvent::OpenCharacterCreationWindow(slot) => InputEvent::OpenCharacterCreationWindow { slot },
         ScriptedEvent::CastSkill(slot) => InputEvent::CastSkill {
             slot: HotbarSlot(u16::from(slot)),
@@ -295,6 +329,7 @@ pub fn parse_window_class(name: &str) -> Option<WindowClass> {
         "chat" => Some(WindowClass::Chat),
         "companions" => Some(WindowClass::Companions),
         "charactercreation" => Some(WindowClass::CharacterCreation),
+        "characterdeletion" => Some(WindowClass::CharacterDeletion),
         "characteroverview" => Some(WindowClass::CharacterOverview),
         "characterselection" => Some(WindowClass::CharacterSelection),
         "dialog" => Some(WindowClass::Dialog),

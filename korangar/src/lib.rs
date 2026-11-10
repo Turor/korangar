@@ -75,7 +75,7 @@ use ragnarok_packets::handler::NoPacketCallback;
 use ragnarok_packets::{
     AccountId, Action, AttackRange, BuyShopItemsResult, CharacterServerInformation, ClientTick, Direction, DisappearanceReason, EffectId,
     EntityId, EquipPosition, EquippableItemFlags, ExperienceSource, ExperienceType, GuildPositionEdit, HealType, HotbarSlot, HotbarTab,
-    InventoryIndex, ItemId, SellItemsResult, SkillId, SkillLevel, TilePosition, WorldPosition,
+    InventoryIndex, ItemId, JobId, SellItemsResult, Sex, SkillId, SkillLevel, TilePosition, WorldPosition,
 };
 use renderer::InterfaceRenderer;
 use rust_state::{ManuallyAssertExt, State};
@@ -1359,6 +1359,7 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().character_slots())
                         .set_slot_count(normal_slot_count);
+                    self.client_state.follow_mut(client_state().character_screen()).reset_for_server();
 
                     let _ = self.networking_system.request_character_list();
                 }
@@ -1510,6 +1511,7 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().character_slots())
                         .set_characters(characters);
+                    self.client_state.follow_mut(client_state().character_screen()).on_character_list();
 
                     if !self.interface.is_window_with_class_open(WindowClass::CharacterSelection) {
                         // TODO: this will do one unnecessary restore_focus. check
@@ -1582,6 +1584,68 @@ impl Client {
                 NetworkEvent::CharacterDeletionFailed { message, .. } => {
                     *self.client_state.follow_mut(client_state().currently_deleting()) = None;
                     self.interface.open_window(ErrorWindow::new(message.to_owned()))
+                }
+                NetworkEvent::CharacterSlotPages { page_count } => {
+                    self.client_state
+                        .follow_mut(client_state().character_screen())
+                        .set_page_count(page_count);
+                }
+                NetworkEvent::CharacterBanList { bans } => {
+                    let bans = bans
+                        .into_iter()
+                        .map(|(character_id, until)| crate::state::character_screen::CharacterBan { character_id, until })
+                        .collect();
+                    self.client_state.follow_mut(client_state().character_screen()).set_bans(bans);
+                }
+                NetworkEvent::CharacterDeleteReserved {
+                    character_id,
+                    result,
+                    remaining_seconds,
+                } => {
+                    use crate::state::character_screen::{ReserveEffect, reserve_effect, unix_now};
+                    match reserve_effect(result, remaining_seconds, unix_now()) {
+                        ReserveEffect::Scheduled { delete_at, message } => {
+                            self.client_state
+                                .follow_mut(client_state().character_slots())
+                                .set_deletion_date(character_id, delete_at);
+                            self.client_state.follow_mut(client_state().character_screen()).set_status(message);
+                        }
+                        ReserveEffect::Rejected { message } => {
+                            self.client_state.follow_mut(client_state().character_screen()).set_status(message);
+                            self.interface.open_window(ErrorWindow::new(message.to_owned()));
+                        }
+                    }
+                }
+                NetworkEvent::CharacterDeleteAccepted { character_id, result } => {
+                    use crate::state::character_screen::{AcceptEffect, accept_effect};
+                    match accept_effect(result) {
+                        AcceptEffect::Removed { message } => {
+                            self.client_state
+                                .follow_mut(client_state().character_slots())
+                                .remove_with_id(character_id);
+                            self.client_state.follow_mut(client_state().character_screen()).set_status(message);
+                            self.interface.close_window_with_class(WindowClass::CharacterDeletion);
+                        }
+                        AcceptEffect::Rejected { message } => {
+                            self.client_state.follow_mut(client_state().character_screen()).set_status(message);
+                            self.interface.open_window(ErrorWindow::new(message.to_owned()));
+                        }
+                    }
+                }
+                NetworkEvent::CharacterDeleteCanceled { character_id, result } => {
+                    use crate::state::character_screen::{CancelEffect, cancel_effect};
+                    match cancel_effect(result) {
+                        CancelEffect::Cleared { message } => {
+                            self.client_state
+                                .follow_mut(client_state().character_slots())
+                                .set_deletion_date(character_id, 0);
+                            self.client_state.follow_mut(client_state().character_screen()).set_status(message);
+                        }
+                        CancelEffect::Rejected { message } => {
+                            self.client_state.follow_mut(client_state().character_screen()).set_status(message);
+                            self.interface.open_window(ErrorWindow::new(message.to_owned()));
+                        }
+                    }
                 }
                 NetworkEvent::CharacterSelected { login_data, .. } => {
                     self.audio_engine.play_sound_effect(self.main_menu_click_sound_effect);
@@ -5194,21 +5258,61 @@ impl Client {
                     // player is already on a map paints "Create Character" over Gear.
                     if self.client_state.try_follow(this_entity()).is_some() {
                         self.interface.close_window_with_class(WindowClass::CharacterCreation);
-                    } else {
+                    } else if self.client_state.follow(client_state().pincode_window()).allows_select() {
                         self.client_state.follow_mut(client_state().create_character_name()).clear();
+                        let sex = self.saved_login_data.map(|login| login.sex).unwrap_or(Sex::Male);
+                        self.client_state
+                            .follow_mut(client_state().character_screen())
+                            .begin_creation(slot, sex);
                         self.interface
-                            .open_window(CharacterCreationWindow::new(client_state().create_character_name(), slot));
+                            .open_window(CharacterCreationWindow::new(client_state().create_character_name()));
                     }
                 }
-                InputEvent::CreateCharacter { slot, name } => {
-                    let _ = self.networking_system.create_character(slot, name);
+                InputEvent::CreateCharacter {
+                    slot,
+                    name,
+                    hair_color,
+                    hair_style,
+                    start_job,
+                    sex,
+                } => {
+                    if self.client_state.follow(client_state().pincode_window()).allows_select() {
+                        let sex = match sex {
+                            0 => Sex::Female,
+                            _ => Sex::Male,
+                        };
+                        let _ = self
+                            .networking_system
+                            .create_character(slot, name, hair_color, hair_style, JobId(start_job), sex);
+                    }
                 }
                 InputEvent::DeleteCharacter { character_id } => {
-                    if self.client_state.follow(client_state().pincode_window()).allows_select()
-                        && self.client_state.follow(client_state().currently_deleting()).is_none()
-                    {
+                    if self.client_state.follow(client_state().pincode_window()).allows_select() {
                         let _ = self.networking_system.delete_character(character_id);
-                        *self.client_state.follow_mut(client_state().currently_deleting()) = Some(character_id);
+                    }
+                }
+                InputEvent::OpenCharacterDeletionWindow { character_id } => {
+                    if self.client_state.follow(client_state().pincode_window()).allows_select() {
+                        self.client_state
+                            .follow_mut(client_state().character_screen())
+                            .begin_delete_confirmation(character_id);
+                        self.interface.close_window_with_class(WindowClass::CharacterDeletion);
+                        self.interface.open_window(CharacterDeletionWindow);
+                    }
+                }
+                InputEvent::AcceptCharacterDeletion {
+                    character_id,
+                    confirmation,
+                } => {
+                    if self.client_state.follow(client_state().pincode_window()).allows_select()
+                        && let Some(bytes) = crate::state::character_screen::confirmation_bytes(&confirmation)
+                    {
+                        let _ = self.networking_system.confirm_delete_character(character_id, bytes);
+                    }
+                }
+                InputEvent::CancelCharacterDeletion { character_id } => {
+                    if self.client_state.follow(client_state().pincode_window()).allows_select() {
+                        let _ = self.networking_system.cancel_delete_character(character_id);
                     }
                 }
                 InputEvent::SwitchCharacterSlot {
@@ -6656,6 +6760,13 @@ impl Client {
         for completed in self.async_loader.take_completed() {
             match completed {
                 (LoaderId::AnimationData(entity_id), LoadableResource::AnimationData(animation_data)) => {
+                    let Some(animation_data) = crate::interface::windows::take_preview_animation(
+                        self.client_state.follow_mut(client_state().character_screen()),
+                        entity_id,
+                        animation_data,
+                    ) else {
+                        continue;
+                    };
                     if let Some(entity) = self
                         .client_state
                         .follow_mut(client_state().entities())
@@ -7168,8 +7279,22 @@ impl Client {
                 autopilot::Effect::SelectCharacter(slot) => {
                     self.input_event_buffer.push(InputEvent::SelectCharacter { slot });
                 }
-                autopilot::Effect::CreateCharacter { slot, name } => {
-                    self.input_event_buffer.push(InputEvent::CreateCharacter { slot, name });
+                autopilot::Effect::CreateCharacter {
+                    slot,
+                    name,
+                    hair_color,
+                    hair_style,
+                    start_job,
+                    sex,
+                } => {
+                    self.input_event_buffer.push(InputEvent::CreateCharacter {
+                        slot,
+                        name,
+                        hair_color,
+                        hair_style,
+                        start_job,
+                        sex,
+                    });
                 }
                 autopilot::Effect::Input(event) => self.input_event_buffer.push(event),
                 autopilot::Effect::Window { class, open, event } => {
@@ -7431,6 +7556,13 @@ impl Client {
 
         self.sync_world_map_textures();
         self.sync_menu_bar_icons();
+        crate::interface::windows::sync_preview(
+            self.client_state.follow_mut(client_state().character_screen()),
+            &self.async_loader,
+            &self.game_file_loader,
+            &self.texture_loader,
+            self.interface.is_window_with_class_open(WindowClass::CharacterCreation),
+        );
 
         let current_camera: &(dyn Camera + Send + Sync) = match currently_playing {
             #[cfg(feature = "debug")]
