@@ -6,6 +6,7 @@ pub mod pincode;
 mod position;
 pub mod version_20190530;
 pub mod version_20250716;
+pub mod whisper;
 
 use std::net::Ipv4Addr;
 
@@ -23,6 +24,7 @@ pub use self::pincode::{
     advance_pincode_visual_seed, decrypt_pincode, encrypt_pincode, pincode_decrypt_table, pincode_keypad,
 };
 pub use self::position::{Direction, WorldPosition, WorldPosition2};
+pub use self::whisper::{WhisperAck2Packet, WhisperAckPacket, WhisperMessagePacket, WhisperReceived2Packet, WhisperReceivedPacket};
 
 // To make proc macros work in korangar_interface.
 extern crate self as ragnarok_packets;
@@ -1123,7 +1125,8 @@ pub struct AttendanceDataPacket {
     pub rewards: Vec<AttendanceReward>,
 }
 
-/// Claim today's attendance reward (`pc_attendance_claim_reward`, 0x0AEF, 2 bytes).
+/// Claim today's attendance reward (`pc_attendance_claim_reward`, 0x0AEF, 2
+/// bytes).
 ///
 /// This is not a request for `0x0AE3`. The map server answers with
 /// `ZC_ATTENDANCE_RESPONSE` (`0x0AF0`).
