@@ -347,6 +347,10 @@ pub enum InputEvent {
     ClaimRoulette,
     /// Close the roulette (`0x0A1D`).
     CloseRoulette,
+    /// OK on the NPC number or string input.
+    SubmitNpcInput,
+    /// Cancel on the NPC number or string input. Still answers the script.
+    CancelNpcInput,
     /// Action for the "Close"-button in a dialog.
     CloseDialog {
         /// Id of the NPC the player is in a dialog with.

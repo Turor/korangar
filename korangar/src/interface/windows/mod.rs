@@ -42,6 +42,7 @@ mod maps;
 mod menu;
 mod mvp_minimap;
 mod navigation;
+mod npc_input;
 #[cfg(feature = "debug")]
 mod packet_inspector;
 mod party;
@@ -124,6 +125,7 @@ pub use self::maps::MapsWindow;
 pub use self::menu::MenuWindow;
 pub use self::mvp_minimap::{MvpMinimapState, MvpMinimapWindow};
 pub use self::navigation::NavigationWindow;
+pub use self::npc_input::{NpcInputBox, NpcInputWindow};
 #[cfg(feature = "debug")]
 pub use self::packet_inspector::PacketInspectorWindow;
 pub use self::party_invite::PartyInviteWindow;
@@ -172,6 +174,7 @@ pub enum WindowClass {
     CharacterOverview,
     CharacterSelection,
     Dialog,
+    NpcInput,
     Enchant,
     Eden,
     GameSettings,

@@ -15,6 +15,7 @@ pub mod item_finder;
 pub mod item_workshop;
 pub mod localization;
 pub mod navigation;
+pub mod npc_dialog;
 pub mod party;
 pub mod pincode;
 pub mod player_shops;
@@ -90,6 +91,7 @@ use crate::state::inventory::Inventory;
 use crate::state::item_drop::ItemDropPrompt;
 use crate::state::item_workshop::{EnchantGradeState, ItemReformState, LaphineSynthesisState, LaphineUpgradeState};
 use crate::state::navigation::Navigation;
+use crate::state::npc_dialog::NpcPresentation;
 use crate::state::pincode::PincodeWindowState;
 use crate::state::quest_log::QuestLog;
 use crate::state::refine::RefineState;
@@ -218,6 +220,8 @@ pub struct ClientState {
     friend_list_window: FriendListWindowState,
     /// Internal state of the dialog window.
     dialog_window: DialogWindowState,
+    /// Cutin, progress bar, and NPC background music for the open script.
+    npc_presentation: NpcPresentation,
     /// Internal state of the enchant window.
     enchant_window: crate::interface::windows::EnchantWindowState,
     /// Internal state of the Turoran stable board.
@@ -508,6 +512,7 @@ impl ClientState {
 
         time_phase!("create player resources", {
             let dialog_window = DialogWindowState::default();
+            let npc_presentation = NpcPresentation::default();
             let enchant_window = crate::interface::windows::EnchantWindowState::default();
             let stable_window = crate::interface::windows::StableWindowState::default();
             let eden_window = crate::interface::windows::EdenWindowState::default();
@@ -610,6 +615,7 @@ impl ClientState {
             chat_window,
             friend_list_window,
             dialog_window,
+            npc_presentation,
             enchant_window,
             stable_window,
             eden_window,

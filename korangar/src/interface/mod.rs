@@ -1,6 +1,8 @@
 pub mod chat_overlay;
 pub mod components;
 pub mod cursor;
+pub(crate) mod npc_flow;
+pub(crate) mod npc_overlay;
 pub mod player_shop_flow;
 pub mod resource;
 pub mod shop_boards;

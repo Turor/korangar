@@ -64,8 +64,9 @@ use korangar_debug::profiling::Profiler;
 use korangar_interface::Interface;
 use korangar_interface::layout::MouseButton;
 use korangar_networking::{
-    DisconnectReason, HotkeyState, InventoryItemDetails, ItemQuantity, LoginServerLoginData, MessageColor, NetworkEvent,
-    NetworkEventBuffer, NetworkingSystem, PartyUpdate, SellItem, StatusChangeState, SupportedPacketVersion,
+    DialogHotkey, DisconnectReason, HotkeyState, InventoryItemDetails, ItemQuantity, LoginServerLoginData, MessageColor, NetworkEvent,
+    NetworkEventBuffer, NetworkingSystem, PartyUpdate, SellItem, StatusChangeState, SupportedPacketVersion, cutin_anchor,
+    cutin_texture_candidates, dialog_hotkey,
 };
 #[cfg(feature = "debug")]
 use networking::{PacketHistory, PacketHistoryCallback};
@@ -1483,7 +1484,7 @@ impl Client {
                     ));
 
                     // Put the dialog system in a well-defined state.
-                    self.client_state.follow_mut(client_state().dialog_window()).end();
+                    crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
 
                     self.map = None;
 
@@ -1738,8 +1739,9 @@ impl Client {
                     self.client_state.follow_mut(client_state().mvp_minimap()).set_map_size(0, 0);
                     *self.client_state.follow_mut(client_state().buffered_action()) = None;
 
-                    // Close any remaining dialogs.
-                    self.interface.close_window_with_class(WindowClass::Dialog);
+                    // Close any remaining dialogs. The new map restores its own BGM.
+                    crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
+                    self.client_state.follow_mut(client_state().npc_presentation()).clear_map();
                     if self.interface.is_window_with_class_open(WindowClass::Storage) {
                         let _ = self.networking_system.close_storage();
                         self.interface.close_window_with_class(WindowClass::Storage);
@@ -2467,6 +2469,61 @@ impl Client {
 
                     self.interface.open_window(DialogWindow::new(client_state().dialog_window()));
                 }
+                NetworkEvent::NpcNumberInput { npc_id } => {
+                    self.client_state
+                        .follow_mut(client_state().dialog_window())
+                        .initialize(npc_id)
+                        .open_number_input();
+                    self.interface.open_window(NpcInputWindow::new());
+                }
+                NetworkEvent::NpcTextInput { npc_id } => {
+                    self.client_state
+                        .follow_mut(client_state().dialog_window())
+                        .initialize(npc_id)
+                        .open_text_input();
+                    self.interface.open_window(NpcInputWindow::new());
+                }
+                NetworkEvent::NpcCutin { image_name, location } => {
+                    let anchor = cutin_anchor(location);
+                    let path = cutin_texture_candidates(&image_name).into_iter().find(|candidate| {
+                        self.game_file_loader
+                            .file_exists(&format!("data\\texture\\{candidate}"))
+                    });
+                    let presentation = self.client_state.follow_mut(client_state().npc_presentation());
+                    match (anchor, path) {
+                        (Some(anchor), Some(path)) => presentation.show_cutin(anchor, path),
+                        _ => presentation.clear_cutin(),
+                    }
+                }
+                NetworkEvent::NpcProgress { color, seconds } => {
+                    self.client_state
+                        .follow_mut(client_state().npc_presentation())
+                        .start_progress(color, seconds, client_tick.0);
+                }
+                NetworkEvent::NpcProgressCancel => {
+                    if self
+                        .client_state
+                        .follow_mut(client_state().npc_presentation())
+                        .cancel_from_server()
+                    {
+                        let _ = self.networking_system.npc_progress_complete();
+                    }
+                }
+                NetworkEvent::NpcSound {
+                    file_name,
+                    action,
+                    npc_id,
+                    ..
+                } => crate::interface::npc_flow::play_npc_sound(
+                    &self.audio_engine,
+                    &self.client_state,
+                    &file_name,
+                    action,
+                    npc_id,
+                ),
+                NetworkEvent::NpcBgm { track } => {
+                    crate::interface::npc_flow::play_npc_bgm(&self.audio_engine, &mut self.client_state, self.map.as_ref(), &track);
+                }
                 NetworkEvent::AddQuestEffect { quest_effect } => {
                     if let Some(map) = &self.map {
                         self.particle_holder.add_quest_icon(&self.texture_loader, map, quest_effect)
@@ -3089,8 +3146,7 @@ impl Client {
                     // Close the dialog. Some NPCs don't use the `BuyOrSellPacket` and instead use
                     // the regular `DialogMenuPacket`. When opening the shop that dialog should be
                     // closed.
-                    self.client_state.follow_mut(client_state().dialog_window()).end();
-                    self.interface.close_window_with_class(WindowClass::Dialog);
+                    crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
 
                     *self.client_state.follow_mut(client_state().shop_items()) = items
                         .into_iter()
@@ -3124,8 +3180,7 @@ impl Client {
                     // Close the dialog. Some NPCs don't use the `BuyOrSellPacket` and instead use
                     // the regular `DialogMenuPacket`. When opening the shop that dialog should be
                     // closed.
-                    self.client_state.follow_mut(client_state().dialog_window()).end();
-                    self.interface.close_window_with_class(WindowClass::Dialog);
+                    crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
 
                     let inventory_items = self.client_state.follow(client_state().inventory().items());
                     let sell_items = items
@@ -4290,6 +4345,15 @@ impl Client {
                     let _ = self.networking_system.switch_character_slot(origin_slot, destination_slot);
                 }
                 InputEvent::PlayerMove { destination } => {
+                    if self
+                        .client_state
+                        .follow_mut(client_state().npc_presentation())
+                        .cancel_for_move()
+                    {
+                        let _ = self.networking_system.npc_progress_cancel();
+                        let _ = self.networking_system.npc_progress_complete();
+                    }
+
                     if self.client_state.try_follow(this_entity()).is_some() {
                         let _ = self.networking_system.player_move(WorldPosition {
                             x: destination.x,
@@ -4443,15 +4507,34 @@ impl Client {
                     let _ = self.networking_system.next_dialog(npc_id);
                 }
                 InputEvent::CloseDialog { npc_id } => {
-                    let _ = self.networking_system.close_dialog(npc_id);
-                    self.client_state.follow_mut(client_state().dialog_window()).end();
-                    self.interface.close_window_with_class(WindowClass::Dialog);
+                    crate::interface::npc_flow::finish_npc_dialog(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        &mut self.networking_system,
+                        npc_id,
+                    );
+                }
+                InputEvent::SubmitNpcInput => {
+                    crate::interface::npc_flow::reply_npc_input(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        &mut self.networking_system,
+                        false,
+                    );
+                }
+                InputEvent::CancelNpcInput => {
+                    crate::interface::npc_flow::reply_npc_input(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        &mut self.networking_system,
+                        true,
+                    );
                 }
                 InputEvent::ChooseDialogOption { npc_id, option } => {
                     let _ = self.networking_system.choose_dialog_option(npc_id, option);
 
                     if option == -1 {
-                        self.interface.close_window_with_class(WindowClass::Dialog);
+                        crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
                     }
                 }
                 InputEvent::UseItem { index } => {
@@ -5760,7 +5843,18 @@ impl Client {
                             let map = self.map.insert(map);
 
                             map.set_ambient_sound_sources(&self.audio_engine);
-                            self.audio_engine.play_background_music_track(map.background_music_track_name());
+                            let npc_track = {
+                                let presentation = self.client_state.follow(client_state().npc_presentation());
+                                if presentation.npc_bgm_active() {
+                                    Some(presentation.npc_bgm().to_owned())
+                                } else {
+                                    None
+                                }
+                            };
+                            match npc_track {
+                                Some(track) => self.audio_engine.play_background_music_track(Some(&track)),
+                                None => self.audio_engine.play_background_music_track(map.background_music_track_name()),
+                            }
 
                             if let Some(position) = position {
                                 // `manually_asserted` is safe because we are in the branch where `this_player`
@@ -6243,12 +6337,18 @@ impl Client {
         self.request_entity_details(&input_report);
 
         self.handle_network_events(client_tick);
+        crate::interface::npc_flow::poll_npc_progress(&mut self.client_state, &mut self.networking_system, client_tick.0);
 
         let interface_has_focus = self.process_user_events(
             &input_report,
             client_tick,
             #[cfg(feature = "debug")]
             (delta_time as f32),
+        );
+        crate::interface::npc_flow::recover_dismissed_npc_windows(
+            &mut self.client_state,
+            &mut self.interface,
+            &mut self.networking_system,
         );
 
         // Some debug windows, such as the packet history or cache statistics, require
@@ -6399,6 +6499,24 @@ impl Client {
             _ => None,
         };
 
+        let focus_npc_input = self
+            .client_state
+            .follow_mut(client_state().dialog_window())
+            .take_input_focus();
+        let dialog_npc_id = self.client_state.follow(client_state().dialog_window()).npc_id();
+        let dialog_key = if !interface_has_focus {
+            let dialog = self.client_state.follow(client_state().dialog_window());
+            dialog_hotkey(
+                dialog.is_awaiting_next(),
+                dialog.is_awaiting_close(),
+                dialog.is_awaiting_choice(),
+                dialog.input_is_open(),
+                &input_report.characters,
+            )
+        } else {
+            None
+        };
+
         let mut interface_frame = {
             #[cfg(feature = "debug")]
             profile_block!("user interface");
@@ -6528,10 +6646,19 @@ impl Client {
                 }
             }
 
-            // Focus the chat if the interface is not focused, no other element is capturing
-            // the keyboard input, enter was pressed, and the chat
-            // window is open.
-            if (!interface_has_focus || !interface_frame.input_characters(&self.client_state, &input_report.characters))
+            // Focus the NPC input once when it opens, then let Enter submit that box.
+            // Next and Close take Enter and Space before chat does.
+            if focus_npc_input {
+                interface_frame.focus_element(NpcInputBox);
+            }
+
+            if let Some(dialog_key) = dialog_key {
+                let event = match dialog_key {
+                    DialogHotkey::Next => InputEvent::NextDialog { npc_id: dialog_npc_id },
+                    DialogHotkey::Close => InputEvent::CloseDialog { npc_id: dialog_npc_id },
+                };
+                self.input_event_buffer.push(event);
+            } else if (!interface_has_focus || !interface_frame.input_characters(&self.client_state, &input_report.characters))
                 && input_report.characters.contains(&'\x0d')
                 && is_chat_open
             {
@@ -6614,6 +6741,27 @@ impl Client {
             render_context.render_bounding_boxes();
             render_context.render_world_overlays();
         }
+
+        let player_position = self
+            .client_state
+            .try_follow(this_entity())
+            .map(|player| player.get_position());
+        crate::interface::npc_overlay::render_npc_cutin(
+            self.client_state.follow(client_state().npc_presentation()),
+            self.game_file_loader.as_ref(),
+            &self.texture_loader,
+            &self.middle_interface_renderer,
+            screen_size,
+        );
+        crate::interface::npc_overlay::render_npc_progress(
+            self.client_state.follow(client_state().npc_presentation()),
+            &self.middle_interface_renderer,
+            current_camera,
+            self.client_state.follow(client_state().world_theme()),
+            screen_size,
+            player_position,
+            client_tick.0,
+        );
 
         let in_game_theme_path = client_state().in_game_theme().tooltip();
         let menu_theme_path = client_state().menu_theme().tooltip();
