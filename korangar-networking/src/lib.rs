@@ -35,8 +35,8 @@ pub use self::entity::EntityData;
 pub use self::equip_switch::EquipSwitchSlotPathExt;
 pub use self::equip_switch::{EquipSwitchSlot, assign_slot, position_label, replace_slots};
 pub use self::event::{
-    CashShopOffer, DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, NetworkEvent, RefineMaterialOffer,
-    RoulettePrize, SearchStoreHit, StatusChangeState,
+    CashShopOffer, DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, NetworkEvent, OwnShopLine,
+    RefineMaterialOffer, RoulettePrize, SearchStoreHit, StatusChangeState,
 };
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
@@ -107,6 +107,57 @@ impl TimeSynchronization {
         let tick_adjustment = (round_trip_time / 2.0) * 1000.0;
         self.client_tick = f64::from(server_tick) + tick_adjustment;
         self.client_tick as u32
+    }
+}
+
+fn shop_title(shop_name: &str) -> String {
+    shop_name.chars().take(79).collect()
+}
+
+fn open_vending_shop_packet(shop_name: &str, result: u8, items: &[(u16, u16, u32)]) -> OpenVendingShop2Packet {
+    OpenVendingShop2Packet {
+        shop_name: shop_title(shop_name),
+        result,
+        items: items
+            .iter()
+            .copied()
+            .map(|(stored_index, amount, price)| OpenVendingItemInformation {
+                inventory_index: stored_index_to_wire(stored_index),
+                amount,
+                price: Price(price),
+            })
+            .collect(),
+    }
+}
+
+fn open_buying_store_packet(shop_name: &str, zeny_limit: u32, result: u8, items: &[(u32, u16, u32)]) -> OpenBuyingStorePacket {
+    OpenBuyingStorePacket {
+        zeny_limit,
+        result,
+        shop_name: shop_title(shop_name),
+        items: items
+            .iter()
+            .copied()
+            .map(|(item_id, amount, price)| OpenBuyingStoreItem {
+                item_id: ItemId(item_id),
+                amount,
+                price: Price(price),
+            })
+            .collect(),
+    }
+}
+
+fn search_store_packet(buying: bool, min_price: u32, max_price: u32, item_ids: &[u32]) -> SearchStoreInfoPacket {
+    let items: Vec<ItemId> = item_ids.iter().copied().take(255).map(ItemId).collect();
+    let item_count = u8::try_from(items.len()).unwrap_or(u8::MAX);
+    SearchStoreInfoPacket {
+        search_type: u8::from(buying),
+        max_price,
+        min_price,
+        item_count,
+        card_count: 0,
+        items,
+        cards: Vec::new(),
     }
 }
 
@@ -1512,6 +1563,9 @@ where
     }
 
     /// Sell one inventory stack into an open buying store.
+    ///
+    /// `inventory_index` is the stored inventory index. The packet writes that
+    /// index plus 2.
     pub fn sell_to_buying_store(
         &mut self,
         account_id: AccountId,
@@ -1526,7 +1580,7 @@ where
                     account_id,
                     store_id,
                     items: vec![SellToBuyingStoreInformation {
-                        inventory_index,
+                        inventory_index: stored_index_to_wire_i16(inventory_index),
                         item_id,
                         amount,
                     }],
@@ -1534,21 +1588,75 @@ where
         }
     }
 
-    /// Open this client's vend. `items` are `(inventory index, amount, price)`.
+    /// Open this client's vend (`0x01B2`). `items` are `(stored index, amount,
+    /// price)`.
     pub fn open_vending_shop(&mut self, shop_name: &str, items: &[(u16, u16, u32)]) -> Result<(), NotConnectedError> {
-        let shop_name = shop_name.chars().take(79).collect::<String>();
-        let items = items
-            .iter()
-            .copied()
-            .map(|(inventory_index, amount, price)| OpenVendingItemInformation {
-                inventory_index,
-                amount,
-                price: Price(price),
-            })
-            .collect();
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
-                self.send_map_server_packet(OpenVendingShopPacket { shop_name, items })
+                self.send_map_server_packet(open_vending_shop_packet(shop_name, 1, items))
+            }
+        }
+    }
+
+    /// Leave vending setup without opening (`0x01B2` with result 0).
+    pub fn cancel_open_vending_shop(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(open_vending_shop_packet("", 0, &[]))
+            }
+        }
+    }
+
+    /// Open a buying store (`0x0811`). `items` are `(item id, amount, price)`.
+    pub fn open_buying_store(&mut self, shop_name: &str, zeny_limit: u32, items: &[(u32, u16, u32)]) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(open_buying_store_packet(shop_name, zeny_limit, 1, items))
+            }
+        }
+    }
+
+    /// Leave buying-store setup without opening.
+    pub fn cancel_open_buying_store(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(open_buying_store_packet("", 0, 0, &[]))
+            }
+        }
+    }
+
+    /// Close this client's buying store (`0x0815`).
+    pub fn close_buying_store(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(CloseBuyingStorePacket {})
+            }
+        }
+    }
+
+    /// Search vending shops (`buying == false`) or buying stores (`0x0835`).
+    pub fn search_stores(&mut self, buying: bool, min_price: u32, max_price: u32, item_ids: &[u32]) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(search_store_packet(buying, min_price, max_price, item_ids))
+            }
+        }
+    }
+
+    /// Ask for the next search-store page (`0x0838`).
+    pub fn search_store_next_page(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(SearchStoreNextPagePacket {})
+            }
+        }
+    }
+
+    /// Close the search store (`0x083B`).
+    pub fn close_search_store(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(SearchStoreClosePacket {})
             }
         }
     }
@@ -4122,6 +4230,50 @@ mod packet_handlers {
             && hits[0].shop_name == "Arrow shop"
             && hits[0].item_id == ItemId(1750)
             && hits[0].amount == 99));
+    }
+
+    #[test]
+    fn own_shop_setup_packets_shift_indexes_and_parse_reports() {
+        use ragnarok_packets::ItemId;
+
+        let opened = super::open_vending_shop_packet("Pot", 1, &[(2, 2, 100)]);
+        assert_eq!(opened.result, 1);
+        assert_eq!(opened.items[0].inventory_index, 4);
+        assert_eq!(opened.items[0].amount, 2);
+
+        let buying = super::open_buying_store_packet("Hi", 10_000, 1, &[(501, 3, 50)]);
+        assert_eq!(buying.zeny_limit, 10_000);
+        assert_eq!(buying.items[0].item_id, ItemId(501));
+
+        let search = super::search_store_packet(false, 1, 10, &[1750]);
+        assert_eq!(search.search_type, 0);
+        assert_eq!(search.item_count, 1);
+        assert_eq!(search.items, vec![ItemId(1750)]);
+        assert_eq!(super::search_store_packet(true, 0, 0, &[501]).search_type, 1);
+
+        let sold = [
+            0xE5, 0x09, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00,
+        ];
+        let prepare = [0x10, 0x08, 0x03];
+        let ack = [0x28, 0x0A, 0x00];
+        for version in [SupportedPacketVersion::_20250716, SupportedPacketVersion::_20220406] {
+            assert!(matches!(process_one(version, &sold).as_slice(), [NetworkEvent::VendingSold {
+                index: 4,
+                amount: 1,
+                zeny: 100,
+                date: 0,
+            }]));
+            assert!(matches!(process_one(version, &prepare).as_slice(), [
+                NetworkEvent::BuyingStorePrepare { item_count: 3 }
+            ]));
+            assert!(matches!(process_one(version, &ack).as_slice(), [
+                NetworkEvent::VendingOpenResult { result: 0 }
+            ]));
+        }
+        assert!(matches!(
+            map_handler(SupportedPacketVersion::_20190530).process_one(&mut ByteReader::without_metadata(&sold)),
+            HandlerResult::UnhandledPacket
+        ));
     }
 
     #[test]

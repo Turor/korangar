@@ -4,6 +4,7 @@
 pub mod handler;
 mod item_use;
 pub mod pincode;
+mod player_shops;
 mod position;
 mod styling;
 pub mod version_20190530;
@@ -26,6 +27,7 @@ pub use self::pincode::{
     MakeSecondPasswdResultPacket, PINCODE_BASE_SEED, PINCODE_LENGTH, PINCODE_MULTIPLIER, SecondPasswdLogin2Packet,
     advance_pincode_visual_seed, decrypt_pincode, encrypt_pincode, pincode_decrypt_table, pincode_keypad,
 };
+pub use self::player_shops::*;
 pub use self::position::{Direction, WorldPosition, WorldPosition2};
 pub use self::styling::{
     CloseStyleShopPacket, RequestStyleChange2Packet, RequestStyleChangePacket, STYLIST_UI_TYPE, StyleChangeResultPacket,
