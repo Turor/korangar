@@ -7385,6 +7385,7 @@ impl Client {
         let currently_playing = self.client_state.try_follow(this_player()).is_some();
 
         self.mouse_cursor.update(client_tick);
+        self.mouse_cursor.retry_load(&self.sprite_loader, &self.action_loader, client_tick);
 
         // Acquire the swapchain image as late as possible so all CPU-side
         // preparation overlaps with the previous frame's GPU work. After this

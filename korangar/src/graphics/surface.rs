@@ -87,6 +87,8 @@ pub struct Surface {
     config: SurfaceConfiguration,
     present_mode_info: PresentModeInfo,
     invalid: bool,
+    /// The swapchain changed size, but the render targets have not followed.
+    resized: bool,
 }
 
 impl Surface {
@@ -123,6 +125,7 @@ impl Surface {
             config,
             present_mode_info,
             invalid: false,
+            resized: false,
         })
     }
 
@@ -194,6 +197,14 @@ impl Surface {
         // top-left rect while UI used the full window (black letterboxing).
         self.surface.configure(&self.device, &self.config);
         self.invalid = false;
+        // The forward, interface, and picker textures still have the old size.
+        // Without this, a resized window showed a cropped world and a zoomed UI.
+        self.resized = true;
+    }
+
+    /// Returns `true` once after a resize so the render targets get resized.
+    pub fn take_resized(&mut self) -> bool {
+        std::mem::take(&mut self.resized)
     }
 
     pub fn present_mode_info(&self) -> PresentModeInfo {
