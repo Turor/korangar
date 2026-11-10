@@ -52,6 +52,27 @@ pub struct DialogWindowState {
     /// Whether or not the elements should be cleared the next time
     /// [`start`](Self::start) is called.
     clear_next: bool,
+    /// Enter or Space presses Next.
+    awaiting_next: bool,
+    /// Enter or Space presses Close when Next is not showing.
+    awaiting_close: bool,
+    /// A choice menu is showing. Keyboard Next/Close stays idle.
+    awaiting_choice: bool,
+    /// Numeric or string input is waiting for OK or Cancel.
+    input_open: bool,
+    /// The open input is a number, so the window shows up and down.
+    input_number: bool,
+    /// Text currently in the input box.
+    input_text: String,
+    /// Focus the input box once after it opens.
+    input_needs_focus: bool,
+}
+
+/// Values taken from the input box when the player confirms or cancels.
+pub struct NpcInputSubmission {
+    pub npc_id: EntityId,
+    pub number: bool,
+    pub text: String,
 }
 
 impl DialogWindowState {
@@ -62,6 +83,62 @@ impl DialogWindowState {
         self
     }
 
+    pub fn npc_id(&self) -> EntityId {
+        self.npc_id
+    }
+
+    pub fn is_awaiting_next(&self) -> bool {
+        self.awaiting_next
+    }
+
+    pub fn is_awaiting_close(&self) -> bool {
+        self.awaiting_close
+    }
+
+    pub fn is_awaiting_choice(&self) -> bool {
+        self.awaiting_choice
+    }
+
+    pub fn input_is_open(&self) -> bool {
+        self.input_open
+    }
+
+    /// `true` once, the frame after a number or string input opens.
+    pub fn take_input_focus(&mut self) -> bool {
+        let focus = self.input_needs_focus;
+        self.input_needs_focus = false;
+        focus
+    }
+
+    pub fn open_number_input(&mut self) {
+        self.input_open = true;
+        self.input_number = true;
+        self.input_text = "0".to_owned();
+        self.input_needs_focus = true;
+    }
+
+    pub fn open_text_input(&mut self) {
+        self.input_open = true;
+        self.input_number = false;
+        self.input_text.clear();
+        self.input_needs_focus = true;
+    }
+
+    /// Clears the open input and returns what the player typed.
+    pub fn take_input(&mut self) -> Option<NpcInputSubmission> {
+        if !self.input_open {
+            return None;
+        }
+
+        self.input_open = false;
+        self.input_needs_focus = false;
+        Some(NpcInputSubmission {
+            npc_id: self.npc_id,
+            number: self.input_number,
+            text: std::mem::take(&mut self.input_text),
+        })
+    }
+
     /// Add text to the dialog.
     pub fn add_text(&mut self, text: String) {
         use korangar_interface::prelude::*;
@@ -69,6 +146,9 @@ impl DialogWindowState {
         if self.clear_next {
             self.elements.clear();
             self.clear_next = false;
+            self.awaiting_next = false;
+            self.awaiting_close = false;
+            self.awaiting_choice = false;
         }
 
         self.elements.push(DialogElement::new(
@@ -99,6 +179,8 @@ impl DialogWindowState {
         ));
 
         self.clear_next = true;
+        self.awaiting_next = true;
+        self.awaiting_choice = false;
     }
 
     /// Add a close button to the dialog.
@@ -110,6 +192,9 @@ impl DialogWindowState {
         use korangar_interface::prelude::*;
 
         self.elements.retain(|element| !element.is_next_button);
+        self.awaiting_next = false;
+        self.awaiting_close = true;
+        self.awaiting_choice = false;
 
         let npc_id = self.npc_id;
 
@@ -133,6 +218,8 @@ impl DialogWindowState {
         use korangar_interface::prelude::*;
 
         self.elements.retain(|element| !element.is_next_button);
+        self.awaiting_next = false;
+        self.awaiting_choice = true;
 
         let npc_id = self.npc_id;
 
@@ -155,6 +242,12 @@ impl DialogWindowState {
     pub fn end(&mut self) {
         self.elements.clear();
         self.clear_next = false;
+        self.awaiting_next = false;
+        self.awaiting_close = false;
+        self.awaiting_choice = false;
+        self.input_open = false;
+        self.input_needs_focus = false;
+        self.input_text.clear();
     }
 }
 
@@ -165,6 +258,13 @@ impl Default for DialogWindowState {
             // Arguably not very clean but avoids using an Option.
             npc_id: EntityId(0),
             clear_next: false,
+            awaiting_next: false,
+            awaiting_close: false,
+            awaiting_choice: false,
+            input_open: false,
+            input_number: false,
+            input_text: String::new(),
+            input_needs_focus: false,
         }
     }
 }
@@ -254,5 +354,50 @@ where
                 },
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ragnarok_packets::EntityId;
+
+    use super::DialogWindowState;
+
+    #[test]
+    fn next_page_clears_keyboard_flags_until_the_next_button() {
+        let mut dialog = DialogWindowState::default();
+        dialog.initialize(EntityId(4)).add_next_button();
+        assert!(dialog.is_awaiting_next());
+
+        dialog.add_text("page".to_owned());
+        assert!(!dialog.is_awaiting_next());
+        assert!(!dialog.is_awaiting_close());
+
+        dialog.add_close_button();
+        assert!(!dialog.is_awaiting_next());
+        assert!(dialog.is_awaiting_close());
+    }
+
+    #[test]
+    fn choices_block_next_and_end_clears_input() {
+        let mut dialog = DialogWindowState::default();
+        dialog.initialize(EntityId(1));
+        dialog.add_choice_buttons(vec!["A".to_owned()]);
+        assert!(dialog.is_awaiting_choice());
+        assert!(!dialog.is_awaiting_next());
+
+        dialog.open_text_input();
+        assert!(dialog.input_is_open());
+        assert!(dialog.take_input_focus());
+        assert!(!dialog.take_input_focus());
+        let taken = dialog.take_input().expect("input");
+        assert!(!taken.number);
+        assert!(taken.text.is_empty());
+        assert!(!dialog.input_is_open());
+
+        dialog.open_number_input();
+        dialog.end();
+        assert!(!dialog.input_is_open());
+        assert!(dialog.take_input().is_none());
     }
 }

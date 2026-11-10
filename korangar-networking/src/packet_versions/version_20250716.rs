@@ -675,7 +675,7 @@ where
         experience_type: packet.experience_type,
         experience_source: packet.experience_source,
     })?;
-    packet_handler.register_noop::<DisplayImagePacket>()?;
+    crate::packet_versions::npc_dialog::register_npc_dialog_packets_20250716(packet_handler)?;
     packet_handler.register_noop::<StateChangePacket>()?;
 
     packet_handler.register(|packet: QuestEffectPacket| match packet.effect {

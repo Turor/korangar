@@ -286,6 +286,38 @@ pub enum NetworkEvent {
         choices: Vec<String>,
         npc_id: EntityId,
     },
+    /// `ZC_OPEN_EDITDLG` (`0x0142`).
+    NpcNumberInput {
+        npc_id: EntityId,
+    },
+    /// `ZC_OPEN_EDITDLGSTR` (`0x01D4`).
+    NpcTextInput {
+        npc_id: EntityId,
+    },
+    /// `ZC_SHOW_IMAGE2` (`0x01B3`). [`ImageLocation::ClearAll`] removes the cutin.
+    NpcCutin {
+        image_name: String,
+        location: ImageLocation,
+    },
+    /// `ZC_PROGRESS` (`0x02F0`). `color` is `0xRRGGBB`. `seconds` is the duration.
+    NpcProgress {
+        color: u32,
+        seconds: u32,
+    },
+    /// `ZC_PROGRESS_CANCEL` (`0x02F2`).
+    NpcProgressCancel,
+    /// `ZC_SOUND` (`0x01D3`).
+    NpcSound {
+        file_name: String,
+        action: u8,
+        term: u32,
+        npc_id: EntityId,
+    },
+    /// `ZC_PLAY_NPC_BGM`. `play_type` is 0 on `0x07FE`. On `0x0B8C`, 2 stops.
+    NpcBgm {
+        track: String,
+        play_type: u8,
+    },
     AddQuestEffect {
         quest_effect: QuestEffectPacket,
     },
