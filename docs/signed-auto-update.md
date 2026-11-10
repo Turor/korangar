@@ -1,8 +1,8 @@
 # Signed client auto-update
 
-The `korangar-update` crate checks a signed release manifest at startup. The client checks the main-channel manifest at startup. The default URL is `https://korangar-releases.turoran.com/main/manifest.jsonup`. Override it with `KORANGAR_UPDATE_MANIFEST_URL`. `KORANGAR_SKIP_UPDATE=1` disables the hook. An unreachable channel is skipped so the current binary still starts. A bad signature, a failed file hash, or a manifest whose build is not newer than the installed one is fatal.
+The `korangar-update` crate checks a signed release manifest at startup. The client checks the main-channel manifest at startup. The default URL is `https://ro.turoran.com/client/korangar/main/latest`. Override it with `KORANGAR_UPDATE_MANIFEST_URL`. `KORANGAR_SKIP_UPDATE=1` disables the hook. An unreachable channel is skipped so the current binary still starts. A bad signature, a failed file hash, or a manifest whose build is not newer than the installed one is fatal.
 
-Allowed fetches: `file://` (tests), loopback `http://` (`127.0.0.1`, `localhost`, `::1`), `https://ro.turoran.com/...`, and `https://korangar-releases.turoran.com/...`. Any other host is rejected. The signing seed is never in this tree.
+Allowed fetches: `file://` (tests), loopback `http://` (`127.0.0.1`, `localhost`, `::1`), `https://ro.turoran.com/client/korangar/main/latest`, and presigned `https://garage.turoran.com/korangar-releases/main/<allowlisted-name>` URLs (SigV4 query). Any other host or path is rejected. The signing seed is never in this tree.
 
 `EMBEDDED_UPDATE_PUBLIC_KEY` in `korangar-update/src/manifest.rs` is the Turoran release public key (`fb3dd3d6b9e1955ee03a4786596f7d5562b7d96d7b6c177e6d38cf7abca7de18`). An all-zero key still fails closed. The matching private seed stays on the signing controller. Do not commit a private seed.
 
@@ -66,11 +66,13 @@ The default artifact URL is the relative path, resolved against the manifest URL
 
 ## Hosting (Garage)
 
-Releases live in the dedicated Garage bucket `korangar-releases`, prefix `main/`. This is separate from the Classless WoW `wow` bucket and from the remoteclient2 `/client/` tree.
+Releases live in the dedicated Garage bucket `korangar-releases`, prefix `main/`. The bucket is **private** (no anonymous or website access). This is separate from the Classless WoW `wow` bucket.
 
-Public URL (intended, HTTPS):
+The client does not fetch the bucket directly. It calls:
 
-`https://korangar-releases.turoran.com/main/manifest.jsonup`
+`https://ro.turoran.com/client/korangar/main/latest`
+
+remoteclient2 returns short-lived (~10 minute) presigned GET URLs at `https://garage.turoran.com` (the existing public S3 API) for `main/manifest.jsonup` and the allowlisted binaries named in that manifest. The client then verifies the signed KRUP1 envelope, file SHA-256 hashes, and rollback protection (`incoming build > installed build`) before swapping any files.
 
 Object layout:
 
@@ -80,19 +82,9 @@ main/korangar-linux-<gitsha>
 main/korangar-windows-<gitsha>.exe
 ```
 
-Relative artifact URLs resolve under that directory. The last three published SHAs are kept; older binaries are deleted after a successful publish.
+The last three published SHAs are kept; older binaries are deleted after a successful publish.
 
-### Public HTTPS (required, not yet live)
-
-Garage already has a TLS S3 API vhost at `https://garage.turoran.com` (port 3900). Anonymous S3 access is denied (`Forbidden: Garage does not support anonymous access yet`). Public reads use the **website** endpoint (port **3902**) after `garage bucket website --allow`, as `korangar-releases.web.garage-1.turoran.com`. That hostname is not on public DNS, and nothing currently fronts port 3902 on HTTPS.
-
-Needed before players can fetch the default URL (do not change HAProxy or DNS without a further explicit approval):
-
-1. DNS: `korangar-releases.turoran.com` → the existing public VIP (today `garage.turoran.com` / `ro.turoran.com` resolve to 192.168.11.7).
-2. HAProxy TLS vhost for that name, backend `192.168.11.20:3902` (and garage-2/3 if desired), `Host: korangar-releases.web.garage-1.turoran.com`.
-3. Do **not** point this hostname at port 3900.
-
-Until that vhost exists, the signer still publishes to the bucket. The client default URL is set; an unreachable channel is skipped.
+The read-only Garage key used to mint those URLs lives on rodata-dev at `/etc/remoteclient2/korangar-releases-reader.env` (mode 600), loaded by systemd, not in the git tree and not in the web-served working folder. The controller holds the write key at `~/Work/korangar-signing/garage-writer.env`.
 
 ### Release pipeline (every merge to `main`)
 

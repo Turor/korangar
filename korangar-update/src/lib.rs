@@ -19,8 +19,9 @@
 //! `version` is `[0-9A-Za-z._+-]{1,64}`. `build` is a positive decimal integer
 //! (monotonic counter or unix timestamp). Paths are relative, slash-separated,
 //! with no `.` or `..` components. `url` is that same relative path, an
-//! `http://` loopback URL, a `file://` URL, or HTTPS on an allowlisted host
-//! (`ro.turoran.com`, `korangar-releases.turoran.com`).
+//! `http://` loopback URL, a `file://` URL, or an allowlisted HTTPS URL:
+//! the catalog at `https://ro.turoran.com/client/korangar/main/latest`, and
+//! presigned `https://garage.turoran.com/korangar-releases/main/<name>` objects.
 //! Every other host, including other `https` hosts, is rejected.
 //!
 //! # Envelope
@@ -32,7 +33,8 @@
 //! ```
 //!
 //! The public key is [`EMBEDDED_UPDATE_PUBLIC_KEY`]. The private seed stays on
-//! the signing controller, outside the git tree. See `docs/signed-auto-update.md`.
+//! the signing controller, outside the git tree. See
+//! `docs/signed-auto-update.md`.
 
 pub mod cli;
 pub mod manifest;
@@ -46,12 +48,12 @@ use std::time::Duration;
 
 pub use manifest::EMBEDDED_UPDATE_PUBLIC_KEY as UPDATE_PUBLIC_KEY;
 use manifest::ReleaseManifest;
+use serde::Deserialize;
 
-/// Public main-channel manifest. Requires HTTPS DNS+HAProxy for
-/// `korangar-releases.turoran.com` to the Garage website endpoint (port 3902).
-/// Until that vhost exists, a fetch failure is skipped and the current binary runs.
-pub const DEFAULT_UPDATE_MANIFEST_URL: &str =
-    "https://korangar-releases.turoran.com/main/manifest.jsonup";
+/// Public main-channel catalog. remoteclient2 issues short-lived presigned GET
+/// URLs for the private Garage bucket `korangar-releases`. An unreachable
+/// catalog is skipped so the current binary still runs.
+pub const DEFAULT_UPDATE_MANIFEST_URL: &str = "https://ro.turoran.com/client/korangar/main/latest";
 
 const MANIFEST_LIMIT: usize = 256 * 1024;
 const FILE_LIMIT: u64 = 512 * 1024 * 1024;
@@ -94,12 +96,34 @@ pub fn run_startup_update(request: &StartupRequest<'_>) -> Result<StartupOutcome
     if request.public_key == &[0u8; 32] {
         return Err("embedded update public key is unset; refusing to apply a manifest".into());
     }
-    let envelope = match fetch_url(url, MANIFEST_LIMIT as u64) {
+    let fetched = match fetch_url(url, MANIFEST_LIMIT as u64) {
         Ok(bytes) => bytes,
         Err(error) if is_unreachable_fetch(&error) => {
             return Ok(StartupOutcome::Skipped);
         }
         Err(error) => return Err(error),
+    };
+    let (envelope, catalog, manifest_url) = if looks_like_json(&fetched) {
+        let catalog = parse_catalog(&fetched)?;
+        if !is_fetch_allowed(&catalog.manifest_url) {
+            return Err("catalog manifest_url is not an allowlisted release url".into());
+        }
+        for file in &catalog.files {
+            if !is_fetch_allowed(&file.url) {
+                return Err(format!("catalog file url for {} is not allowlisted", file.path));
+            }
+        }
+        let envelope = match fetch_url(&catalog.manifest_url, MANIFEST_LIMIT as u64) {
+            Ok(bytes) => bytes,
+            Err(error) if is_unreachable_fetch(&error) => {
+                return Ok(StartupOutcome::Skipped);
+            }
+            Err(error) => return Err(error),
+        };
+        let manifest_url = catalog.manifest_url.clone();
+        (envelope, Some(catalog), manifest_url)
+    } else {
+        (fetched, None, url.to_string())
     };
     let manifest = manifest::open_envelope(&envelope, request.public_key)?;
     let installed = installed_build(request.install_root);
@@ -112,10 +136,15 @@ pub fn run_startup_update(request: &StartupRequest<'_>) -> Result<StartupOutcome
             manifest.build
         ));
     }
-    apply_manifest(&manifest, url, request)
+    apply_manifest(&manifest, &manifest_url, catalog.as_ref(), request)
 }
 
-fn apply_manifest(manifest: &ReleaseManifest, manifest_url: &str, request: &StartupRequest<'_>) -> Result<StartupOutcome, String> {
+fn apply_manifest(
+    manifest: &ReleaseManifest,
+    manifest_url: &str,
+    catalog: Option<&ReleaseCatalog>,
+    request: &StartupRequest<'_>,
+) -> Result<StartupOutcome, String> {
     let exe_rel = request
         .current_exe
         .strip_prefix(request.install_root)
@@ -134,7 +163,7 @@ fn apply_manifest(manifest: &ReleaseManifest, manifest_url: &str, request: &Star
         if file.size > FILE_LIMIT {
             return Err(format!("artifact {} exceeds size cap", file.path));
         }
-        let bytes = fetch_url(&join_url(manifest_url, &file.url)?, file.size)?;
+        let bytes = fetch_url(&artifact_url(manifest_url, file, catalog)?, file.size)?;
         if bytes.len() as u64 != file.size || manifest::sha256_hex(&bytes) != file.sha256 {
             let _ = fs::remove_dir_all(&staging);
             return Err(format!("artifact {} failed sha256 or size check", file.path));
@@ -167,7 +196,7 @@ fn apply_manifest(manifest: &ReleaseManifest, manifest_url: &str, request: &Star
     ) {
         rollback(&swapped);
         let _ = fs::remove_file(request.install_root.join("updates").join("applied.version"));
-                let _ = fs::remove_file(request.install_root.join("updates").join("applied.build"));
+        let _ = fs::remove_file(request.install_root.join("updates").join("applied.build"));
         return Err(error);
     }
     let _ = fs::remove_dir_all(&staging);
@@ -392,10 +421,10 @@ fn fetch_url(url: &str, max_bytes: u64) -> Result<Vec<u8>, String> {
         return read_http(&mut stream, &host, &path, max_bytes);
     }
     if let Some(rest) = url.strip_prefix("https://") {
-        let (host, port, path) = split_http(rest, 443)?;
-        if !is_release_host(&host) {
+        if !is_allowed_https(url) {
             return Err("https updates are limited to allowlisted release hosts".into());
         }
+        let (host, port, path) = split_http(rest, 443)?;
         return https_get(&host, port, &path, max_bytes);
     }
     Err("only http loopback, file, and allowlisted https release hosts are enabled".into())
@@ -405,7 +434,94 @@ fn is_allowed_https(url: &str) -> bool {
     let Some(rest) = url.strip_prefix("https://") else {
         return false;
     };
-    split_http(rest, 443).is_ok_and(|(host, _, _)| is_release_host(&host))
+    let Ok((host, _, path)) = split_http(rest, 443) else {
+        return false;
+    };
+    let (path_only, query) = match path.split_once('?') {
+        Some((path, query)) => (path, query),
+        None => (path.as_str(), ""),
+    };
+    match host.as_str() {
+        "ro.turoran.com" => path_only == "/client/korangar/main/latest",
+        "garage.turoran.com" => {
+            let Some(name) = path_only.strip_prefix("/korangar-releases/main/") else {
+                return false;
+            };
+            allowed_release_object_name(name) && query.contains("X-Amz-Signature=")
+        }
+        _ => false,
+    }
+}
+
+fn is_fetch_allowed(url: &str) -> bool {
+    if url.starts_with("file://") {
+        return true;
+    }
+    if let Some(rest) = url.strip_prefix("http://") {
+        return split_http(rest, 80).is_ok_and(|(host, ..)| is_loopback(&host));
+    }
+    is_allowed_https(url)
+}
+
+fn allowed_release_object_name(name: &str) -> bool {
+    if name.is_empty() || name.len() > 128 {
+        return false;
+    }
+    if name.contains('/') || name.contains('\\') || name.contains('\0') || name.contains('%') {
+        return false;
+    }
+    if name.contains("..") || name.starts_with('.') {
+        return false;
+    }
+    if name == "manifest.jsonup" {
+        return true;
+    }
+    if let Some(rest) = name.strip_prefix("korangar-linux-") {
+        return is_hex_sha(rest);
+    }
+    if let Some(rest) = name.strip_prefix("korangar-windows-") {
+        return rest.strip_suffix(".exe").is_some_and(is_hex_sha);
+    }
+    false
+}
+
+fn is_hex_sha(s: &str) -> bool {
+    let n = s.len();
+    (7..=64).contains(&n) && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn looks_like_json(bytes: &[u8]) -> bool {
+    bytes.iter().copied().find(|b| !b.is_ascii_whitespace()).is_some_and(|b| b == b'{')
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ReleaseCatalog {
+    manifest_url: String,
+    #[serde(default)]
+    files: Vec<CatalogFile>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CatalogFile {
+    path: String,
+    url: String,
+}
+
+fn parse_catalog(bytes: &[u8]) -> Result<ReleaseCatalog, String> {
+    serde_json::from_slice(bytes).map_err(|_| "update catalog is not valid json".to_string())
+}
+
+fn artifact_url(manifest_url: &str, file: &manifest::ReleaseFile, catalog: Option<&ReleaseCatalog>) -> Result<String, String> {
+    if let Some(catalog) = catalog {
+        let Some(entry) = catalog.files.iter().find(|entry| entry.path == file.path) else {
+            return Err(format!("catalog is missing a presigned url for {}", file.path));
+        };
+        if !is_fetch_allowed(&entry.url) {
+            return Err(format!("catalog file url for {} is not allowlisted", file.path));
+        }
+        return Ok(entry.url.clone());
+    }
+    join_url(manifest_url, &file.url)
 }
 
 fn file_url_path(rest: &str) -> Result<PathBuf, String> {
@@ -418,10 +534,6 @@ fn file_url_path(rest: &str) -> Result<PathBuf, String> {
 
 fn is_loopback(host: &str) -> bool {
     matches!(host, "127.0.0.1" | "localhost" | "::1")
-}
-
-fn is_release_host(host: &str) -> bool {
-    matches!(host, "ro.turoran.com" | "korangar-releases.turoran.com")
 }
 
 fn installed_build(install_root: &Path) -> u64 {
@@ -460,7 +572,8 @@ fn split_http(rest: &str, default_port: u16) -> Result<(String, u16, String), St
         Some((authority, path)) => (authority, format!("/{path}")),
         None => (rest, "/".to_string()),
     };
-    if authority.is_empty() || path.contains("..") {
+    let path_only = path.split_once('?').map(|(p, _)| p).unwrap_or(path.as_str());
+    if authority.is_empty() || path_only.contains("..") {
         return Err("unsafe http url".into());
     }
     let (host, port) = if let Some(host) = authority.strip_prefix('[') {
@@ -507,9 +620,7 @@ fn https_get(host: &str, port: u16, path: &str, max_bytes: u64) -> Result<Vec<u8
 
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let config = rustls::ClientConfig::builder()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
+    let config = rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth();
     let name = rustls::pki_types::ServerName::try_from(host.to_string()).map_err(|_| "bad https server name")?;
     let mut connection = rustls::ClientConnection::new(Arc::new(config), name).map_err(|error| error.to_string())?;
     let mut tcp = connect_tcp(host, port)?;

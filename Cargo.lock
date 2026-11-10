@@ -2224,6 +2224,8 @@ dependencies = [
  "ed25519-dalek",
  "getrandom 0.2.17",
  "rustls",
+ "serde",
+ "serde_json",
  "sha2",
  "webpki-roots",
 ]
