@@ -4,10 +4,9 @@
 //! `{username, password, login_address}`. The password is never written to
 //! logs. See `docs/autopilot.md`.
 //!
-//! PIN entry is intentionally not sent. [`Autopilot::on_login_failed`] treats a
-//! server message that mentions a PIN as a challenge and keeps
-//! `KORANGAR_AUTOPILOT_PIN` available through [`Autopilot::take_pending_pin`]
-//! for the G02 PIN flow.
+//! PIN: the pincode state types `KORANGAR_AUTOPILOT_PIN` into the character
+//! server pad itself. Without it, [`Autopilot::on_pin_gate`] opens the line
+//! commands early so `pincode …` commands can drive the pad.
 
 mod command;
 mod events;
@@ -90,8 +89,8 @@ pub enum Effect {
         line: String,
     },
     Ready(String),
-    /// PIN is stored on the autopilot. G02 calls
-    /// [`Autopilot::take_pending_pin`].
+    /// A login-server PIN challenge arrived and `KORANGAR_AUTOPILOT_PIN` is
+    /// set. The code is never logged.
     PinArmed,
     /// The character server holds select behind a PIN. Line commands are read
     /// from now on, before the map loads, so a script can drive the pad.
