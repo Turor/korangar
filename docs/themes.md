@@ -59,6 +59,30 @@ slot_size = 44.0
 | `corner_radius` | Optional corner radius (default 8) |
 | `font_size` | Optional body font size (default 13) |
 
+### Status panel bars
+
+An optional `status: ( ... )` block colors the status panel bars. In TOML use
+a `[status]` table or dotted keys (`status.hp_bar = "#4CAF50"`). Every key is
+optional.
+
+| Key | Default | Used for |
+| --- | --- | --- |
+| `status.hp_bar` | `#4CAF50` (green) | HP fill |
+| `status.sp_bar` | `sp` | SP fill |
+| `status.base_exp_bar` | `accent` | Base EXP fill (`Base Lv 48 · 63.2%` is drawn inside) |
+| `status.job_exp_bar` | `accent2` | Job EXP fill (`Job Lv 12 · 7.5%` is drawn inside) |
+
+Keep Base and Job distinct from each other and from HP and SP. Bar text is
+`text` with a `bg` outline so it reads on the fill and on the empty track.
+
+```ron
+    status: (
+        hp_bar: Some("#5DBB63"),
+        base_exp_bar: Some("#D9A441"),
+        job_exp_bar: Some("#E0673A"),
+    ),
+```
+
 Slot frames use `border` on a `raised` fill. Hover uses `hover` (gold/amber).
 Selected or dragged slots use `accent`. Do not paint default slot borders with
 `gold` or `hover`.

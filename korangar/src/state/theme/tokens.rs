@@ -42,7 +42,19 @@ pub struct ThemeTokens {
     pub slot_size: f32,
     pub corner_radius: f32,
     pub font_size: f32,
+    /// `status.hp_bar`: status-panel HP fill. Green unless the theme says
+    /// otherwise.
+    pub status_hp_bar: Color,
+    /// `status.sp_bar`: status-panel SP fill. Defaults to `sp`.
+    pub status_sp_bar: Color,
+    /// `status.base_exp_bar`: Base EXP fill. Defaults to `accent`.
+    pub status_base_exp_bar: Color,
+    /// `status.job_exp_bar`: Job EXP fill. Defaults to `accent2`.
+    pub status_job_exp_bar: Color,
 }
+
+/// Status-panel HP fill when a theme file has no `status.hp_bar`.
+pub const DEFAULT_STATUS_HP_BAR: &str = "#4CAF50";
 
 impl Default for ThemeTokens {
     fn default() -> Self {
@@ -81,6 +93,10 @@ impl ThemeTokens {
             slot_size: 44.0,
             corner_radius: 10.0,
             font_size: 13.0,
+            status_hp_bar: Color::rgb_u8(62, 168, 96),
+            status_sp_bar: Color::rgb_u8(64, 156, 210),
+            status_base_exp_bar: Color::rgb_u8(255, 152, 48),
+            status_job_exp_bar: Color::rgb_u8(198, 64, 88),
         }
     }
 
@@ -118,6 +134,19 @@ pub struct ThemeFile {
     pub corner_radius: f32,
     #[serde(default = "default_font_size")]
     pub font_size: f32,
+    /// Optional `status: (...)` block (TOML: `[status]` or `status.key`).
+    #[serde(default)]
+    pub status: StatusThemeFile,
+}
+
+/// Status-panel bar colors. Every key is optional.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct StatusThemeFile {
+    pub hp_bar: Option<String>,
+    pub sp_bar: Option<String>,
+    pub base_exp_bar: Option<String>,
+    pub job_exp_bar: Option<String>,
 }
 
 fn default_slot_size() -> f32 {
@@ -146,6 +175,20 @@ pub fn parse_hex_color(value: &str) -> Option<Color> {
 
 impl ThemeFile {
     pub fn into_tokens(self) -> Option<ThemeTokens> {
+        let sp = parse_hex_color(&self.sp)?;
+        let accent = parse_hex_color(&self.accent)?;
+        let accent2 = parse_hex_color(&self.accent2)?;
+        let optional = |value: &Option<String>, fallback: Color| -> Option<Color> {
+            match value {
+                Some(value) => parse_hex_color(value),
+                None => Some(fallback),
+            }
+        };
+        let default_hp = parse_hex_color(DEFAULT_STATUS_HP_BAR)?;
+        let status_hp_bar = optional(&self.status.hp_bar, default_hp)?;
+        let status_sp_bar = optional(&self.status.sp_bar, sp)?;
+        let status_base_exp_bar = optional(&self.status.base_exp_bar, accent)?;
+        let status_job_exp_bar = optional(&self.status.job_exp_bar, accent2)?;
         Some(ThemeTokens {
             name: self.name,
             bg: parse_hex_color(&self.bg)?,
@@ -163,6 +206,10 @@ impl ThemeFile {
             slot_size: if self.slot_size > 0.0 { self.slot_size } else { 44.0 },
             corner_radius: self.corner_radius.max(0.0),
             font_size: if self.font_size > 0.0 { self.font_size } else { 13.0 },
+            status_hp_bar,
+            status_sp_bar,
+            status_base_exp_bar,
+            status_job_exp_bar,
         })
     }
 }
@@ -181,13 +228,25 @@ fn parse_theme_toml(source: &str) -> Option<ThemeFile> {
     let mut name = None::<String>;
     let mut strings = std::collections::HashMap::<String, String>::new();
     let mut nums = std::collections::HashMap::<String, f32>::new();
+    let mut section = String::new();
     for raw in source.lines() {
         let line = raw.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
+        if let Some(header) = line.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
+            section = header.trim().to_owned();
+            continue;
+        }
         let (key, rest) = line.split_once('=')?;
         let key = key.trim();
+        let qualified;
+        let key = if section.is_empty() {
+            key
+        } else {
+            qualified = format!("{section}.{key}");
+            qualified.as_str()
+        };
         let rest = rest.trim().trim_end_matches(',').trim();
         if let Some(inner) = rest.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
             if key == "name" {
@@ -216,6 +275,12 @@ fn parse_theme_toml(source: &str) -> Option<ThemeFile> {
         slot_size: nums.get("slot_size").copied().unwrap_or(44.0),
         corner_radius: nums.get("corner_radius").copied().unwrap_or(8.0),
         font_size: nums.get("font_size").copied().unwrap_or(13.0),
+        status: StatusThemeFile {
+            hp_bar: strings.remove("status.hp_bar"),
+            sp_bar: strings.remove("status.sp_bar"),
+            base_exp_bar: strings.remove("status.base_exp_bar"),
+            job_exp_bar: strings.remove("status.job_exp_bar"),
+        },
     })
 }
 
@@ -489,6 +554,72 @@ font_size = 13.0
         let _ = fs::remove_dir_all(&root);
         assert_eq!(loaded.name, "Override");
         assert_eq!(loaded.bg.red_as_u8(), 1);
+    }
+
+    #[test]
+    fn status_bar_keys_parse_and_default() {
+        for tokens in [
+            ThemeTokens::verdant_rune(),
+            ThemeTokens::ember_forge(),
+            ThemeTokens::arcane_violet(),
+        ] {
+            let name = tokens.name.clone();
+            assert_ne!(tokens.status_base_exp_bar, tokens.status_job_exp_bar, "{name}");
+            assert_ne!(tokens.status_base_exp_bar, tokens.status_hp_bar, "{name}");
+            assert_ne!(tokens.status_job_exp_bar, tokens.status_hp_bar, "{name}");
+            assert_ne!(tokens.status_base_exp_bar, tokens.status_sp_bar, "{name}");
+            assert_ne!(tokens.status_job_exp_bar, tokens.status_sp_bar, "{name}");
+            let hp = tokens.status_hp_bar;
+            assert!(hp.green > hp.red && hp.green > hp.blue, "{name} HP bar must be green");
+            assert_eq!(tokens.status_sp_bar, tokens.sp, "{name} SP stays the theme blue");
+        }
+
+        // No status block: green HP, SP = sp, Base = accent, Job = accent2.
+        let bare = parse_theme_file(
+            r###"ThemeFile(
+                name: "Bare",
+                bg: "#010101", panel: "#020202", raised: "#030303", border: "#3A4250",
+                text: "#E6E1D6", muted: "#A39B8C", accent: "#D9A441", accent2: "#4F8FBF",
+                hover: "#D9A441", hp: "#E2785C", sp: "#5C9ED6", gold: "#D9A441",
+            )"###,
+        )
+        .expect("bare");
+        assert_eq!(bare.status_hp_bar, parse_hex_color(DEFAULT_STATUS_HP_BAR).unwrap());
+        assert_eq!(bare.status_sp_bar, bare.sp);
+        assert_eq!(bare.status_base_exp_bar, bare.accent);
+        assert_eq!(bare.status_job_exp_bar, bare.accent2);
+
+        let toml = r###"
+name = "Sectioned"
+bg = "#12151C"
+panel = "#1B2029"
+raised = "#252B36"
+border = "#3A4250"
+text = "#E6E1D6"
+muted = "#A39B8C"
+accent = "#D9A441"
+accent2 = "#4F8FBF"
+hover = "#D9A441"
+hp = "#E2785C"
+sp = "#5C9ED6"
+gold = "#D9A441"
+
+[status]
+hp_bar = "#00FF00"
+base_exp_bar = "#112233"
+job_exp_bar = "#445566"
+"###;
+        let sectioned = parse_theme_file(toml).expect("toml status section");
+        assert_eq!(sectioned.status_hp_bar, parse_hex_color("#00FF00").unwrap());
+        assert_eq!(sectioned.status_base_exp_bar, parse_hex_color("#112233").unwrap());
+        assert_eq!(sectioned.status_job_exp_bar, parse_hex_color("#445566").unwrap());
+        assert_eq!(sectioned.status_sp_bar, sectioned.sp);
+
+        let dotted = toml
+            .replace("[status]\nhp_bar", "status.hp_bar")
+            .replace("\nbase_exp_bar", "\nstatus.base_exp_bar");
+        let dotted = parse_theme_file(&dotted).expect("dotted keys");
+        assert_eq!(dotted.status_hp_bar, parse_hex_color("#00FF00").unwrap());
     }
 
     #[test]

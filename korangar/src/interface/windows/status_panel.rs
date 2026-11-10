@@ -15,7 +15,6 @@ use rust_state::{Path, PathExt, Selector, State};
 
 use super::equipment::paint_portrait;
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
-use crate::interface::components::exp_bar::ExpBar;
 use crate::interface::windows::WindowClass;
 use crate::interface::windows::basic_info_view::{WeightColor, WeightLabel, ZenyLabel};
 use crate::loaders::{FontSize, OverflowBehavior};
@@ -23,7 +22,7 @@ use crate::state::status_effects::{ActiveStatusEffect, StatusEffects};
 use crate::state::status_names::{status_effect_description, status_effect_name};
 use crate::state::theme::{BasicInfoThemePathExt, InterfaceThemePathExt, InterfaceThemeType, ThemeTokens, ThemeTokensPathExt};
 use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
-use crate::world::{BasicInfoStatsPathExt, CommonPathExt, Player, PlayerPathExt};
+use crate::world::{BasicInfoStatsPathExt, CommonPathExt, Player, PlayerPathExt, exp_bar_ratio, format_exp_pair, format_exp_percent};
 
 const PORTRAIT_SIDE: f32 = 72.0;
 const HEADER_COLUMN_GAP: f32 = 6.0;
@@ -31,21 +30,25 @@ const NAME_ROW_HEIGHT: f32 = 16.0;
 const RESOURCE_BAR_GAP: f32 = 4.0;
 /// Inset of the track inside the neutral border.
 const RESOURCE_BAR_INSET: f32 = 2.0;
-const LEVEL_ROW_HEIGHT: f32 = 14.0;
-const EXP_BAR_HEIGHT: f32 = 8.0;
+/// Base/Job EXP bars carry "Base Lv 48 · 63.2%" inside the fill.
+const EXP_BAR_HEIGHT: f32 = 17.0;
+const EXP_BAR_FONT_SIZE: f32 = 12.0;
+// The level and percent text must fit inside the bar.
+const _: () = assert!(EXP_BAR_HEIGHT >= EXP_BAR_FONT_SIZE + 4.0);
 const FOOTER_ROW_HEIGHT: f32 = 12.0;
-/// Smaller than the token body size (13) used by the Base/Job rows.
+/// Smaller than the Base/Job bar text.
 const FOOTER_FONT_SIZE: f32 = 11.0;
 const BAR_TEXT_FONT_SIZE: f32 = 11.0;
 const ICON_SIDE: f32 = 24.0;
 const ICON_GAP: f32 = 3.0;
-/// Header, two level labels, two experience bars, the economy row, buffs.
-const STATUS_PANEL_ELEMENT_COUNT: f32 = 7.0;
+/// Header, Base bar, Job bar, the economy row, buffs.
+const STATUS_PANEL_ELEMENT_COUNT: f32 = 5.0;
 const STATUS_PANEL_ELEMENT_GAP: f32 = 4.0;
 
 /// Outer height of this window on the in-game token theme (title 22, title gap
 /// 2, border 6). The portrait row holds the name and both resource bars, then
-/// Base/Job, one zeny+weight row, and the buff row. The first-open HUD
+/// the Base/Job EXP bars (level and percent inside), one zeny+weight row, and
+/// the buff row. The first-open HUD
 /// reserves this so the left gutter starts below the panel.
 pub(crate) const STATUS_PANEL_WINDOW_HEIGHT: f32 = {
     const TITLE_HEIGHT: f32 = 22.0;
@@ -53,7 +56,7 @@ pub(crate) const STATUS_PANEL_WINDOW_HEIGHT: f32 = {
     const BORDER: f32 = 6.0;
     const BUFF_ROW: f32 = ICON_SIDE + 2.0;
     const ELEMENT_GAPS: f32 = (STATUS_PANEL_ELEMENT_COUNT - 1.0) * STATUS_PANEL_ELEMENT_GAP;
-    const BODY: f32 = PORTRAIT_SIDE + LEVEL_ROW_HEIGHT * 2.0 + EXP_BAR_HEIGHT * 2.0 + FOOTER_ROW_HEIGHT + BUFF_ROW;
+    const BODY: f32 = PORTRAIT_SIDE + EXP_BAR_HEIGHT * 2.0 + FOOTER_ROW_HEIGHT + BUFF_ROW;
 
     TITLE_HEIGHT + TITLE_GAP + BORDER + BODY + ELEMENT_GAPS
 };
@@ -181,13 +184,34 @@ struct ResourceBarColors {
 
 fn resource_bar_colors(tokens: &ThemeTokens, health: bool) -> ResourceBarColors {
     ResourceBarColors {
-        fill: if health { tokens.hp } else { tokens.sp },
+        fill: if health { tokens.status_hp_bar } else { tokens.status_sp_bar },
         track: tokens.raised,
         border: tokens.border,
         highlight: tokens.accent,
         text: tokens.text,
         text_shadow: tokens.bg,
     }
+}
+
+/// Base uses `status.base_exp_bar`, Job uses `status.job_exp_bar`.
+fn exp_bar_colors(tokens: &ThemeTokens, base: bool) -> ResourceBarColors {
+    ResourceBarColors {
+        fill: if base {
+            tokens.status_base_exp_bar
+        } else {
+            tokens.status_job_exp_bar
+        },
+        track: tokens.raised,
+        border: tokens.border,
+        highlight: tokens.text,
+        text: tokens.text,
+        text_shadow: tokens.bg,
+    }
+}
+
+/// "Base Lv 48 · 63.2%". Percent is floored to tenths like roBrowser.
+fn exp_bar_label(prefix: &str, level: usize, current: u64, next: u64) -> String {
+    format!("{prefix} {level} · {}", format_exp_percent(current, next))
 }
 
 fn panel_area(rect: PanelRect) -> Area {
@@ -245,40 +269,6 @@ where
     }
 }
 
-pub struct LevelLabel<A> {
-    prefix: &'static str,
-    path: A,
-    last: Cell<Option<usize>>,
-    text: UnsafeCell<String>,
-}
-
-impl<A> LevelLabel<A> {
-    pub fn new(prefix: &'static str, path: A) -> Self {
-        Self {
-            prefix,
-            path,
-            last: Cell::default(),
-            text: UnsafeCell::default(),
-        }
-    }
-}
-
-impl<A> Selector<ClientState, String> for LevelLabel<A>
-where
-    A: Path<ClientState, usize>,
-{
-    fn select<'a>(&'a self, state: &'a ClientState) -> Option<&'a String> {
-        let value = *self.path.follow_safe(state);
-        if self.last.get() != Some(value) {
-            unsafe {
-                *self.text.get() = format!("{} {value}", self.prefix);
-            }
-            self.last.set(Some(value));
-        }
-        unsafe { Some(self.text.as_ref_unchecked()) }
-    }
-}
-
 struct ShadowedLabel<'a> {
     area: Area,
     text: &'a str,
@@ -289,23 +279,29 @@ struct ShadowedLabel<'a> {
     vertical: VerticalAlignment,
 }
 
+/// Offsets of the dark outline drawn under bar text so it reads on both the
+/// fill and the empty track.
+const TEXT_OUTLINE_OFFSETS: [(f32, f32); 4] = [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (1.0, 1.0)];
+
 fn paint_shadowed_text<'a>(layout: &mut WindowLayout<'a, ClientState>, label: ShadowedLabel<'a>) {
-    let shadow_area = Area {
-        left: label.area.left + 1.0,
-        top: label.area.top + 1.0,
-        width: label.area.width,
-        height: label.area.height,
-    };
-    layout.add_text(
-        shadow_area,
-        label.text,
-        label.font,
-        label.shadow,
-        label.shadow,
-        label.horizontal,
-        label.vertical,
-        OverflowBehavior::Shrink,
-    );
+    for (dx, dy) in TEXT_OUTLINE_OFFSETS {
+        let shadow_area = Area {
+            left: label.area.left + dx,
+            top: label.area.top + dy,
+            width: label.area.width,
+            height: label.area.height,
+        };
+        layout.add_text(
+            shadow_area,
+            label.text,
+            label.font,
+            label.shadow,
+            label.shadow,
+            label.horizontal,
+            label.vertical,
+            OverflowBehavior::Shrink,
+        );
+    }
     layout.add_text(
         label.area,
         label.text,
@@ -327,6 +323,7 @@ fn paint_resource_bar<'a>(
     colors: ResourceBarColors,
     text: &'a str,
     corner: f32,
+    font: FontSize,
 ) {
     let radius = corner.min(area.height * 0.5).max(3.0);
     layout.add_rectangle(
@@ -397,7 +394,7 @@ fn paint_resource_bar<'a>(
     paint_shadowed_text(layout, ShadowedLabel {
         area: inner,
         text,
-        font: FontSize(BAR_TEXT_FONT_SIZE),
+        font,
         color: colors.text,
         shadow: colors.text_shadow.with_alpha_u8(190),
         horizontal: HorizontalAlignment::Center { offset: 0.0, border: 0.0 },
@@ -473,6 +470,7 @@ where
             resource_bar_colors(tokens, true),
             state.get(&self.hp_label).as_str(),
             corner,
+            FontSize(BAR_TEXT_FONT_SIZE),
         );
         paint_resource_bar(
             layout,
@@ -481,7 +479,124 @@ where
             resource_bar_colors(tokens, false),
             state.get(&self.sp_label).as_str(),
             corner,
+            FontSize(BAR_TEXT_FONT_SIZE),
         );
+    }
+}
+
+struct BaseExpTip;
+struct JobExpTip;
+
+/// Base or Job EXP bar with "Base Lv 48 · 63.2%" painted inside the fill.
+struct StatusExpBar<L, C, N> {
+    prefix: &'static str,
+    base: bool,
+    level: L,
+    current: C,
+    next: N,
+    last: Cell<Option<(usize, u64, u64)>>,
+    text: UnsafeCell<String>,
+    tip: UnsafeCell<String>,
+}
+
+impl<L, C, N> StatusExpBar<L, C, N> {
+    fn base(level: L, current: C, next: N) -> Self {
+        Self::new("Base Lv", true, level, current, next)
+    }
+
+    fn job(level: L, current: C, next: N) -> Self {
+        Self::new("Job Lv", false, level, current, next)
+    }
+
+    fn new(prefix: &'static str, base: bool, level: L, current: C, next: N) -> Self {
+        Self {
+            prefix,
+            base,
+            level,
+            current,
+            next,
+            last: Cell::default(),
+            text: UnsafeCell::default(),
+            tip: UnsafeCell::default(),
+        }
+    }
+}
+
+impl<L, C, N> StatusExpBar<L, C, N>
+where
+    L: Path<ClientState, usize>,
+    C: Path<ClientState, u64>,
+    N: Path<ClientState, u64>,
+{
+    /// Refresh the cached label and tooltip when level or EXP changed.
+    fn refresh(&self, state: &State<ClientState>) -> (u64, u64) {
+        let level = *state.get(&self.level);
+        let current = *state.get(&self.current);
+        let next = *state.get(&self.next);
+        if self.last.get() != Some((level, current, next)) {
+            // SAFETY: only touched on the UI thread while laying out this element.
+            unsafe {
+                *self.text.get() = exp_bar_label(self.prefix, level, current, next);
+                *self.tip.get() = format!(
+                    "{} EXP {}",
+                    if self.base { "Base" } else { "Job" },
+                    format_exp_pair(current, next)
+                );
+            }
+            self.last.set(Some((level, current, next)));
+        }
+        (current, next)
+    }
+}
+
+impl<L, C, N> Element<ClientState> for StatusExpBar<L, C, N>
+where
+    L: Path<ClientState, usize>,
+    C: Path<ClientState, u64>,
+    N: Path<ClientState, u64>,
+{
+    type LayoutInfo = korangar_interface::element::BaseLayoutInfo;
+
+    fn create_layout_info(
+        &mut self,
+        _: &State<ClientState>,
+        _: ElementStoreMut,
+        resolvers: &mut dyn Resolvers<ClientState>,
+    ) -> Self::LayoutInfo {
+        with_single_resolver(resolvers, |resolver| korangar_interface::element::BaseLayoutInfo {
+            area: resolver.with_height(EXP_BAR_HEIGHT),
+        })
+    }
+
+    fn lay_out<'a>(
+        &'a self,
+        state: &'a State<ClientState>,
+        _: ElementStore<'a>,
+        layout_info: &'a Self::LayoutInfo,
+        layout: &mut WindowLayout<'a, ClientState>,
+    ) {
+        let (current, next) = self.refresh(state);
+        let tokens_path = client_theme().tokens();
+        let tokens = state.get(&tokens_path);
+        // SAFETY: refreshed above; no other borrow is live.
+        let (text, tip) = unsafe { (self.text.as_ref_unchecked().as_str(), self.tip.as_ref_unchecked()) };
+        paint_resource_bar(
+            layout,
+            layout_info.area,
+            exp_bar_ratio(current, next),
+            exp_bar_colors(tokens, self.base),
+            text,
+            tokens.corner_radius,
+            FontSize(EXP_BAR_FONT_SIZE),
+        );
+        if layout_info.area.check().run(layout) {
+            let id = if self.base {
+                BaseExpTip.tooltip_id()
+            } else {
+                JobExpTip.tooltip_id()
+            };
+            layout.add_tooltip(tip, id);
+        }
     }
 }
 
@@ -740,7 +855,6 @@ where
 
         let player = self.player_path;
         let info = player.basic_info();
-        let tokens = client_theme().tokens();
 
         window! {
             title: "Status",
@@ -757,18 +871,8 @@ where
                     PairLabel::new("HP", player.common().health_points(), player.common().maximum_health_points()),
                     PairLabel::new("SP", player.spell_points(), player.maximum_spell_points()),
                 ),
-                text! {
-                    text: LevelLabel::new("Base Lv", player.base_level()),
-                    color: tokens.text(),
-                    overflow_behavior: OverflowBehavior::Shrink,
-                },
-                ExpBar::base(info.base_experience(), info.next_base_experience()),
-                text! {
-                    text: LevelLabel::new("Job Lv", player.job_level()),
-                    color: tokens.text(),
-                    overflow_behavior: OverflowBehavior::Shrink,
-                },
-                ExpBar::job(info.job_experience(), info.next_job_experience()),
+                StatusExpBar::base(player.base_level(), info.base_experience(), info.next_base_experience()),
+                StatusExpBar::job(player.job_level(), info.job_experience(), info.next_job_experience()),
                 EconomyRow::new(
                     WeightLabel::new(info.weight(), info.maximum_weight()),
                     WeightColor::new(info.weight(), info.maximum_weight()),
@@ -786,14 +890,12 @@ mod tests {
     use ragnarok_packets::ClientTick;
 
     use super::{
-        FOOTER_FONT_SIZE, FOOTER_ROW_HEIGHT, LEVEL_ROW_HEIGHT, PORTRAIT_SIDE, STATUS_PANEL_WINDOW_HEIGHT, economy_row_frames,
-        format_remaining, remaining_ms, resource_bar_colors, resource_fill_width, resource_ratio, status_header_frames,
+        EXP_BAR_FONT_SIZE, EXP_BAR_HEIGHT, FOOTER_FONT_SIZE, FOOTER_ROW_HEIGHT, PORTRAIT_SIDE, STATUS_PANEL_WINDOW_HEIGHT,
+        economy_row_frames, exp_bar_colors, exp_bar_label, format_remaining, remaining_ms, resource_bar_colors, resource_fill_width,
+        resource_ratio, status_header_frames,
     };
     use crate::state::status_effects::ActiveStatusEffect;
-    use crate::state::theme::ThemeTokens;
-
-    /// Body size of the Base/Job rows on the bundled token themes.
-    const LEVEL_FONT_SIZE: f32 = 13.0;
+    use crate::state::theme::{ThemeTokens, contrast_ratio};
 
     #[test]
     fn remaining_time_counts_down_from_last_update() {
@@ -857,8 +959,9 @@ mod tests {
         ] {
             let health = resource_bar_colors(&tokens, true);
             let spell = resource_bar_colors(&tokens, false);
-            assert_eq!(health.fill, tokens.hp);
-            assert_eq!(spell.fill, tokens.sp);
+            assert_eq!(health.fill, tokens.status_hp_bar);
+            assert_eq!(spell.fill, tokens.status_sp_bar);
+            assert!(health.fill.green > health.fill.red && health.fill.green > health.fill.blue);
             assert_eq!(health.track, tokens.raised);
             assert_eq!(spell.track, tokens.raised);
             assert_eq!(health.border, tokens.border);
@@ -881,17 +984,47 @@ mod tests {
         assert!((row.weight.height - row.zeny.height).abs() < 0.01);
         assert!((row.weight.right() - row.zeny.left).abs() < 0.01);
         assert!(row.zeny.right() <= 4.0 + 200.0 + 0.01);
-        assert!(row.font_size < LEVEL_FONT_SIZE);
-        assert!(row.height < LEVEL_ROW_HEIGHT);
+        assert!(row.font_size < EXP_BAR_FONT_SIZE);
+        assert!(row.height < EXP_BAR_HEIGHT);
         assert!((row.height - FOOTER_ROW_HEIGHT).abs() < 0.01);
     }
 
     #[test]
     fn window_height_matches_the_stacked_rows() {
         let header = status_header_frames(0.0, 0.0, 240.0).height;
-        let body = header + LEVEL_ROW_HEIGHT * 2.0 + 8.0 * 2.0 + FOOTER_ROW_HEIGHT + (24.0 + 2.0);
+        let body = header + EXP_BAR_HEIGHT * 2.0 + FOOTER_ROW_HEIGHT + (24.0 + 2.0);
         let chrome = 22.0 + 2.0 + 6.0;
-        let gaps = 6.0 * 4.0;
+        let gaps = 4.0 * 4.0;
         assert!((STATUS_PANEL_WINDOW_HEIGHT - (chrome + body + gaps)).abs() < 0.01);
+    }
+
+    #[test]
+    fn exp_bars_show_level_and_percent_inside() {
+        assert_eq!(exp_bar_label("Base Lv", 48, 632, 1000), "Base Lv 48 · 63.2%");
+        assert_eq!(exp_bar_label("Job Lv", 12, 75, 1000), "Job Lv 12 · 7.5%");
+        assert_eq!(exp_bar_label("Base Lv", 99, 0, 0), "Base Lv 99 · 0.0%");
+        assert_eq!(exp_bar_label("Job Lv", 50, 2000, 1000), "Job Lv 50 · 100.0%");
+    }
+
+    #[test]
+    fn base_and_job_bars_use_two_theme_colors_and_readable_text() {
+        for tokens in [
+            ThemeTokens::verdant_rune(),
+            ThemeTokens::ember_forge(),
+            ThemeTokens::arcane_violet(),
+        ] {
+            let base = exp_bar_colors(&tokens, true);
+            let job = exp_bar_colors(&tokens, false);
+            assert_eq!(base.fill, tokens.status_base_exp_bar);
+            assert_eq!(job.fill, tokens.status_job_exp_bar);
+            assert_ne!(base.fill, job.fill, "{}", tokens.name);
+            assert_eq!(base.border, tokens.border);
+            assert_ne!(base.border, tokens.gold);
+            // Light text over a dark outline reads on the fill and on the track.
+            assert!(contrast_ratio(base.text, base.text_shadow) >= 7.0, "{}", tokens.name);
+            assert!(contrast_ratio(base.text, base.track) >= 4.5, "{}", tokens.name);
+            let health = resource_bar_colors(&tokens, true);
+            assert!(contrast_ratio(health.text, health.text_shadow) >= 7.0, "{}", tokens.name);
+        }
     }
 }
