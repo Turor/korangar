@@ -43,6 +43,7 @@ pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
 pub use self::message::MessageColor;
 pub use self::packet_versions::SupportedPacketVersion;
+pub use self::packet_versions::barter::{BarterCurrencyData, BarterOfferData, barter_result_ok, barter_result_text};
 pub use self::packet_versions::companions::{
     EL_VAR_HP, EL_VAR_MAX_HP, EL_VAR_MAX_SP, EL_VAR_SP, HOM_ACT_DELETE, HOM_ACT_FEED, MERC_ACT_DISMISS, MERC_VAR_ATTACK,
     MERC_VAR_ATTACK_SPEED, MERC_VAR_CRITICAL, MERC_VAR_DEFENSE, MERC_VAR_FAITH, MERC_VAR_FLEE, MERC_VAR_HIT, MERC_VAR_HP, MERC_VAR_KILLS,
@@ -1486,6 +1487,61 @@ where
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(CloseShopPacket::new())
+            }
+        }
+    }
+
+    /// `CZ_NPC_BARTER_MARKET_PURCHASE` or
+    /// `CZ_NPC_EXPANDED_BARTER_MARKET_PURCHASE`.
+    ///
+    /// Simple barter lines must carry the inventory slot of the currency item.
+    /// Expanded lines leave that slot empty; the server picks the materials.
+    pub fn purchase_barter(
+        &mut self,
+        expanded: bool,
+        lines: Vec<(ragnarok_packets::ItemId, u32, u32, Option<ragnarok_packets::InventoryIndex>)>,
+    ) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                if expanded {
+                    let items = lines
+                        .into_iter()
+                        .map(
+                            |(item_id, shop_index, amount, _)| ragnarok_packets::ExpandedBarterPurchaseEntry {
+                                item_id,
+                                shop_index,
+                                amount,
+                            },
+                        )
+                        .collect();
+                    self.send_map_server_packet(ragnarok_packets::ExpandedBarterPurchasePacket { items })
+                } else {
+                    let items = lines
+                        .into_iter()
+                        .filter_map(|(item_id, shop_index, amount, inventory_index)| {
+                            inventory_index.map(|inventory_index| ragnarok_packets::BarterPurchaseEntry {
+                                item_id,
+                                amount,
+                                inventory_index,
+                                shop_index,
+                            })
+                        })
+                        .collect();
+                    self.send_map_server_packet(ragnarok_packets::BarterPurchasePacket { items })
+                }
+            }
+        }
+    }
+
+    /// `CZ_NPC_BARTER_MARKET_CLOSE` or `CZ_NPC_EXPANDED_BARTER_MARKET_CLOSE`.
+    pub fn close_barter(&mut self, expanded: bool) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                if expanded {
+                    self.send_map_server_packet(ragnarok_packets::CloseExpandedBarterPacket {})
+                } else {
+                    self.send_map_server_packet(ragnarok_packets::CloseBarterPacket {})
+                }
             }
         }
     }

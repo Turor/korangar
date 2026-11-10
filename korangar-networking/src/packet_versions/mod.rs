@@ -1,5 +1,6 @@
 pub mod achievements;
 pub mod bank_cash_roulette;
+pub mod barter;
 pub mod clan;
 pub mod companions;
 pub mod economy;
