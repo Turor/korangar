@@ -134,6 +134,7 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
             })
         }
         "dump" => Ok(Command::Dump(DumpPath::parse(rest)?)),
+        "pincode" => Ok(Command::Event(pincode_event(rest)?)),
         "quit" => {
             if !rest.is_empty() {
                 return Err("quit takes no arguments".to_owned());
@@ -305,5 +306,86 @@ mod tests {
         assert!(parse_command("dump secrets").is_err());
         assert!(parse_command("toggle PlayerMove").is_err());
         assert!(parse_command("nope").is_err());
+    }
+}
+
+/// `pincode digit <0-9>` (by value), `pincode press <0-9>` (pad location),
+/// `pincode submit|change|reset|cancel|request`.
+fn pincode_event(rest: &str) -> Result<InputEvent, String> {
+    let mut parts = rest.split_whitespace();
+    let action = parts
+        .next()
+        .ok_or("pincode needs an action (digit, press, submit, change, reset, cancel, request)")?;
+    let argument = parts.next();
+    if parts.next().is_some() {
+        return Err("pincode takes at most one argument".to_owned());
+    }
+    let single_digit = |value: Option<&str>| -> Result<u8, String> {
+        let value = value.ok_or("pincode digit and press need 0-9")?;
+        match value.parse::<u8>() {
+            Ok(digit) if digit <= 9 && value.len() == 1 => Ok(digit),
+            _ => Err(format!("{value} is not a digit 0-9")),
+        }
+    };
+    let no_argument = |event: InputEvent| -> Result<InputEvent, String> {
+        if argument.is_some() {
+            return Err(format!("pincode {action} takes no argument"));
+        }
+        Ok(event)
+    };
+    match action {
+        "digit" => Ok(InputEvent::PincodeTypeDigit {
+            digit: single_digit(argument)?,
+        }),
+        "press" => Ok(InputEvent::PincodeDigit {
+            index: single_digit(argument)? as usize,
+        }),
+        "submit" => no_argument(InputEvent::PincodeSubmit),
+        "change" => no_argument(InputEvent::PincodeChange),
+        "reset" => no_argument(InputEvent::PincodeReset),
+        "cancel" => no_argument(InputEvent::PincodeCancel),
+        "request" => no_argument(InputEvent::PincodeRequest),
+        other => Err(format!(
+            "unknown pincode action {other} (digit, press, submit, change, reset, cancel, request)"
+        )),
+    }
+}
+
+#[cfg(test)]
+mod pincode_tests {
+    use super::{Command, parse_command};
+    use crate::input::InputEvent;
+
+    fn event(line: &str) -> InputEvent {
+        match parse_command(line) {
+            Ok(Command::Event(event)) => event,
+            other => panic!("{line}: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pincode_commands_map_to_pad_events() {
+        assert!(matches!(event("pincode digit 7"), InputEvent::PincodeTypeDigit { digit: 7 }));
+        assert!(matches!(event("pincode press 3"), InputEvent::PincodeDigit { index: 3 }));
+        assert!(matches!(event("pincode submit"), InputEvent::PincodeSubmit));
+        assert!(matches!(event("pincode change"), InputEvent::PincodeChange));
+        assert!(matches!(event("pincode reset"), InputEvent::PincodeReset));
+        assert!(matches!(event("pincode cancel"), InputEvent::PincodeCancel));
+        assert!(matches!(event("pincode request"), InputEvent::PincodeRequest));
+    }
+
+    #[test]
+    fn bad_pincode_commands_are_rejected() {
+        for line in [
+            "pincode",
+            "pincode digit",
+            "pincode digit 10",
+            "pincode digit x",
+            "pincode submit 1",
+            "pincode wiggle",
+            "pincode press 1 2",
+        ] {
+            assert!(parse_command(line).is_err(), "{line} parsed");
+        }
     }
 }

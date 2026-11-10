@@ -4,10 +4,9 @@
 //! `{username, password, login_address}`. The password is never written to
 //! logs. See `docs/autopilot.md`.
 //!
-//! PIN entry is intentionally not sent. [`Autopilot::on_login_failed`] treats a
-//! server message that mentions a PIN as a challenge and keeps
-//! `KORANGAR_AUTOPILOT_PIN` available through [`Autopilot::take_pending_pin`]
-//! for the G02 PIN flow.
+//! PIN: the pincode state types `KORANGAR_AUTOPILOT_PIN` into the character
+//! server pad itself. Without it, [`Autopilot::on_pin_gate`] opens the line
+//! commands early so `pincode …` commands can drive the pad.
 
 mod command;
 mod events;
@@ -90,9 +89,12 @@ pub enum Effect {
         line: String,
     },
     Ready(String),
-    /// PIN is stored on the autopilot. G02 calls
-    /// [`Autopilot::take_pending_pin`].
+    /// A login-server PIN challenge arrived and `KORANGAR_AUTOPILOT_PIN` is
+    /// set. The code is never logged.
     PinArmed,
+    /// The character server holds select behind a PIN. Line commands are read
+    /// from now on, before the map loads, so a script can drive the pad.
+    PinGate,
 }
 
 impl Effect {
@@ -101,6 +103,7 @@ impl Effect {
             Self::Log { ok, line } => Some(format!("AUTOPILOT_CMD {} {line}", if *ok { "ok" } else { "err" })),
             Self::Ready(timing) => Some(timing.clone()),
             Self::PinArmed => Some("AUTOPILOT_PIN_HOOK armed".to_owned()),
+            Self::PinGate => Some("AUTOPILOT_PIN_GATE".to_owned()),
             _ => None,
         }
     }
@@ -147,6 +150,7 @@ pub struct Autopilot {
     map_loaded_ms: Option<u128>,
     wait_until: Option<Instant>,
     ready_sent: bool,
+    pin_gate: bool,
 }
 
 struct CommandFile {
@@ -191,6 +195,7 @@ impl Autopilot {
             map_loaded_ms: None,
             wait_until: None,
             ready_sent: false,
+            pin_gate: false,
         }
     }
 
@@ -225,11 +230,20 @@ impl Autopilot {
         }
     }
 
-    /// One-shot PIN code for G02. Never logged. The client does not send a
-    /// PIN packet yet, so this stays unused outside the unit test and G02.
-    #[allow(dead_code)]
-    pub fn take_pending_pin(&mut self) -> Option<String> {
-        self.pin.take()
+    /// The PIN notice says whether character select is held. While it is,
+    /// [`Self::poll`] reads line commands before the map loads (`pincode …`,
+    /// `click`, `dump`, `wait`, `quit`). The first gate prints
+    /// `AUTOPILOT_PIN_GATE` once.
+    pub fn on_pin_gate(&mut self, gated: bool) -> Vec<Effect> {
+        let was_gated = self.pin_gate;
+        self.pin_gate = gated;
+        if !gated || was_gated || self.phase == Phase::InWorld {
+            return Vec::new();
+        }
+        if self.command_file.is_none() {
+            self.open_commands();
+        }
+        vec![Effect::PinGate]
     }
 
     pub fn on_window_shown(&mut self, now: Instant) -> Vec<Effect> {
@@ -270,7 +284,7 @@ impl Autopilot {
             }
             return vec![Effect::Log {
                 ok: false,
-                line: "pin challenge (set KORANGAR_AUTOPILOT_PIN; G02 calls take_pending_pin)".to_owned(),
+                line: "pin challenge (set KORANGAR_AUTOPILOT_PIN, or drive the pad with pincode commands)".to_owned(),
             }];
         }
         self.phase = Phase::Failed;
@@ -329,7 +343,7 @@ impl Autopilot {
     }
 
     pub fn poll(&mut self, now: Instant) -> Vec<Effect> {
-        if self.phase != Phase::InWorld {
+        if self.phase != Phase::InWorld && !self.pin_gate {
             return Vec::new();
         }
         if let Some(until) = self.wait_until {
@@ -762,9 +776,42 @@ mod tests {
         assert!(matches!(effects.as_slice(), [Effect::PinArmed]));
         let rendered = format!("{effects:?}");
         assert!(!rendered.contains("pin-secret"));
-        assert_eq!(auto.take_pending_pin().as_deref(), Some("pin-secret"));
-        assert!(auto.take_pending_pin().is_none());
+        assert!(!format!("{auto:?}").contains("pin-secret"));
         assert_eq!(auto.phase, Phase::AwaitingPin);
+    }
+
+    #[test]
+    fn pin_gate_reads_commands_before_the_map() {
+        let path = std::env::temp_dir().join(format!("korangar-autopilot-pin-{}", std::process::id()));
+        std::fs::write(&path, "pincode digit 1\npincode submit\n").unwrap();
+        let mut auto = Autopilot::new(AutopilotConfig {
+            commands_path: Some(path.clone()),
+            ..config()
+        });
+        let now = Instant::now();
+        reach_characters(&mut auto, now);
+        assert!(auto.poll(now).is_empty(), "no commands before the gate");
+
+        let gate = auto.on_pin_gate(true);
+        assert!(matches!(gate.as_slice(), [Effect::PinGate]));
+        assert!(auto.on_pin_gate(true).is_empty(), "the gate line prints once");
+
+        let effects = auto.poll(now);
+        let inputs = effects
+            .iter()
+            .filter(|effect| {
+                matches!(
+                    effect,
+                    Effect::Input(crate::input::InputEvent::PincodeTypeDigit { digit: 1 })
+                        | Effect::Input(crate::input::InputEvent::PincodeSubmit)
+                )
+            })
+            .count();
+        assert_eq!(inputs, 2, "{effects:?}");
+
+        // Accepted: select runs as before and commands wait for the map again.
+        assert!(auto.on_pin_gate(false).is_empty());
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

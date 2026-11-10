@@ -1539,6 +1539,14 @@ impl Client {
                             client_state().character_slots(),
                             client_state().switch_request(),
                         ));
+                        // Hercules can send the PIN request before the (paged) list.
+                        // Opening character select closes every window, so bring the
+                        // pad back on top while the server still waits for a PIN.
+                        if self.client_state.follow(client_state().pincode_window()).wants_pad()
+                            && crate::state::pincode::PincodeWindowState::autopilot_pin().is_none()
+                        {
+                            self.interface.open_window(PincodeWindow);
+                        }
                     }
                     // The menu map opens this window before the list arrives. Selecting only
                     // when the window was closed skips the character on a slow first frame.
@@ -1560,6 +1568,10 @@ impl Client {
                         .follow_mut(client_state().pincode_window())
                         .apply_notice(notice, autopilot.as_deref());
                     pincode_effects.push(effect);
+                    let gated = !self.client_state.follow(client_state().pincode_window()).allows_select();
+                    if let Some(auto) = self.autopilot.as_mut() {
+                        autopilot_effects.extend(auto.on_pin_gate(gated));
+                    }
                     if !self.client_state.follow(client_state().pincode_window()).allows_select() {
                         defer_headless_character = false;
                     } else if self.interface.is_window_with_class_open(WindowClass::CharacterSelection) {
@@ -4769,6 +4781,9 @@ impl Client {
                 InputEvent::PincodeDigit { index } => {
                     self.client_state.follow_mut(client_state().pincode_window()).press_digit(index);
                 }
+                InputEvent::PincodeTypeDigit { digit } => {
+                    self.client_state.follow_mut(client_state().pincode_window()).type_digit(digit);
+                }
                 InputEvent::PincodeReset => {
                     self.client_state.follow_mut(client_state().pincode_window()).reset_entry();
                 }
@@ -7375,7 +7390,7 @@ impl Client {
                     autopilot_println(&format!("AUTOPILOT_DUMP {} {body}", path.as_str()));
                 }
                 autopilot::Effect::Quit => SHUTDOWN_SIGNAL.store(true, Ordering::SeqCst),
-                autopilot::Effect::Log { .. } | autopilot::Effect::Ready(_) | autopilot::Effect::PinArmed => {}
+                autopilot::Effect::Log { .. } | autopilot::Effect::Ready(_) | autopilot::Effect::PinArmed | autopilot::Effect::PinGate => {}
             }
         }
     }
