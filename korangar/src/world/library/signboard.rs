@@ -403,6 +403,11 @@ mod tests {
 
         let total_jobs: usize = published.values().map(MapSignboards::vendor_job_id_count).sum();
         assert_eq!(total_jobs, 0);
+
+        let prt_monk = published.get("prt_monk").expect("prt_monk");
+        assert!(prt_monk.town_services.iter().any(|marker| {
+            marker.kind == TownServiceKind::WeaponDealer && marker.name == "Weapon Dealer" && marker.x == 135 && marker.y == 263
+        }));
     }
 
     #[test]
