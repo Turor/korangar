@@ -1,6 +1,7 @@
 use korangar_interface::window::{CustomWindow, Window};
-use rust_state::Path;
+use rust_state::{Path, State};
 
+use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::settings::{GameSettings, GameSettingsPathExt};
 use crate::state::localization::LocalizationPathExt;
@@ -29,6 +30,12 @@ where
     fn to_window<'a>(self) -> impl Window<ClientState> + 'a {
         use korangar_interface::prelude::*;
 
+        let show_equipment = self.game_settings_path.show_equipment();
+        let toggle_show_equipment = move |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
+            let enabled = !*state.get(&show_equipment);
+            queue.queue(InputEvent::SetShowEquipment { enabled });
+        };
+
         window! {
             title: client_state().localization().game_settings_window_title(),
             class: Self::window_class(),
@@ -39,6 +46,11 @@ where
                     text: client_state().localization().auto_attack_button_text(),
                     state: self.game_settings_path.auto_attack(),
                     event: Toggle(self.game_settings_path.auto_attack()),
+                },
+                state_button! {
+                    text: "Show my equipment",
+                    state: show_equipment,
+                    event: toggle_show_equipment,
                 },
             ),
         }

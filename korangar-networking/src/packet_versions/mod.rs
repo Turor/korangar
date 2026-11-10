@@ -8,6 +8,7 @@ pub mod companions;
 pub mod economy;
 pub mod eden;
 pub mod enchant;
+pub mod equip_window;
 pub mod framing_20190530;
 pub mod framing_20250716;
 pub mod guild;

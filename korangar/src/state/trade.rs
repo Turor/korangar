@@ -1,10 +1,17 @@
+use std::sync::Arc;
+
 use korangar_interface::element::StateElement;
 use rust_state::RustState;
+
+use crate::graphics::Texture;
 
 /// One line shown on a side of the trade window.
 #[derive(Clone, Default, RustState, StateElement)]
 pub struct TradeOfferLine {
     pub label: String,
+    pub item_id: u32,
+    #[hidden_element]
+    pub texture: Option<Arc<Texture>>,
 }
 
 /// An inventory stack the player can place into the trade.
@@ -12,8 +19,11 @@ pub struct TradeOfferLine {
 pub struct TradeInventoryOffer {
     /// Stored inventory index (wire index minus 2).
     pub index: u16,
+    pub item_id: u32,
     pub label: String,
     pub amount: u16,
+    #[hidden_element]
+    pub texture: Option<Arc<Texture>>,
 }
 
 /// An item add waiting for `ZC_ACK_ADD_EXCHANGE_ITEM`.
@@ -24,8 +34,11 @@ pub struct TradeInventoryOffer {
 pub struct PendingTradeAdd {
     /// Wire inventory index (`stored + 2`). Never zero.
     pub index: u16,
+    pub item_id: u32,
     pub label: String,
     pub amount: u32,
+    #[hidden_element]
+    pub texture: Option<Arc<Texture>>,
 }
 
 /// Both sides of an in-progress player trade.
@@ -128,12 +141,36 @@ impl TradeState {
         if !self.can_note_item_add(stored_index, amount) {
             return false;
         }
+        let (item_id, texture) = self
+            .inventory_offers
+            .iter()
+            .find(|offer| offer.index == stored_index)
+            .map(|offer| (offer.item_id, offer.texture.clone()))
+            .unwrap_or((0, None));
         self.pending_adds.push(PendingTradeAdd {
             index: stored_index.saturating_add(2),
+            item_id,
             label,
             amount,
+            texture,
         });
         true
+    }
+
+    pub fn set_item_texture(&mut self, item_id: u32, texture: Arc<Texture>) {
+        if item_id == 0 {
+            return;
+        }
+        for line in self.partner_lines.iter_mut().chain(self.own_lines.iter_mut()) {
+            if line.item_id == item_id {
+                line.texture = Some(texture.clone());
+            }
+        }
+        for offer in &mut self.inventory_offers {
+            if offer.item_id == item_id {
+                offer.texture = Some(texture.clone());
+            }
+        }
     }
 
     /// Apply `ZC_ACK_ADD_EXCHANGE_ITEM`.
@@ -157,7 +194,11 @@ impl TradeState {
             });
         }
         if !pending.label.is_empty() {
-            self.own_lines.push(TradeOfferLine { label: pending.label });
+            self.own_lines.push(TradeOfferLine {
+                label: pending.label,
+                item_id: pending.item_id,
+                texture: pending.texture,
+            });
         }
         let stored = index.saturating_sub(2);
         if let Some(offer_at) = self.inventory_offers.iter().position(|offer| offer.index == stored) {
@@ -205,8 +246,10 @@ mod tests {
         let mut trade = TradeState::default();
         trade.inventory_offers.push(TradeInventoryOffer {
             index: 3,
+            item_id: 512,
             label: "Apple x5".to_owned(),
             amount: 5,
+            texture: None,
         });
         assert!(trade.note_item_add(3, "Apple x5".to_owned(), 5));
         assert!(trade.apply_add_result(0, 0).is_none());
@@ -221,19 +264,24 @@ mod tests {
         let mut trade = TradeState::default();
         trade.inventory_offers.push(TradeInventoryOffer {
             index: 3,
+            item_id: 512,
             label: "Apple x5".to_owned(),
             amount: 5,
+            texture: None,
         });
         trade.inventory_offers.push(TradeInventoryOffer {
             index: 4,
+            item_id: 501,
             label: "Potion x2".to_owned(),
             amount: 2,
+            texture: None,
         });
         assert!(trade.note_item_add(3, "Apple x5".to_owned(), 5));
         assert!(!trade.note_item_add(3, "Apple x5".to_owned(), 5));
         assert!(trade.note_item_add(4, "Potion x2".to_owned(), 2));
         assert!(trade.apply_add_result(5, 0).is_none());
         assert_eq!(trade.own_lines.len(), 1);
+        assert_eq!(trade.own_lines[0].item_id, 512);
         assert_eq!(trade.inventory_offers.len(), 1);
         assert_eq!(trade.inventory_offers[0].index, 4);
         assert_eq!(trade.pending_adds.len(), 1);
@@ -244,8 +292,10 @@ mod tests {
         let mut trade = TradeState::default();
         trade.inventory_offers.push(TradeInventoryOffer {
             index: 3,
+            item_id: 512,
             label: "Apple x5".to_owned(),
             amount: 5,
+            texture: None,
         });
         assert!(!trade.note_item_add(3, "Apple x5".to_owned(), 9));
         assert!(trade.pending_adds.is_empty());

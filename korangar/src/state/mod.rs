@@ -8,6 +8,7 @@ pub mod character_screen;
 pub mod character_slots;
 pub mod chat;
 pub mod clan;
+pub mod context_menu;
 pub mod eden;
 pub mod equip_switch;
 pub mod friends;
@@ -38,6 +39,7 @@ pub mod styling_catalog;
 pub mod styling_shop;
 pub mod theme;
 pub mod trade;
+pub mod view_equip;
 pub mod vn_dialog;
 
 use std::cell::Cell;
@@ -68,11 +70,13 @@ use theme::{InterfaceTheme, InterfaceThemePathExt, InterfaceThemeType};
 #[cfg(feature = "debug")]
 use self::cache_statistics::CacheStatistics;
 use self::clan::ClanState;
+use self::context_menu::ContextMenuState;
 use self::friends::FriendListEntry;
 use self::guild::GuildState;
 use self::item_finder::ItemFinderState;
 use self::party::PartyState;
 use self::player_shops::{ShopReportState, ShopSearchState, ShopSetupState};
+use self::view_equip::ViewEquipState;
 #[cfg(feature = "debug")]
 use crate::PacketHistory;
 #[cfg(feature = "debug")]
@@ -354,6 +358,10 @@ pub struct ClientState {
     skill_tree: SkillTree,
     /// Player-to-player trade.
     trade: TradeState,
+    /// Right-click menu for a player.
+    context_menu: ContextMenuState,
+    /// Equipment of another player opened from the context menu.
+    viewed_equipment: ViewEquipState,
     /// NPC refine UI.
     refine: RefineState,
     /// Identify, cards, warp memo, crafting, and skill target lists.
@@ -586,6 +594,8 @@ impl ClientState {
             let skill_tree = SkillTree::default();
             let skill_tree_window = SkillTreeWindowState::default();
             let trade = TradeState::default();
+            let context_menu = ContextMenuState::default();
+            let viewed_equipment = ViewEquipState::default();
             let refine = RefineState::default();
             let item_skill_selection = ItemSkillSelectionState::default();
             let item_reform = ItemReformState::default();
@@ -706,6 +716,8 @@ impl ClientState {
             cart,
             skill_tree,
             trade,
+            context_menu,
+            viewed_equipment,
             refine,
             item_skill_selection,
             item_reform,

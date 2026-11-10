@@ -385,6 +385,16 @@ impl ChatWindowState {
         crate::state::chat::whisper_target_armed(&self.whisper_target, &self.whisper_disarm_stamp)
     }
 
+    /// Remember a whisper target without queueing a message to send.
+    pub(crate) fn set_whisper_target(&mut self, target: String) {
+        crate::state::chat::remember_whisper_target(&mut self.recent_whisper_targets, &target);
+        self.whisper_target.clone_from(&target);
+        // Picking a name is roBrowser whisper mode, so the box is armed.
+        self.whisper_disarm_stamp.clear();
+        self.pending_whisper_name.clear();
+        self.pending_whisper_text.clear();
+    }
+
     pub(crate) fn begin_whisper(&mut self, target: String, text: String) -> (String, String) {
         crate::state::chat::remember_whisper_target(&mut self.recent_whisper_targets, &target);
         crate::state::chat::disarm_sticky_whisper(&mut self.whisper_target, &mut self.whisper_disarm_stamp, &target);

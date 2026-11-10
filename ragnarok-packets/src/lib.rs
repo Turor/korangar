@@ -3,6 +3,7 @@
 
 mod barter;
 pub mod character_select;
+mod equip_window;
 pub mod guild_actions;
 pub mod handler;
 mod item_skill_selection;
@@ -36,6 +37,7 @@ pub use self::character_select::{
     CancelDeleteCharacterPacket, CancelDeleteCharacterResultPacket, ConfirmDeleteCharacterPacket, ConfirmDeleteCharacterResultPacket,
     ReserveDeleteCharacterPacket, ReserveDeleteCharacterResultPacket,
 };
+pub use self::equip_window::{CONFIG_OPEN_EQUIPMENT_WINDOW, RequestViewPlayerEquipPacket, SetConfigurationPacket};
 pub use self::guild_actions::{
     BreakGuildRelationPacket, ChangeGuildMemberPositionsPacket, ChangeGuildPacket, ChangeGuildPositionsPacket, CreateGuildPacket,
     ExpelGuildPacket, GUILD_MENU_SKILLS, GuildChatPacket, GuildChatReceivedPacket, GuildEmblemImagePacket, GuildInviteByAccountPacket,

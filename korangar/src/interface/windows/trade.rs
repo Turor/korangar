@@ -1,18 +1,26 @@
-use std::cmp::Ordering;
-
+use korangar_interface::MouseMode;
 use korangar_interface::components::text_box::DefaultHandler;
+use korangar_interface::element::Element;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
-use korangar_interface::element::{Element, ElementBox};
+use korangar_interface::event::{DropHandler, EventQueue};
+use korangar_interface::layout::area::Area;
+use korangar_interface::layout::tooltip::TooltipExt;
 use korangar_interface::layout::{Resolvers, WindowLayout, with_single_resolver};
+use korangar_interface::prelude::{HorizontalAlignment, TextThemePathExt, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
-use rust_state::{ManuallyAssertExt, Path, State, VecIndexExt};
+use korangar_networking::InventoryItemDetails;
+use rust_state::{Path, State};
 
 use super::WindowClass;
-use crate::input::InputEvent;
-use crate::loaders::OverflowBehavior;
-use crate::state::ClientState;
-use crate::state::theme::InterfaceThemeType;
-use crate::state::trade::{TradeInventoryOffer, TradeInventoryOfferPathExt, TradeState, TradeStatePathExt};
+use crate::graphics::Color;
+use crate::input::{InputEvent, MouseInputMode};
+use crate::interface::components::item_box::{paint_item_slot, slot_border_and_fill};
+use crate::interface::resource::ItemSource;
+use crate::loaders::{FontSize, OverflowBehavior};
+use crate::renderer::LayoutExt;
+use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
+use crate::state::trade::{TradeOfferLine, TradeState, TradeStatePathExt};
+use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 
 pub struct TradeRequestWindow {
     partner_name: String,
@@ -63,72 +71,176 @@ impl CustomWindow<ClientState> for TradeRequestWindow {
     }
 }
 
-struct TradeOfferButtons<A> {
-    offers_path: A,
-    elements: Vec<ElementBox<ClientState>>,
+const OFFER_ROW: f32 = 28.0;
+
+struct TradeOfferIcons<A> {
+    lines_path: A,
 }
 
-impl<A> TradeOfferButtons<A> {
-    fn new(offers_path: A) -> Self {
-        Self {
-            offers_path,
-            elements: Vec::new(),
-        }
+impl<A> TradeOfferIcons<A> {
+    fn new(lines_path: A) -> Self {
+        Self { lines_path }
     }
 }
 
-impl<A> Element<ClientState> for TradeOfferButtons<A>
+impl<A> Element<ClientState> for TradeOfferIcons<A>
 where
-    A: Path<ClientState, Vec<TradeInventoryOffer>> + Copy,
+    A: Path<ClientState, Vec<TradeOfferLine>>,
 {
-    type LayoutInfo = ();
+    type LayoutInfo = Area;
 
     fn create_layout_info(
         &mut self,
         state: &State<ClientState>,
-        mut store: ElementStoreMut,
+        _: ElementStoreMut,
         resolvers: &mut dyn Resolvers<ClientState>,
     ) -> Self::LayoutInfo {
         with_single_resolver(resolvers, |resolver| {
-            use korangar_interface::prelude::*;
-
-            let offers = state.get(&self.offers_path);
-            match offers.len().cmp(&self.elements.len()) {
-                Ordering::Less => self.elements.truncate(offers.len()),
-                Ordering::Equal => {}
-                Ordering::Greater => {
-                    for index in self.elements.len()..offers.len() {
-                        let offer_path = self.offers_path.index(index).manually_asserted();
-                        self.elements.push(ErasedElement::new(button! {
-                            text: offer_path.label(),
-                            event: move |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
-                                let TradeInventoryOffer { index, amount, .. } = state.get(&offer_path);
-                                queue.queue(InputEvent::TradeAddItem {
-                                    index: *index,
-                                    amount: *amount,
-                                });
-                            },
-                        }));
-                    }
-                }
-            }
-
-            self.elements.iter_mut().enumerate().for_each(|(index, element)| {
-                element.create_layout_info(state, store.child_store(index as u64), resolver);
-            });
+            let count = state.get(&self.lines_path).len();
+            let height = if count == 0 { 20.0 } else { count as f32 * OFFER_ROW };
+            resolver.with_height(height)
         })
     }
 
     fn lay_out<'a>(
         &'a self,
         state: &'a State<ClientState>,
-        store: ElementStore<'a>,
-        _: &'a Self::LayoutInfo,
+        _: ElementStore<'a>,
+        layout_info: &'a Self::LayoutInfo,
         layout: &mut WindowLayout<'a, ClientState>,
     ) {
-        self.elements.iter().enumerate().for_each(|(index, element)| {
-            element.lay_out(state, store.child_store(index as u64), &(), layout);
+        let lines = state.get(&self.lines_path);
+        if lines.is_empty() {
+            layout.add_text(
+                *layout_info,
+                "(nothing)",
+                FontSize(12.0),
+                *state.get(&client_theme().tokens().muted()),
+                *state.get(&client_theme().tokens().gold()),
+                HorizontalAlignment::Left { offset: 0.0, border: 0.0 },
+                VerticalAlignment::Center { offset: 0.0 },
+                OverflowBehavior::Shrink,
+            );
+            return;
+        }
+
+        for (index, line) in lines.iter().enumerate() {
+            let row = Area {
+                left: layout_info.left,
+                top: layout_info.top + index as f32 * OFFER_ROW,
+                width: layout_info.width,
+                height: OFFER_ROW,
+            };
+            let icon = Area {
+                left: row.left,
+                top: row.top + 2.0,
+                width: 24.0,
+                height: 24.0,
+            };
+            let hovered = icon.check().run(layout);
+            let (border, fill) = slot_border_and_fill(state, hovered, false);
+            paint_item_slot(layout, icon, border, fill, 4.0, true);
+            if let Some(texture) = line.texture.as_ref() {
+                layout.add_texture(icon, texture.clone(), Color::WHITE, false);
+            }
+            layout.add_text(
+                Area {
+                    left: row.left + 30.0,
+                    top: row.top,
+                    width: (row.width - 30.0).max(1.0),
+                    height: row.height,
+                },
+                &line.label,
+                FontSize(12.0),
+                *state.get(&client_theme().text().color()),
+                *state.get(&client_theme().tokens().gold()),
+                HorizontalAlignment::Left { offset: 0.0, border: 0.0 },
+                VerticalAlignment::Center { offset: 0.0 },
+                OverflowBehavior::Shrink,
+            );
+            if hovered {
+                struct OfferTip;
+                layout.add_tooltip(&line.label, OfferTip.tooltip_id());
+            }
+        }
+    }
+}
+
+struct TradeDropZone;
+
+impl Element<ClientState> for TradeDropZone {
+    type LayoutInfo = Area;
+
+    fn create_layout_info(
+        &mut self,
+        _: &State<ClientState>,
+        _: ElementStoreMut,
+        resolvers: &mut dyn Resolvers<ClientState>,
+    ) -> Self::LayoutInfo {
+        with_single_resolver(resolvers, |resolver| resolver.with_height(36.0))
+    }
+
+    fn lay_out<'a>(
+        &'a self,
+        state: &'a State<ClientState>,
+        _: ElementStore<'a>,
+        layout_info: &'a Self::LayoutInfo,
+        layout: &mut WindowLayout<'a, ClientState>,
+    ) {
+        let moving = matches!(layout.get_mouse_mode(), MouseMode::Custom {
+            mode: MouseInputMode::MoveItem {
+                source: ItemSource::Inventory,
+                ..
+            },
         });
+        let hovered = if moving {
+            let hovered = layout_info.check().any_mouse_mode().run(layout);
+            if hovered {
+                layout.set_hovered();
+            }
+            hovered
+        } else {
+            layout_info.check().run(layout)
+        };
+        let (border, fill) = slot_border_and_fill(state, hovered, moving);
+        paint_item_slot(layout, *layout_info, border, fill, 6.0, true);
+        layout.add_text(
+            *layout_info,
+            "Drop an inventory item",
+            FontSize(12.0),
+            *state.get(&client_theme().text().color()),
+            *state.get(&client_theme().tokens().gold()),
+            HorizontalAlignment::Center { offset: 0.0, border: 0.0 },
+            VerticalAlignment::Center { offset: 0.0 },
+            OverflowBehavior::Shrink,
+        );
+        if hovered {
+            layout.register_drop_handler(&TradeInventoryDrop);
+        }
+    }
+}
+
+struct TradeInventoryDrop;
+
+impl DropHandler<ClientState> for TradeInventoryDrop {
+    fn handle_drop(&self, state: &State<ClientState>, queue: &mut EventQueue<ClientState>, mouse_mode: &MouseMode<ClientState>) {
+        let MouseMode::Custom {
+            mode: MouseInputMode::MoveItem { source, item },
+        } = mouse_mode
+        else {
+            return;
+        };
+        if *source != ItemSource::Inventory {
+            return;
+        }
+        let amount = match &item.details {
+            InventoryItemDetails::Regular { amount, .. } => *amount,
+            InventoryItemDetails::Equippable { .. } => 1,
+        };
+        let index = item.index.0;
+        if state.get(&client_state().trade()).can_note_item_add(index, u32::from(amount)) {
+            queue.queue(InputEvent::TradeAddItem { index, amount });
+        }
     }
 }
 
@@ -183,19 +295,11 @@ where
                 text! {
                     text: "Their offer",
                 },
-                text! {
-                    text: trade_path.partner_summary(),
-                    overflow_behavior: OverflowBehavior::LineBreak,
-                    height: 48.0,
-                },
+                TradeOfferIcons::new(trade_path.partner_lines()),
                 text! {
                     text: "Your offer",
                 },
-                text! {
-                    text: trade_path.own_summary(),
-                    overflow_behavior: OverflowBehavior::LineBreak,
-                    height: 48.0,
-                },
+                TradeOfferIcons::new(trade_path.own_lines()),
                 text! {
                     text: trade_path.status(),
                     overflow_behavior: OverflowBehavior::LineBreak,
@@ -212,9 +316,9 @@ where
                     disabled: trade_path.self_locked(),
                 },
                 text! {
-                    text: "Offer an inventory item",
+                    text: "Drag an item from the inventory",
                 },
-                TradeOfferButtons::new(trade_path.inventory_offers()),
+                TradeDropZone,
                 split! {
                     gaps: theme().window().gaps(),
                     children: (

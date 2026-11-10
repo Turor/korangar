@@ -509,8 +509,7 @@ where
         }
     })?;
     packet_handler.register_noop::<UpdatePartyInvitationStatePacket>()?;
-    packet_handler.register_noop::<UpdateShowEquipPacket>()?;
-    packet_handler.register_noop::<UpdateConfigurationPacket>()?;
+    crate::packet_versions::equip_window::register_show_equip_packets(packet_handler)?;
     packet_handler.register(navigate_to_event)?;
     packet_handler.register(minimap_mark_event)?;
     packet_handler.register(|packet: NextButtonPacket| {

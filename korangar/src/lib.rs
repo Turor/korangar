@@ -1483,14 +1483,10 @@ impl Client {
                     {
                         self.client_state.follow_mut(client_state().hotbar()).mark_standing();
                     }
-                    if let Some(entity) = self
-                        .client_state
-                        .follow_mut(client_state().entities())
-                        .iter_mut()
-                        .find(|entity| entity.get_entity_id() == entity_id)
-                    {
-                        entity.set_idle(client_tick);
-                    }
+                    self.apply_player_posture(entity_id, false, client_tick);
+                }
+                NetworkEvent::PlayerSitDown { entity_id } => {
+                    self.apply_player_posture(entity_id, true, client_tick);
                 }
                 NetworkEvent::DisplayEmotion { entity_id, emotion } => {
                     if let Some(entity) = self
@@ -2109,6 +2105,11 @@ impl Client {
 
                     if let Some(entity) = entity {
                         entity.set_details(name);
+                    }
+                    if self.interface.is_window_with_class_open(WindowClass::ContextMenu)
+                        && self.client_state.follow(client_state().context_menu()).target_entity_id == entity_id.0
+                    {
+                        self.open_player_context_menu(entity_id);
                     }
                 }
                 NetworkEvent::DamageEffect {
@@ -3995,8 +3996,10 @@ impl Client {
                                 } else {
                                     Some(TradeInventoryOffer {
                                         index: item.index.0,
+                                        item_id: item.item_id.0,
                                         label: format!("{} x{amount}", item.metadata.name),
                                         amount,
+                                        texture: item.metadata.texture.clone(),
                                     })
                                 }
                             })
@@ -4017,6 +4020,7 @@ impl Client {
                         if !self.interface.is_window_with_class_open(WindowClass::Trade) {
                             self.interface.open_window(TradeWindow::new(client_state().trade()));
                         }
+                        self.open_inventory_for_trade();
                     }
                 }
                 NetworkEvent::TradeItemAdded {
@@ -4026,13 +4030,12 @@ impl Client {
                     refinement_level,
                     ..
                 } => {
-                    let name = self
-                        .library
-                        .get::<ItemName>(ItemNameKey {
-                            item_id,
-                            is_identified: identified,
-                        })
-                        .to_string();
+                    let (name, texture) = if identified {
+                        let item_number = i32::try_from(item_id.0).unwrap_or(0);
+                        self.async_loader.identified_item_face(item_number)
+                    } else {
+                        ("Unknown item".to_owned(), None)
+                    };
                     let prefix = match refinement_level {
                         0 => String::new(),
                         level => format!("+{level} "),
@@ -4040,6 +4043,8 @@ impl Client {
                     let trade = self.client_state.follow_mut(client_state().trade());
                     trade.partner_lines.push(TradeOfferLine {
                         label: format!("{prefix}{name} x{amount}"),
+                        item_id: item_id.0,
+                        texture,
                     });
                     trade.refresh_summaries();
                 }
@@ -4064,6 +4069,8 @@ impl Client {
                     }
                     trade.refresh_summaries();
                 }
+                NetworkEvent::ShowEquipment { enabled } => self.apply_show_equipment(enabled),
+                NetworkEvent::PlayerEquipment { name, job, sex, items } => self.show_player_equipment(name, job, sex, items),
                 NetworkEvent::TradeLockRemoved => {
                     let trade = self.client_state.follow_mut(client_state().trade());
                     trade.self_locked = false;
@@ -6304,6 +6311,12 @@ impl Client {
                     self.interface.close_window_with_class(WindowClass::Trade);
                     self.interface.close_window_with_class(WindowClass::TradeRequest);
                 }
+                InputEvent::OpenPlayerContextMenu { entity_id } => self.open_player_context_menu(entity_id),
+                InputEvent::ContextMenuPick { index } => self.pick_context_menu(index),
+                InputEvent::SetShowEquipment { enabled } => {
+                    self.client_state.follow_mut(client_state().game_settings()).show_equipment = enabled;
+                    let _ = self.networking_system.set_show_equipment(enabled);
+                }
                 InputEvent::RefineSelectItem { index } => {
                     self.client_state.follow_mut(client_state().refine()).select(index);
                     let _ = self.networking_system.refine_select_item(InventoryIndex(index));
@@ -6848,6 +6861,12 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().hotbar())
                         .apply_item_sprite(item_id, texture.clone());
+                    self.client_state
+                        .follow_mut(client_state().trade())
+                        .set_item_texture(item_id.0, texture.clone());
+                    self.client_state
+                        .follow_mut(client_state().viewed_equipment())
+                        .set_item_texture(item_id.0, texture.clone());
                     self.client_state
                         .follow_mut(client_state().cart())
                         .update_item_sprite(item_id, texture);
@@ -7842,16 +7861,20 @@ impl Client {
                                     match input_report.mouse_target {
                                         PickerTarget::Nothing => {}
                                         PickerTarget::Entity(entity_id) => {
-                                            let is_ground_item = self
-                                                .client_state
-                                                .follow(client_state().ground_items())
-                                                .iter()
-                                                .any(|item| item.get_entity_id() == entity_id);
+                                            let self_id = self.client_state.try_follow(this_entity()).map(|entity| entity.get_entity_id());
+                                            // Left-click on this character does not walk or open a shop.
+                                            if self_id != Some(entity_id) {
+                                                let is_ground_item = self
+                                                    .client_state
+                                                    .follow(client_state().ground_items())
+                                                    .iter()
+                                                    .any(|item| item.get_entity_id() == entity_id);
 
-                                            if is_ground_item {
-                                                self.input_event_buffer.push(InputEvent::PickUpItem { entity_id })
-                                            } else {
-                                                self.input_event_buffer.push(InputEvent::PlayerInteract { entity_id })
+                                                if is_ground_item {
+                                                    self.input_event_buffer.push(InputEvent::PickUpItem { entity_id })
+                                                } else {
+                                                    self.input_event_buffer.push(InputEvent::PlayerInteract { entity_id })
+                                                }
                                             }
                                         }
                                         PickerTarget::Tile { x, y } => {
@@ -7868,8 +7891,22 @@ impl Client {
                                     }
                                 }
                             } else if mouse_button == MouseButton::Right && currently_playing {
-                                #[cfg_attr(feature = "debug", korangar_debug::debug_condition(!render_options.use_debug_camera))]
-                                interface_frame.set_mouse_mode(MouseInputMode::RotateCamera);
+                                // roBrowser opens the player menu on right-click; anything else rotates.
+                                let player_entity = match input_report.mouse_target {
+                                    PickerTarget::Entity(entity_id) => self
+                                        .client_state
+                                        .follow(client_state().entities())
+                                        .iter()
+                                        .any(|entity| entity.get_entity_id() == entity_id && entity.get_entity_type() == EntityType::Player)
+                                        .then_some(entity_id),
+                                    _ => None,
+                                };
+                                if let Some(entity_id) = player_entity {
+                                    self.input_event_buffer.push(InputEvent::OpenPlayerContextMenu { entity_id });
+                                } else {
+                                    #[cfg_attr(feature = "debug", korangar_debug::debug_condition(!render_options.use_debug_camera))]
+                                    interface_frame.set_mouse_mode(MouseInputMode::RotateCamera);
+                                }
                             } else if mouse_button == MouseButton::DoubleRight && currently_playing {
                                 #[cfg_attr(feature = "debug", korangar_debug::debug_condition(!render_options.use_debug_camera))]
                                 self.input_event_buffer.push(InputEvent::ResetCameraRotation);
