@@ -125,6 +125,62 @@ pub enum InputEvent {
         subject: String,
         notice: String,
     },
+    /// `CZ_REQ_MAKE_GUILD` (`0x0165`).
+    CreateGuild {
+        name: String,
+    },
+    /// `CZ_REQ_JOIN_GUILD2` (`0x0916`). The window invites by character name.
+    InviteToGuild {
+        name: String,
+    },
+    /// Accept `ZC_REQ_JOIN_GUILD` (`0x016B`, answer 1).
+    AcceptGuildInvite {
+        guild_id: u32,
+    },
+    /// Refuse `ZC_REQ_JOIN_GUILD` (`0x016B`, answer 0).
+    RejectGuildInvite {
+        guild_id: u32,
+    },
+    /// `CZ_REQ_LEAVE_GUILD` (`0x0159`).
+    LeaveGuild {
+        reason: String,
+    },
+    /// `CZ_REQ_BAN_GUILD` (`0x015B`).
+    ExpelGuildMember {
+        account_id: AccountId,
+        character_id: CharacterId,
+        reason: String,
+    },
+    /// `CZ_REQ_CHANGE_MEMBERPOS` (`0x0155`).
+    SetGuildMemberPosition {
+        account_id: AccountId,
+        character_id: CharacterId,
+        position_id: i32,
+    },
+    /// `CZ_REG_CHANGE_GUILD_POSITIONINFO` (`0x0161`). One position.
+    SaveGuildPosition {
+        position_id: i32,
+        name: String,
+        mode: i32,
+        ranking: i32,
+        pay_rate: i32,
+    },
+    /// Level a guild skill with the existing skill-up packet (`0x0112`).
+    LevelUpGuildSkill {
+        skill_id: u16,
+    },
+    /// `CZ_GUILD_CHAT` (`0x017E`).
+    SendGuildMessage {
+        text: String,
+    },
+    /// Read `guild-emblem.bmp` / `.png` (or `emblem.bmp` / `.png`) and upload
+    /// `0x0153`.
+    UploadGuildEmblem,
+    /// `CZ_REQ_DELETE_RELATED_GUILD` (`0x0183`).
+    BreakGuildRelation {
+        guild_id: u32,
+        opposition: i32,
+    },
     /// Open or close the quest journal. Only works while playing.
     ToggleQuestJournalWindow,
     /// Ask the map server to mark a quest active or inactive

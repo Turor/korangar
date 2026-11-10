@@ -2,6 +2,7 @@
 #![cfg_attr(feature = "interface", feature(negative_impls))]
 
 mod entity;
+mod guild;
 mod equip_switch;
 mod event;
 mod hotkey;
@@ -36,8 +37,8 @@ pub use self::entity::EntityData;
 pub use self::equip_switch::EquipSwitchSlotPathExt;
 pub use self::equip_switch::{EquipSwitchSlot, assign_slot, position_label, replace_slots};
 pub use self::event::{
-    CashShopOffer, DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, HuntIndexUpdate, NetworkEvent, OwnShopLine,
-    RefineMaterialOffer, RoulettePrize, SearchStoreHit, StatusChangeState,
+    CashShopOffer, DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, GuildSkillSnapshot, HuntIndexUpdate,
+    NetworkEvent, OwnShopLine, RefineMaterialOffer, RoulettePrize, SearchStoreHit, StatusChangeState,
 };
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
@@ -1429,6 +1430,7 @@ where
                     ragnarok_packets::GUILD_MENU_INFO,
                     ragnarok_packets::GUILD_MENU_MEMBERS,
                     ragnarok_packets::GUILD_MENU_POSITIONS,
+                    ragnarok_packets::GUILD_MENU_SKILLS,
                     ragnarok_packets::GUILD_MENU_NOTICE,
                 ] {
                     self.send_map_server_packet(ragnarok_packets::RequestGuildMenuPacket { menu })?;
@@ -3276,6 +3278,42 @@ mod packet_handlers {
         .unwrap();
         assert_eq!(writer.as_slice().len(), 186);
         assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x016E);
+    }
+
+    #[test]
+    fn guild_actions_become_network_events() {
+        use ragnarok_packets::{AccountId, ChangeGuildPacket, GuildChatReceivedPacket, GuildMakeResultPacket, PacketExt};
+
+        let mut writer = ByteWriter::new();
+        GuildMakeResultPacket { result: 3 }.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 3);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::GuildMakeResult { result: 3 }]));
+
+        let mut writer = ByteWriter::new();
+        GuildChatReceivedPacket {
+            message: "Alpha : hello\0".to_owned(),
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::GuildChatMessage { text }] if text.starts_with("Alpha : hello")));
+
+        let mut writer = ByteWriter::new();
+        ChangeGuildPacket {
+            guild_id: 9,
+            emblem_id: 4,
+            account_id: AccountId(12),
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice().len(), 14);
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::GuildEmblemOnEntity {
+            account_id: AccountId(12),
+            guild_id: 9,
+            emblem_version: 4,
+        }]));
     }
 
     #[test]

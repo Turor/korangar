@@ -265,6 +265,11 @@ impl ChatWindowState {
         &self.whisper_target
     }
 
+    /// The Guild tab sends `0x017E` unless a whisper target or command wins.
+    pub(crate) fn sends_guild_chat(&self) -> bool {
+        self.filters.active == ChatTab::Guild
+    }
+
     pub(crate) fn begin_whisper(&mut self, target: String, text: String) -> (String, String) {
         crate::state::chat::remember_whisper_target(&mut self.recent_whisper_targets, &target);
         self.whisper_target.clone_from(&target);

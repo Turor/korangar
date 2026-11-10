@@ -178,6 +178,11 @@ pub struct Common {
     sound_state: SoundState,
     #[hidden_element]
     fade_state: FadeState,
+    /// Guild whose emblem is drawn over this entity. Zero means none.
+    #[hidden_element]
+    pub guild_id: u32,
+    #[hidden_element]
+    pub emblem_version: u32,
 }
 
 #[cfg_attr(feature = "debug", korangar_debug::profile)]
@@ -418,6 +423,8 @@ impl Common {
             sound_state: SoundState::default(),
             fade_state: FadeState::new(FADE_IN_DURATION_MS, client_tick),
             scale,
+            guild_id: entity_data.guild_id,
+            emblem_version: entity_data.emblem_version,
         }
     }
 
@@ -1405,6 +1412,20 @@ impl Entity {
             }
             _ => false,
         }
+    }
+
+    pub fn set_guild(&mut self, guild_id: u32, emblem_version: u32) {
+        let common = self.get_common_mut();
+        common.guild_id = guild_id;
+        common.emblem_version = emblem_version;
+    }
+
+    pub fn guild_id(&self) -> u32 {
+        self.get_common().guild_id
+    }
+
+    pub fn emblem_version(&self) -> u32 {
+        self.get_common().emblem_version
     }
 
     pub fn set_animation_data(&mut self, animation_data: Arc<AnimationData>) {

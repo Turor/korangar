@@ -1037,6 +1037,7 @@ where
         name: packet.guild_name,
         is_master: packet.is_master != 0,
         master_character_id: packet.master_character_id,
+        emblem_version: packet.emblem_version,
     })?;
     packet_handler.register(|packet: GuildInfoPacket| NetworkEvent::GuildInfo {
         guild_id: packet.guild_id,
@@ -1046,6 +1047,9 @@ where
         average_level: packet.average_level,
         experience: packet.experience,
         next_experience: packet.next_experience,
+        tax_points: packet.tax_points,
+        honor: packet.honor,
+        virtue: packet.virtue,
         emblem_version: packet.emblem_version,
         name: packet.name,
         master_name: packet.master_name,
@@ -1098,6 +1102,7 @@ where
     packet_handler.register_noop::<ReputationPacket>()?;
     crate::packet_versions::clan::register_clan_packets(packet_handler)?;
     crate::packet_versions::party::register_party_packets(packet_handler)?;
+    crate::packet_versions::guild::register_guild_action_packets(packet_handler)?;
     packet_handler.register_noop::<ChangeMapCellPacket>()?;
     packet_handler.register(open_market_event)?;
     crate::packet_versions::enchant::register_enchant_packets(packet_handler)?;
