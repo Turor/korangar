@@ -2968,14 +2968,14 @@ impl Client {
                     self.client_state.follow_mut(client_state().clan()).clear();
                 }
                 NetworkEvent::GuildMemberRemoved { character_id } => {
-                    let removed_name = self.client_state.follow_mut(client_state().guild()).remove_member(character_id);
-                    if let Some(name) = removed_name {
-                        let player_name = self.client_state.follow(client_state().player_name()).clone();
-                        if player_name == name {
-                            self.client_state.follow_mut(client_state().guild()).clear();
-                            self.client_state.follow_mut(client_state().guild_window()).clear();
-                            apply_local_guild_mark(&mut self.client_state, &mut self.networking_system, 0, 0);
-                        }
+                    let self_id = *self.client_state.follow(client_state().player_character_id());
+                    let left = self
+                        .client_state
+                        .follow_mut(client_state().guild())
+                        .apply_member_removed(character_id, self_id);
+                    if left {
+                        self.client_state.follow_mut(client_state().guild_window()).clear();
+                        apply_local_guild_mark(&mut self.client_state, &mut self.networking_system, 0, 0);
                     }
                 }
                 NetworkEvent::GuildMakeResult { result } => {
@@ -3033,9 +3033,11 @@ impl Client {
                     }
                 }
                 NetworkEvent::GuildSkills { skill_points, skills } => {
+                    let skill_ids: Vec<u16> = skills.iter().map(|skill| skill.skill_id).collect();
                     self.client_state
                         .follow_mut(client_state().guild())
                         .set_skills(skill_points, skills);
+                    load_guild_skill_icons(&mut self.client_state, &self.async_loader, &self.library, &skill_ids);
                 }
                 NetworkEvent::GuildChatMessage { text } => {
                     self.client_state
@@ -6332,6 +6334,10 @@ impl Client {
                             skill.sprite = Some(sprite.clone());
                         });
 
+                    self.client_state
+                        .follow_mut(client_state().guild())
+                        .attach_skill_sprite(skill_id.0, sprite.clone());
+
                     if let Some(skill) = self
                         .client_state
                         .follow_mut(client_state().skill_tree().layout().tabs())
@@ -6351,6 +6357,10 @@ impl Client {
                         .for_each(|skill| {
                             skill.actions = Some(actions.clone());
                         });
+
+                    self.client_state
+                        .follow_mut(client_state().guild())
+                        .attach_skill_actions(skill_id.0, actions.clone());
 
                     if let Some(skill) = self
                         .client_state
@@ -7292,6 +7302,22 @@ impl Client {
         }
     }
 
+}
+
+/// Loads each guild skill's sprite from `SkillListInformation.file_name`.
+///
+/// The packet name is the Aegis name, so the path is keyed by skill id.
+fn load_guild_skill_icons(state: &mut State<ClientState>, async_loader: &AsyncLoader, library: &Library, skill_ids: &[u16]) {
+    for &skill_id in skill_ids {
+        let information = library.get::<SkillListInformation>(SkillId(skill_id));
+        let path = crate::state::guild::guild_skill_icon_path(&information.file_name);
+        if let Some(sprite) = async_loader.request_skill_sprite_load(SkillId(skill_id), &path) {
+            state.follow_mut(client_state().guild()).attach_skill_sprite(skill_id, sprite);
+        }
+        if let Some(actions) = async_loader.request_skill_actions_load(SkillId(skill_id), &path) {
+            state.follow_mut(client_state().guild()).attach_skill_actions(skill_id, actions);
+        }
+    }
 }
 
 /// Sets the local entity's guild mark, then asks for the emblem image.

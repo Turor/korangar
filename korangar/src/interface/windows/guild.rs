@@ -1,10 +1,11 @@
-//! Guild window: create, roster, positions, skills, notice, relations, and chat.
+//! Guild window: create, roster, positions, skills, notice, relations, and
+//! chat.
 
 use std::cmp::Ordering;
 
 use korangar_interface::components::text_box::DefaultHandler;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
-use korangar_interface::element::{Element, ElementBox, StateElement};
+use korangar_interface::element::{BaseLayoutInfo, Element, ElementBox, StateElement};
 use korangar_interface::layout::area::Area;
 use korangar_interface::layout::{Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
@@ -15,6 +16,7 @@ use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
+use crate::renderer::LayoutExt;
 use crate::state::guild::{
     GPERM_EXPEL, GPERM_INVITE, GPERM_STORAGE, GuildMember, GuildMemberPathExt, GuildPosition, GuildPositionPathExt, GuildRelation,
     GuildRelationPathExt, GuildSkill, GuildSkillPathExt, GuildState, GuildStatePathExt, with_permission_bits,
@@ -420,6 +422,67 @@ where
     }
 }
 
+const SKILL_ICON: f32 = 24.0;
+
+/// 24×24 skill sprite beside the guild skill row. The resource is the skill
+/// tree bitmap for this skill id, not the Aegis name from `0x0162`.
+struct GuildSkillIcon<P> {
+    skill_path: P,
+}
+
+impl<P> GuildSkillIcon<P> {
+    fn new(skill_path: P) -> Self {
+        Self { skill_path }
+    }
+}
+
+impl<P> Element<ClientState> for GuildSkillIcon<P>
+where
+    P: Path<ClientState, GuildSkill>,
+{
+    type LayoutInfo = BaseLayoutInfo;
+
+    fn create_layout_info(
+        &mut self,
+        _: &State<ClientState>,
+        _: ElementStoreMut,
+        resolvers: &mut dyn Resolvers<ClientState>,
+    ) -> Self::LayoutInfo {
+        with_single_resolver(resolvers, |resolver| {
+            let area = resolver.with_height(SKILL_ICON);
+            Self::LayoutInfo { area }
+        })
+    }
+
+    fn lay_out<'a>(
+        &'a self,
+        state: &'a State<ClientState>,
+        _: ElementStore<'a>,
+        layout_info: &'a Self::LayoutInfo,
+        layout: &mut WindowLayout<'a, ClientState>,
+    ) {
+        let skill = state.get(&self.skill_path);
+        let side = SKILL_ICON.min(layout_info.area.width).min(layout_info.area.height);
+        let area = Area {
+            left: layout_info.area.left,
+            top: layout_info.area.top + (layout_info.area.height - side).max(0.0) / 2.0,
+            width: side,
+            height: side,
+        };
+        layout.add_rectangle(
+            area,
+            CornerDiameter::default(),
+            *state.get(&client_theme().tokens().panel()),
+            *state.get(&client_theme().tokens().border()),
+            ShadowPadding::default(),
+        );
+        if let (Some(actions), Some(sprite)) = (&skill.actions, &skill.sprite) {
+            // Identity tint. The bitmap supplies the color, same as the skill tree.
+            layout.add_sprite(area, actions, sprite, &skill.animation_state, Color::WHITE, 1.0);
+        }
+    }
+}
+
 struct SkillList<S, G> {
     skills_path: S,
     guild_path: G,
@@ -464,20 +527,24 @@ where
                         let skill_path = skills_path.index(index).manually_asserted();
                         let label_path = skill_path.label();
                         let points_path = guild_path.skill_points();
-                        self.elements.push(ErasedElement::new(collapsible! {
-                            text: label_path,
-                            children: button! {
-                                text: "Level up",
-                                disabled: ComputedSelector::new_default(move |state: &ClientState| {
-                                    let skill = skill_path.follow_safe(state);
-                                    let points = *points_path.follow_safe(state);
-                                    !skill.upgradable || points <= 0
-                                }),
-                                event: move |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
-                                    let skill_id = state.get(&skill_path).skill_id;
-                                    queue.queue(InputEvent::LevelUpGuildSkill { skill_id });
+                        self.elements.push(ErasedElement::new(split! {
+                            gaps: theme().window().gaps(),
+                            children: (
+                                GuildSkillIcon::new(skill_path),
+                                text! { text: label_path },
+                                button! {
+                                    text: "Level up",
+                                    disabled: ComputedSelector::new_default(move |state: &ClientState| {
+                                        let skill = skill_path.follow_safe(state);
+                                        let points = *points_path.follow_safe(state);
+                                        !skill.upgradable || points <= 0
+                                    }),
+                                    event: move |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
+                                        let skill_id = state.get(&skill_path).skill_id;
+                                        queue.queue(InputEvent::LevelUpGuildSkill { skill_id });
+                                    },
                                 },
-                            },
+                            ),
                         }));
                     }
                 }

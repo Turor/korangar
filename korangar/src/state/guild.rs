@@ -1,11 +1,24 @@
 //! Local guild roster, skills, relations, notice, and emblem cache.
 
+use std::sync::Arc;
+
 use korangar_interface::element::StateElement;
 use korangar_networking::{GuildMemberSnapshot, GuildSkillSnapshot};
-use ragnarok_packets::{AccountId, CharacterId};
+use ragnarok_packets::{AccountId, CharacterId, ClientTick};
 use rust_state::RustState;
 
 use super::guild_emblem::{self, DecodedEmblem};
+use crate::loaders::Sprite;
+use crate::world::{Actions, ITEM_SPRITE_PREFIX, SpriteAnimationState};
+
+/// GRF path of a guild skill icon.
+///
+/// `0x0162` carries `skill->get_name`, the Aegis name. The bitmap is the skill
+/// tree's resource, `아이템\{SkillListInformation.file_name}`, keyed by skill
+/// id.
+pub fn guild_skill_icon_path(file_name: &str) -> String {
+    format!("{ITEM_SPRITE_PREFIX}{file_name}")
+}
 
 /// Invite permission (`GPERM_INVITE`).
 pub const GPERM_INVITE: i32 = 0x001;
@@ -49,7 +62,7 @@ pub struct GuildRelation {
 }
 
 /// One guild skill from `0x0162`.
-#[derive(Clone, Debug, PartialEq, Eq, RustState, StateElement)]
+#[derive(Clone, Debug, RustState, StateElement)]
 pub struct GuildSkill {
     pub skill_id: u16,
     pub level: u16,
@@ -58,6 +71,14 @@ pub struct GuildSkill {
     pub name: String,
     pub upgradable: bool,
     pub label: String,
+    /// Skill-tree sprite for this skill id. Hidden from the element tree.
+    #[hidden_element]
+    pub sprite: Option<Arc<Sprite>>,
+    /// Matching `.act`, required to draw the sprite.
+    #[hidden_element]
+    pub actions: Option<Arc<Actions>>,
+    #[hidden_element]
+    pub animation_state: SpriteAnimationState,
 }
 
 /// Cached emblem pixels. Kept when the local character leaves a guild so other
@@ -164,9 +185,11 @@ impl GuildState {
         if guild_id == 0 || version == 0 {
             return false;
         }
-        if self.emblems.iter().any(|emblem| {
-            emblem.guild_id == guild_id && emblem.version == version && !emblem.pixels.is_empty()
-        }) {
+        if self
+            .emblems
+            .iter()
+            .any(|emblem| emblem.guild_id == guild_id && emblem.version == version && !emblem.pixels.is_empty())
+        {
             return false;
         }
         !self
@@ -186,7 +209,9 @@ impl GuildState {
     }
 
     pub fn emblem(&self, guild_id: u32) -> Option<&GuildEmblem> {
-        self.emblems.iter().find(|emblem| emblem.guild_id == guild_id && !emblem.pixels.is_empty())
+        self.emblems
+            .iter()
+            .find(|emblem| emblem.guild_id == guild_id && !emblem.pixels.is_empty())
     }
 
     /// `result` matches `ZC_GUILD_EMBLEM_TYPE`: 0 clear, 1 add, 2 complete.
@@ -242,7 +267,8 @@ impl GuildState {
                 pixels: decoded.pixels,
             });
         }
-        self.emblem_requests.retain(|(id, requested)| !(*id == guild_id && *requested == version));
+        self.emblem_requests
+            .retain(|(id, requested)| !(*id == guild_id && *requested == version));
     }
 
     fn refresh_labels(&mut self) {
@@ -256,11 +282,7 @@ impl GuildState {
             } else {
                 position.name.clone()
             };
-            position.label = format!(
-                "{title}  tax {}%  {}",
-                position.pay_rate,
-                permission_summary(position.mode)
-            );
+            position.label = format!("{title}  tax {}%  {}", position.pay_rate, permission_summary(position.mode));
         }
         for relation in &mut self.relations {
             let kind = if relation.opposition == 0 { "Ally" } else { "Enemy" };
@@ -277,14 +299,7 @@ impl GuildState {
         self.rows = info_rows(self);
     }
 
-    pub fn apply_affiliation(
-        &mut self,
-        guild_id: u32,
-        name: String,
-        is_master: bool,
-        master_character_id: u32,
-        emblem_version: i32,
-    ) {
+    pub fn apply_affiliation(&mut self, guild_id: u32, name: String, is_master: bool, master_character_id: u32, emblem_version: i32) {
         if guild_id == 0 {
             self.clear();
             return;
@@ -468,20 +483,41 @@ impl GuildState {
     }
 
     pub fn set_skills(&mut self, skill_points: i32, skills: Vec<GuildSkillSnapshot>) {
+        let previous = std::mem::take(&mut self.skills);
         self.skill_points = skill_points;
         self.skills = skills
             .into_iter()
-            .map(|skill| GuildSkill {
-                skill_id: skill.skill_id,
-                level: skill.level,
-                sp: skill.sp,
-                range: skill.range,
-                name: skill.name,
-                upgradable: skill.upgradable,
-                label: String::new(),
+            .map(|skill| {
+                let previous = previous.iter().find(|old| old.skill_id == skill.skill_id);
+                GuildSkill {
+                    skill_id: skill.skill_id,
+                    level: skill.level,
+                    sp: skill.sp,
+                    range: skill.range,
+                    name: skill.name,
+                    upgradable: skill.upgradable,
+                    label: String::new(),
+                    sprite: previous.and_then(|old| old.sprite.clone()),
+                    actions: previous.and_then(|old| old.actions.clone()),
+                    animation_state: previous
+                        .map(|old| old.animation_state.clone())
+                        .unwrap_or_else(|| SpriteAnimationState::new(ClientTick(0))),
+                }
             })
             .collect();
         self.refresh_labels();
+    }
+
+    pub fn attach_skill_sprite(&mut self, skill_id: u16, sprite: Arc<Sprite>) {
+        if let Some(skill) = self.skills.iter_mut().find(|skill| skill.skill_id == skill_id) {
+            skill.sprite = Some(sprite);
+        }
+    }
+
+    pub fn attach_skill_actions(&mut self, skill_id: u16, actions: Arc<Actions>) {
+        if let Some(skill) = self.skills.iter_mut().find(|skill| skill.skill_id == skill_id) {
+            skill.actions = Some(actions);
+        }
     }
 
     pub fn apply_skill_update(&mut self, skill_id: u16, level: u16, sp: u16, upgradable: bool) {
@@ -533,6 +569,22 @@ impl GuildState {
         }
         self.refresh_labels();
         Some(removed.name)
+    }
+
+    /// Applies a leave or expulsion notice (`0x0A83` / `0x0A82`).
+    ///
+    /// Those packets carry a character id and no name. The member list is sent
+    /// only after menu 1, so the character may be missing from the roster.
+    /// Hercules then drops `sd->guild` without a zero affiliation. Returns true
+    /// when `character_id` is the local character and the guild was cleared.
+    pub fn apply_member_removed(&mut self, character_id: CharacterId, self_character_id: CharacterId) -> bool {
+        let _ = self.remove_member(character_id);
+        if character_id == self_character_id {
+            self.clear();
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -729,15 +781,11 @@ mod tests {
         let mut guild = GuildState::default();
         guild.apply_affiliation(4, "Wolves".to_owned(), true, 9, 2);
         guild.set_members(vec![member(9, "Alpha")]);
-        guild.store_emblem(
-            8,
-            1,
-            DecodedEmblem {
-                width: 1,
-                height: 1,
-                pixels: vec![1, 2, 3, 255],
-            },
-        );
+        guild.store_emblem(8, 1, DecodedEmblem {
+            width: 1,
+            height: 1,
+            pixels: vec![1, 2, 3, 255],
+        });
         guild.apply_affiliation(0, String::new(), false, 0, 0);
         assert!(!guild.joined);
         assert!(guild.members.is_empty());
@@ -779,6 +827,42 @@ mod tests {
         assert_eq!(guild.online_members, 0);
         assert!(guild.remove_member(CharacterId(9)).is_none());
         assert_eq!(guild.online_members, 0);
+    }
+
+    #[test]
+    fn leaving_or_expulsion_clears_the_local_guild_without_a_roster_hit() {
+        let mut guild = GuildState::default();
+        guild.apply_affiliation(4, "Wolves".to_owned(), true, 9, 2);
+        guild.store_emblem(8, 1, DecodedEmblem {
+            width: 1,
+            height: 1,
+            pixels: vec![1, 2, 3, 255],
+        });
+        guild.set_members(vec![member(8, "Beta")]);
+
+        assert!(!guild.apply_member_removed(CharacterId(8), CharacterId(9)));
+        assert!(guild.joined);
+        assert!(guild.members.is_empty());
+        assert_eq!(guild.name, "Wolves");
+
+        // The notice names the local character, who was never in the roster.
+        assert!(guild.apply_member_removed(CharacterId(9), CharacterId(9)));
+        assert!(!guild.joined);
+        assert!(guild.name.is_empty());
+        assert_eq!(guild.guild_id, 0);
+        assert_eq!(guild.emblem(8).map(|emblem| emblem.version), Some(1));
+
+        guild.apply_affiliation(4, "Wolves".to_owned(), true, 9, 2);
+        guild.set_members(vec![member(9, "Alpha"), member(8, "Beta")]);
+        assert!(guild.apply_member_removed(CharacterId(9), CharacterId(9)));
+        assert!(!guild.joined);
+        assert!(guild.members.is_empty());
+        assert_eq!(guild.emblem(8).map(|emblem| emblem.version), Some(1));
+    }
+
+    #[test]
+    fn guild_skill_icon_path_uses_the_resource_file() {
+        assert_eq!(guild_skill_icon_path("NV_BASIC"), "아이템\\NV_BASIC");
     }
 
     #[test]
@@ -852,17 +936,14 @@ mod tests {
         assert_eq!(guild.relations.len(), 1);
         guild.add_relation(0, 6, "Mages".to_owned());
         assert_eq!(guild.relations.len(), 2);
-        guild.set_skills(
-            2,
-            vec![GuildSkillSnapshot {
-                skill_id: 10000,
-                level: 1,
-                sp: 0,
-                range: 1,
-                name: "Emergency Call".to_owned(),
-                upgradable: true,
-            }],
-        );
+        guild.set_skills(2, vec![GuildSkillSnapshot {
+            skill_id: 10000,
+            level: 1,
+            sp: 0,
+            range: 1,
+            name: "Emergency Call".to_owned(),
+            upgradable: true,
+        }]);
         assert_eq!(guild.skill_points_label, "Skill points: 2");
         guild.apply_skill_update(10000, 2, 10, false);
         assert_eq!(guild.skills[0].level, 2);
