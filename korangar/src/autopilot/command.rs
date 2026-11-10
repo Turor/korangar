@@ -61,6 +61,11 @@ pub enum Command {
         x: u16,
         y: u16,
     },
+    /// Talk to the NPC on (or next to) a tile.
+    Talk {
+        x: u16,
+        y: u16,
+    },
     Click {
         x: f32,
         y: f32,
@@ -119,6 +124,16 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
                 return Err("move takes only x y".to_owned());
             }
             Ok(Command::Move { x, y })
+        }
+        "talk" => {
+            let coordinates: Vec<u16> = rest
+                .split_whitespace()
+                .map(|part| part.parse::<u16>().map_err(|_| "talk needs tile x y".to_owned()))
+                .collect::<Result<_, _>>()?;
+            match coordinates.as_slice() {
+                [x, y] => Ok(Command::Talk { x: *x, y: *y }),
+                _ => Err("talk needs tile x y".to_owned()),
+            }
         }
         "click" => parse_click(rest, ClickKind::Left),
         "rclick" => parse_click(rest, ClickKind::Right),
@@ -256,6 +271,11 @@ mod tests {
         ));
         assert!(matches!(parse_command("wait 250").unwrap(), Command::Wait(250)));
         assert!(matches!(parse_command("move 10 20").unwrap(), Command::Move { x: 10, y: 20 }));
+        assert!(matches!(parse_command("talk 171 187").unwrap(), Command::Talk {
+            x: 171,
+            y: 187
+        }));
+        assert!(parse_command("talk 171").is_err());
         assert!(matches!(
             parse_command("click 1.5 2").unwrap(),
             Command::Click { x, y, kind: ClickKind::Left } if x == 1.5 && y == 2.0

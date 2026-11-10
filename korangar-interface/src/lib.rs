@@ -537,6 +537,15 @@ where
         }
     }
 
+    /// Class of the window Escape or the title-bar close would dismiss.
+    pub fn top_closable_class(&self, state: &State<App>) -> Option<App::WindowClass> {
+        self.windows
+            .iter()
+            .rev()
+            .find(|wrapper| wrapper.window.is_closable(state))
+            .and_then(|wrapper| wrapper.window.get_class())
+    }
+
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
     pub fn close_window_with_class(&mut self, window_class: App::WindowClass) {
         if let Some(index_from_back) = self

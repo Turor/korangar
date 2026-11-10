@@ -10,6 +10,8 @@ pub mod chat;
 pub mod clan;
 pub mod context_menu;
 pub mod eden;
+pub mod enchant;
+pub mod enchant_grade;
 pub mod equip_switch;
 pub mod friends;
 pub mod guild;
@@ -25,6 +27,7 @@ pub mod navigation;
 pub mod npc_dialog;
 pub mod npc_dismiss;
 pub mod party;
+pub mod picker;
 pub mod pincode;
 pub mod player_shops;
 pub mod quest_log;
@@ -98,12 +101,14 @@ use crate::settings::{
 use crate::state::achievements::Achievements;
 use crate::state::character_screen::CharacterScreen;
 use crate::state::character_slots::CharacterSlots;
+use crate::state::enchant::EnchantWindowState;
+use crate::state::enchant_grade::EnchantGradeState;
 use crate::state::equip_switch::EquipSwitch;
 use crate::state::hotbar::Hotbar;
 use crate::state::inventory::Inventory;
 use crate::state::item_drop::ItemDropPrompt;
 use crate::state::item_skill_selection::ItemSkillSelectionState;
-use crate::state::item_workshop::{EnchantGradeState, ItemReformState, LaphineSynthesisState, LaphineUpgradeState};
+use crate::state::item_workshop::{ItemReformState, LaphineSynthesisState, LaphineUpgradeState};
 use crate::state::navigation::Navigation;
 use crate::state::npc_dialog::NpcPresentation;
 use crate::state::pincode::PincodeWindowState;
@@ -247,7 +252,7 @@ pub struct ClientState {
     /// Cutin, progress bar, and NPC background music for the open script.
     npc_presentation: NpcPresentation,
     /// Internal state of the enchant window.
-    enchant_window: crate::interface::windows::EnchantWindowState,
+    enchant_window: EnchantWindowState,
     /// Internal state of the Turoran stable board.
     stable_window: crate::interface::windows::StableWindowState,
     /// Internal state of the Turoran Eden Group board.
@@ -558,7 +563,7 @@ impl ClientState {
         time_phase!("create player resources", {
             let dialog_window = DialogWindowState::default();
             let npc_presentation = NpcPresentation::default();
-            let enchant_window = crate::interface::windows::EnchantWindowState::default();
+            let enchant_window = EnchantWindowState::default();
             let stable_window = crate::interface::windows::StableWindowState::default();
             let eden_window = crate::state::eden::EdenWindowState::default();
             let warpra_window = crate::interface::windows::WarpraWindowState::default();

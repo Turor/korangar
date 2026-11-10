@@ -2461,13 +2461,26 @@ impl Client {
                     }
                 }
                 NetworkEvent::OpenEnchant { enchant_group } => {
-                    self.client_state.follow_mut(client_state().enchant_window()).open(enchant_group);
-                    self.interface.open_window(EnchantWindow::new());
+                    // `openenchantui` is followed by `end`; the NPC menu that led here is over.
+                    crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
+                    Self::open_enchant_ui(
+                        &mut self.interface,
+                        self.game_file_loader.as_ref(),
+                        &mut self.client_state,
+                        enchant_group,
+                    );
                 }
                 NetworkEvent::EnchantResult { message_id, item_id } => {
-                    self.client_state
+                    self.reload_enchant_materials();
+                    let written = self
+                        .client_state
                         .follow_mut(client_state().enchant_window())
-                        .show_result(message_id, item_id);
+                        .show_result(message_id, item_id.0);
+                    if let Some(written) = written {
+                        self.client_state
+                            .follow_mut(client_state().inventory())
+                            .apply_enchant_cards(InventoryIndex(written.index), written.slots);
+                    }
                 }
                 NetworkEvent::StableHomunculusList { active_id, homunculi, .. } => {
                     self.client_state
@@ -3028,6 +3041,7 @@ impl Client {
                 }
                 NetworkEvent::InventoryItemRemoved { index, amount, .. } => {
                     self.client_state.follow_mut(client_state().inventory()).remove_item(index, amount);
+                    self.reload_enchant_materials();
                 }
                 NetworkEvent::ItemUseAck {
                     index,
@@ -3929,9 +3943,10 @@ impl Client {
                         item_id,
                     );
                 }
-                NetworkEvent::EnchantGradeOpened { data } => {
-                    self.client_state.follow_mut(client_state().enchant_grade()).open(data);
-                    self.interface.open_window(EnchantGradeWindow::new());
+                NetworkEvent::EnchantGradeOpened { .. } => {
+                    // `opengradeui` is followed by `end`, like `openenchantui`.
+                    crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
+                    Self::open_grade_ui(&mut self.interface, &mut self.client_state);
                 }
                 NetworkEvent::EnchantGradeMaterials {
                     index,
@@ -3940,31 +3955,7 @@ impl Client {
                     materials,
                     ..
                 } => {
-                    let rows = materials
-                        .into_iter()
-                        .enumerate()
-                        .map(|(row, material)| {
-                            let flags = match (material.downgrade, material.breakable) {
-                                (true, true) => "downgrade, break",
-                                (true, false) => "downgrade",
-                                (false, true) => "break",
-                                (false, false) => "safe",
-                            };
-                            crate::state::item_workshop::GradeMaterialRow {
-                                material_index: row as i32,
-                                label: format!(
-                                    "Option {row}: item {} x{}  {}z  {flags}",
-                                    material.item_id.0, material.amount, material.price
-                                ),
-                            }
-                        })
-                        .collect();
-                    self.client_state.follow_mut(client_state().enchant_grade()).set_materials(
-                        index,
-                        success_chance,
-                        blessing.item_id,
-                        rows,
-                    );
+                    Self::show_grade_materials(&mut self.client_state, index, success_chance, blessing, materials);
                 }
                 NetworkEvent::EnchantGradeResult { index, grade, result } => {
                     self.client_state
@@ -3973,6 +3964,7 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().enchant_grade())
                         .note_result(index.0, grade, result);
+                    self.reload_enchant_materials();
                     let status = self.client_state.follow(client_state().enchant_grade()).status.clone();
                     self.client_state
                         .follow_mut(client_state().chat_messages())
@@ -4705,6 +4697,128 @@ impl Client {
         }
     }
 
+    /// Bag counts for enchant and grade. The windows keep a copy, and Hercules
+    /// consumes materials without a fresh material list.
+    fn reload_enchant_materials(&mut self) {
+        let items = self.client_state.follow(client_state().inventory().items()).clone();
+        let stock = crate::state::enchant::stock_from_inventory(&items);
+        self.client_state
+            .follow_mut(client_state().enchant_window())
+            .reload_stock(stock.clone());
+        self.client_state.follow_mut(client_state().enchant_grade()).reload_owned(&stock);
+    }
+
+    /// Title-bar close removes the window inside `process_events` and does not
+    /// emit an input event. Send the matching close packet when that happens.
+    fn note_dismissed_workshops(&mut self, enchant_open: bool, grade_open: bool) {
+        if enchant_open && !self.interface.is_window_with_class_open(WindowClass::Enchant) {
+            let _ = self.networking_system.close_ui_enchant();
+        }
+        if grade_open && !self.interface.is_window_with_class_open(WindowClass::EnchantGrade) {
+            let _ = self.networking_system.close_grade_enchant();
+        }
+    }
+
+    fn open_enchant_ui(
+        interface: &mut Interface<'static, ClientState>,
+        loader: &GameFileLoader,
+        state: &mut State<ClientState>,
+        enchant_group: i64,
+    ) {
+        let switch_indexes = state
+            .follow(client_state().equip_switch())
+            .slots()
+            .iter()
+            .map(|slot| slot.index.0)
+            .collect::<Vec<_>>();
+        let items = state.follow(client_state().inventory().items()).clone();
+        let catalog = crate::state::enchant::shared_catalog(loader);
+        let mut slot_counts = std::collections::HashMap::new();
+        for item in &items {
+            slot_counts.insert(item.item_id.0, catalog.slot_count(item.item_id.0));
+        }
+        let snaps = crate::state::enchant::snaps_from_inventory(&items, &switch_indexes, &slot_counts);
+        let stock = crate::state::enchant::stock_from_inventory(&items);
+        let group = catalog.group(enchant_group).cloned();
+        state
+            .follow_mut(client_state().enchant_window())
+            .open(enchant_group, group, snaps, stock);
+        interface.open_window(EnchantWindow::new());
+    }
+
+    fn open_grade_ui(interface: &mut Interface<'static, ClientState>, state: &mut State<ClientState>) {
+        let switch_indexes = state
+            .follow(client_state().equip_switch())
+            .slots()
+            .iter()
+            .map(|slot| slot.index.0)
+            .collect::<Vec<_>>();
+        let items = state.follow(client_state().inventory().items()).clone();
+        let snaps = crate::state::enchant::snaps_from_inventory(&items, &switch_indexes, &std::collections::HashMap::new());
+        let rows = snaps
+            .into_iter()
+            .filter(|snap| snap.identified && !snap.equipped && !snap.in_switch && !snap.broken)
+            .map(|snap| crate::state::picker::PickerRow {
+                index: snap.index,
+                item_id: snap.item_id,
+                label: crate::state::enchant::item_label(&snap),
+                selected: false,
+            })
+            .collect();
+        state.follow_mut(client_state().enchant_grade()).open(rows);
+        interface.open_window(EnchantGradeWindow::new());
+    }
+
+    fn show_grade_materials(
+        state: &mut State<ClientState>,
+        index: Option<u16>,
+        success_chance: i32,
+        blessing: korangar_networking::GradeBlessingOffer,
+        materials: Vec<korangar_networking::GradeMaterialOffer>,
+    ) {
+        let items = state.follow(client_state().inventory().items()).clone();
+        let stock = crate::state::enchant::stock_from_inventory(&items);
+        let bless_id = u32::try_from(blessing.item_id).unwrap_or(0);
+        let owned = stock
+            .iter()
+            .find(|stack| stack.item_id == bless_id)
+            .map(|stack| stack.amount)
+            .unwrap_or(0);
+        let offer = crate::state::enchant_grade::GradeBlessingOffer {
+            item_id: bless_id,
+            name: if bless_id == 0 {
+                String::new()
+            } else {
+                crate::state::enchant::inventory_item_name(&items, bless_id)
+            },
+            amount: blessing.amount,
+            max_blessing: blessing.max_blessing,
+            bonus: blessing.bonus,
+            owned,
+        };
+        let options = materials
+            .into_iter()
+            .enumerate()
+            .map(|(row, material)| crate::state::enchant_grade::GradeOption {
+                material_index: row as i32,
+                item_id: material.item_id.0,
+                amount: material.amount,
+                price: material.price,
+                downgrade: material.downgrade,
+                breakable: material.breakable,
+                name: crate::state::enchant::inventory_item_name(&items, material.item_id.0),
+                owned: stock
+                    .iter()
+                    .find(|stack| stack.item_id == material.item_id.0)
+                    .map(|stack| stack.amount)
+                    .unwrap_or(0),
+            })
+            .collect();
+        state
+            .follow_mut(client_state().enchant_grade())
+            .set_materials(index, success_chance, offer, options);
+    }
+
     /// Returns whether or not the interface is focused.
     #[inline(always)]
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
@@ -4718,6 +4832,8 @@ impl Client {
         let shop_search_open = self.interface.is_window_with_class_open(WindowClass::SearchStore);
         let shop_report_open = self.interface.is_window_with_class_open(WindowClass::VendingReport);
         let selection_open = self.interface.is_window_with_class_open(WindowClass::ItemSkillSelection);
+        let enchant_open = self.interface.is_window_with_class_open(WindowClass::Enchant);
+        let grade_open = self.interface.is_window_with_class_open(WindowClass::EnchantGrade);
         self.interface.process_events(&mut self.input_event_buffer);
         self.on_shop_windows_dismissed(shop_setup_open, shop_search_open, shop_report_open);
         crate::interface::windows::item_skill_selection::on_window_dismissed(
@@ -4726,6 +4842,7 @@ impl Client {
             &mut self.networking_system,
             &mut self.interface,
         );
+        self.note_dismissed_workshops(enchant_open, grade_open);
 
         let interface_has_focus = self.interface.has_focus();
 
@@ -5815,44 +5932,40 @@ impl Client {
                         self.interface.close_window_with_class(WindowClass::Storage);
                     }
                 }
-                InputEvent::RequestRandomEnchant => match self.client_state.follow(client_state().enchant_window()).request() {
-                    Ok((group, index, ..)) => {
-                        let _ = self.networking_system.request_random_enchant(group, index);
-                    }
-                    Err(message) => self
-                        .client_state
+                InputEvent::EnchantSelectItem { index } => {
+                    self.client_state.follow_mut(client_state().enchant_window()).select(index);
+                }
+                InputEvent::EnchantSetAction { action } => {
+                    self.client_state.follow_mut(client_state().enchant_window()).set_action(action);
+                }
+                InputEvent::EnchantPickChoice { index, item_id } => {
+                    self.client_state
                         .follow_mut(client_state().enchant_window())
-                        .set_status(message.to_owned()),
-                },
-                InputEvent::RequestPerfectEnchant => match self.client_state.follow(client_state().enchant_window()).request() {
-                    Ok((group, index, material, _)) => {
-                        let _ = self
-                            .networking_system
-                            .request_perfect_enchant(group, index, ragnarok_packets::ItemId(material));
+                        .pick_choice(index, item_id);
+                }
+                InputEvent::EnchantSubmit => {
+                    self.reload_enchant_materials();
+                    match self.client_state.follow_mut(client_state().enchant_window()).command() {
+                        Ok(crate::state::enchant::EnchantCommand::Random { group, index }) => {
+                            let _ = self.networking_system.request_random_enchant(group, index);
+                        }
+                        Ok(crate::state::enchant::EnchantCommand::Perfect { group, index, item_id }) => {
+                            let _ = self
+                                .networking_system
+                                .request_perfect_enchant(group, index, ragnarok_packets::ItemId(item_id));
+                        }
+                        Ok(crate::state::enchant::EnchantCommand::Upgrade { group, index, slot }) => {
+                            let _ = self.networking_system.request_upgrade_enchant(group, index, slot);
+                        }
+                        Ok(crate::state::enchant::EnchantCommand::Reset { group, index }) => {
+                            let _ = self.networking_system.request_reset_enchant(group, index);
+                        }
+                        Err(message) => self
+                            .client_state
+                            .follow_mut(client_state().enchant_window())
+                            .set_status(message.to_owned()),
                     }
-                    Err(message) => self
-                        .client_state
-                        .follow_mut(client_state().enchant_window())
-                        .set_status(message.to_owned()),
-                },
-                InputEvent::RequestUpgradeEnchant => match self.client_state.follow(client_state().enchant_window()).request() {
-                    Ok((group, index, _, slot)) => {
-                        let _ = self.networking_system.request_upgrade_enchant(group, index, slot);
-                    }
-                    Err(message) => self
-                        .client_state
-                        .follow_mut(client_state().enchant_window())
-                        .set_status(message.to_owned()),
-                },
-                InputEvent::RequestResetEnchant => match self.client_state.follow(client_state().enchant_window()).request() {
-                    Ok((group, index, ..)) => {
-                        let _ = self.networking_system.request_reset_enchant(group, index);
-                    }
-                    Err(message) => self
-                        .client_state
-                        .follow_mut(client_state().enchant_window())
-                        .set_status(message.to_owned()),
-                },
+                }
                 InputEvent::OpenStable => {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         let _ = self.networking_system.request_stable_open();
@@ -6483,26 +6596,22 @@ impl Client {
                     let _ = self.networking_system.close_item_reform();
                     self.interface.close_window_with_class(WindowClass::ItemReform);
                 }
-                InputEvent::GradeEnchantSelect => {
-                    let index = self
-                        .client_state
-                        .follow(client_state().enchant_grade())
-                        .index_text
-                        .trim()
-                        .parse::<u16>();
-                    match index {
-                        Ok(index) => {
-                            let _ = self.networking_system.grade_enchant_select(InventoryIndex(index));
-                        }
-                        Err(_) => {
-                            self.client_state.follow_mut(client_state().enchant_grade()).status = "Enter an inventory index.".to_owned();
-                        }
+                InputEvent::GradeEnchantSelect { index } => {
+                    if self.client_state.follow_mut(client_state().enchant_grade()).select(index) {
+                        let _ = self.networking_system.grade_enchant_select(InventoryIndex(index));
                     }
+                }
+                InputEvent::GradeBlessingAdd => {
+                    self.client_state.follow_mut(client_state().enchant_grade()).add_blessing();
+                }
+                InputEvent::GradeBlessingRemove => {
+                    self.client_state.follow_mut(client_state().enchant_grade()).remove_blessing();
                 }
                 InputEvent::GradeEnchantPick { material_index } => {
                     self.client_state.follow_mut(client_state().enchant_grade()).pick(material_index);
                 }
                 InputEvent::GradeEnchantSubmit => {
+                    self.reload_enchant_materials();
                     let submission = self.client_state.follow(client_state().enchant_grade()).submission();
                     match submission {
                         Ok(submission) => {
@@ -7495,7 +7604,34 @@ impl Client {
                         sex,
                     });
                 }
-                autopilot::Effect::Input(event) => self.input_event_buffer.push(event),
+                autopilot::Effect::Input(mut event) => {
+                    // `DialogNext`, `DialogClose` and `DialogChoose` carry NPC id 0; use the open
+                    // dialog.
+                    let open_npc = self.client_state.follow(client_state().dialog_window()).npc_id();
+                    if let InputEvent::NextDialog { npc_id }
+                    | InputEvent::CloseDialog { npc_id }
+                    | InputEvent::ChooseDialogOption { npc_id, .. } = &mut event
+                        && npc_id.0 == 0
+                    {
+                        *npc_id = open_npc;
+                    }
+                    self.input_event_buffer.push(event);
+                }
+                autopilot::Effect::TalkAt { x, y } => {
+                    let npc = self
+                        .client_state
+                        .follow(client_state().entities())
+                        .iter()
+                        .filter(|entity| entity.get_entity_type() == EntityType::Npc)
+                        .map(|entity| (entity.get_entity_id(), entity.get_tile_position()))
+                        .filter(|(_, tile)| tile.x.abs_diff(x) <= 1 && tile.y.abs_diff(y) <= 1)
+                        .min_by_key(|(_, tile)| tile.x.abs_diff(x) + tile.y.abs_diff(y))
+                        .map(|(entity_id, _)| entity_id);
+                    match npc {
+                        Some(entity_id) => self.input_event_buffer.push(InputEvent::PlayerInteract { entity_id }),
+                        None => println!("AUTOPILOT_TALK no NPC at {x} {y}"),
+                    }
+                }
                 autopilot::Effect::Window { class, open, event } => {
                     if self.interface.is_window_with_class_open(class) != open {
                         self.input_event_buffer.push(event);

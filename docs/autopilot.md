@@ -55,6 +55,7 @@ Each line is logged as `AUTOPILOT_CMD ok|err <line>`. Blank lines and `#` commen
 `chat @where <name>` reports a tile (`Server: <name> <map> <x> <y>`). A bare `@where` fails with `Please enter a player name`.
 
 A left `click` on an NPC sprite box walks within three cells and then opens its dialog.
+`talk <x> <y>` does the same for the NPC standing on that tile (or one cell away) without screen coordinates.
 
 `InputEvent` does not implement serde. `event` therefore uses a curated table:
 
@@ -79,6 +80,9 @@ A left `click` on an NPC sprite box walks within three cells and then opens its 
 - `ContextMenuPick(1)` (a row in the open player context menu)
 - `TradeAddItem(index: 4, amount: 1)`, `TradeAddZeny(100)`
 - `SetShowEquipment(true)`
+- `DialogNext`, `DialogClose` and `DialogChoose(2)` (1-based menu row) act on the open NPC dialog
+- `EnchantSelectItem(5)`, `EnchantSetAction(0)`, `EnchantPickChoice(index: 0, item_id: 4700)`, then the unit `EnchantSubmit`
+- `GradeEnchantSelect(5)`, `GradeEnchantPick(0)`, then the unit `GradeEnchantSubmit`
 - `LeaveParty` and `AcceptPendingPartyInvite` (unit events; accept uses the open invite)
 
 `event LogIn` is rejected so a command file cannot be asked to print a password.
