@@ -6385,7 +6385,6 @@ impl Client {
         let mut indicator_instruction = None;
         let mut water_instruction = None;
 
-        let gear_hides_player = self.interface.is_window_with_class_open(WindowClass::Equipment);
         let mouse_mode = self.interface.get_mouse_mode();
         let is_mouse_mode_default = mouse_mode.is_default();
         let last_walking_destination = mouse_mode.walk_destination();
@@ -6558,7 +6557,6 @@ impl Client {
                 currently_playing,
                 is_mouse_mode_default,
                 is_interface_hovered: interface_frame.is_interface_hovered(),
-                gear_hides_player,
                 last_walking_destination,
                 buffered_action: *self.client_state.follow(client_state().buffered_action()),
                 #[cfg(feature = "debug")]
@@ -6906,7 +6904,6 @@ struct MapRenderContext<'a, 'm: 'a> {
     currently_playing: bool,
     is_mouse_mode_default: bool,
     is_interface_hovered: bool,
-    gear_hides_player: bool,
     last_walking_destination: Option<TilePosition>,
     buffered_action: Option<BufferedAction>,
     #[cfg(feature = "debug")]
@@ -7045,7 +7042,7 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
 
             #[cfg_attr(feature = "debug", korangar_debug::debug_condition(self.render_options.show_entities))]
             self.map
-                .render_entities(entity_instructions, entities, &partition_camera, self.client_tick, false);
+                .render_entities(entity_instructions, entities, &partition_camera, self.client_tick);
 
             #[cfg_attr(feature = "debug", korangar_debug::debug_condition(self.render_options.show_entities))]
             self.map
@@ -7135,13 +7132,15 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
         self.map
             .render_ground_items(self.entity_instructions, ground_items, entity_camera, self.client_tick);
 
+        // Gear's paperdoll does not replace the world sprite.
+        let _ = crate::interface::windows::draw_player_in_world(true);
+
         #[cfg_attr(feature = "debug", korangar_debug::debug_condition(self.render_options.show_entities))]
         self.map.render_entities(
             self.entity_instructions,
             entities,
             entity_camera,
             self.client_tick,
-            !crate::interface::windows::draw_world_entity(true, self.gear_hides_player),
         );
 
         #[cfg_attr(feature = "debug", korangar_debug::debug_condition(self.render_options.show_entities))]
