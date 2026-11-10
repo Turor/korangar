@@ -103,23 +103,24 @@ where
                     width: 34.0,
                     height: 34.0,
                 };
+                let text_width = (area.width - 40.0).max(0.0);
                 let name_area = Area {
                     left: area.left + 40.0,
                     top: area.top,
-                    width: (area.width - 40.0).max(0.0),
-                    height: 20.0,
+                    width: text_width,
+                    height: 18.0,
                 };
                 let stock_area = Area {
                     left: area.left + 40.0,
-                    top: area.top,
-                    width: (area.width - 40.0).max(0.0),
-                    height: 20.0,
+                    top: area.top + 18.0,
+                    width: text_width,
+                    height: 16.0,
                 };
                 let cost_area = Area {
                     left: area.left + 40.0,
-                    top: area.top + 22.0,
-                    width: (area.width - 40.0).max(0.0),
-                    height: 34.0,
+                    top: area.top + 36.0,
+                    width: text_width,
+                    height: 20.0,
                 };
                 let children = self.children.create_layout_info(state, store, resolver);
                 (icon, name_area, stock_area, cost_area, children)
@@ -157,12 +158,12 @@ where
         if let Some(texture) = &offer.texture {
             layout.add_texture(layout_info.icon, texture.clone(), Color::WHITE, false);
         }
-        let mut cursor = layout_info.icon.left + 40.0;
+        let mut cursor = layout_info.cost_area.left;
         for currency in offer.currencies.iter().take(4) {
             if let Some(texture) = &currency.texture {
                 let icon = Area {
                     left: cursor,
-                    top: layout_info.area.top + 36.0,
+                    top: layout_info.cost_area.top,
                     width: 18.0,
                     height: 18.0,
                 };
@@ -170,6 +171,12 @@ where
                 cursor += 20.0;
             }
         }
+        let cost_text = Area {
+            left: cursor,
+            top: layout_info.cost_area.top,
+            width: (layout_info.cost_area.left + layout_info.cost_area.width - cursor).max(0.0),
+            height: layout_info.cost_area.height,
+        };
         layout.add_text(
             layout_info.name_area,
             &self.name,
@@ -186,12 +193,12 @@ where
             FontSize(text.font_size.0.min(14.0)),
             text.color,
             text.highlight_color,
-            HorizontalAlignment::Right { offset: 4.0, border: 0.0 },
+            HorizontalAlignment::Left { offset: 0.0, border: 0.0 },
             VerticalAlignment::Top { offset: 0.0 },
             OverflowBehavior::Shrink,
         );
         layout.add_text(
-            layout_info.cost_area,
+            cost_text,
             &self.cost,
             FontSize(text.font_size.0.min(14.0)),
             text.color,
@@ -479,17 +486,6 @@ impl CustomWindow<ClientState> for BarterWindow {
                     text: shop.heading(),
                     overflow_behavior: OverflowBehavior::Shrink,
                 },
-                scroll_view! {
-                    children: OfferList::new(),
-                },
-                text! { text: "Cart" },
-                scroll_view! {
-                    children: CartList::new(),
-                },
-                text! {
-                    text: shop.cart_summary(),
-                    overflow_behavior: OverflowBehavior::Shrink,
-                },
                 split! {
                     gaps: theme().window().gaps(),
                     children: (
@@ -505,8 +501,15 @@ impl CustomWindow<ClientState> for BarterWindow {
                     ),
                 },
                 text! {
+                    text: shop.cart_summary(),
+                    overflow_behavior: OverflowBehavior::Shrink,
+                },
+                text! {
                     text: shop.status(),
                     overflow_behavior: OverflowBehavior::Shrink,
+                },
+                scroll_view! {
+                    children: (OfferList::new(), text! { text: "Cart" }, CartList::new()),
                 },
             ),
         }

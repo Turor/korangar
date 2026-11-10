@@ -3,10 +3,15 @@
 
 use std::sync::Arc;
 
-use ragnarok_packets::{InventoryIndex, ItemId};
-use rust_state::RustState;
+use korangar_networking::{BarterOfferData, InventoryItemDetails, ItemQuantity, NetworkingSystem, NoMetadata, ShopItem};
+use ragnarok_packets::{InventoryIndex, ItemId, Price};
+use rust_state::{PathExt, RustState, State};
 
+use super::inventory::InventoryPathExt;
+use super::{ClientState, ClientStatePathExt, client_state};
 use crate::graphics::Texture;
+use crate::loaders::AsyncLoader;
+use crate::world::ResourceMetadata;
 
 /// `u32::MAX` stock is the server's unlimited quantity (`qty == -1`).
 pub const UNLIMITED_STOCK: u32 = u32::MAX;
@@ -287,13 +292,15 @@ pub fn stock_label(stock: u32) -> String {
     }
 }
 
-/// Stock plus the server weight (`id->weight * 10` on this packetver).
+/// Stock plus the item weight. Hercules sends `id->weight * 10` on this
+/// packetver.
 pub fn offer_stock_text(offer: &BarterOffer) -> String {
     let stock = stock_label(offer.stock);
-    if offer.weight == 0 {
+    let weight = offer.weight / 10;
+    if weight == 0 {
         stock
     } else {
-        format!("{stock} · weight {}", offer.weight)
+        format!("{stock} · weight {weight}")
     }
 }
 
@@ -393,11 +400,103 @@ fn plan_expanded(shop: &BarterShopState, held: &[HeldStack]) -> Result<Vec<Plann
         .collect())
 }
 
+fn named_shop_item(loader: &AsyncLoader, item_id: ItemId, item_type: u16) -> ShopItem<ResourceMetadata> {
+    loader.request_shop_item_metadata_load(ShopItem {
+        metadata: NoMetadata,
+        item_id,
+        item_type: u8::try_from(item_type).unwrap_or(0),
+        price: Price(0),
+        quantity: ItemQuantity::Fixed(1),
+        weight: 0,
+        location: 0,
+    })
+}
+
+/// Turn a catalog packet into offers with names and icons.
+pub fn offers_from_catalog(loader: &AsyncLoader, offers: Vec<BarterOfferData>) -> Vec<BarterOffer> {
+    offers
+        .into_iter()
+        .map(|offer| {
+            let reward = named_shop_item(loader, offer.item_id, offer.item_type);
+            let currencies = offer
+                .currencies
+                .into_iter()
+                .map(|currency| {
+                    let named = named_shop_item(loader, currency.item_id, currency.item_type);
+                    BarterCurrency {
+                        item_id: currency.item_id,
+                        name: named.metadata.name,
+                        texture: named.metadata.texture,
+                        amount: currency.amount,
+                        refine_level: currency.refine_level,
+                    }
+                })
+                .collect();
+            BarterOffer {
+                item_id: offer.item_id,
+                name: reward.metadata.name,
+                texture: reward.metadata.texture,
+                item_type: offer.item_type,
+                stock: offer.stock,
+                weight: offer.weight,
+                shop_index: offer.shop_index,
+                zeny: offer.zeny,
+                currencies,
+            }
+        })
+        .collect()
+}
+
+/// Plan the cart against the inventory and send the exchange.
+pub fn submit_barter_purchase<Callback>(networking: &mut NetworkingSystem<Callback>, state: &mut State<ClientState>) {
+    let held = state
+        .follow(client_state().inventory().items())
+        .iter()
+        .map(|item| {
+            let (amount, refine) = match &item.details {
+                InventoryItemDetails::Regular { amount, .. } => (u32::from(*amount), 0),
+                InventoryItemDetails::Equippable { refinement_level, .. } => (1, u16::from(*refinement_level)),
+            };
+            HeldStack {
+                index: item.index,
+                item_id: item.item_id,
+                amount,
+                refine,
+            }
+        })
+        .collect::<Vec<_>>();
+    let outcome = {
+        let shop = state.follow(client_state().barter());
+        if shop.purchase_blocked() {
+            None
+        } else {
+            Some((shop.is_expanded(), plan_purchase(shop, &held)))
+        }
+    };
+    if let Some((expanded, result)) = outcome {
+        match result {
+            Ok(lines) => {
+                state.follow_mut(client_state().barter()).mark_pending();
+                let wire = lines
+                    .into_iter()
+                    .map(|line| (line.item_id, line.shop_index, line.amount, line.inventory_index))
+                    .collect();
+                let _ = networking.purchase_barter(expanded, wire);
+            }
+            Err(message) => {
+                state.follow_mut(client_state().barter()).set_status(message);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ragnarok_packets::{InventoryIndex, ItemId};
 
-    use super::{BarterCartLine, BarterCurrency, BarterOffer, BarterShopState, HeldStack, cost_label, plan_purchase, stock_label};
+    use super::{
+        BarterCartLine, BarterCurrency, BarterOffer, BarterShopState, HeldStack, cost_label, offer_stock_text, plan_purchase, stock_label,
+    };
 
     fn currency(item_id: u32, name: &str, amount: u32, refine: u16) -> BarterCurrency {
         BarterCurrency {
@@ -455,6 +554,11 @@ mod tests {
         assert_eq!(shop.cart[0].amount, 100);
         assert_eq!(stock_label(u32::MAX), "unlimited");
         assert_eq!(cost_label(0, &shop.cart[0].currencies, 3), "Orange Potion x3");
+        let shown = offer(512, "Apple", u32::MAX, 4, 0, Vec::new());
+        assert_eq!(offer_stock_text(&shown), "unlimited · weight 1");
+        let mut hidden = shown;
+        hidden.weight = 9;
+        assert_eq!(offer_stock_text(&hidden), "unlimited");
     }
 
     #[test]
