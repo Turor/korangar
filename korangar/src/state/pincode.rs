@@ -133,6 +133,27 @@ impl PincodeWindowState {
         self.allows_select
     }
 
+    /// The server asked for a PIN (create, enter, or change) and character
+    /// select stays blocked, so the pad has to be on screen. Character select
+    /// reopening (which closes every window) uses this to bring the pad back.
+    pub fn wants_pad(&self) -> bool {
+        self.show_pad && self.needs_pin && !self.allows_select
+    }
+
+    /// Pad location that currently shows `digit`. The pad is shuffled, so
+    /// scripts type by value.
+    pub fn pad_index_of(&self, digit: u8) -> Option<usize> {
+        let label = digit.to_string();
+        self.pad.iter().position(|entry| *entry == label)
+    }
+
+    /// Press the pad location that shows `digit`.
+    pub fn type_digit(&mut self, digit: u8) {
+        if let Some(index) = self.pad_index_of(digit) {
+            self.press_digit(index);
+        }
+    }
+
     /// `KORANGAR_AUTOPILOT_PIN` when it is exactly four digits.
     pub fn autopilot_pin() -> Option<String> {
         let raw = std::env::var("KORANGAR_AUTOPILOT_PIN").ok()?;
@@ -840,5 +861,71 @@ mod tests {
             let index = state.pad.iter().position(|label| label == &digit.to_string()).unwrap();
             state.press_digit(index);
         }
+    }
+}
+
+#[cfg(test)]
+mod pad_tests {
+    use ragnarok_packets::AccountId;
+
+    use super::{PincodeNotice, PincodeWindowState};
+
+    fn login(state: u16) -> PincodeNotice {
+        PincodeNotice::Login {
+            seed: 1234,
+            account_id: AccountId(2000001),
+            state,
+            flag: None,
+        }
+    }
+
+    #[test]
+    fn the_pad_opens_on_its_own_for_every_server_request() {
+        // 1 enter, 2/4 create, 3 must change, 8 wrong PIN: the pad opens without
+        // the character-select button and stays wanted until the server accepts.
+        for state in [1_u16, 2, 3, 4, 8] {
+            let mut pin = PincodeWindowState::default();
+            let effect = pin.apply_notice(login(state), None);
+            assert!(effect.open_window, "state {state} does not open the pad");
+            assert!(pin.wants_pad(), "state {state} does not keep the pad wanted");
+            assert!(!pin.allows_select(), "state {state} allows select");
+        }
+    }
+
+    #[test]
+    fn accepted_and_button_states_do_not_want_the_pad() {
+        let mut pin = PincodeWindowState::default();
+        let effect = pin.apply_notice(login(0), None);
+        assert!(!effect.open_window);
+        assert!(!pin.wants_pad());
+        assert!(pin.allows_select());
+
+        // State 7 only offers the button; the pad opens after the request.
+        let mut button = PincodeWindowState::default();
+        button.apply_notice(login(7), None);
+        assert!(!button.wants_pad());
+    }
+
+    #[test]
+    fn an_accepted_pin_stops_wanting_the_pad() {
+        let mut pin = PincodeWindowState::default();
+        pin.apply_notice(login(1), None);
+        assert!(pin.wants_pad());
+        let effect = pin.apply_notice(login(0), None);
+        assert!(effect.close_window);
+        assert!(!pin.wants_pad());
+    }
+
+    #[test]
+    fn typing_by_value_finds_the_shuffled_location() {
+        let mut pin = PincodeWindowState::default();
+        pin.apply_notice(login(1), None);
+        for digit in 0..10_u8 {
+            let index = pin.pad_index_of(digit).expect("every digit is on the pad");
+            assert_eq!(pin.pad[index], digit.to_string());
+        }
+        pin.type_digit(4);
+        pin.type_digit(2);
+        assert_eq!(pin.masked.chars().count(), 2);
     }
 }

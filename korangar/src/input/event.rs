@@ -244,6 +244,10 @@ pub enum InputEvent {
     PincodeDigit {
         index: usize,
     },
+    /// Press the shuffled pad location that shows this digit (autopilot).
+    PincodeTypeDigit {
+        digit: u8,
+    },
     /// Clear the PIN entry and move the pad labels.
     PincodeReset,
     /// Submit the hidden PIN entry.
