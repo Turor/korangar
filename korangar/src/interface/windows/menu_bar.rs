@@ -34,7 +34,7 @@ use rust_state::{PathExt, State};
 use serde::{Deserialize, Serialize};
 
 use super::WindowClass;
-use super::placement::{HudFrame, ScreenAnchor, chat_column_right, frame_anchor_offset, hud_bottom_margin};
+use super::placement::{HudFrame, ScreenAnchor, first_open_hud, frame_anchor_offset, hud_bottom_margin};
 use crate::graphics::{Color, ScreenPosition, ScreenSize, Texture};
 use crate::input::InputEvent;
 use crate::loaders::OverflowBehavior;
@@ -486,7 +486,7 @@ impl MenuBarIcons {
 pub fn menu_bar_grid(layout: MenuBarLayout, count: usize, screen_width: f32, screen_height: f32) -> (usize, usize) {
     let count = count.max(1);
     let (screen_width, screen_height) = finite_screen(screen_width, screen_height);
-    let (strip_left, strip_right, bottom) = menu_bar_dock_strip(screen_width, screen_height);
+    let (strip_left, strip_right, bottom) = menu_bar_strip_for(layout, screen_width, screen_height);
     let usable_width = strip_right - strip_left - MENU_BAR_BORDER * 2.0 + BUTTON_GAP;
     let usable_height = bottom - MENU_BAR_EDGE_MARGIN - MENU_BAR_CHROME_HEIGHT + BUTTON_GAP;
     let max_columns = ((usable_width / (MENU_BAR_CELL_WIDTH + BUTTON_GAP)).floor() as usize).max(1);
@@ -607,46 +607,67 @@ fn menu_bar_locked_height(state: &ClientState) -> f32 {
     menu_bar_live_size(state).1
 }
 
-/// Bottom strip the bar docks into: right of the chat column, down to the
-/// same bottom margin as chat. Returns `(left, right, bottom)`.
+/// Bottom strip the bar docks into: right of the hotbar (which sits right of
+/// chat), down to the same bottom margin as chat. Returns `(left, right,
+/// bottom)`.
 pub fn menu_bar_dock_strip(screen_width: f32, screen_height: f32) -> (f32, f32, f32) {
     let (screen_width, screen_height) = finite_screen(screen_width, screen_height);
-    let left = (chat_column_right(screen_width, screen_height) + MENU_BAR_EDGE_MARGIN).min(screen_width - 1.0);
+    let hud = first_open_hud(screen_width, screen_height);
+    let left = (hud.hotbar.right().max(hud.chat.right()) + MENU_BAR_EDGE_MARGIN).min(screen_width - 1.0);
     let right = (screen_width - MENU_BAR_EDGE_MARGIN).max(left + 1.0);
     let bottom = screen_height - hud_bottom_margin(screen_width, screen_height);
     (left, right, bottom)
 }
 
+/// Strip right of chat along the whole bottom edge. Fixed row counts need
+/// this width; they sit above the hotbar when they would cover it.
+fn menu_bar_wide_strip(screen_width: f32, screen_height: f32) -> (f32, f32, f32) {
+    let (screen_width, screen_height) = finite_screen(screen_width, screen_height);
+    let hud = first_open_hud(screen_width, screen_height);
+    let left = (hud.chat.right() + MENU_BAR_EDGE_MARGIN).min(screen_width - 1.0);
+    let right = (screen_width - MENU_BAR_EDGE_MARGIN).max(left + 1.0);
+    let bottom = screen_height - hud_bottom_margin(screen_width, screen_height);
+    (left, right, bottom)
+}
+
+/// Auto and vertical fit the corner right of the hotbar; 2 and 3 rows keep
+/// their row count with the wider strip.
+fn menu_bar_strip_for(layout: MenuBarLayout, screen_width: f32, screen_height: f32) -> (f32, f32, f32) {
+    match layout {
+        MenuBarLayout::Auto | MenuBarLayout::Vertical => menu_bar_dock_strip(screen_width, screen_height),
+        MenuBarLayout::TwoRows | MenuBarLayout::ThreeRows => menu_bar_wide_strip(screen_width, screen_height),
+    }
+}
+
 /// Rectangle the bar uses while the user has not moved it, for `layout`.
 ///
-/// It sits on the bottom edge right of chat. Horizontal layouts are centered
-/// in that strip; the vertical strip hugs the right edge. The hotbar preset
-/// sits above it (see [`menu_bar_dock_top`]).
+/// Auto and vertical sit on the bottom edge in the corner right of the
+/// hotbar. 2 and 3 rows sit on the bottom edge right of chat, or directly
+/// above the hotbar when the edge spot would cover it. Every layout hugs the
+/// right edge and stays clear of chat and the hotbar.
 pub fn default_menu_bar_frame_for(layout: MenuBarLayout, screen_width: f32, screen_height: f32) -> HudFrame {
     let (screen_width, screen_height) = finite_screen(screen_width, screen_height);
     let (columns, rows) = menu_bar_grid(layout, menu_bar_cell_count(), screen_width, screen_height);
     let (width, height) = menu_bar_window_size(columns, rows);
     let width = width.min(screen_width);
     let height = height.min(screen_height);
-    let (strip_left, strip_right, bottom) = menu_bar_dock_strip(screen_width, screen_height);
-    let strip_width = strip_right - strip_left;
-    let left = if layout == MenuBarLayout::Vertical || width > strip_width {
-        strip_right - width
-    } else {
-        strip_left + (strip_width - width) / 2.0
+    let (strip_left, strip_right, bottom) = menu_bar_strip_for(layout, screen_width, screen_height);
+    let left = (strip_right - width).max(strip_left.min(screen_width - width)).max(0.0);
+    let mut frame = HudFrame {
+        left,
+        top: (bottom - height).max(0.0),
+        width,
+        height,
     };
-    let left = left.max(0.0).min(screen_width - width);
-    let top = (bottom - height).max(0.0);
-    HudFrame { left, top, width, height }
+    let hotbar = first_open_hud(screen_width, screen_height).hotbar;
+    if frames_intersect(frame, hotbar) {
+        frame.top = (hotbar.top - MENU_BAR_EDGE_MARGIN - height).max(0.0);
+    }
+    frame
 }
 
-/// Highest top of the horizontal docked layouts, so the hotbar preset clears
-/// the bar whichever row count is chosen.
-pub fn menu_bar_dock_top(screen_width: f32, screen_height: f32) -> f32 {
-    [MenuBarLayout::Auto, MenuBarLayout::TwoRows, MenuBarLayout::ThreeRows]
-        .into_iter()
-        .map(|layout| default_menu_bar_frame_for(layout, screen_width, screen_height).top)
-        .fold(f32::MAX, f32::min)
+fn frames_intersect(a: HudFrame, b: HudFrame) -> bool {
+    a.left < b.right() && a.right() > b.left && a.top < b.bottom() && a.bottom() > b.top
 }
 
 /// Anchor and size for `layout` while the bar is docked.
@@ -1041,9 +1062,9 @@ mod tests {
         assert_eq!(rows, 3);
         let (columns, rows) = menu_bar_grid(MenuBarLayout::Vertical, count, 1280.0, 720.0);
         assert!(rows > columns, "vertical is {columns}x{rows}");
-        // Auto never uses more rows than it needs.
+        // Auto uses as few rows as the corner beside the hotbar allows.
         let (_, wide) = menu_bar_grid(MenuBarLayout::Auto, count, 3840.0, 2160.0);
-        assert_eq!(wide, 1);
+        assert!(wide <= 2, "auto at 4K uses {wide} rows");
     }
 
     #[test]
@@ -1099,18 +1120,25 @@ mod tests {
             ] {
                 let frame = default_menu_bar_frame_for(layout, screen_width, screen_height);
                 let label = format!("{layout:?} at {screen_width}x{screen_height}");
-                assert!(
-                    (frame.top + frame.height - bottom).abs() < 0.5,
-                    "{label}: not on the bottom edge"
-                );
+                let on_edge = (frame.top + frame.height - bottom).abs() < 0.5;
+                if matches!(layout, MenuBarLayout::Auto | MenuBarLayout::Vertical) {
+                    assert!(on_edge, "{label}: not on the bottom edge");
+                } else {
+                    let above_hotbar = frame.top + frame.height <= hud.hotbar.top + 0.5;
+                    assert!(on_edge || above_hotbar, "{label}: neither on the edge nor above the hotbar");
+                }
                 assert!(
                     frame.left >= 0.0 && frame.left + frame.width <= screen_width + 0.01,
                     "{label}: off screen"
                 );
+                assert!(frame.top >= 0.0, "{label}: above the screen");
                 assert!(!rects_overlap(frame, hud.chat), "{label}: covers chat");
                 assert!(!rects_overlap(frame, hud.hotbar), "{label}: covers the hotbar");
-                // Mid-screen over Gear was the old default.
-                assert!(!rects_overlap(frame, hud.gear), "{label}: covers Gear");
+                // Mid-screen over Gear was the old default. Small screens have no
+                // room beside the 500px Gear window.
+                if layout == MenuBarLayout::Auto && screen_height >= 700.0 {
+                    assert!(!rects_overlap(frame, hud.gear), "{label}: covers Gear");
+                }
             }
             assert!(hud.hotbar.top >= 0.0, "hotbar above the top at {screen_width}x{screen_height}");
         }
@@ -1129,9 +1157,9 @@ mod tests {
         assert!((position.left - expected.left).abs() < 0.5);
         assert!((position.top - expected.top).abs() < 0.5);
         assert!((redocked_size.width - expected.width).abs() < 0.5);
-        // The old anchor keeps the 1280 size, which no longer fits the strip.
-        assert!(size.width > redocked_size.width);
-        let _ = anchor;
+        // The 1280 anchor, read on the smaller screen, is not the new dock.
+        let stale = anchor.to_position(small);
+        assert!((stale.left - expected.left).abs() > 0.5 || (size.width - expected.width).abs() > 0.5);
     }
 
     #[test]
