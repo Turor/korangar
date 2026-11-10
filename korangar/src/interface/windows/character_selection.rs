@@ -764,24 +764,32 @@ where
                 fragment! {
                     gaps: 8.0,
                     children: (
-                        split! {
-                            gaps: 8.0,
-                            children: (
-                                button! {
-                                    text: "Previous page",
-                                    disabled: previous_disabled,
-                                    event: previous_page,
-                                },
-                                text! {
-                                    text: client_state().character_screen().page_label(),
-                                },
-                                button! {
-                                    text: "Next page",
-                                    disabled: next_disabled,
-                                    event: next_page,
-                                },
-                            ),
-                        },
+                        // Hercules sends the whole list in one 0x09A1 and no 0x09A0, so the
+                        // page row only shows when the server reports more than one page.
+                        korangar_interface::components::either::Either::component_new(
+                            ComputedSelector::new_default(|state: &ClientState| {
+                                client_state().character_screen().follow_safe(state).page_count > 1
+                            }),
+                            split! {
+                                gaps: 8.0,
+                                children: (
+                                    button! {
+                                        text: "Previous page",
+                                        disabled: previous_disabled,
+                                        event: previous_page,
+                                    },
+                                    text! {
+                                        text: client_state().character_screen().page_label(),
+                                    },
+                                    button! {
+                                        text: "Next page",
+                                        disabled: next_disabled,
+                                        event: next_page,
+                                    },
+                                ),
+                            },
+                            (),
+                        ),
                         text! {
                             text: client_state().character_screen().status(),
                         },

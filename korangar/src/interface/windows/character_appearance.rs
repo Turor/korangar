@@ -188,8 +188,8 @@ impl Element<ClientState> for CharacterAppearance {
         if !sex_locked && cell_hovered(layout, area.left + area.width * 0.5, top, area.width * 0.5 - GAP, ROW) {
             layout.register_click_handler(MouseButton::Left, self.sex(false));
         }
-        // Race clicks are registered inside paint_choice. Sex is registered here so a
-        // locked account cannot change it. Re-registering race below keeps one path.
+        // paint_choice only draws. Sex clicks are registered above so a locked account
+        // cannot change it; race clicks are registered here.
         if cell_hovered(layout, area.left, top - ROW - GAP, area.width * 0.5 - GAP, ROW) {
             layout.register_click_handler(MouseButton::Left, self.race(false));
         }
