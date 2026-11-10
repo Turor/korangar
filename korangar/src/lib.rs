@@ -399,6 +399,7 @@ pub struct Client {
     cast_bars: effects::CastBars,
     path_finder: PathFinder,
     npc_dismissed: crate::state::npc_dismiss::DismissedScript,
+    dialog_layer: crate::interface::dialog_layer::DialogLayer,
     long_walk: crate::world::long_walk::LongWalk,
 
     point_light_set_buffer: ResourceSetBuffer<LightSourceKey>,
@@ -960,6 +961,7 @@ impl Client {
             cast_bars,
             path_finder,
             npc_dismissed: Default::default(),
+            dialog_layer: Default::default(),
             long_walk: Default::default(),
             point_light_set_buffer,
             directional_shadow_object_set_buffer,
@@ -4653,8 +4655,11 @@ impl Client {
                 let alt = self.input_system.key_down(KeyCode::AltLeft) || self.input_system.key_down(KeyCode::AltRight);
                 let ctrl = self.input_system.key_down(KeyCode::ControlLeft) || self.input_system.key_down(KeyCode::ControlRight);
                 let shift = self.input_system.key_down(KeyCode::ShiftLeft) || self.input_system.key_down(KeyCode::ShiftRight);
-                let edges = crate::settings::edges_from_transitions(alt, ctrl, shift, lock_movement_keys, |code| {
-                    (self.input_system.key_pressed(code), self.input_system.key_released(code))
+                // An open NPC menu owns the arrows, Tab, Enter, Space and 1-9.
+                let menu_owns_keys = !capturing_keybind && self.client_state.follow(client_state().dialog_window()).is_awaiting_choice();
+                let edges = crate::settings::edges_from_transitions(alt, ctrl, shift, lock_movement_keys, |code| match menu_owns_keys {
+                    true => (false, false),
+                    false => (self.input_system.key_pressed(code), self.input_system.key_released(code)),
                 });
                 let active_tab = self.client_state.follow(client_state().hotbar()).active_tab();
                 let row_shift = self.client_state.follow(client_state().hotbar()).row_shift(active_tab);
@@ -5501,6 +5506,8 @@ impl Client {
                 }
                 InputEvent::NextDialog { npc_id } => {
                     let _ = self.networking_system.next_dialog(npc_id);
+                    // A clicked button keeps focus, which would mute Enter and Space.
+                    self.interface.unfocus();
                 }
                 InputEvent::CloseDialog { npc_id } => {
                     crate::interface::npc_flow::finish_npc_dialog(
@@ -5528,6 +5535,7 @@ impl Client {
                 }
                 InputEvent::ChooseDialogOption { npc_id, option } => {
                     let _ = self.networking_system.choose_dialog_option(npc_id, option);
+                    self.interface.unfocus();
 
                     if option == -1 {
                         crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
@@ -7675,7 +7683,22 @@ impl Client {
                 .client_state
                 .follow_mut(client_state().dialog_window())
                 .take_confirm_key(&input_report.characters);
-            if ate {
+            let mut choice_keys = crate::state::vn_dialog::ChoiceKeys::from_characters(&input_report.characters);
+            choice_keys.previous = self.input_system.key_pressed(KeyCode::ArrowLeft) || self.input_system.key_pressed(KeyCode::ArrowUp);
+            choice_keys.next |= self.input_system.key_pressed(KeyCode::ArrowRight)
+                || self.input_system.key_pressed(KeyCode::ArrowDown)
+                || self.input_system.key_pressed(KeyCode::Tab);
+            let picked = self
+                .client_state
+                .follow_mut(client_state().dialog_window())
+                .apply_choice_keys(choice_keys);
+            if let Some(option) = picked {
+                self.input_event_buffer.push(InputEvent::ChooseDialogOption {
+                    npc_id: dialog_npc_id,
+                    option,
+                });
+            }
+            if ate || picked.is_some() {
                 (None, true)
             } else {
                 let dialog = self.client_state.follow(client_state().dialog_window());
@@ -7695,6 +7718,7 @@ impl Client {
         };
 
         crate::interface::npc_flow::prepare_vn_dialog(&mut self.client_state, &mut self.interface, screen_size, client_tick.0);
+        self.dialog_layer.sync(&mut self.interface);
 
         let mouse_mode = self.interface.get_mouse_mode();
         let is_mouse_mode_default = mouse_mode.is_default();
@@ -8001,7 +8025,7 @@ impl Client {
             &self.action_loader,
             &self.texture_loader,
             &self.library,
-            &self.middle_interface_renderer,
+            &self.top_interface_renderer,
             screen_size,
             dialog_open,
         );

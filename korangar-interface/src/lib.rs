@@ -468,6 +468,22 @@ where
         }
     }
 
+    /// Move the open windows of these classes to the front, in the given
+    /// order (the last class ends up on top). Windows that are already in that
+    /// order are left alone.
+    pub fn raise_window_classes(&mut self, window_classes: &[App::WindowClass]) {
+        for window_class in window_classes {
+            if let Some(index) = self
+                .windows
+                .iter()
+                .position(|wrapper| wrapper.window.get_class().is_some_and(|class| class == *window_class))
+            {
+                let wrapper = self.windows.remove(index);
+                self.windows.push(wrapper);
+            }
+        }
+    }
+
     /// Move a window that is already open. The saved anchor is updated too, so
     /// the next open starts at the same place.
     pub fn place_window_class(&mut self, window_class: App::WindowClass, anchor: Anchor<App>, size: App::Size) {

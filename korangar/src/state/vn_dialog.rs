@@ -271,11 +271,14 @@ pub fn dialog_band(screen_w: f32, screen_h: f32) -> DialogBand {
     DialogBand { width, height, margin }
 }
 
-/// Offset for [`korangar_interface::window::AnchorPoint::BottomCenter`].
-/// The anchor position is the window's top-left.
-pub fn bottom_anchor_offset(screen_w: f32, band: DialogBand) -> (f32, f32) {
-    (band.margin - screen_w / 2.0, -(band.height + band.margin))
-}
+/// Gap between a portrait frame and the dialog window.
+pub const FRAME_GAP: f32 = 8.0;
+/// Width of the themed border around a portrait.
+pub const FRAME_BORDER: f32 = 2.0;
+/// Space between the border and the art.
+pub const FRAME_PADDING: f32 = 4.0;
+/// The text window never gets narrower than this; portraits shrink first.
+pub const MIN_WINDOW_WIDTH: f32 = 320.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PortraitFrame {
@@ -284,21 +287,153 @@ pub struct PortraitFrame {
     pub size: f32,
 }
 
-pub fn portrait_frames(screen_w: f32, screen_h: f32, band: DialogBand) -> (PortraitFrame, PortraitFrame) {
-    let size = (screen_h * 0.62).min(screen_w * 0.34).max(160.0);
-    let dialog_top = screen_h - band.height - band.margin;
-    let top = (dialog_top - size + 24.0).max(0.0);
-    let left = PortraitFrame {
-        left: band.margin,
-        top,
-        size,
-    };
-    let right = PortraitFrame {
-        left: (screen_w - band.margin - size).max(0.0),
-        top,
-        size,
-    };
-    (left, right)
+impl PortraitFrame {
+    /// The area inside the border and padding, as `(left, top, size)`.
+    pub fn inner(&self) -> (f32, f32, f32) {
+        let inset = FRAME_BORDER + FRAME_PADDING;
+        (self.left + inset, self.top + inset, (self.size - inset * 2.0).max(0.0))
+    }
+}
+
+/// The bottom band: a square portrait frame on each side, as tall as the
+/// dialog, and the dialog window between them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BandLayout {
+    pub band: DialogBand,
+    pub player_frame: PortraitFrame,
+    pub npc_frame: PortraitFrame,
+    pub window_left: f32,
+    pub window_width: f32,
+}
+
+pub fn band_layout(screen_w: f32, screen_h: f32) -> BandLayout {
+    let band = dialog_band(screen_w, screen_h);
+    let top = screen_h - band.height - band.margin;
+    let room_for_frames = ((band.width - MIN_WINDOW_WIDTH) / 2.0 - FRAME_GAP).max(0.0);
+    let size = band.height.min(room_for_frames);
+    let side = if size > 0.0 { size + FRAME_GAP } else { 0.0 };
+    BandLayout {
+        band,
+        player_frame: PortraitFrame {
+            left: band.margin,
+            top: top + band.height - size,
+            size,
+        },
+        npc_frame: PortraitFrame {
+            left: band.margin + band.width - size,
+            top: top + band.height - size,
+            size,
+        },
+        window_left: band.margin + side,
+        window_width: band.width - side * 2.0,
+    }
+}
+
+/// Offset for [`korangar_interface::window::AnchorPoint::BottomCenter`].
+/// The anchor position is the window's top-left.
+pub fn bottom_anchor_offset(screen_w: f32, layout: BandLayout) -> (f32, f32) {
+    (layout.window_left - screen_w / 2.0, -(layout.band.height + layout.band.margin))
+}
+
+/// Scale for art of `art_w` x `art_h` inside a `box_size` square. Sprites
+/// that can grow at least 2x use a whole factor so every source pixel stays
+/// square; smaller steps fill the box and are drawn with nearest sampling on
+/// whole screen pixels.
+pub fn portrait_scale(art_w: f32, art_h: f32, box_size: f32) -> f32 {
+    if art_w <= 0.0 || art_h <= 0.0 || box_size <= 0.0 {
+        return 0.0;
+    }
+    let fit = (box_size / art_w).min(box_size / art_h);
+    if fit >= 2.0 { fit.floor() } else { fit }
+}
+
+/// Where a part at `(x, y, w, h)` (sprite space, relative to the art's
+/// top-left) lands when the art is scaled by `scale` and stands
+/// bottom-centred in the box. Every edge is on a whole pixel.
+pub fn place_portrait_part(
+    art_w: f32,
+    art_h: f32,
+    part: (f32, f32, f32, f32),
+    scale: f32,
+    box_left: f32,
+    box_top: f32,
+    box_size: f32,
+) -> (f32, f32, f32, f32) {
+    let origin_left = (box_left + (box_size - art_w * scale) / 2.0).round();
+    let origin_top = (box_top + box_size - art_h * scale).round();
+    let (x, y, w, h) = part;
+    let left = (origin_left + x * scale).round();
+    let top = (origin_top + y * scale).round();
+    let right = (origin_left + (x + w) * scale).round();
+    let bottom = (origin_top + (y + h) * scale).round();
+    (left, top, right - left, bottom - top)
+}
+
+/// Options per row before the menu wraps to another row.
+pub const CHOICES_PER_ROW: usize = 5;
+
+/// `(columns, rows)` for `count` options laid out side by side.
+pub fn choice_grid(count: usize) -> (usize, usize) {
+    if count == 0 {
+        return (0, 0);
+    }
+    let columns = count.min(CHOICES_PER_ROW);
+    (columns, count.div_ceil(columns))
+}
+
+/// Keys that act on an open menu this frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ChoiceKeys {
+    /// Left or Up.
+    pub previous: bool,
+    /// Right, Down or Tab.
+    pub next: bool,
+    /// Enter or Space.
+    pub confirm: bool,
+    /// `1`..=`9`, as typed.
+    pub digit: Option<u8>,
+}
+
+impl ChoiceKeys {
+    pub fn any(&self) -> bool {
+        self.previous || self.next || self.confirm || self.digit.is_some()
+    }
+
+    /// Enter, Space and the digit keys from typed characters.
+    pub fn from_characters(characters: &[char]) -> Self {
+        Self {
+            confirm: characters.iter().any(|character| matches!(character, '\r' | '\n' | ' ')),
+            digit: characters.iter().find_map(|character| {
+                character
+                    .to_digit(10)
+                    .filter(|digit| (1..=9).contains(digit))
+                    .map(|digit| digit as u8)
+            }),
+            next: characters.contains(&'\t'),
+            previous: false,
+        }
+    }
+}
+
+/// New focus and the option to pick (zero based), if any. Focus wraps.
+pub fn choice_key_outcome(focus: usize, count: usize, keys: ChoiceKeys) -> (usize, Option<usize>) {
+    if count == 0 {
+        return (0, None);
+    }
+    let mut focus = focus.min(count - 1);
+    if let Some(digit) = keys.digit {
+        let index = usize::from(digit) - 1;
+        if index < count {
+            return (index, Some(index));
+        }
+    }
+    if keys.next {
+        focus = (focus + 1) % count;
+    } else if keys.previous {
+        focus = (focus + count - 1) % count;
+    }
+    let pick = keys.confirm.then_some(focus);
+    (focus, pick)
 }
 
 /// The NPC speaks until the player has to choose or type.
@@ -511,17 +646,88 @@ mod tests {
         assert!(large.height >= small.height);
         assert!((small.width - (800.0 - 32.0)).abs() < 0.1);
 
-        let (left_offset, top_offset) = bottom_anchor_offset(1280.0, dialog_band(1280.0, 720.0));
-        let band = dialog_band(1280.0, 720.0);
+        let layout = band_layout(1280.0, 720.0);
+        let band = layout.band;
+        let (left_offset, top_offset) = bottom_anchor_offset(1280.0, layout);
         let left = 1280.0 / 2.0 + left_offset;
         let top = 720.0 + top_offset;
-        assert!((left - band.margin).abs() < 0.1);
+        assert!((left - layout.window_left).abs() < 0.1);
         assert!((top + band.height + band.margin - 720.0).abs() < 0.1);
 
-        let (player, npc) = portrait_frames(1280.0, 720.0, band);
-        assert!(player.left < npc.left);
-        assert!(player.top + player.size > top - 40.0);
+        let (player, npc) = (layout.player_frame, layout.npc_frame);
+        // The frames are as tall as the dialog and sit beside it, not over it.
+        assert!((player.size - band.height).abs() < 0.1);
+        assert!((player.top - top).abs() < 0.1);
+        assert!(player.left + player.size + FRAME_GAP <= layout.window_left + 0.1);
+        assert!(layout.window_left + layout.window_width + FRAME_GAP <= npc.left + 0.1);
+        assert!((npc.left + npc.size - (band.margin + band.width)).abs() < 0.1);
         assert_eq!(player.size, npc.size);
+    }
+
+    #[test]
+    fn narrow_screens_shrink_the_frames_before_the_text() {
+        let layout = band_layout(640.0, 500.0);
+        assert!(layout.window_width >= MIN_WINDOW_WIDTH - 0.1);
+        assert!(layout.player_frame.size < layout.band.height);
+
+        let tiny = band_layout(352.0, 400.0);
+        assert_eq!(tiny.player_frame.size, 0.0);
+        assert!((tiny.window_left - tiny.band.margin).abs() < 0.1);
+    }
+
+    #[test]
+    fn portraits_scale_by_whole_steps_and_land_on_whole_pixels() {
+        // A 60x90 sprite in a 190 box grows 2x, not 2.1x.
+        assert_eq!(portrait_scale(60.0, 90.0, 190.0), 2.0);
+        // Below 2x the art fills the box.
+        assert!((portrait_scale(60.0, 120.0, 180.0) - 1.5).abs() < 0.001);
+        // A large cutin shrinks to fit.
+        assert!((portrait_scale(400.0, 500.0, 200.0) - 0.4).abs() < 0.001);
+        assert_eq!(portrait_scale(0.0, 10.0, 100.0), 0.0);
+
+        let scale = portrait_scale(60.0, 120.0, 180.0);
+        let (left, top, width, height) = place_portrait_part(60.0, 120.0, (5.0, 7.0, 11.0, 13.0), scale, 10.3, 20.7, 180.0);
+        for value in [left, top, width, height] {
+            assert_eq!(value, value.round());
+        }
+        // The whole figure stands on the bottom of the box.
+        let (_, top, _, height) = place_portrait_part(60.0, 120.0, (0.0, 0.0, 60.0, 120.0), scale, 10.0, 20.0, 180.0);
+        assert_eq!(top + height, 200.0);
+    }
+
+    #[test]
+    fn menus_lay_out_in_rows_of_five() {
+        assert_eq!(choice_grid(0), (0, 0));
+        assert_eq!(choice_grid(2), (2, 1));
+        assert_eq!(choice_grid(5), (5, 1));
+        assert_eq!(choice_grid(9), (5, 2));
+    }
+
+    #[test]
+    fn menu_keys_move_focus_and_pick() {
+        let right = ChoiceKeys {
+            next: true,
+            ..Default::default()
+        };
+        let left = ChoiceKeys {
+            previous: true,
+            ..Default::default()
+        };
+        let confirm = ChoiceKeys {
+            confirm: true,
+            ..Default::default()
+        };
+        assert_eq!(choice_key_outcome(0, 3, right), (1, None));
+        assert_eq!(choice_key_outcome(2, 3, right), (0, None));
+        assert_eq!(choice_key_outcome(0, 3, left), (2, None));
+        assert_eq!(choice_key_outcome(1, 3, confirm), (1, Some(1)));
+        assert_eq!(choice_key_outcome(0, 3, ChoiceKeys::from_characters(&['3'])), (2, Some(2)));
+        // A digit past the last option does nothing.
+        assert_eq!(choice_key_outcome(0, 3, ChoiceKeys::from_characters(&['7'])), (0, None));
+        assert_eq!(choice_key_outcome(0, 0, confirm), (0, None));
+        assert!(ChoiceKeys::from_characters(&[' ']).confirm);
+        assert!(ChoiceKeys::from_characters(&['\t']).next);
+        assert!(!ChoiceKeys::from_characters(&['0', 'a']).any());
     }
 
     #[test]

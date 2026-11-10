@@ -1,4 +1,4 @@
-//! Large portraits behind the bottom dialog band.
+//! Framed portraits on both ends of the bottom dialog band.
 //!
 //! The left figure is the player's body and head, the same composed animation
 //! the world draws, plus headgear and a palette swap when those files exist.
@@ -12,14 +12,15 @@ use ragnarok_packets::Sex;
 use rust_state::State;
 
 use crate::graphics::{Color, ScreenPosition, ScreenSize, Texture};
-use crate::interface::windows::equipment::{fit_sprite_part, part_is_drawable, sprite_part_top_left};
+use crate::interface::windows::equipment::{part_is_drawable, sprite_part_top_left};
 use crate::loaders::{ActionLoader, GameFileLoader, ImageType, Sprite, SpriteLoader, TextureLoader};
 use crate::renderer::GameInterfaceRenderer;
+use crate::state::theme::{InterfaceThemePathExt, ThemeTokens};
 use crate::state::vn_dialog::{
-    self, FACING_LEFT, PortraitSubject, RightPortraitSource, dialog_band, headgear_sprite_candidates, idle_animation_index,
-    npc_is_speaking, portrait_frames, right_portrait_source, side_alpha,
+    self, FACING_LEFT, FRAME_BORDER, PortraitFrame, PortraitSubject, RightPortraitSource, band_layout, headgear_sprite_candidates,
+    idle_animation_index, npc_is_speaking, place_portrait_part, portrait_scale, right_portrait_source, side_alpha,
 };
-use crate::state::{ClientState, ClientStatePathExt, client_state, this_entity};
+use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme, this_entity};
 use crate::world::{Actions, AnimationData, AnimationFrame, Entity, EntityType, Library};
 
 struct Stamp {
@@ -48,8 +49,8 @@ pub fn render_vn_portraits(
         return;
     }
 
-    let band = dialog_band(screen.width, screen.height);
-    let (player_frame, npc_frame) = portrait_frames(screen.width, screen.height, band);
+    let layout = band_layout(screen.width, screen.height);
+    let (player_frame, npc_frame) = (layout.player_frame, layout.npc_frame);
     let dim = state.follow(client_state().game_settings()).dialog_portrait_dim;
     let (npc_speaks, npc_id) = {
         let dialog = state.follow(client_state().dialog_window());
@@ -60,6 +61,15 @@ pub fn render_vn_portraits(
     };
     let player_alpha = side_alpha(!npc_speaks, dim);
     let npc_alpha = side_alpha(npc_speaks, dim);
+
+    {
+        let tokens_path = client_theme().tokens();
+        let tokens = state.get(&tokens_path);
+        paint_frame(renderer, player_frame, tokens, !npc_speaks);
+        paint_frame(renderer, npc_frame, tokens, npc_speaks);
+    }
+    let (player_left, player_top, player_size) = player_frame.inner();
+    let (npc_left, npc_top, npc_size) = npc_frame.inner();
 
     if let Some(Entity::Player(player)) = state.try_follow(this_entity())
         && let Some(animation) = player.get_common().animation_data.as_ref()
@@ -100,14 +110,7 @@ pub fn render_vn_portraits(
                     usize::from(portrait.facing),
                 ));
             }
-            paint_stamps(
-                renderer,
-                &stamps,
-                player_frame.left,
-                player_frame.top,
-                player_frame.size,
-                player_alpha,
-            );
+            paint_stamps(renderer, &stamps, player_left, player_top, player_size, player_alpha);
         }
     }
 
@@ -134,7 +137,7 @@ pub fn render_vn_portraits(
             if let Some(path) = cutin
                 && let Ok(texture) = texture_loader.get_or_load(&path, ImageType::Color)
             {
-                paint_texture(renderer, &texture, npc_frame.left, npc_frame.top, npc_frame.size, npc_alpha);
+                paint_texture(renderer, &texture, npc_left, npc_top, npc_size, npc_alpha);
             }
         }
         RightPortraitSource::Sprite => {
@@ -144,7 +147,7 @@ pub fn render_vn_portraits(
             }) && let Some(frame) = idle_frame(animation, FACING_LEFT)
             {
                 let stamps = frame_stamps(animation, frame, None, None);
-                paint_stamps(renderer, &stamps, npc_frame.left, npc_frame.top, npc_frame.size, npc_alpha);
+                paint_stamps(renderer, &stamps, npc_left, npc_top, npc_size, npc_alpha);
             }
         }
         RightPortraitSource::None => {}
@@ -280,6 +283,37 @@ fn clip_color(color: Option<u32>) -> Color {
     }
 }
 
+/// A themed panel behind a portrait: the border token around a panel fill.
+/// The speaker's border uses the accent token.
+fn paint_frame(renderer: &GameInterfaceRenderer, frame: PortraitFrame, tokens: &ThemeTokens, speaker: bool) {
+    if frame.size <= FRAME_BORDER * 2.0 {
+        return;
+    }
+    let border = if speaker { tokens.accent } else { tokens.border };
+    renderer.render_rectangle(
+        ScreenPosition {
+            left: frame.left,
+            top: frame.top,
+        },
+        ScreenSize {
+            width: frame.size,
+            height: frame.size,
+        },
+        border,
+    );
+    renderer.render_rectangle(
+        ScreenPosition {
+            left: frame.left + FRAME_BORDER,
+            top: frame.top + FRAME_BORDER,
+        },
+        ScreenSize {
+            width: frame.size - FRAME_BORDER * 2.0,
+            height: frame.size - FRAME_BORDER * 2.0,
+        },
+        tokens.panel.with_alpha_u8(235),
+    );
+}
+
 fn paint_stamps(renderer: &GameInterfaceRenderer, stamps: &[Stamp], box_left: f32, box_top: f32, box_size: f32, alpha: f32) {
     let mut union: Option<(i32, i32, i32, i32)> = None;
     for stamp in stamps {
@@ -296,21 +330,20 @@ fn paint_stamps(renderer: &GameInterfaceRenderer, stamps: &[Stamp], box_left: f3
     let Some((min_x, min_y, max_x, max_y)) = union else {
         return;
     };
+    let (art_w, art_h) = ((max_x - min_x) as f32, (max_y - min_y) as f32);
+    let scale = portrait_scale(art_w, art_h, box_size);
+    if scale <= 0.0 {
+        return;
+    }
 
     for stamp in stamps {
-        let (left, top, width, height) = fit_sprite_part(
-            min_x,
-            min_y,
-            max_x - min_x,
-            max_y - min_y,
-            stamp.x,
-            stamp.y,
-            stamp.w,
-            stamp.h,
-            box_left,
-            box_top,
-            box_size,
+        let part = (
+            (stamp.x - min_x) as f32,
+            (stamp.y - min_y) as f32,
+            stamp.w as f32,
+            stamp.h as f32,
         );
+        let (left, top, width, height) = place_portrait_part(art_w, art_h, part, scale, box_left, box_top, box_size);
         let tint = if stamp.color.alpha <= 0.001 { Color::WHITE } else { stamp.color };
         renderer.render_sprite_flipped(
             stamp.texture.clone(),
@@ -324,19 +357,12 @@ fn paint_stamps(renderer: &GameInterfaceRenderer, stamps: &[Stamp], box_left: f3
 
 fn paint_texture(renderer: &GameInterfaceRenderer, texture: &Arc<Texture>, box_left: f32, box_top: f32, box_size: f32, alpha: f32) {
     let size = texture.get_size();
-    let (left, top, width, height) = fit_sprite_part(
-        0,
-        0,
-        size.width as i32,
-        size.height as i32,
-        0,
-        0,
-        size.width as i32,
-        size.height as i32,
-        box_left,
-        box_top,
-        box_size,
-    );
+    let (art_w, art_h) = (size.width as f32, size.height as f32);
+    let scale = portrait_scale(art_w, art_h, box_size);
+    if scale <= 0.0 {
+        return;
+    }
+    let (left, top, width, height) = place_portrait_part(art_w, art_h, (0.0, 0.0, art_w, art_h), scale, box_left, box_top, box_size);
     renderer.render_sprite_flipped(
         Arc::clone(texture),
         ScreenPosition { left, top },
