@@ -234,6 +234,14 @@ enum ScriptedEvent {
         item_division: bool,
     },
     InviteToParty(String),
+    OpenPlayerContextMenu(u32),
+    ContextMenuPick(usize),
+    TradeAddItem {
+        index: u16,
+        amount: u16,
+    },
+    TradeAddZeny(u32),
+    SetShowEquipment(bool),
 }
 
 pub fn scripted_event(spec: &str) -> Result<InputEvent, String> {
@@ -314,6 +322,13 @@ pub fn scripted_event(spec: &str) -> Result<InputEvent, String> {
             item_division,
         },
         ScriptedEvent::InviteToParty(character_name) => InputEvent::InviteToParty { character_name },
+        ScriptedEvent::OpenPlayerContextMenu(entity_id) => InputEvent::OpenPlayerContextMenu {
+            entity_id: ragnarok_packets::EntityId(entity_id),
+        },
+        ScriptedEvent::ContextMenuPick(index) => InputEvent::ContextMenuPick { index },
+        ScriptedEvent::TradeAddItem { index, amount } => InputEvent::TradeAddItem { index, amount },
+        ScriptedEvent::TradeAddZeny(amount) => InputEvent::TradeAddZeny { amount },
+        ScriptedEvent::SetShowEquipment(enabled) => InputEvent::SetShowEquipment { enabled },
     })
 }
 
