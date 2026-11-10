@@ -594,7 +594,10 @@ where
     })?;
     packet_handler.register(|packet: DisplaySkillEffectNoDamagePacket| NetworkEvent::HealEffect {
         entity_id: packet.destination_entity_id,
+        source_entity_id: packet.source_entity_id,
+        skill_id: packet.skill_id,
         heal_amount: packet.heal_amount as usize,
+        result: packet.result,
     })?;
     packet_handler.register(|packet: DisplayPlayerHealEffect| NetworkEvent::PlayerHealEffect {
         heal_type: packet.heal_type,
@@ -946,6 +949,9 @@ where
             text: "Please wait 10 seconds before trying to log out.".to_string(),
             color: MessageColor::Error,
         },
+    })?;
+    packet_handler.register(|packet: SkillCastCancelPacket| NetworkEvent::SkillCastCancelled {
+        entity_id: packet.entity_id,
     })?;
     packet_handler.register(|packet: UseSkillSuccessPacket| NetworkEvent::UseSkillSuccess {
         source_entity_id: packet.source_entity,

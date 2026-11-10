@@ -5055,6 +5055,15 @@ pub struct EndUseSkillPacket {
     pub skill_id: SkillId,
 }
 
+/// Server tells the area a cast was cancelled (`ZC_DISPEL`, `0x01B9`).
+/// Hercules sends this from `clif_skillcastcancel`, including damage interrupts.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01B9)]
+pub struct SkillCastCancelPacket {
+    pub entity_id: EntityId,
+}
+
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x07FB)]

@@ -277,9 +277,14 @@ pub enum NetworkEvent {
         entity_id: EntityId,
         item_entity_id: EntityId,
     },
+    /// No-damage skill (`DisplaySkillEffectNoDamagePacket`, `0x09CB`): heals,
+    /// buffs, and other `spamSkill` casts. `result == 1` is a success effect.
     HealEffect {
         entity_id: EntityId,
+        source_entity_id: EntityId,
+        skill_id: SkillId,
         heal_amount: usize,
+        result: u8,
     },
     UpdateStat {
         stat_type: StatType,
@@ -984,6 +989,13 @@ pub enum NetworkEvent {
     SkillCooldown {
         skill_id: SkillId,
         until: ClientTick,
+    },
+    /// A cast was cancelled (`SkillCastCancelPacket` / `ZC_DISPEL`, `0x01B9`).
+    ///
+    /// The client stop packet `0x0B11` is outbound (`CZ_USE_SKILL_END`). The
+    /// server uses `0x01B9` when a cast ends early, including damage interrupt.
+    SkillCastCancelled {
+        entity_id: EntityId,
     },
     /// A skill cast was acknowledged (`UseSkillSuccessPacket`, 0x07FB).
     UseSkillSuccess {

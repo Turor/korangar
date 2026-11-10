@@ -2245,8 +2245,8 @@ mod packet_handlers {
     #[test]
     fn packetver_20250716_skill_packets_become_typed_events() {
         use ragnarok_packets::{
-            ClientTick, DisplaySkillCooldownPacket, ItemId, NotifyGroundSkillPacket, SkillId, SkillLevel, TilePosition,
-            ToUseSkillSuccessPacket, UseSkillSuccessPacket,
+            ClientTick, DisplaySkillCooldownPacket, ItemId, NotifyGroundSkillPacket, SkillCastCancelPacket, SkillId, SkillLevel,
+            TilePosition, ToUseSkillSuccessPacket, UseSkillSuccessPacket,
         };
 
         let cooldown = DisplaySkillCooldownPacket {
@@ -2328,6 +2328,17 @@ mod packet_handlers {
             level: SkillLevel(5),
             position: TilePosition { x: 10, y: 20 },
             start_time: ClientTick(42),
+        }]));
+
+        let cancel = SkillCastCancelPacket { entity_id: EntityId(11) };
+        let mut writer = ByteWriter::new();
+        cancel.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 6);
+        let HandlerResult::Ok(events) = handle_one(SupportedPacketVersion::_20250716, writer.as_slice()) else {
+            panic!("cast-cancel packet was not handled");
+        };
+        assert!(matches!(events.0.as_slice(), [NetworkEvent::SkillCastCancelled {
+            entity_id: EntityId(11),
         }]));
     }
 
