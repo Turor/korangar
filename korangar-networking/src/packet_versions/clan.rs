@@ -11,6 +11,7 @@ pub fn register_clan_packets<Callback>(packet_handler: &mut PacketHandler<Networ
 where
     Callback: PacketCallback,
 {
+    packet_handler.register(|packet: ragnarok_packets::ClanChatReceivedPacket| NetworkEvent::ClanChatMessage { text: packet.message })?;
     packet_handler.register(|packet: ClanInfoPacket| NetworkEvent::ClanInfo {
         clan_id: packet.clan_id,
         name: packet.clan_name,

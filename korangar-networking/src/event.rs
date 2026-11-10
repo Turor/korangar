@@ -1164,6 +1164,15 @@ pub enum NetworkEvent {
     AttendanceClaim {
         result: u32,
     },
+    /// Attendance calendar opened (`ZC_UI_OPEN` type 7).
+    AttendanceOpened {
+        days_attended: u32,
+        claimed_today: bool,
+    },
+    /// Clan chat line (`ZC_NOTIFY_CLAN_CHAT`, `0x098E`), `Name : text`.
+    ClanChatMessage {
+        text: String,
+    },
     /// Navigation destination (`ZC_NAVIGATION_ACTIVE`, `0x08E2`).
     /// `show_window` is the inverse of the packet's hide flag.
     NavigateTo {

@@ -257,6 +257,9 @@ pub enum OutgoingChat {
     },
     /// Guild channel. The caller formats `{name} : {text}` for `0x017E`.
     Guild(String),
+    /// Clan channel (`/cl` or `/clan`). The caller formats `{name} : {text}`
+    /// for `0x098D`.
+    Clan(String),
 }
 
 /// Scroll position of the chat message pane.
@@ -395,6 +398,9 @@ pub fn parse_outgoing_chat(raw: &str, whisper_target: &str, whisper_armed: bool,
     if let Some(guild) = parse_guild_command(trimmed) {
         return guild;
     }
+    if let Some(clan) = parse_clan_command(trimmed) {
+        return clan;
+    }
     if let Some((name, text)) = trimmed.split_once(" : ") {
         let name = name.trim();
         let text = text.trim();
@@ -419,6 +425,22 @@ pub fn parse_outgoing_chat(raw: &str, whisper_target: &str, whisper_armed: bool,
     }
 
     OutgoingChat::Public(trimmed.to_string())
+}
+
+fn parse_clan_command(trimmed: &str) -> Option<OutgoingChat> {
+    let rest = trimmed.strip_prefix("/clan ").or_else(|| trimmed.strip_prefix("/cl "))?;
+    let text = rest.trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(OutgoingChat::Clan(text.to_string()))
+    }
+}
+
+/// Clan lines arrive as `Name : text`. They have no channel or color of their
+/// own yet, so they keep a `[Clan]` tag.
+pub fn clan_chat_line(text: &str) -> String {
+    format!("[Clan] {}", text.trim_end_matches('\0'))
 }
 
 fn parse_guild_command(trimmed: &str) -> Option<OutgoingChat> {
@@ -737,6 +759,25 @@ mod tests {
         assert!(filters.allows_message(&system));
         assert!(filters.allows_message(&announce));
         assert!(!filters.allows_message(&public));
+    }
+
+    #[test]
+    fn clan_chat_commands_route_to_the_clan() {
+        assert!(matches!(
+            parse_outgoing_chat("/cl hello clan", "", false, false),
+            OutgoingChat::Clan(text) if text == "hello clan"
+        ));
+        assert!(matches!(
+            parse_outgoing_chat("/clan  meet up ", "", false, true),
+            OutgoingChat::Clan(text) if text == "meet up"
+        ));
+        // A bare command or a lookalike stays public.
+        assert!(matches!(parse_outgoing_chat("/cl", "", false, false), OutgoingChat::Public(_)));
+        assert!(matches!(
+            parse_outgoing_chat("/clear", "", false, false),
+            OutgoingChat::Public(_)
+        ));
+        assert_eq!(clan_chat_line("Bob : hi\0"), "[Clan] Bob : hi");
     }
 
     #[test]

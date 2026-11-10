@@ -3344,6 +3344,31 @@ impl Client {
                         .set_skills(skill_points, skills);
                     load_guild_skill_icons(&mut self.client_state, &self.async_loader, &self.library, &skill_ids);
                 }
+                NetworkEvent::ClanChatMessage { text } => {
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(state::chat::clan_chat_line(&text), MessageColor::Information));
+                }
+                NetworkEvent::AttendanceOpened {
+                    days_attended,
+                    claimed_today,
+                } => {
+                    let library = self.library.clone();
+                    let item_name = move |item_id: u32| {
+                        library
+                            .get::<ItemName>(ItemNameKey {
+                                item_id: ItemId(item_id),
+                                is_identified: true,
+                            })
+                            .to_string()
+                    };
+                    self.client_state
+                        .follow_mut(client_state().achievements())
+                        .open_attendance(days_attended, claimed_today, &item_name);
+                    if !self.interface.is_window_with_class_open(WindowClass::Attendance) {
+                        self.interface.open_window(AttendanceWindow);
+                    }
+                }
                 NetworkEvent::GuildChatMessage { text } => {
                     self.client_state
                         .follow_mut(client_state().chat_messages())
@@ -4385,6 +4410,18 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().achievements())
                         .apply_attendance_claim(result);
+                    let library = self.library.clone();
+                    let item_name = move |item_id: u32| {
+                        library
+                            .get::<ItemName>(ItemNameKey {
+                                item_id: ItemId(item_id),
+                                is_identified: true,
+                            })
+                            .to_string()
+                    };
+                    self.client_state
+                        .follow_mut(client_state().achievements())
+                        .mark_attendance_claimed(&item_name);
                 }
                 NetworkEvent::NavigateTo {
                     target_type,
@@ -5041,6 +5078,16 @@ impl Client {
                         }
                     }
                 }
+                InputEvent::ToggleAttendanceWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        if self.interface.is_window_with_class_open(WindowClass::Attendance) {
+                            self.interface.close_window_with_class(WindowClass::Attendance);
+                        } else {
+                            // The window opens when the server answers with ZC_UI_OPEN.
+                            let _ = self.networking_system.request_attendance_ui();
+                        }
+                    }
+                }
                 InputEvent::ToggleAchievementsWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::Achievements) {
@@ -5522,6 +5569,10 @@ impl Client {
                         state::chat::OutgoingChat::Guild(text) => {
                             let player_name = self.client_state.follow(client_state().player_name()).clone();
                             let _ = self.networking_system.send_guild_chat(&player_name, &text);
+                        }
+                        state::chat::OutgoingChat::Clan(text) => {
+                            let player_name = self.client_state.follow(client_state().player_name()).clone();
+                            let _ = self.networking_system.send_clan_chat(&player_name, &text);
                         }
                         state::chat::OutgoingChat::Public(text) => {
                             if let Some(entity_id) = self.client_state.try_follow(this_entity()).map(|player| player.get_entity_id()) {

@@ -5745,6 +5745,44 @@ pub struct ClanOnlineCountPacket {
 #[header(0x0989)]
 pub struct ClanLeaveAckPacket {}
 
+/// `CZ_CLAN_CHAT` (`0x098D`). Text is `Name : message`, like guild chat.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x098D)]
+#[variable_length]
+pub struct ClanChatPacket {
+    #[length_remaining_off_by_one]
+    pub message: String,
+}
+
+/// `ZC_NOTIFY_CLAN_CHAT` (`0x098E`). Hercules leaves `member_name` empty and
+/// sends `Name : message` in the text.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x098E)]
+#[variable_length]
+pub struct ClanChatReceivedPacket {
+    #[length(24)]
+    pub member_name: String,
+    #[length_remaining]
+    pub message: String,
+}
+
+/// `ZC_UI_OPEN` type for the attendance calendar. The payload is
+/// `days_attended * 10 + claimed_today`.
+pub const ATTENDANCE_UI_TYPE: u8 = 7;
+
+/// `CZ_OPEN_UI` type that asks for the attendance calendar.
+pub const CZ_ATTENDANCE_UI_TYPE: u8 = 5;
+
+/// `CZ_OPEN_UI` (`0x0A68`, 3 bytes).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A68)]
+pub struct OpenUiRequestPacket {
+    pub ui_type: u8,
+}
+
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0192)]
