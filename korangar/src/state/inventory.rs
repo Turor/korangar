@@ -14,18 +14,70 @@ pub struct Inventory {
     // TODO: Unhide this.
     #[hidden_element]
     items: Vec<InventoryItem<ResourceMetadata>>,
+    /// Item ids that have appeared in this inventory snapshot. A later delete
+    /// keeps the id so the hotbar can show a live stack of 0.
+    #[hidden_element]
+    seen_item_ids: Vec<u32>,
 }
 
 impl Inventory {
+    pub fn stacked_amount(&self, item_id: ItemId) -> u16 {
+        self.items
+            .iter()
+            .filter(|item| item.item_id == item_id)
+            .map(|item| match &item.details {
+                InventoryItemDetails::Regular { amount, .. } => *amount,
+                InventoryItemDetails::Equippable { .. } => 1,
+            })
+            .fold(0, u16::saturating_add)
+    }
+
+    pub fn find_by_item_id(&self, item_id: ItemId) -> Option<&InventoryItem<ResourceMetadata>> {
+        self.items.iter().find(|item| item.item_id == item_id)
+    }
+
+    /// `Some` once this id has been in the inventory, including a stack of 0
+    /// after it was removed. `None` means the hotkey count is the only source.
+    pub fn known_amount(&self, item_id: ItemId) -> Option<u16> {
+        self.seen_item_ids.contains(&item_id.0).then(|| self.stacked_amount(item_id))
+    }
+
+    fn remember(&mut self, item_id: ItemId) {
+        if !self.seen_item_ids.contains(&item_id.0) {
+            self.seen_item_ids.push(item_id.0);
+        }
+    }
+
+    fn replace_seen(&mut self, item_ids: impl IntoIterator<Item = ItemId>) {
+        self.seen_item_ids.clear();
+        for item_id in item_ids {
+            self.remember(item_id);
+        }
+    }
+
+    /// Names and icons for hotbar item slots. The hotkey packet has no texture.
+    pub fn item_visuals(&self) -> Vec<(u32, String, Option<Arc<Texture>>)> {
+        self.items
+            .iter()
+            .map(|item| (item.item_id.0, item.metadata.name.clone(), item.metadata.texture.clone()))
+            .collect()
+    }
+
     pub fn fill(&mut self, async_loader: &AsyncLoader, items: Vec<InventoryItem<NoMetadata>>) {
         self.items = items
             .into_iter()
             .map(|item| async_loader.request_inventory_item_metadata_load(item))
             .collect();
+        let seen = self.items.iter().map(|item| item.item_id).collect::<Vec<_>>();
+        self.replace_seen(seen);
     }
 
-    pub fn add_item(&mut self, async_loader: &AsyncLoader, item: InventoryItem<NoMetadata>) {
-        if let Some(found_item) = self.items.iter_mut().find(|inventory_item| inventory_item.index == item.index) {
+    /// Returns the name and icon so a hotbar slot bound before this item
+    /// arrived can pick up a cached texture. A later sprite load fills the
+    /// icon when this returns `None`.
+    pub fn add_item(&mut self, async_loader: &AsyncLoader, item: InventoryItem<NoMetadata>) -> (u32, String, Option<Arc<Texture>>) {
+        if let Some(position) = self.items.iter().position(|inventory_item| inventory_item.index == item.index) {
+            let found_item = &mut self.items[position];
             let InventoryItemDetails::Regular { amount, .. } = &mut found_item.details else {
                 panic!();
             };
@@ -35,11 +87,18 @@ impl Inventory {
             };
 
             *amount += added_amount;
-        } else {
-            let item = async_loader.request_inventory_item_metadata_load(item);
-
-            self.items.push(item);
+            let item_id = found_item.item_id;
+            let visual = (item_id.0, found_item.metadata.name.clone(), found_item.metadata.texture.clone());
+            self.remember(item_id);
+            return visual;
         }
+
+        let item = async_loader.request_inventory_item_metadata_load(item);
+        let item_id = item.item_id;
+        let visual = (item_id.0, item.metadata.name.clone(), item.metadata.texture.clone());
+        self.remember(item_id);
+        self.items.push(item);
+        visual
     }
 
     pub fn update_item_sprite(&mut self, item_id: ItemId, texture: Arc<Texture>) {
@@ -504,5 +563,28 @@ mod tests {
         assert!(!inventory.insert_card(InventoryIndex(2), 5));
         assert_eq!(inventory.items[0].slot, [1, 2, 3, 4]);
         assert!(!inventory.insert_card(InventoryIndex(9), 5));
+    }
+
+    #[test]
+    fn known_amount_stays_zero_after_the_stack_is_removed() {
+        let mut inventory = Inventory::default();
+        assert!(inventory.known_amount(ItemId(501)).is_none());
+
+        inventory.items.push(regular(1, 0, 10, true));
+        inventory.remember(ItemId(501));
+        assert_eq!(inventory.known_amount(ItemId(501)), Some(10));
+
+        inventory.remove_item(InventoryIndex(1), 10);
+        assert_eq!(inventory.known_amount(ItemId(501)), Some(0));
+        assert!(inventory.known_amount(ItemId(502)).is_none());
+    }
+
+    #[test]
+    fn a_new_inventory_snapshot_forgets_ids_that_are_not_in_it() {
+        let mut inventory = Inventory::default();
+        inventory.remember(ItemId(501));
+        inventory.replace_seen([ItemId(502)]);
+        assert!(inventory.known_amount(ItemId(501)).is_none());
+        assert_eq!(inventory.known_amount(ItemId(502)), Some(0));
     }
 }

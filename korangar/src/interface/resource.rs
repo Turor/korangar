@@ -4,12 +4,21 @@ use ragnarok_packets::{EquipPosition, HotbarSlot};
 pub enum ItemSource {
     Inventory,
     Cart,
-    Equipment { position: EquipPosition },
+    Equipment {
+        position: EquipPosition,
+    },
     Storage,
+    Hotbar {
+        tab: ragnarok_packets::HotbarTab,
+        slot: HotbarSlot,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SkillSource {
     SkillTree,
-    Hotbar { slot: HotbarSlot },
+    Hotbar {
+        tab: ragnarok_packets::HotbarTab,
+        slot: HotbarSlot,
+    },
 }

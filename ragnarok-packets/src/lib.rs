@@ -2305,14 +2305,18 @@ pub struct UpdateSkillTreePacket {
     pub skill_information: Vec<SkillInformation>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ByteConvertable)]
+/// Hercules `hotkey_data.isSkill`: `0` item, `1` skill. The numeric value is
+/// the wire flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub enum HotkeyType {
     Item,
     Skill,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ByteConvertable)]
+/// One saved hotkey. Layout matches Hercules `struct hotkey_data` (7 bytes):
+/// `int8 isSkill`, `uint32 id`, `int16 count`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct HotkeyData {
     pub hotkey_type: HotkeyType,
@@ -2326,6 +2330,27 @@ impl HotkeyData {
         item_or_skill_id: 0,
         quantity_or_skill_level: 0,
     };
+
+    /// Hercules `isSkill` flag. Skill is `1`, item is `0`.
+    pub const fn is_skill(self) -> bool {
+        matches!(self.hotkey_type, HotkeyType::Skill)
+    }
+
+    pub const fn skill(skill_id: u32, level: u16) -> Self {
+        Self {
+            hotkey_type: HotkeyType::Skill,
+            item_or_skill_id: skill_id,
+            quantity_or_skill_level: level,
+        }
+    }
+
+    pub const fn item(item_id: u32, amount: u16) -> Self {
+        Self {
+            hotkey_type: HotkeyType::Item,
+            item_or_skill_id: item_id,
+            quantity_or_skill_level: amount,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
@@ -2352,6 +2377,16 @@ pub struct SetHotkeyData2Packet {
     pub tab: HotbarTab,
     pub slot: HotbarSlot,
     pub hotkey_data: HotkeyData,
+}
+
+/// `CZ_SHORTCUTKEYBAR_ROTATE2` (`0x0B22`). `tab` is `u16`, `rowshift` is `u8`.
+/// Packet length is 5, matching the 20250716 framing table.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B22)]
+pub struct SetHotkeyRowShiftPacket {
+    pub tab: HotbarTab,
+    pub row_shift: u8,
 }
 
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
@@ -6874,4 +6909,100 @@ pub struct RouletteGenerateAckPacket {
 pub struct RouletteClaimAckPacket {
     pub result: u8,
     pub item_id: u32,
+}
+
+#[cfg(test)]
+mod hotkey_wire_tests {
+    use ragnarok_bytes::{ByteReader, ByteWriter, FromBytes, ToBytes};
+
+    use super::*;
+
+    #[test]
+    fn hotkey_is_skill_flag_roundtrips_hercules_layout() {
+        let skill = HotkeyData::skill(42, 7);
+        let item = HotkeyData::item(501, 10);
+        assert!(skill.is_skill());
+        assert!(!item.is_skill());
+        assert!(!HotkeyData::UNBOUND.is_skill());
+
+        let mut writer = ByteWriter::new();
+        skill.to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[1, 42, 0, 0, 0, 7, 0]);
+
+        let mut writer = ByteWriter::new();
+        item.to_bytes(&mut writer).unwrap();
+        // 501 = 0x01F5
+        assert_eq!(writer.as_slice(), &[0, 0xF5, 0x01, 0, 0, 10, 0]);
+
+        let mut reader = ByteReader::without_metadata(&[1, 42, 0, 0, 0, 7, 0]);
+        assert_eq!(HotkeyData::from_bytes(&mut reader).unwrap(), skill);
+    }
+
+    #[test]
+    fn set_hotkey_data2_is_thirteen_bytes() {
+        let packet = SetHotkeyData2Packet::new(HotbarTab(1), HotbarSlot(2), HotkeyData::skill(42, 7));
+        let mut writer = ByteWriter::new();
+        packet.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[
+            0x21, 0x0B, // header
+            0x01, 0x00, // tab
+            0x02, 0x00, // index
+            0x01, 42, 0, 0, 0, 7, 0, // isSkill, id, level
+        ]);
+        assert_eq!(writer.len(), 13);
+
+        let mut reader = ByteReader::without_metadata(writer.as_slice());
+        let decoded = SetHotkeyData2Packet::packet_from_bytes(&mut reader).unwrap();
+        assert!(reader.is_empty());
+        assert_eq!(decoded.tab, HotbarTab(1));
+        assert_eq!(decoded.slot, HotbarSlot(2));
+        assert!(decoded.hotkey_data.is_skill());
+        assert_eq!(decoded.hotkey_data.item_or_skill_id, 42);
+    }
+
+    #[test]
+    fn update_hotkeys_packet_is_two_tabs_worth_of_slots() {
+        let mut hotkeys = [HotkeyData::UNBOUND; 38];
+        hotkeys[3] = HotkeyData::item(501, 10);
+        let packet = UpdateHotkeysPacket {
+            rotate: 2,
+            tab: HotbarTab(1),
+            hotkeys,
+        };
+        let mut writer = ByteWriter::new();
+        packet.packet_to_bytes(&mut writer).unwrap();
+        // header 2 + rotate 1 + tab 2 + 38 * 7 = 271
+        assert_eq!(writer.len(), 271);
+        let bytes = writer.into_inner();
+        assert_eq!(&bytes[0..5], &[0x20, 0x0B, 2, 1, 0]);
+        let slot3 = 5 + 3 * 7;
+        assert_eq!(&bytes[slot3..slot3 + 7], &[0, 0xF5, 0x01, 0, 0, 10, 0]);
+
+        let mut reader = ByteReader::without_metadata(&bytes);
+        let decoded = UpdateHotkeysPacket::packet_from_bytes(&mut reader).unwrap();
+        assert!(reader.is_empty());
+        assert_eq!(decoded.rotate, 2);
+        assert_eq!(decoded.tab, HotbarTab(1));
+        assert!(!decoded.hotkeys[3].is_skill());
+        assert_eq!(decoded.hotkeys[3].item_or_skill_id, 501);
+        assert!(decoded.hotkeys[0] == HotkeyData::UNBOUND);
+    }
+
+    #[test]
+    fn row_shift_packet_is_five_bytes() {
+        let packet = SetHotkeyRowShiftPacket::new(HotbarTab(1), 3);
+        let mut writer = ByteWriter::new();
+        packet.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0x22, 0x0B, 1, 0, 3]);
+    }
+
+    #[test]
+    fn use_item_packet_is_eight_bytes() {
+        let packet = UseItemPacket::new(InventoryIndex(4), AccountId(0x0102_0304));
+        let mut writer = ByteWriter::new();
+        packet.packet_to_bytes(&mut writer).unwrap();
+        // InventoryIndex writes the Hercules wire index (logical + 2).
+        assert_eq!(writer.as_slice(), &[0x39, 0x04, 6, 0, 4, 3, 2, 1]);
+        assert_eq!(writer.len(), 8);
+    }
 }

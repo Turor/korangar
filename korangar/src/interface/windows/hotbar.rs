@@ -1,30 +1,33 @@
-use korangar_components::skill_box;
 use korangar_interface::window::{CustomWindow, Window};
-use ragnarok_packets::HotbarSlot;
-use rust_state::{ArrayLookupExt, OptionExt, Path};
+use rust_state::Path;
 
-use crate::interface::resource::SkillSource;
+use crate::input::InputEvent;
+use crate::interface::components::hotbar_grid::HotbarGrid;
 use crate::interface::windows::WindowClass;
+use crate::state::hotbar::Hotbar;
+use crate::state::inventory::Inventory;
 use crate::state::localization::LocalizationPathExt;
-use crate::state::skills::{LearnableSkill, LearnedSkill, LearnedSkillPath};
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, ClientStatePathExt, client_state};
 
-pub struct HotbarWindow<A, B, const N: usize> {
-    hotbar_path: A,
-    skills_path: B,
+pub struct HotbarWindow<H, I> {
+    hotbar_path: H,
+    inventory_path: I,
 }
 
-impl<A, B, const N: usize> HotbarWindow<A, B, N> {
-    pub fn new(hotbar_path: A, skills_path: B) -> Self {
-        Self { hotbar_path, skills_path }
+impl<H, I> HotbarWindow<H, I> {
+    pub fn new(hotbar_path: H, inventory_path: I) -> Self {
+        Self {
+            hotbar_path,
+            inventory_path,
+        }
     }
 }
 
-impl<A, B, const N: usize> CustomWindow<ClientState> for HotbarWindow<A, B, N>
+impl<H, I> CustomWindow<ClientState> for HotbarWindow<H, I>
 where
-    A: Path<ClientState, [Option<LearnableSkill>; N]>,
-    B: Path<ClientState, Vec<LearnedSkill>>,
+    H: Path<ClientState, Hotbar> + Copy,
+    I: Path<ClientState, Inventory> + Copy,
 {
     fn window_class() -> Option<WindowClass> {
         Some(WindowClass::Hotbar)
@@ -40,21 +43,34 @@ where
             closable: false,
             minimum_width: 420.0,
             maximum_width: 640.0,
+            minimum_height: 72.0,
+            maximum_height: 280.0,
             elements: (
                 split! {
                     gaps: theme().window().gaps(),
-                    children: std::array::from_fn::<_, N, _>(|slot| {
-                        let learnable_skill_path = self.hotbar_path.array_index(slot).unwrapped();
-                        let learned_skill_path = LearnedSkillPath::new(learnable_skill_path, self.skills_path);
-
-                        skill_box! {
-                            learnable_skill_path,
-                            learned_skill_path,
-                            source: SkillSource::Hotbar { slot: HotbarSlot(slot as u16) },
-                        }
-                    }),
+                    children: (
+                        button! {
+                            text: "Tab",
+                            event: InputEvent::SwitchHotbarTab,
+                        },
+                        button! {
+                            text: "Rows",
+                            event: InputEvent::CycleHotbarRows,
+                        },
+                        button! {
+                            text: "Rotate",
+                            event: InputEvent::RotateHotbar,
+                        },
+                        button! {
+                            text: "Keys",
+                            event: InputEvent::ToggleKeybindsWindow,
+                        },
+                    ),
                 },
-            )
+                scroll_view! {
+                    children: HotbarGrid::new(self.hotbar_path, self.inventory_path),
+                },
+            ),
         }
     }
 }

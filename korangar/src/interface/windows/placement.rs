@@ -131,9 +131,9 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
     };
     let mut hotbar = HudFrame {
         left: 0.0,
-        top: screen_height - 48.0 * scale - margin,
+        top: screen_height - 96.0 * scale - margin,
         width: 420.0 * scale,
-        height: 48.0 * scale,
+        height: 96.0 * scale,
     };
     hotbar.left = (screen_width - hotbar.width) / 2.0;
 
@@ -221,6 +221,13 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
     }
     if hotbar.top < chat.top && frames_overlap_x(hotbar, chat) {
         hotbar.top = chat.top;
+        hotbar.height = (screen_height - margin - hotbar.top).max(32.0);
+    }
+    // Gear keeps its 500px reference height. On a 1024x576 screen that reaches
+    // the bottom-center hotbar, so the bar sits under Gear instead of covering it.
+    // Taller screens still open the bar at 96px.
+    if frames_overlap_x(hotbar, gear) && hotbar.top < gear.bottom() {
+        hotbar.top = gear.bottom();
         hotbar.height = (screen_height - margin - hotbar.top).max(32.0);
     }
 

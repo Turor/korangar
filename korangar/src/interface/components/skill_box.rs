@@ -1,3 +1,8 @@
+// The hotbar draws its own grid. `skill_box!` still names `SkillBox`, but no
+// call site in this crate expands that macro, so rustc treats the module as
+// dead.
+#![allow(dead_code)]
+
 use korangar_interface::MouseMode;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::{BaseLayoutInfo, Element};

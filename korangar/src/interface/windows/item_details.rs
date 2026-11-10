@@ -16,6 +16,7 @@ pub fn item_details_key(source: ItemSource, item: &InventoryItem<ResourceMetadat
         ItemSource::Cart => 2,
         ItemSource::Storage => 3,
         ItemSource::Equipment { position } => 16 + position.bits() as u64,
+        ItemSource::Hotbar { tab, slot } => 0x1000 + u64::from(tab.0) * 64 + u64::from(slot.0),
     };
     ((item.index.0 as u64) << 32) ^ ((item.item_id.0 as u64) << 8) ^ source_tag
 }

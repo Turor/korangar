@@ -8,7 +8,7 @@ use std::mem::variant_count;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use ragnarok_packets::{ClientTick, HotbarSlot};
+use ragnarok_packets::ClientTick;
 use winit::dpi::PhysicalPosition;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 use winit::keyboard::KeyCode;
@@ -273,130 +273,55 @@ impl InputSystem {
         &self.keys[key_code as usize]
     }
 
+    pub fn key_down(&self, key_code: KeyCode) -> bool {
+        self.get_key(key_code).down()
+    }
+
+    pub fn key_pressed(&self, key_code: KeyCode) -> bool {
+        self.get_key(key_code).pressed()
+    }
+
+    pub fn key_released(&self, key_code: KeyCode) -> bool {
+        self.get_key(key_code).released()
+    }
+
+    /// Escape cancels keybind capture. Otherwise it follows the window stack
+    /// (`InputEvent::Escape`). F10 reloads themes and Alt+0 toggles the world
+    /// map; the other game chords live in the keybind map. Debug chords stay
+    /// hard-coded and are skipped while a row is capturing.
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
     pub fn handle_keyboard_input(
         &mut self,
         events: &mut Vec<InputEvent>,
+        capturing: bool,
         #[cfg(feature = "debug")] process_mouse: bool,
         #[cfg(feature = "debug")] use_debug_camera: bool,
-    ) {
-        let alt_down = self.get_key(KeyCode::AltLeft).down();
-        let control_down = self.get_key(KeyCode::ControlLeft).down();
-
+    ) -> bool {
         if self.get_key(KeyCode::Escape).pressed() {
+            if capturing {
+                self.input_buffer.clear();
+                return true;
+            }
             events.push(InputEvent::Escape);
+        }
+
+        if capturing {
+            self.input_buffer.clear();
+            return false;
         }
 
         if self.get_key(KeyCode::F10).pressed() {
             events.push(InputEvent::ReloadTheme);
         }
 
-        if alt_down && self.get_key(KeyCode::KeyE).pressed() {
-            events.push(InputEvent::ToggleInventoryWindow);
-        }
-
-        if alt_down && self.get_key(KeyCode::KeyS).pressed() {
-            events.push(InputEvent::ToggleSkillTreeWindow);
-        }
-
-        if alt_down && self.get_key(KeyCode::KeyA).pressed() {
-            events.push(InputEvent::ToggleStatsWindow);
-        }
-
-        if alt_down && self.get_key(KeyCode::KeyZ).pressed() {
-            events.push(InputEvent::ToggleFriendListWindow);
-        }
-
-        if alt_down && self.get_key(KeyCode::KeyG).pressed() {
-            events.push(InputEvent::ToggleGuildWindow);
-        }
-
-        if alt_down && self.get_key(KeyCode::KeyC).pressed() {
-            events.push(InputEvent::ToggleClanWindow);
-        }
-
-        if alt_down && self.get_key(KeyCode::KeyF).pressed() {
-            events.push(InputEvent::ToggleItemFinderWindow);
-        }
-
-        if alt_down && self.get_key(KeyCode::KeyQ).pressed() {
-            events.push(InputEvent::ToggleEquipmentWindow);
-        }
-
-        if control_down && self.get_key(KeyCode::KeyS).pressed() {
-            events.push(InputEvent::ToggleGameSettingsWindow);
-        }
-
-        if control_down && self.get_key(KeyCode::KeyI).pressed() {
-            events.push(InputEvent::ToggleInterfaceSettingsWindow);
-        }
-
-        if control_down && self.get_key(KeyCode::KeyG).pressed() {
-            events.push(InputEvent::ToggleGraphicsSettingsWindow);
-        }
-
-        if control_down && self.get_key(KeyCode::KeyA).pressed() {
-            events.push(InputEvent::ToggleAudioSettingsWindow);
-        }
-
-        if control_down && self.get_key(KeyCode::KeyH).pressed() {
-            events.push(InputEvent::ToggleShowInterface);
-        }
-
-        if control_down && self.get_key(KeyCode::KeyQ).pressed() {
-            events.push(InputEvent::CloseTopWindow);
-        }
-
-        // The first nine emotions, matching the Alt + 1-9 binds of the
-        // official client.
-        const EMOTION_KEYS: [KeyCode; 9] = [
-            KeyCode::Digit1,
-            KeyCode::Digit2,
-            KeyCode::Digit3,
-            KeyCode::Digit4,
-            KeyCode::Digit5,
-            KeyCode::Digit6,
-            KeyCode::Digit7,
-            KeyCode::Digit8,
-            KeyCode::Digit9,
-        ];
-
-        for (emotion, key_code) in EMOTION_KEYS.into_iter().enumerate() {
-            if alt_down && self.get_key(key_code).pressed() {
-                events.push(InputEvent::SendEmotion { emotion: emotion as u8 });
-            }
-        }
-
-        // roBrowser world map is Alt+0 (digit 0). Either Alt key toggles it.
-        // Other Alt shortcuts stay on the left Alt key.
-        let either_alt = alt_down || self.get_key(KeyCode::AltRight).down();
+        // roBrowser world map is Alt+0. Either Alt key toggles it.
+        let either_alt = self.get_key(KeyCode::AltLeft).down() || self.get_key(KeyCode::AltRight).down();
         if either_alt && self.get_key(KeyCode::Digit0).pressed() {
             events.push(InputEvent::ToggleWorldMap);
         }
 
-        if self.get_key(KeyCode::KeyJ).pressed() {
-            events.push(InputEvent::CastSkill { slot: HotbarSlot(0) });
-        }
-
-        if self.get_key(KeyCode::KeyJ).released() {
-            events.push(InputEvent::StopSkill { slot: HotbarSlot(0) });
-        }
-
-        if self.get_key(KeyCode::KeyL).pressed() {
-            events.push(InputEvent::CastSkill { slot: HotbarSlot(1) });
-        }
-
-        if self.get_key(KeyCode::KeyL).released() {
-            events.push(InputEvent::StopSkill { slot: HotbarSlot(1) });
-        }
-
-        if self.get_key(KeyCode::KeyU).pressed() {
-            events.push(InputEvent::CastSkill { slot: HotbarSlot(2) });
-        }
-
-        if self.get_key(KeyCode::KeyU).released() {
-            events.push(InputEvent::StopSkill { slot: HotbarSlot(2) });
-        }
+        #[cfg(feature = "debug")]
+        let control_down = self.get_key(KeyCode::ControlLeft).down();
 
         #[cfg(feature = "debug")]
         if control_down && self.get_key(KeyCode::KeyM).pressed() {
@@ -471,6 +396,7 @@ impl InputSystem {
         }
 
         self.input_buffer.clear();
+        false
     }
 }
 

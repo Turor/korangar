@@ -83,7 +83,7 @@ use crate::interface::windows::{ProfilerWindowState, ThemeInspectorWindowState};
 use crate::loaders::{ClientInfo, FontLoader, FontSize, GameFileLoader, OverflowBehavior, load_client_info};
 use crate::renderer::InterfaceRenderer;
 use crate::settings::{
-    GameSettings, GraphicsSettingsCapabilities, InterfaceSettings, InterfaceSettingsCapabilities, LoginSettings, ServiceSettings,
+    GameSettings, GraphicsSettingsCapabilities, InterfaceSettings, InterfaceSettingsCapabilities, Keybinds, LoginSettings, ServiceSettings,
     session_theme_name,
 };
 use crate::state::achievements::Achievements;
@@ -197,6 +197,8 @@ pub struct ClientState {
     audio_settings: AudioSettings,
     /// Saved game settings.
     game_settings: GameSettings,
+    /// Saved keyboard shortcuts. Escape is not a bind.
+    keybinds: Keybinds,
     /// Saved interface settings.
     interface_settings: InterfaceSettings,
     /// Interface capabilities used in the interface settings window.
@@ -441,6 +443,7 @@ impl ClientState {
             let mut login_settings = LoginSettings::new();
             let audio_settings = AudioSettings::new();
             let game_settings = GameSettings::new();
+            let keybinds = Keybinds::new();
             let interface_settings = InterfaceSettings::new();
             let interface_settings_capabilities = InterfaceSettingsCapabilities::default();
         });
@@ -613,6 +616,7 @@ impl ClientState {
             login_settings,
             audio_settings,
             game_settings,
+            keybinds,
             interface_settings,
             interface_settings_capabilities,
             graphics_settings,
