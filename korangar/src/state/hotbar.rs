@@ -3,11 +3,14 @@ use std::sync::Arc;
 use korangar_interface::element::StateElement;
 use korangar_networking::{InventoryItem, InventoryItemDetails, NetworkingSystem};
 use ragnarok_packets::handler::PacketCallback;
-use ragnarok_packets::{EntityId, HotbarSlot, HotbarTab, HotkeyData, HotkeyType, ItemId, SkillId, SkillLevel, SkillType, TilePosition};
+use ragnarok_packets::{
+    EntityId, EquipPosition, HotbarSlot, HotbarTab, HotkeyData, HotkeyType, ItemId, SkillId, SkillLevel, SkillType, TilePosition,
+};
 use rust_state::RustState;
 
 use crate::graphics::{PickerTarget, Texture};
 use crate::loaders::Sprite;
+use crate::state::inventory::{ItemActivation, item_activation};
 use crate::state::skills::{LearnableSkill, LearnedSkill};
 use crate::world::{Actions, ResourceMetadata};
 
@@ -29,6 +32,8 @@ pub enum InventoryHint {
     Consumable,
     Equipped,
     Unequipped,
+    /// Present in the inventory, but not a usable or equippable item.
+    Inactive,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,7 +46,7 @@ pub enum HotbarDispatch {
 }
 
 /// Decide what a hotbar press does. Skills cast. Consumables become `UseItem`.
-/// Equipment equips or unequips.
+/// Equipment equips or unequips. An item the inventory would ignore does nothing.
 pub fn dispatch_hotbar(kind: u8, skill_id: u16, level: u16, item_id: u32, stack: Option<InventoryHint>) -> HotbarDispatch {
     match kind {
         CELL_SKILL => HotbarDispatch::CastSkill { skill_id, level },
@@ -49,21 +54,45 @@ pub fn dispatch_hotbar(kind: u8, skill_id: u16, level: u16, item_id: u32, stack:
             Some(InventoryHint::Consumable) | None => HotbarDispatch::UseItem { item_id },
             Some(InventoryHint::Unequipped) => HotbarDispatch::Equip { item_id },
             Some(InventoryHint::Equipped) => HotbarDispatch::Unequip { item_id },
+            Some(InventoryHint::Inactive) => HotbarDispatch::None,
         },
         _ => HotbarDispatch::None,
     }
 }
 
+/// What pressing a hotbar item does. This follows [`item_activation`]: potions
+/// are used, identified ammo and equipment are equipped, and cards or
+/// unidentified ammo are ignored. Gear that is already worn is taken off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HotbarItemPress {
+    Use,
+    Equip { position: EquipPosition },
+    Unequip,
+    Ignore,
+}
+
+pub fn hotbar_item_press<Meta>(item: &InventoryItem<Meta>) -> HotbarItemPress {
+    if let InventoryItemDetails::Equippable { equipped_position, .. } = &item.details
+        && !equipped_position.is_empty()
+    {
+        return HotbarItemPress::Unequip;
+    }
+
+    match item_activation(item) {
+        ItemActivation::Use => HotbarItemPress::Use,
+        ItemActivation::Equip { position } => HotbarItemPress::Equip { position },
+        ItemActivation::Ignore => HotbarItemPress::Ignore,
+    }
+}
+
+/// Classifies a bag item for [`dispatch_hotbar`]. Identified ammo is equipment,
+/// not a consumable. Cards and unidentified ammo are [`InventoryHint::Inactive`].
 pub fn inventory_hint(item: &InventoryItem<ResourceMetadata>) -> InventoryHint {
-    match &item.details {
-        InventoryItemDetails::Regular { .. } => InventoryHint::Consumable,
-        InventoryItemDetails::Equippable { equipped_position, .. } => {
-            if equipped_position.is_empty() {
-                InventoryHint::Unequipped
-            } else {
-                InventoryHint::Equipped
-            }
-        }
+    match hotbar_item_press(item) {
+        HotbarItemPress::Use => InventoryHint::Consumable,
+        HotbarItemPress::Equip { .. } => InventoryHint::Unequipped,
+        HotbarItemPress::Unequip => InventoryHint::Equipped,
+        HotbarItemPress::Ignore => InventoryHint::Inactive,
     }
 }
 
@@ -92,15 +121,6 @@ pub struct HotbarCell {
 }
 
 impl HotbarCell {
-    pub fn dispatch(&self, stack: Option<InventoryHint>) -> HotbarDispatch {
-        let (skill_id, level) = self
-            .skill
-            .as_ref()
-            .map(|skill| (skill.skill_id.0, skill.maximum_level.0))
-            .unwrap_or((0, 0));
-        dispatch_hotbar(self.kind, skill_id, level, self.item_id, stack)
-    }
-
     pub fn to_hotkey(&self) -> HotkeyData {
         match self.kind {
             CELL_SKILL => {
@@ -446,7 +466,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    use korangar_networking::{InventoryItem, InventoryItemDetails};
+    use ragnarok_packets::{EquipPosition, InventoryIndex, ItemId, RegularItemFlags};
+
     use super::*;
+    use crate::world::ResourceMetadata;
 
     #[test]
     fn item_and_skill_dispatch_differ() {
@@ -467,6 +491,50 @@ mod tests {
             HotbarDispatch::Unequip { item_id: 1201 }
         );
         assert_eq!(dispatch_hotbar(CELL_EMPTY, 1, 1, 1, None), HotbarDispatch::None);
+        assert_eq!(
+            dispatch_hotbar(CELL_ITEM, 0, 0, 4001, Some(InventoryHint::Inactive)),
+            HotbarDispatch::None
+        );
+    }
+
+    fn regular_stack(item_type: u8, identified: bool) -> InventoryItem<ResourceMetadata> {
+        InventoryItem {
+            metadata: ResourceMetadata {
+                texture: None,
+                name: String::new(),
+                description: String::new(),
+            },
+            index: InventoryIndex(4),
+            item_id: ItemId(1750),
+            item_type,
+            slot: [0; 4],
+            hire_expiration_date: 0,
+            details: InventoryItemDetails::Regular {
+                amount: 10,
+                equipped_position: EquipPosition::empty(),
+                flags: if identified {
+                    RegularItemFlags::IDENTIFIED
+                } else {
+                    RegularItemFlags::empty()
+                },
+            },
+        }
+    }
+
+    #[test]
+    fn identified_ammo_equips_and_unusable_items_are_ignored() {
+        assert_eq!(
+            hotbar_item_press(&regular_stack(10, true)),
+            HotbarItemPress::Equip {
+                position: EquipPosition::AMMO,
+            }
+        );
+        assert_eq!(hotbar_item_press(&regular_stack(10, false)), HotbarItemPress::Ignore);
+        assert_eq!(hotbar_item_press(&regular_stack(6, true)), HotbarItemPress::Ignore);
+        assert_eq!(hotbar_item_press(&regular_stack(0, true)), HotbarItemPress::Use);
+        assert_eq!(inventory_hint(&regular_stack(10, true)), InventoryHint::Unequipped);
+        assert_eq!(inventory_hint(&regular_stack(10, false)), InventoryHint::Inactive);
+        assert_eq!(inventory_hint(&regular_stack(0, true)), InventoryHint::Consumable);
     }
 
     #[test]

@@ -88,8 +88,8 @@ use settings::{
 use state::character_slots::CharacterSlotsExt;
 use state::equip_switch::{EquipSwitchPathExt, switch_delta};
 use state::hotbar::{
-    CELL_ITEM, CELL_SKILL, HOTBAR_SLOTS, HOTBAR_TABS, HotbarDispatch, cast_bound_skill, cell_item_id, inventory_hint,
-    stop_bound_skill,
+    CELL_ITEM, CELL_SKILL, HOTBAR_SLOTS, HOTBAR_TABS, HotbarDispatch, HotbarItemPress, cast_bound_skill, dispatch_hotbar, hotbar_item_press,
+    inventory_hint, stop_bound_skill,
 };
 use state::inventory::{GroundDrop, InventoryPathExt, ItemActivation, ThrowUpdate, ground_drop, item_activation, use_ack_targets_self};
 use state::localization::Localization;
@@ -238,24 +238,36 @@ fn initialize_shutdown_signal() {
 fn activate_hotbar_slot<Callback>(
     state: &State<ClientState>,
     networking_system: &mut NetworkingSystem<Callback>,
-    account_id: Option<AccountId>,
     tab: HotbarTab,
     slot: HotbarSlot,
     mouse_target: PickerTarget,
 ) where
     Callback: ragnarok_packets::handler::PacketCallback + Send,
 {
-    let item_id = state.follow(client_state().hotbar()).cell(tab, slot).and_then(cell_item_id);
-    let hint = item_id.and_then(|item_id| {
+    let preview = state.follow(client_state().hotbar()).cell(tab, slot).map(|cell| {
+        let (skill_id, level) = cell
+            .skill
+            .as_ref()
+            .map(|skill| (skill.skill_id.0, skill.maximum_level.0))
+            .unwrap_or((0, 0));
+        (cell.kind, skill_id, level, cell.item_id)
+    });
+    let Some((kind, skill_id, level, item_id)) = preview else {
+        return;
+    };
+
+    let item = if kind == CELL_SKILL {
+        None
+    } else {
         state
             .follow(client_state().inventory())
-            .find_by_item_id(item_id)
-            .map(inventory_hint)
-    });
-    let dispatch = state.follow(client_state().hotbar()).cell(tab, slot).map(|cell| cell.dispatch(hint));
+            .find_by_item_id(ItemId(item_id))
+            .cloned()
+    };
+    let dispatch = dispatch_hotbar(kind, skill_id, level, item_id, item.as_ref().map(inventory_hint));
 
     match dispatch {
-        Some(HotbarDispatch::CastSkill { .. }) => {
+        HotbarDispatch::CastSkill { .. } => {
             let Some(learnable) = state.follow(client_state().hotbar()).skill_in_slot(tab, slot).cloned() else {
                 return;
             };
@@ -273,38 +285,28 @@ fn activate_hotbar_slot<Callback>(
                 cast_bound_skill(networking_system, &learnable, &learned, mouse_target, player_entity_id);
             }
         }
-        Some(HotbarDispatch::UseItem { item_id }) => {
-            let index = state
-                .follow(client_state().inventory())
-                .find_by_item_id(ItemId(item_id))
-                .map(|item| item.index);
-            if let Some(index) = index
-                && let Some(account_id) = account_id
-            {
-                let _ = networking_system.use_inventory_item(index, account_id);
-            }
-        }
-        Some(HotbarDispatch::Equip { item_id }) => {
-            let request = state.follow(client_state().inventory()).find_by_item_id(ItemId(item_id)).and_then(|item| {
-                match &item.details {
-                    InventoryItemDetails::Equippable { equip_position, .. } => Some((item.index, *equip_position)),
-                    InventoryItemDetails::Regular { .. } => None,
+        HotbarDispatch::UseItem { .. } | HotbarDispatch::Equip { .. } | HotbarDispatch::Unequip { .. } => {
+            // Same split as the inventory UseItem handler. This runs inside the
+            // input drain, so it sends the packet instead of queueing another
+            // InputEvent::UseItem. Identified ammo is a regular stack and equips
+            // in the ammo slot. Cards and unidentified ammo do nothing.
+            let Some(item) = item else {
+                return;
+            };
+            match hotbar_item_press(&item) {
+                HotbarItemPress::Use => {
+                    let _ = networking_system.use_item(item.index);
                 }
-            });
-            if let Some((index, position)) = request {
-                let _ = networking_system.request_item_equip(index, position);
+                HotbarItemPress::Equip { position } => {
+                    let _ = networking_system.request_item_equip(item.index, position);
+                }
+                HotbarItemPress::Unequip => {
+                    let _ = networking_system.request_item_unequip(item.index);
+                }
+                HotbarItemPress::Ignore => {}
             }
         }
-        Some(HotbarDispatch::Unequip { item_id }) => {
-            let index = state
-                .follow(client_state().inventory())
-                .find_by_item_id(ItemId(item_id))
-                .map(|item| item.index);
-            if let Some(index) = index {
-                let _ = networking_system.request_item_unequip(index);
-            }
-        }
-        _ => {}
+        HotbarDispatch::None => {}
     }
 }
 
@@ -5723,7 +5725,6 @@ impl Client {
                     activate_hotbar_slot(
                         &self.client_state,
                         &mut self.networking_system,
-                        self.saved_login_data.as_ref().map(|login| login.account_id),
                         HotbarTab(0),
                         slot,
                         input_report.mouse_target,
@@ -5748,7 +5749,6 @@ impl Client {
                     activate_hotbar_slot(
                         &self.client_state,
                         &mut self.networking_system,
-                        self.saved_login_data.as_ref().map(|login| login.account_id),
                         tab,
                         slot,
                         input_report.mouse_target,
