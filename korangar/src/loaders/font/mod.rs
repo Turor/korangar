@@ -1,4 +1,5 @@
 mod color_span_iterator;
+mod fallback;
 mod font_file;
 mod layout_key;
 mod slug;
@@ -26,6 +27,7 @@ use serde::{Deserialize, Serialize};
 use wgpu::{Device, Queue};
 
 use self::color_span_iterator::ColorSpanIterator;
+use self::fallback::{CjkFallback, embedded_font};
 use self::slug::SlugFontData;
 use super::GameFileLoader;
 use crate::graphics::{Color, ScreenSize, SlugFont};
@@ -192,13 +194,18 @@ impl FontLoader {
     pub fn new(fonts: &[String], game_file_loader: &GameFileLoader, device: &Device, queue: &Queue) -> Self {
         assert_ne!(fonts.len(), 0, "no font defined");
 
-        let mut font_system = FontSystem::new_with_locale_and_db(Self::system_locale(), fontdb::Database::new());
+        let mut font_system = FontSystem::new_with_locale_and_db_and_fallback(Self::system_locale(), fontdb::Database::new(), CjkFallback);
         let mut glyph_cache = HashMap::new();
         let mut slug_data = SlugFontData::default();
 
         let fonts: Vec<FontFile> = fonts
             .iter()
-            .filter_map(|font_name| FontFile::new(font_name, game_file_loader, &mut font_system, &mut slug_data))
+            .filter_map(|font_name| {
+                FontFile::new(font_name, game_file_loader, &mut font_system, &mut slug_data).or_else(|| {
+                    let bytes = embedded_font(font_name)?;
+                    FontFile::from_bytes(font_name, bytes, &mut font_system, &mut slug_data)
+                })
+            })
             .collect();
 
         let primary_font_family = Self::extract_primary_font_family(&font_system, &fonts);

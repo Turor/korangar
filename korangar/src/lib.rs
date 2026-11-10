@@ -559,7 +559,7 @@ impl Client {
             ));
             let video_loader = Arc::new(VideoLoader::new(game_file_loader.clone(), texture_loader.clone()));
             let font_loader = Arc::new(FontLoader::new(
-                &["NotoSans".to_owned(), "NotoSansKR".to_owned()],
+                &["NotoSans".to_owned(), "NotoSansKR".to_owned(), "NotoSansJP".to_owned()],
                 &game_file_loader,
                 &device,
                 &queue,
