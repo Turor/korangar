@@ -50,6 +50,16 @@ pub struct GuildMemberSnapshot {
     pub contribution: i32,
 }
 
+/// One line of this client's own vend or buying store.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnShopLine {
+    /// Wire cart index for a vend. Buying stores send 0.
+    pub index: u16,
+    pub item_id: ItemId,
+    pub amount: u16,
+    pub price: u32,
+}
+
 /// One row from a shop-search result (`0x0B64`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchStoreHit {
@@ -509,9 +519,27 @@ pub enum NetworkEvent {
         item_count: u16,
     },
     /// The server accepted this client's vend or buying store.
+    ///
+    /// `index` on each line is the wire cart index for a vend (stored index +
+    /// 2). Buying-store lines have no cart index and use 0.
     OwnPlayerShopOpened {
-        item_count: usize,
         buying_store: bool,
+        lines: Vec<OwnShopLine>,
+    },
+    /// The server opened the buying-store setup (`0x0810`).
+    BuyingStorePrepare {
+        item_count: u8,
+    },
+    /// `ZC_ACK_OPENSTORE2` (`0x0A28`). 0 is success.
+    VendingOpenResult {
+        result: u8,
+    },
+    /// One stack left this client's vend (`0x09E5`).
+    VendingSold {
+        index: u16,
+        amount: u16,
+        zeny: u32,
+        date: u32,
     },
     /// Result of buying from a player vend. `result == 0` is success.
     VendingPurchaseResult {

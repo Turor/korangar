@@ -560,6 +560,41 @@ pub enum InputEvent {
     StylingShopReset,
     /// Close the styling shop and tell the server.
     StylingShopClose,
+    /// Select one cart or bag row in the shop setup window.
+    SelectShopDraft {
+        index: usize,
+    },
+    /// Write the amount and price boxes onto the selected shop row.
+    CommitShopDraft,
+    /// Take the selected row back off the shop.
+    UnlistShopDraft,
+    /// Send the open-shop packet when the draft is valid.
+    SubmitShopSetup,
+    /// Tell the server the shop setup was cancelled.
+    CancelShopSetup,
+    /// Close this client's open vend or buying store.
+    CloseOwnShop,
+    /// Fill the shop-search picker from the item name query.
+    SuggestShopSearch,
+    /// Add one picker row to the search.
+    AddShopSearchItem {
+        index: usize,
+    },
+    /// Remove one selected search item.
+    RemoveShopSearchItem {
+        index: usize,
+    },
+    /// Send the search-store query.
+    SubmitShopSearch,
+    /// Ask for the next search-store page.
+    ShopSearchNextPage,
+    /// Close the search store.
+    CloseShopSearch,
+    /// `buying` selects buying stores. Otherwise the search looks at vending
+    /// shops.
+    SetShopSearchBuying {
+        buying: bool,
+    },
     /// Level up a skill.
     LevelUpSkills {
         /// List of skills to level up by one. This list is allowed to contain

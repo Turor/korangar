@@ -35,8 +35,8 @@ pub use self::entity::EntityData;
 pub use self::equip_switch::EquipSwitchSlotPathExt;
 pub use self::equip_switch::{EquipSwitchSlot, assign_slot, position_label, replace_slots};
 pub use self::event::{
-    CashShopOffer, DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, NetworkEvent, RefineMaterialOffer,
-    RoulettePrize, SearchStoreHit, StatusChangeState,
+    CashShopOffer, DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, NetworkEvent, OwnShopLine,
+    RefineMaterialOffer, RoulettePrize, SearchStoreHit, StatusChangeState,
 };
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
@@ -107,6 +107,68 @@ impl TimeSynchronization {
         let tick_adjustment = (round_trip_time / 2.0) * 1000.0;
         self.client_tick = f64::from(server_tick) + tick_adjustment;
         self.client_tick as u32
+    }
+}
+
+/// Last-resort cut so `packet_to_bytes` cannot panic on `DataTooBig`.
+/// The setup window rejects a title that does not fit this UTF-8 budget
+/// before it asks to send. Map packets use `ByteWriter::with_encoding(UTF_8)`.
+fn shop_title(shop_name: &str) -> String {
+    let mut title = String::new();
+    for character in shop_name.chars() {
+        let next = title.len() + character.len_utf8();
+        if next > 79 {
+            break;
+        }
+        title.push(character);
+    }
+    title
+}
+
+fn open_vending_shop_packet(shop_name: &str, result: u8, items: &[(u16, u16, u32)]) -> OpenVendingShop2Packet {
+    OpenVendingShop2Packet {
+        shop_name: shop_title(shop_name),
+        result,
+        items: items
+            .iter()
+            .copied()
+            .map(|(stored_index, amount, price)| OpenVendingItemInformation {
+                inventory_index: stored_index_to_wire(stored_index),
+                amount,
+                price: Price(price),
+            })
+            .collect(),
+    }
+}
+
+fn open_buying_store_packet(shop_name: &str, zeny_limit: u32, result: u8, items: &[(u32, u16, u32)]) -> OpenBuyingStorePacket {
+    OpenBuyingStorePacket {
+        zeny_limit,
+        result,
+        shop_name: shop_title(shop_name),
+        items: items
+            .iter()
+            .copied()
+            .map(|(item_id, amount, price)| OpenBuyingStoreItem {
+                item_id: ItemId(item_id),
+                amount,
+                price: Price(price),
+            })
+            .collect(),
+    }
+}
+
+fn search_store_packet(buying: bool, min_price: u32, max_price: u32, item_ids: &[u32]) -> SearchStoreInfoPacket {
+    let items: Vec<ItemId> = item_ids.iter().copied().take(255).map(ItemId).collect();
+    let item_count = u8::try_from(items.len()).unwrap_or(u8::MAX);
+    SearchStoreInfoPacket {
+        search_type: u8::from(buying),
+        max_price,
+        min_price,
+        item_count,
+        card_count: 0,
+        items,
+        cards: Vec::new(),
     }
 }
 
@@ -1512,6 +1574,9 @@ where
     }
 
     /// Sell one inventory stack into an open buying store.
+    ///
+    /// `inventory_index` is the stored inventory index. The packet writes that
+    /// index plus 2.
     pub fn sell_to_buying_store(
         &mut self,
         account_id: AccountId,
@@ -1526,7 +1591,7 @@ where
                     account_id,
                     store_id,
                     items: vec![SellToBuyingStoreInformation {
-                        inventory_index,
+                        inventory_index: stored_index_to_wire_i16(inventory_index),
                         item_id,
                         amount,
                     }],
@@ -1534,21 +1599,75 @@ where
         }
     }
 
-    /// Open this client's vend. `items` are `(inventory index, amount, price)`.
+    /// Open this client's vend (`0x01B2`). `items` are `(stored index, amount,
+    /// price)`.
     pub fn open_vending_shop(&mut self, shop_name: &str, items: &[(u16, u16, u32)]) -> Result<(), NotConnectedError> {
-        let shop_name = shop_name.chars().take(79).collect::<String>();
-        let items = items
-            .iter()
-            .copied()
-            .map(|(inventory_index, amount, price)| OpenVendingItemInformation {
-                inventory_index,
-                amount,
-                price: Price(price),
-            })
-            .collect();
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
-                self.send_map_server_packet(OpenVendingShopPacket { shop_name, items })
+                self.send_map_server_packet(open_vending_shop_packet(shop_name, 1, items))
+            }
+        }
+    }
+
+    /// Leave vending setup without opening (`0x01B2` with result 0).
+    pub fn cancel_open_vending_shop(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(open_vending_shop_packet("", 0, &[]))
+            }
+        }
+    }
+
+    /// Open a buying store (`0x0811`). `items` are `(item id, amount, price)`.
+    pub fn open_buying_store(&mut self, shop_name: &str, zeny_limit: u32, items: &[(u32, u16, u32)]) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(open_buying_store_packet(shop_name, zeny_limit, 1, items))
+            }
+        }
+    }
+
+    /// Leave buying-store setup without opening.
+    pub fn cancel_open_buying_store(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(open_buying_store_packet("", 0, 0, &[]))
+            }
+        }
+    }
+
+    /// Close this client's buying store (`0x0815`).
+    pub fn close_buying_store(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(CloseBuyingStorePacket {})
+            }
+        }
+    }
+
+    /// Search vending shops (`buying == false`) or buying stores (`0x0835`).
+    pub fn search_stores(&mut self, buying: bool, min_price: u32, max_price: u32, item_ids: &[u32]) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(search_store_packet(buying, min_price, max_price, item_ids))
+            }
+        }
+    }
+
+    /// Ask for the next search-store page (`0x0838`).
+    pub fn search_store_next_page(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(SearchStoreNextPagePacket {})
+            }
+        }
+    }
+
+    /// Close the search store (`0x083B`).
+    pub fn close_search_store(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(SearchStoreClosePacket {})
             }
         }
     }
@@ -3978,7 +4097,7 @@ mod packet_handlers {
             VendingPurchaseInformation, VendingShopItem, VendingShopListPacket,
         };
 
-        assert_eq!(VendingShopItem::size_in_bytes(), 64);
+        assert_eq!(VendingShopItem::size_in_bytes(), 79);
         let empty_option = || ItemOptions {
             index: 0,
             value: 0,
@@ -3998,6 +4117,7 @@ mod packet_handlers {
                 damaged: 0,
                 cards: [0; 4],
                 options: std::array::from_fn(|_| empty_option()),
+                forge_data: std::array::from_fn(|_| empty_option()),
                 location: 0,
                 view_sprite: 0,
                 refine: 0,
@@ -4007,6 +4127,7 @@ mod packet_handlers {
         let mut writer = ByteWriter::new();
         list.packet_to_bytes(&mut writer).unwrap();
         assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0B3D);
+        assert_eq!(writer.as_slice().len(), 2 + 2 + 4 + 4 + 79);
 
         for version in [SupportedPacketVersion::_20250716, SupportedPacketVersion::_20220406] {
             let events = process_one(version, writer.as_slice());
@@ -4080,48 +4201,213 @@ mod packet_handlers {
     #[test]
     fn search_store_result_is_typed() {
         use ragnarok_bytes::FixedByteSize;
-        use ragnarok_packets::{AccountId, ItemId, ItemOptions, Price, SearchStoreHitInformation, SearchStoreResultPacket};
+        use ragnarok_packets::{AccountId, ItemId, Price, SearchStoreHitInformation, SearchStoreResultPacket};
 
-        assert_eq!(SearchStoreHitInformation::size_in_bytes(), 142);
+        // Hercules `PACKET_ZC_SEARCH_STORE_INFO_ACK_sub` (20200916+): 157 bytes,
+        // with `forge_data[3]` between the five item options and refine.
+        assert_eq!(SearchStoreHitInformation::size_in_bytes(), 157);
 
-        let packet = SearchStoreResultPacket {
-            first_page: 1,
-            next_page: 0,
-            uses_remaining: 2,
-            hits: vec![SearchStoreHitInformation {
-                store_id: 15,
-                account_id: AccountId(4),
-                shop_name: "Arrow shop".to_owned(),
-                item_id: ItemId(1750),
-                item_type: 0,
-                price: Price(10),
-                amount: 99,
-                cards: [0; 4],
-                options: std::array::from_fn(|_| ItemOptions {
-                    index: 0,
-                    value: 0,
-                    parameter: 0,
-                }),
-                refine: 0,
-                grade: 0,
-            }],
+        fn hit(store_id: u32, forge_index: u16, refine: u8) -> Vec<u8> {
+            let mut row = Vec::new();
+            row.extend(store_id.to_le_bytes());
+            row.extend(4u32.to_le_bytes());
+            let mut name = b"Arrow shop".to_vec();
+            name.resize(80, 0);
+            row.extend(name);
+            row.extend(1750u32.to_le_bytes());
+            row.push(0);
+            row.extend(10u32.to_le_bytes());
+            row.extend(99u16.to_le_bytes());
+            row.extend([0u8; 16]);
+            row.extend([0u8; 25]);
+            row.extend(forge_index.to_le_bytes());
+            row.extend([0u8; 3]);
+            row.extend([0u8; 10]);
+            row.push(refine);
+            row.push(1);
+            assert_eq!(row.len(), 157);
+            row
+        }
+
+        fn frame(next_page: u8, hits: &[Vec<u8>]) -> Vec<u8> {
+            let len = 7 + hits.iter().map(Vec::len).sum::<usize>();
+            let mut bytes = Vec::new();
+            bytes.extend(0x0B64u16.to_le_bytes());
+            bytes.extend((len as u16).to_le_bytes());
+            bytes.push(1);
+            bytes.push(next_page);
+            bytes.push(2);
+            for hit in hits {
+                bytes.extend(hit);
+            }
+            bytes
+        }
+
+        let one = frame(0, &[hit(15, 100, 7)]);
+        assert_eq!(one.len(), 7 + 157);
+        let two = frame(1, &[hit(15, 100, 7), hit(16, 101, 6)]);
+        assert_eq!(two.len(), 7 + 157 * 2);
+
+        let mut reader = ByteReader::without_metadata(&two);
+        let parsed = SearchStoreResultPacket::packet_from_bytes(&mut reader).unwrap();
+        assert!(reader.is_empty());
+        assert_eq!(parsed.hits.len(), 2);
+        assert_eq!(parsed.hits[0].store_id, 15);
+        assert_eq!(parsed.hits[0].account_id, AccountId(4));
+        assert_eq!(parsed.hits[0].shop_name, "Arrow shop");
+        assert_eq!(parsed.hits[0].item_id, ItemId(1750));
+        assert_eq!(parsed.hits[0].price, Price(10));
+        assert_eq!(parsed.hits[0].amount, 99);
+        assert_eq!(parsed.hits[0].forge_data[0].index, 100);
+        assert_eq!(parsed.hits[0].refine, 7);
+        assert_eq!(parsed.hits[0].grade, 1);
+        assert_eq!(parsed.hits[1].store_id, 16);
+        assert_eq!(parsed.hits[1].forge_data[0].index, 101);
+        assert_eq!(parsed.hits[1].refine, 6);
+
+        for version in [SupportedPacketVersion::_20250716, SupportedPacketVersion::_20220406] {
+            let events = process_one(version, &one);
+            assert!(matches!(events.as_slice(), [NetworkEvent::SearchStoreResults {
+                first_page: true,
+                next_page: false,
+                uses_remaining: 2,
+                hits,
+            }] if hits.len() == 1
+                && hits[0].store_id == 15
+                && hits[0].account_id == AccountId(4)
+                && hits[0].shop_name == "Arrow shop"
+                && hits[0].item_id == ItemId(1750)
+                && hits[0].amount == 99));
+            let events = process_one(version, &two);
+            assert!(matches!(events.as_slice(), [NetworkEvent::SearchStoreResults {
+                first_page: true,
+                next_page: true,
+                uses_remaining: 2,
+                hits,
+            }] if hits.len() == 2 && hits[1].store_id == 16));
+        }
+        assert!(matches!(
+            map_handler(SupportedPacketVersion::_20190530).process_one(&mut ByteReader::without_metadata(&one)),
+            HandlerResult::UnhandledPacket
+        ));
+    }
+
+    #[test]
+    fn own_shop_setup_packets_shift_indexes_and_parse_reports() {
+        use ragnarok_packets::{AccountId, ItemId, Price};
+
+        let opened = super::open_vending_shop_packet("Pot", 1, &[(2, 2, 100)]);
+        assert_eq!(opened.result, 1);
+        assert_eq!(opened.items[0].inventory_index, 4);
+        assert_eq!(opened.items[0].amount, 2);
+
+        let buying = super::open_buying_store_packet("Hi", 10_000, 1, &[(501, 3, 50)]);
+        assert_eq!(buying.zeny_limit, 10_000);
+        assert_eq!(buying.items[0].item_id, ItemId(501));
+
+        let search = super::search_store_packet(false, 1, 10, &[1750]);
+        assert_eq!(search.search_type, 0);
+        assert_eq!(search.item_count, 1);
+        assert_eq!(search.items, vec![ItemId(1750)]);
+        assert_eq!(super::search_store_packet(true, 0, 0, &[501]).search_type, 1);
+
+        let sold = [
+            0xE5, 0x09, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00,
+        ];
+        let prepare = [0x10, 0x08, 0x03];
+        let ack = [0x28, 0x0A, 0x00];
+        for version in [SupportedPacketVersion::_20250716, SupportedPacketVersion::_20220406] {
+            assert!(matches!(process_one(version, &sold).as_slice(), [NetworkEvent::VendingSold {
+                index: 4,
+                amount: 1,
+                zeny: 100,
+                date: 0,
+            }]));
+            assert!(matches!(process_one(version, &prepare).as_slice(), [
+                NetworkEvent::BuyingStorePrepare { item_count: 3 }
+            ]));
+            assert!(matches!(process_one(version, &ack).as_slice(), [
+                NetworkEvent::VendingOpenResult { result: 0 }
+            ]));
+        }
+        assert!(matches!(
+            map_handler(SupportedPacketVersion::_20190530).process_one(&mut ByteReader::without_metadata(&sold)),
+            HandlerResult::UnhandledPacket
+        ));
+
+        // 20250716 vend rows are 79 bytes (`0x0B3D`) and own rows are 73 (`0x0B40`),
+        // including `forge_data[3]`.
+        let shop_row = {
+            let mut item = vec![0u8; 79];
+            item[..4].copy_from_slice(&120u32.to_le_bytes());
+            item[4..6].copy_from_slice(&4u16.to_le_bytes());
+            item[6..8].copy_from_slice(&3i16.to_le_bytes());
+            item[9..13].copy_from_slice(&501u32.to_le_bytes());
+            item
         };
-        let mut writer = ByteWriter::new();
-        packet.packet_to_bytes(&mut writer).unwrap();
-        assert_eq!(&writer.as_slice()[..2], &[0x64, 0x0B]);
+        let mut second_shop = shop_row.clone();
+        second_shop[..4].copy_from_slice(&121u32.to_le_bytes());
+        second_shop[6..8].copy_from_slice(&4i16.to_le_bytes());
+        let shop_lists = [vec![shop_row.clone()], vec![shop_row, second_shop]];
+        let own_row = {
+            let mut item = vec![0u8; 73];
+            item[..4].copy_from_slice(&50u32.to_le_bytes());
+            item[4..6].copy_from_slice(&4i16.to_le_bytes());
+            item[6..8].copy_from_slice(&2i16.to_le_bytes());
+            item[9..13].copy_from_slice(&501u32.to_le_bytes());
+            item
+        };
+        let mut second_own = own_row.clone();
+        second_own[..4].copy_from_slice(&51u32.to_le_bytes());
+        second_own[4..6].copy_from_slice(&5i16.to_le_bytes());
+        let own_lists = [vec![own_row.clone()], vec![own_row, second_own]];
 
-        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
-        assert!(matches!(events.as_slice(), [NetworkEvent::SearchStoreResults {
-            first_page: true,
-            next_page: false,
-            uses_remaining: 2,
-            hits,
-        }] if hits.len() == 1
-            && hits[0].store_id == 15
-            && hits[0].account_id == AccountId(4)
-            && hits[0].shop_name == "Arrow shop"
-            && hits[0].item_id == ItemId(1750)
-            && hits[0].amount == 99));
+        for version in [SupportedPacketVersion::_20250716, SupportedPacketVersion::_20220406] {
+            for (count, rows) in shop_lists.iter().enumerate() {
+                let mut bytes = Vec::new();
+                let len = 4 + 8 + rows.iter().map(Vec::len).sum::<usize>();
+                bytes.extend(0x0B3Du16.to_le_bytes());
+                bytes.extend((len as u16).to_le_bytes());
+                bytes.extend(9u32.to_le_bytes());
+                bytes.extend(77u32.to_le_bytes());
+                for row in rows {
+                    bytes.extend(row);
+                }
+                let events = process_one(version, &bytes);
+                assert!(matches!(events.as_slice(), [NetworkEvent::PlayerShopOpened {
+                    account_id: AccountId(9),
+                    store_id: 77,
+                    buying_store: false,
+                    items,
+                    indexes,
+                }] if items.len() == count + 1
+                    && indexes.len() == count + 1
+                    && items[0].item_id == ItemId(501)
+                    && items[0].price == Price(120)
+                    && indexes[0] == 3
+                    && (count == 0 || (items[1].price == Price(121) && indexes[1] == 4))));
+            }
+            for (count, rows) in own_lists.iter().enumerate() {
+                let mut bytes = Vec::new();
+                let len = 4 + 4 + rows.iter().map(Vec::len).sum::<usize>();
+                bytes.extend(0x0B40u16.to_le_bytes());
+                bytes.extend((len as u16).to_le_bytes());
+                bytes.extend(9u32.to_le_bytes());
+                for row in rows {
+                    bytes.extend(row);
+                }
+                let events = process_one(version, &bytes);
+                assert!(matches!(events.as_slice(), [NetworkEvent::OwnPlayerShopOpened {
+                    buying_store: false,
+                    lines,
+                }] if lines.len() == count + 1
+                    && lines[0].index == 4
+                    && lines[0].item_id == ItemId(501)
+                    && lines[0].amount == 2
+                    && lines[0].price == 50
+                    && (count == 0 || (lines[1].index == 5 && lines[1].price == 51))));
+            }
+        }
     }
 
     #[test]

@@ -4,6 +4,7 @@
 pub mod handler;
 mod item_use;
 pub mod pincode;
+mod player_shops;
 mod position;
 mod styling;
 pub mod version_20190530;
@@ -26,6 +27,7 @@ pub use self::pincode::{
     MakeSecondPasswdResultPacket, PINCODE_BASE_SEED, PINCODE_LENGTH, PINCODE_MULTIPLIER, SecondPasswdLogin2Packet,
     advance_pincode_visual_seed, decrypt_pincode, encrypt_pincode, pincode_decrypt_table, pincode_keypad,
 };
+pub use self::player_shops::*;
 pub use self::position::{Direction, WorldPosition, WorldPosition2};
 pub use self::styling::{
     CloseStyleShopPacket, RequestStyleChange2Packet, RequestStyleChangePacket, STYLIST_UI_TYPE, StyleChangeResultPacket,
@@ -5622,6 +5624,8 @@ pub struct VendingShopItem {
     pub damaged: u8,
     pub cards: [u32; 4],
     pub options: [ItemOptions; 5],
+    /// `ItemOptions forge_data[MAX_FORGE_OPTIONS]` (3 × 5 bytes) on 20250716.
+    pub forge_data: [ItemOptions; 3],
     pub location: u32,
     pub view_sprite: u16,
     pub refine: u8,
@@ -5663,6 +5667,8 @@ pub struct OwnVendingItem {
     pub damaged: u8,
     pub cards: [u32; 4],
     pub options: [ItemOptions; 5],
+    /// `ItemOptions forge_data[MAX_FORGE_OPTIONS]` (3 × 5 bytes) on 20250716.
+    pub forge_data: [ItemOptions; 3],
     pub refine: u8,
     pub grade: u8,
 }
@@ -5749,7 +5755,9 @@ pub struct SearchStoreFailedPacket {
 }
 
 /// One search-store hit for PACKETVER main >= 20200916
-/// (`ZC_SEARCH_STORE_INFO_ACK`, 0x0B64).
+/// (`ZC_SEARCH_STORE_INFO_ACK`, 0x0B64). Hercules
+/// `PACKET_ZC_SEARCH_STORE_INFO_ACK_sub` is 157 bytes: the five item options
+/// are followed by `forge_data[MAX_FORGE_OPTIONS]`.
 #[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct SearchStoreHitInformation {
@@ -5763,6 +5771,8 @@ pub struct SearchStoreHitInformation {
     pub amount: u16,
     pub cards: [u32; 4],
     pub options: [ItemOptions; 5],
+    /// `ItemOptions forge_data[MAX_FORGE_OPTIONS]` (3 × 5 bytes) on 20250716.
+    pub forge_data: [ItemOptions; 3],
     pub refine: u8,
     pub grade: u8,
 }

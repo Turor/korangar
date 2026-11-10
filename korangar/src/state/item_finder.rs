@@ -233,6 +233,19 @@ impl ItemFinderState {
         }
     }
 
+    pub fn catalog_is_empty(&self) -> bool {
+        self.catalog.is_empty()
+    }
+
+    /// Name picker for shop search. A numeric query is an exact item id.
+    pub fn name_matches(&self, query: &str, limit: usize) -> Vec<(u32, String)> {
+        crate::state::player_shops::match_item_names(
+            self.catalog.items.iter().map(|item| (item.id, item.name.as_str())),
+            query,
+            limit,
+        )
+    }
+
     pub fn search(&mut self) {
         if self.catalog.is_empty() {
             self.rows.clear();
