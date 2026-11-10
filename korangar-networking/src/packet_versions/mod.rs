@@ -15,6 +15,7 @@ pub mod guild;
 pub mod item_skill_selection;
 pub mod item_use;
 pub mod item_workshop;
+pub mod misc_info;
 pub mod mvp_minimap;
 pub mod npc_dialog;
 pub mod party;
