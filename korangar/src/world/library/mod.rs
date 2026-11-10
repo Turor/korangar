@@ -136,7 +136,7 @@ impl QuestTextSource for Library {
         self.quest_displays.get(&quest_id)
     }
 
-    pub fn monster_name(&self, mob_id: u32) -> Option<&str> {
+    fn monster_name(&self, mob_id: u32) -> Option<&str> {
         self.monster_names.get(&mob_id).map(String::as_str)
     }
 
