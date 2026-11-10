@@ -328,17 +328,31 @@ fn aside_path(dest: &Path) -> PathBuf {
 }
 
 fn self_check(exe: &Path) -> Result<(), String> {
-    let output = Command::new(exe)
-        .arg("--update-self-check")
-        .env("KORANGAR_SKIP_UPDATE", "1")
-        .output()
-        .map_err(|error| error.to_string())?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    if output.status.success() && stdout.contains(SELF_CHECK_TOKEN) {
-        Ok(())
-    } else {
-        Err("self-check failed".into())
+    // Retry spawn failures. Parallel tests (and a tight runner) can return
+    // EAGAIN from the first exec; an unsuccessful status is final.
+    let mut last_error = String::from("self-check failed");
+    for attempt in 0..5 {
+        match Command::new(exe)
+            .arg("--update-self-check")
+            .env("KORANGAR_SKIP_UPDATE", "1")
+            .output()
+        {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if output.status.success() && stdout.contains(SELF_CHECK_TOKEN) {
+                    return Ok(());
+                }
+                return Err("self-check failed".into());
+            }
+            Err(error) => {
+                last_error = error.to_string();
+                if attempt + 1 < 5 {
+                    std::thread::sleep(Duration::from_millis(20 * (attempt + 1)));
+                }
+            }
+        }
     }
+    Err(last_error)
 }
 
 fn make_executable(path: &Path) -> Result<(), String> {
