@@ -15,6 +15,7 @@ mod object;
 mod particles;
 mod pathing;
 mod sound;
+mod sprite_paths;
 mod video;
 
 use std::sync::Arc;
