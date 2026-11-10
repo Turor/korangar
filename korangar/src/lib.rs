@@ -88,7 +88,7 @@ use settings::{
 use state::character_slots::CharacterSlotsExt;
 use state::equip_switch::{EquipSwitchPathExt, switch_delta};
 use state::hotbar::{
-    CELL_ITEM, CELL_SKILL, HOTBAR_SLOTS, HOTBAR_TABS, HotbarDispatch, HotbarPathExt, cast_bound_skill, cell_item_id, inventory_hint,
+    CELL_ITEM, CELL_SKILL, HOTBAR_SLOTS, HOTBAR_TABS, HotbarDispatch, cast_bound_skill, cell_item_id, inventory_hint,
     stop_bound_skill,
 };
 use state::inventory::{GroundDrop, InventoryPathExt, ItemActivation, ThrowUpdate, ground_drop, item_activation, use_ack_targets_self};
