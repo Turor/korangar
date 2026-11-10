@@ -9,10 +9,9 @@ use ragnarok_packets::{AccountId, MvpMinimapEntry, TilePosition};
 use rust_state::{Path, RustState, State};
 
 use super::WindowClass;
-use crate::state::theme::{ThemeTokensPathExt};
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::loaders::{FontSize, OverflowBehavior};
-use crate::state::theme::InterfaceThemePathExt;
+use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt};
 use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme, this_entity};
 
 /// Square minimap in interface pixels.

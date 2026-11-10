@@ -1,11 +1,8 @@
 use korangar_interface::window::{CustomWindow, Window};
 
-use crate::state::client_theme;
-use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt, ChatThemePathExt};
-use crate::graphics::Color;
 use crate::state::localization::LocalizationPathExt;
-use crate::state::theme::InterfaceThemeType;
-use crate::state::{ClientState, ClientStatePathExt, client_state};
+use crate::state::theme::{ChatThemePathExt, InterfaceThemePathExt, InterfaceThemeType};
+use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 
 pub struct ErrorWindow {
     message: String,

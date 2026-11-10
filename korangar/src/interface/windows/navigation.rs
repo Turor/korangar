@@ -12,11 +12,9 @@ use rust_state::{Path, State};
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
-use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt};
-use crate::state::client_theme;
-use crate::state::ClientState;
 use crate::state::navigation::{Navigation, NavigationTarget};
-use crate::state::theme::InterfaceThemeType;
+use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
+use crate::state::{ClientState, client_theme};
 
 const MAP_SIZE: f32 = 180.0;
 const ROW_HEIGHT: f32 = 16.0;

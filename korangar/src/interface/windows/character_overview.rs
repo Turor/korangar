@@ -1,15 +1,12 @@
 use korangar_interface::window::{CustomWindow, Window};
 use rust_state::Path;
 
-use crate::state::client_theme;
-use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt};
-use crate::graphics::Color;
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::loaders::OverflowBehavior;
 use crate::state::localization::LocalizationPathExt;
-use crate::state::theme::InterfaceThemeType;
-use crate::state::{ClientState, ClientStatePathExt, client_state};
+use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
+use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 
 pub struct CharacterOverviewWindow<A, B, C> {
     player_name_path: A,

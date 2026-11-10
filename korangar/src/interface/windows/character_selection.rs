@@ -5,8 +5,6 @@ use korangar_interface::layout::{Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::window::{CustomWindow, Window};
 use rust_state::{Path, PathExt, State};
 
-use crate::state::client_theme;
-use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt};
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::state::character_screen::CharacterScreenPathExt;
@@ -29,11 +27,11 @@ mod character_slot_preview {
     use ragnarok_packets::{CharacterInformation, CharacterInformationPathExt};
     use rust_state::{ManuallyAssertExt, Path, State};
 
-    use crate::graphics::{Color, CornerDiameter, ScreenPosition, ScreenSize, ShadowPadding};
+    use crate::graphics::{CornerDiameter, ScreenPosition, ScreenSize, ShadowPadding};
     use crate::input::InputEvent;
     use crate::loaders::{FontSize, OverflowBehavior};
     use crate::state::character_screen::{DeletionPhase, deletion_phase, format_countdown, unix_now};
-    use crate::state::theme::InterfaceThemePathExt;
+    use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt};
     use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 
     pub struct OverlayHandler<A, B> {

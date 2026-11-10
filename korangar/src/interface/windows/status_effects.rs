@@ -8,14 +8,11 @@ use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
 use rust_state::{Path, State};
 
-use crate::graphics::Color;
 use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
-use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt};
-use crate::state::client_theme;
-use crate::state::ClientState;
 use crate::state::status_effects::StatusEffects;
-use crate::state::theme::InterfaceThemeType;
+use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
+use crate::state::{ClientState, client_theme};
 
 struct StatusEffectsElement<A> {
     status_effects_path: A,

@@ -17,10 +17,8 @@ use crate::InputEvent;
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::renderer::LayoutExt;
-use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt};
-use crate::state::client_theme;
-use crate::state::ClientState;
-use crate::state::theme::InterfaceThemeType;
+use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
+use crate::state::{ClientState, client_theme};
 use crate::world::ResourceMetadata;
 
 struct PartialEqDisplayStr<T> {

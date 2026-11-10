@@ -12,11 +12,9 @@ use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
-use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt};
-use crate::state::client_theme;
-use crate::state::ClientState;
 use crate::state::achievements::Achievements;
-use crate::state::theme::InterfaceThemeType;
+use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
+use crate::state::{ClientState, client_theme};
 
 struct AchievementListElement<A> {
     path: A,
@@ -80,7 +78,13 @@ where
             width: (layout_info.area.width - 8.0).max(1.0),
             height: 8.0,
         };
-        paint_bar(layout, bar, fraction_after(rank, "exp "), *state.get(&client_theme().tokens().accent()), *state.get(&client_theme().tokens().raised()));
+        paint_bar(
+            layout,
+            bar,
+            fraction_after(rank, "exp "),
+            *state.get(&client_theme().tokens().accent()),
+            *state.get(&client_theme().tokens().raised()),
+        );
 
         let rows: Vec<&str> = lines.iter().skip(1).map(String::as_str).collect();
         let rows = if rows.is_empty() { vec!["No achievements"] } else { rows };
@@ -114,7 +118,13 @@ where
                 width: (layout_info.area.width - 8.0).max(1.0),
                 height: 6.0,
             };
-            paint_bar(layout, row_bar, fraction_in_parens(row), *state.get(&client_theme().tokens().accent2()), *state.get(&client_theme().tokens().raised()));
+            paint_bar(
+                layout,
+                row_bar,
+                fraction_in_parens(row),
+                *state.get(&client_theme().tokens().accent2()),
+                *state.get(&client_theme().tokens().raised()),
+            );
         }
     }
 }

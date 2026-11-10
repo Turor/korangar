@@ -22,7 +22,7 @@ use ragnarok_packets::{EquipPosition, StatUpType};
 use rust_state::{ManuallyAssertExt, Path, PathExt, Selector, State, VecIndexExt};
 
 use crate::ItemSource;
-use crate::graphics::{Color, CornerDiameter, ShadowPadding};
+use crate::graphics::{CornerDiameter, ShadowPadding};
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
