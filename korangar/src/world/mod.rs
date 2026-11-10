@@ -3,6 +3,7 @@ mod animation;
 mod basic_info;
 mod cameras;
 mod effect;
+pub mod effects;
 mod entity;
 mod fade_state;
 mod ground_item;
