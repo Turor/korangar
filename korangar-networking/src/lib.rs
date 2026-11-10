@@ -9,6 +9,7 @@ mod inventory_lists;
 mod items;
 mod message;
 mod packet_versions;
+mod party;
 mod pincode;
 mod server;
 
@@ -59,6 +60,7 @@ pub use self::packet_versions::stable::{format_stable_result, parse_stable_actio
 pub use self::packet_versions::warpra::{
     format_warpra_destinations, format_warpra_result, push_warpra_chunk, warpra_kind_name, warpra_level_requirement,
 };
+pub use self::party::{PartyRosterEntry, PartyUpdate};
 pub use self::pincode::PincodeNotice;
 pub use self::server::{
     CharacterServerLoginData, LoginServerLoginData, NotConnectedError, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
