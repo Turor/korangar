@@ -7,6 +7,7 @@ use ron::ser::PrettyConfig;
 use rust_state::RustState;
 use serde::{Deserialize, Serialize};
 
+use crate::interface::windows::MenuBarLayout;
 use crate::loaders::Scaling;
 use crate::state::localization::Language;
 
@@ -101,6 +102,10 @@ pub struct InterfaceSettings {
     pub menu_theme: String,
     pub in_game_theme: String,
     pub world_theme: String,
+    /// Button arrangement of the menu bar. Older files have no entry.
+    #[serde(default)]
+    #[hidden_element]
+    pub menu_bar_layout: MenuBarLayout,
 }
 
 impl Default for InterfaceSettings {
@@ -111,6 +116,7 @@ impl Default for InterfaceSettings {
             menu_theme: DEFAULT_THEME_NAME.to_string(),
             in_game_theme: VERDANT_RUNE_THEME_NAME.to_string(),
             world_theme: VERDANT_RUNE_THEME_NAME.to_string(),
+            menu_bar_layout: MenuBarLayout::default(),
         }
     }
 }
@@ -266,7 +272,10 @@ impl Default for InterfaceSettingsCapabilities {
 
 #[cfg(test)]
 mod interface_settings_theme_tests {
-    use super::{DEFAULT_THEME_NAME, InterfaceSettings, InterfaceSettingsCapabilities, TURORAN_DARK_THEME_NAME, VERDANT_RUNE_THEME_NAME};
+    use super::{
+        DEFAULT_THEME_NAME, InterfaceSettings, InterfaceSettingsCapabilities, MenuBarLayout, TURORAN_DARK_THEME_NAME,
+        VERDANT_RUNE_THEME_NAME,
+    };
 
     #[test]
     fn in_game_theme_capabilities_include_turoran_dark() {
@@ -315,6 +324,22 @@ mod interface_settings_theme_tests {
     }
 
     #[test]
+    fn a_settings_file_without_a_menu_bar_layout_still_loads() {
+        let old = r#"(language: English, scaling: (1.0), menu_theme: "a", in_game_theme: "b", world_theme: "c")"#;
+        let settings: InterfaceSettings = ron::from_str(old).expect("old settings file");
+        assert_eq!(settings.menu_bar_layout, MenuBarLayout::Auto);
+        let settings = std::mem::ManuallyDrop::new(settings);
+
+        let mut changed = InterfaceSettings::clone(&settings);
+        changed.menu_bar_layout = MenuBarLayout::Vertical;
+        let changed = std::mem::ManuallyDrop::new(changed);
+        let text = ron::to_string(&*changed).expect("serialize");
+        let again: InterfaceSettings = ron::from_str(&text).expect("round trip");
+        assert_eq!(again.menu_bar_layout, MenuBarLayout::Vertical);
+        let _ = std::mem::ManuallyDrop::new(again);
+    }
+
+    #[test]
     fn interface_settings_preserve_turoran_dark_selection() {
         use std::mem::ManuallyDrop;
 
@@ -327,6 +352,7 @@ mod interface_settings_theme_tests {
             menu_theme: DEFAULT_THEME_NAME.to_string(),
             in_game_theme: TURORAN_DARK_THEME_NAME.to_string(),
             world_theme: DEFAULT_THEME_NAME.to_string(),
+            menu_bar_layout: MenuBarLayout::default(),
         });
 
         let encoded = ron::ser::to_string_pretty(&*settings, ron::ser::PrettyConfig::new()).expect("serialize settings");

@@ -132,7 +132,7 @@ pub use self::mail::{MailWindow, MailWindowState};
 #[cfg(feature = "debug")]
 pub use self::maps::MapsWindow;
 pub use self::menu::MenuWindow;
-pub use self::menu_bar::{MenuBarPress, MenuBarWindow, menu_bar_open_bits, press_menu_bar};
+pub use self::menu_bar::{MenuBarIcons, MenuBarLayout, MenuBarPress, MenuBarWindow, menu_bar_open_bits, press_menu_bar};
 pub use self::mvp_minimap::{MvpMinimapState, MvpMinimapWindow};
 pub use self::navigation::NavigationWindow;
 pub use self::npc_input::{NpcInputBox, NpcInputWindow};

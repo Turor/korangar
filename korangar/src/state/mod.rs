@@ -77,7 +77,7 @@ use crate::graphics::RenderOptions;
 use crate::graphics::{Color, CornerDiameter, ScreenClip, ScreenPosition, ScreenSize, ShadowPadding};
 use crate::input::{InputEvent, MouseInputMode};
 use crate::interface::windows::{
-    ChatWindowState, DialogWindowState, FriendListWindowState, GuildWindowState, LoginWindowState, LoginWindowStatePathExt,
+    ChatWindowState, DialogWindowState, FriendListWindowState, GuildWindowState, LoginWindowState, LoginWindowStatePathExt, MenuBarIcons,
     SkillTreeWindowState, WindowCache, WindowClass,
 };
 #[cfg(feature = "debug")]
@@ -399,6 +399,9 @@ pub struct ClientState {
     /// frame so the bar can highlight open windows.
     #[hidden_element]
     menu_bar_open: u64,
+    /// `menu_icon` art for the menu bar, loaded while the bar is open.
+    #[hidden_element]
+    menu_bar_icons: MenuBarIcons,
 
     /// Buffered player action. For example, attacking a target that is out of
     /// range.
@@ -593,6 +596,7 @@ impl ClientState {
         time_phase!("create window resources", {
             let window_size = ScreenSize::default();
             let menu_bar_open = 0_u64;
+            let menu_bar_icons = MenuBarIcons::default();
             let graphics_settings_capabilities = GraphicsSettingsCapabilities::default();
         });
 
@@ -715,6 +719,7 @@ impl ClientState {
             pincode_window,
             window_size,
             menu_bar_open,
+            menu_bar_icons,
             buffered_action,
             #[cfg(feature = "debug")]
             inspecting_maps,

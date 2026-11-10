@@ -1,21 +1,26 @@
 //! Bottom menu bar.
 //!
 //! One [`MenuBarEntry`] in [`menu_bar_entries`] is one button. A later gap task
-//! adds a window by appending a single entry (id, label, icon, hotkey, window
-//! class, and the existing toggle or open/close event). Do not add a Cash Shop
-//! entry. Server-driven windows (storage, trade, shops, refine, enchant) stay
-//! off this list: the server opens them. There is no separate party window.
-//! The invite prompt is its own window, and the roster is a tab on Friends
-//! when that tab is present, so Party is not a second button. Friends stays
-//! on Alt+Z.
+//! adds a window by appending a single entry (name, caption, hotkey, optional
+//! `menu_icon` texture, window class, and the existing toggle or open/close
+//! event). Do not add a Cash Shop entry. Server-driven windows (storage,
+//! trade, shops, refine, enchant) stay off this list: the server opens them.
+//! There is no separate party window. The roster is a tab on Friends, so
+//! Party is not a second button.
+//!
+//! Buttons show the roBrowser `menu_icon/bt_*.bmp` art when the client has it
+//! and fall back to the caption at the normal button font size. The tooltip
+//! carries the window name and hotkey.
 //!
 //! The bar is [`WindowClass::MenuBar`]. It is not closable, so Escape still
-//! closes the top closable window or toggles the old menu. The first open is
-//! one row of buttons, centered, and as low as it can sit without covering
-//! chat or the hotbar. Width is the screen width minus a margin on each side,
-//! and the window's minimum and maximum size follow that preset so a narrower
-//! client does not keep a wider bar. A drag is stored by the same
-//! [`super::WindowCache`] anchor path as every other window.
+//! closes the top closable window. The last button cycles the layout
+//! ([`MenuBarLayout`]): as few rows as fit the screen, two rows, three rows,
+//! or a vertical strip. The layout is saved in the interface settings. The
+//! first open is centered just above chat and the hotbar. A drag is stored by
+//! the same [`super::WindowCache`] anchor path as every other window, and the
+//! window stays inside the viewport.
+
+use std::sync::Arc;
 
 use korangar_interface::element::Element;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
@@ -26,32 +31,73 @@ use korangar_interface::layout::tooltip::TooltipExt;
 use korangar_interface::layout::{Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::window::{Anchor, AnchorPoint, CustomWindow, Window};
 use rust_state::{PathExt, State};
+use serde::{Deserialize, Serialize};
 
 use super::WindowClass;
 use super::placement::{HudFrame, ScreenAnchor, first_open_hud, frame_anchor_offset};
-use crate::graphics::{ScreenPosition, ScreenSize};
+use crate::graphics::{Color, ScreenPosition, ScreenSize, Texture};
 use crate::input::InputEvent;
 use crate::loaders::OverflowBehavior;
+use crate::renderer::LayoutExt;
+use crate::settings::InterfaceSettingsPathExt;
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 
 /// In-game window chrome ([`crate::state::theme::InterfaceThemeType::InGame`]).
 /// `with_derived_borderless` also inserts `gaps` between the title and the
-/// content, so the button row starts below title + gaps + title gap.
+/// content, so the buttons start below title + gaps + title gap.
 const MENU_BAR_TITLE: f32 = 22.0;
 const MENU_BAR_GAPS: f32 = 6.0;
 const MENU_BAR_TITLE_GAP: f32 = 2.0;
 const MENU_BAR_BORDER: f32 = 8.0;
-/// One button, matching the in-game button height.
-const MENU_BAR_BUTTON_HEIGHT: f32 = 20.0;
+/// Space above the buttons (title strip, the drag handle) and below them.
+const MENU_BAR_CHROME_HEIGHT: f32 = MENU_BAR_TITLE + MENU_BAR_GAPS + MENU_BAR_TITLE_GAP + MENU_BAR_BORDER;
+/// One cell. Wide enough for a six-letter caption at the normal button font
+/// and tall enough for the 32×34 `menu_icon` art.
+pub const MENU_BAR_CELL_WIDTH: f32 = 56.0;
+pub const MENU_BAR_CELL_HEIGHT: f32 = 36.0;
 const BUTTON_GAP: f32 = 4.0;
-/// Empty margin on the left and right of the preset frame.
+/// `menu_icon/bt_*.bmp` size.
+const ICON_WIDTH: f32 = 32.0;
+const ICON_HEIGHT: f32 = 34.0;
+/// Empty margin around the preset frame.
 const MENU_BAR_EDGE_MARGIN: f32 = 8.0;
 /// Space left between the bar and chat or the hotbar, whichever is higher.
 const MENU_BAR_HUD_CLEARANCE: f32 = 4.0;
+/// A read that failed is retried this many times before the caption is used.
+const ICON_ATTEMPTS: u8 = 3;
 
-/// Height of one button row plus the title strip used as the drag handle.
-pub const MENU_BAR_WINDOW_HEIGHT: f32 = MENU_BAR_TITLE + MENU_BAR_GAPS + MENU_BAR_TITLE_GAP + MENU_BAR_BORDER + MENU_BAR_BUTTON_HEIGHT;
+/// How the buttons are arranged. Saved in the interface settings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MenuBarLayout {
+    /// As few rows as fit the screen width.
+    #[default]
+    Auto,
+    TwoRows,
+    ThreeRows,
+    /// Columns of buttons, as few columns as fit the screen height.
+    Vertical,
+}
+
+impl MenuBarLayout {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Auto => Self::TwoRows,
+            Self::TwoRows => Self::ThreeRows,
+            Self::ThreeRows => Self::Vertical,
+            Self::Vertical => Self::Auto,
+        }
+    }
+
+    fn tooltip(self) -> &'static str {
+        match self {
+            Self::Auto => "Layout: fit the screen (click for 2 rows)",
+            Self::TwoRows => "Layout: 2 rows (click for 3 rows)",
+            Self::ThreeRows => "Layout: 3 rows (click for vertical)",
+            Self::Vertical => "Layout: vertical (click to fit the screen)",
+        }
+    }
+}
 
 /// What a menu-bar click should do.
 #[derive(Clone, Debug)]
@@ -75,94 +121,67 @@ enum MenuBarKind {
     OpenOrDismiss(Box<InputEvent>),
 }
 
-/// One button. `icon` is the caption drawn on the button. `label` is the name
-/// in the tooltip, together with `hotkey` when the window has one.
+/// One button.
 pub struct MenuBarEntry {
-    /// Stable id for the registry test. The button draws [`Self::icon`].
-    #[allow(dead_code)]
-    pub id: &'static str,
-    /// Window name. Included in [`Self::tooltip`].
-    #[allow(dead_code)]
-    pub label: &'static str,
-    pub icon: &'static str,
-    /// Bind shown in the tooltip, when the window has one.
-    #[allow(dead_code)]
-    pub hotkey: Option<&'static str>,
-    pub tooltip: &'static str,
+    /// Caption drawn when there is no icon.
+    pub caption: &'static str,
+    /// Window name, plus the hotkey when the window has one.
+    pub tooltip: String,
+    /// `menu_icon\\bt_*.bmp`, relative to the interface texture directory.
+    pub icon: Option<&'static str>,
     pub class: WindowClass,
     kind: MenuBarKind,
 }
 
 impl MenuBarEntry {
-    fn toggle(
-        id: &'static str,
-        label: &'static str,
-        icon: &'static str,
-        hotkey: Option<&'static str>,
-        tooltip: &'static str,
+    fn new(
+        label: &str,
+        caption: &'static str,
+        hotkey: Option<&str>,
+        icon: Option<&'static str>,
         class: WindowClass,
-        event: InputEvent,
+        kind: MenuBarKind,
     ) -> Self {
+        let tooltip = match hotkey {
+            Some(hotkey) => format!("{label} ({hotkey})"),
+            None => label.to_owned(),
+        };
         Self {
-            id,
-            label,
-            icon,
-            hotkey,
+            caption,
             tooltip,
+            icon,
             class,
-            kind: MenuBarKind::Toggle(Box::new(event)),
+            kind,
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    fn toggle(
+        label: &str,
+        caption: &'static str,
+        hotkey: Option<&str>,
+        icon: Option<&'static str>,
+        class: WindowClass,
+        event: InputEvent,
+    ) -> Self {
+        Self::new(label, caption, hotkey, icon, class, MenuBarKind::Toggle(Box::new(event)))
+    }
+
     fn open_close(
-        id: &'static str,
-        label: &'static str,
-        icon: &'static str,
-        hotkey: Option<&'static str>,
-        tooltip: &'static str,
+        label: &str,
+        caption: &'static str,
+        icon: Option<&'static str>,
         class: WindowClass,
         open: InputEvent,
         close: InputEvent,
     ) -> Self {
-        Self {
-            id,
-            label,
-            icon,
-            hotkey,
-            tooltip,
-            class,
-            kind: MenuBarKind::OpenClose {
-                open: Box::new(open),
-                close: Box::new(close),
-            },
-        }
+        Self::new(label, caption, None, icon, class, MenuBarKind::OpenClose {
+            open: Box::new(open),
+            close: Box::new(close),
+        })
     }
 
-    fn open_or_dismiss(
-        id: &'static str,
-        label: &'static str,
-        icon: &'static str,
-        hotkey: Option<&'static str>,
-        tooltip: &'static str,
-        class: WindowClass,
-        open: InputEvent,
-    ) -> Self {
-        Self {
-            id,
-            label,
-            icon,
-            hotkey,
-            tooltip,
-            class,
-            kind: MenuBarKind::OpenOrDismiss(Box::new(open)),
-        }
-    }
-
-    /// True when `class` is one of the windows currently open.
-    #[cfg(test)]
-    pub fn is_open(&self, open_classes: &[WindowClass]) -> bool {
-        open_classes.contains(&self.class)
+    fn open_or_dismiss(label: &str, caption: &'static str, class: WindowClass, open: InputEvent) -> Self {
+        Self::new(label, caption, None, None, class, MenuBarKind::OpenOrDismiss(Box::new(open)))
     }
 }
 
@@ -191,219 +210,147 @@ fn menu_bar_entry_list() -> Vec<MenuBarEntry> {
         Navigation, QuestJournal, Roulette, SkillTree, Stable, Stats, StatusEffects, StatusPanel, SwitchEquip, Warpra, WorldMap,
     };
 
+    let icon = |name: &'static str| Some(name);
+
     vec![
         MenuBarEntry::toggle(
-            "status",
             "Status",
             "Status",
             Some("Alt+A"),
-            "Status (Alt+A)",
+            icon("menu_icon\\bt_status.bmp"),
             Stats,
             ToggleStatsWindow,
         ),
         MenuBarEntry::toggle(
-            "gear",
             "Gear",
             "Gear",
             Some("Alt+Q"),
-            "Gear (Alt+Q)",
+            icon("menu_icon\\bt_equip.bmp"),
             Equipment,
             ToggleEquipmentWindow,
         ),
         MenuBarEntry::toggle(
-            "inventory",
             "Inventory",
             "Items",
             Some("Alt+E"),
-            "Inventory (Alt+E)",
+            icon("menu_icon\\bt_item.bmp"),
             Inventory,
             ToggleInventoryWindow,
         ),
         MenuBarEntry::toggle(
-            "skills",
             "Skills",
             "Skills",
             Some("Alt+S"),
-            "Skills (Alt+S)",
+            icon("menu_icon\\bt_skill.bmp"),
             SkillTree,
             ToggleSkillTreeWindow,
         ),
         MenuBarEntry::toggle(
-            "quests",
             "Quests",
             "Quests",
             None,
-            "Quests",
+            icon("menu_icon\\bt_quest.bmp"),
             QuestJournal,
             ToggleQuestJournalWindow,
         ),
         MenuBarEntry::toggle(
-            "friends",
-            "Friends",
-            "Friends",
+            "Party / Friends",
+            "Party",
             Some("Alt+Z"),
-            "Friends (Alt+Z)",
+            icon("menu_icon\\bt_party.bmp"),
             FriendList,
             ToggleFriendListWindow,
         ),
         MenuBarEntry::toggle(
-            "guild",
             "Guild",
             "Guild",
             Some("Alt+G"),
-            "Guild (Alt+G)",
+            icon("menu_icon\\bt_guild.bmp"),
             Guild,
             ToggleGuildWindow,
         ),
-        MenuBarEntry::toggle("clan", "Clan", "Clan", Some("Alt+C"), "Clan (Alt+C)", Clan, ToggleClanWindow),
-        MenuBarEntry::open_close("mail", "Mail", "Mail", None, "Mail", Mail, OpenMail, CloseMail),
-        MenuBarEntry::open_close("bank", "Bank", "Bank", None, "Bank", Bank, OpenBank, CloseBank),
+        MenuBarEntry::toggle("Clan", "Clan", Some("Alt+C"), None, Clan, ToggleClanWindow),
+        MenuBarEntry::open_close("Mail", "Mail", icon("menu_icon\\bt_mail.bmp"), Mail, OpenMail, CloseMail),
+        MenuBarEntry::open_close("Bank", "Bank", icon("menu_icon\\bt_bank.bmp"), Bank, OpenBank, CloseBank),
         MenuBarEntry::toggle(
-            "achievements",
             "Achievements",
             "Achv",
             None,
-            "Achievements",
+            icon("menu_icon\\bt_achievement.bmp"),
             Achievements,
             ToggleAchievementsWindow,
         ),
-        MenuBarEntry::toggle("map", "Map", "Map", None, "Map", MvpMinimap, ToggleMvpMinimap),
+        MenuBarEntry::toggle("Minimap", "Map", None, None, MvpMinimap, ToggleMvpMinimap),
         MenuBarEntry::toggle(
-            "world",
             "World Map",
             "World",
             Some("Alt+0"),
-            "World Map (Alt+0)",
+            icon("menu_icon\\bt_map.bmp"),
             WorldMap,
             ToggleWorldMap,
         ),
-        MenuBarEntry::toggle("chat", "Chat", "Chat", None, "Chat", Chat, ToggleChatWindow),
+        MenuBarEntry::toggle("Chat", "Chat", None, None, Chat, ToggleChatWindow),
         MenuBarEntry::toggle(
-            "options",
             "Options",
-            "Options",
+            "Option",
             Some("Ctrl+I"),
-            "Options (Ctrl+I)",
+            icon("menu_icon\\bt_option.bmp"),
             InterfaceSettings,
             ToggleInterfaceSettingsWindow,
         ),
-        MenuBarEntry::toggle("hotkeys", "Hotkeys", "Keys", None, "Hotkeys", Keybinds, ToggleKeybindsWindow),
         MenuBarEntry::toggle(
-            "emotes",
-            "Emotes",
-            "Emotes",
-            Some("Alt+1-9"),
-            "Emotes (Alt+1-9)",
-            Emotes,
-            ToggleEmotesWindow,
+            "Keybinds",
+            "Keys",
+            None,
+            icon("menu_icon\\bt_keyboard.bmp"),
+            Keybinds,
+            ToggleKeybindsWindow,
         ),
-        MenuBarEntry::toggle("menu", "Menu", "Menu", None, "Menu", Menu, ToggleMenuWindow),
-        MenuBarEntry::toggle("cart", "Cart", "Cart", None, "Cart", Cart, ToggleCartWindow),
-        MenuBarEntry::toggle("hotbar", "Hotbar", "Bar", None, "Hotbar", Hotbar, ToggleHotbarWindow),
+        MenuBarEntry::toggle("Emotes", "Emotes", Some("Alt+1-9"), None, Emotes, ToggleEmotesWindow),
+        MenuBarEntry::toggle("Menu", "Menu", None, None, Menu, ToggleMenuWindow),
+        MenuBarEntry::toggle("Cart", "Cart", None, None, Cart, ToggleCartWindow),
+        MenuBarEntry::toggle("Hotbar", "Hotbar", None, None, Hotbar, ToggleHotbarWindow),
         MenuBarEntry::toggle(
-            "navigation",
             "Navigation",
             "Nav",
             None,
-            "Navigation",
+            icon("menu_icon\\bt_navigation.bmp"),
             Navigation,
             ToggleNavigationWindow,
         ),
+        MenuBarEntry::toggle("Item Finder", "Find", Some("Alt+F"), None, ItemFinder, ToggleItemFinderWindow),
+        MenuBarEntry::open_or_dismiss("Stable", "Stable", Stable, OpenStable),
+        MenuBarEntry::open_or_dismiss("Eden", "Eden", Eden, OpenEden),
+        MenuBarEntry::open_or_dismiss("Warpra", "Warp", Warpra, OpenWarpra),
+        MenuBarEntry::open_or_dismiss("Companions", "Pets", Companions, OpenCompanions),
+        MenuBarEntry::toggle("Switch gear", "Sets", None, None, SwitchEquip, ToggleSwitchEquipWindow),
+        MenuBarEntry::toggle("Audio", "Audio", Some("Ctrl+A"), None, AudioSettings, ToggleAudioSettingsWindow),
         MenuBarEntry::toggle(
-            "finder",
-            "Item Finder",
-            "Find",
-            Some("Alt+F"),
-            "Item Finder (Alt+F)",
-            ItemFinder,
-            ToggleItemFinderWindow,
-        ),
-        MenuBarEntry::open_or_dismiss("stable", "Stable", "Stable", None, "Stable", Stable, OpenStable),
-        MenuBarEntry::open_or_dismiss("eden", "Eden", "Eden", None, "Eden", Eden, OpenEden),
-        MenuBarEntry::open_or_dismiss("warpra", "Warpra", "Warp", None, "Warpra", Warpra, OpenWarpra),
-        MenuBarEntry::open_or_dismiss(
-            "companions",
-            "Companions",
-            "Pets",
-            None,
-            "Companions",
-            Companions,
-            OpenCompanions,
-        ),
-        MenuBarEntry::toggle(
-            "switch",
-            "Switch gear",
-            "Sets",
-            None,
-            "Switch gear",
-            SwitchEquip,
-            ToggleSwitchEquipWindow,
-        ),
-        MenuBarEntry::toggle(
-            "audio",
-            "Audio",
-            "Audio",
-            Some("Ctrl+A"),
-            "Audio (Ctrl+A)",
-            AudioSettings,
-            ToggleAudioSettingsWindow,
-        ),
-        MenuBarEntry::toggle(
-            "graphics",
             "Graphics",
             "Video",
             Some("Ctrl+G"),
-            "Graphics (Ctrl+G)",
+            None,
             GraphicsSettings,
             ToggleGraphicsSettingsWindow,
         ),
+        MenuBarEntry::toggle("Game", "Game", Some("Ctrl+S"), None, GameSettings, ToggleGameSettingsWindow),
+        MenuBarEntry::open_close("Roulette", "Wheel", None, Roulette, OpenRoulette, CloseRoulette),
+        MenuBarEntry::toggle("Status effects", "Buffs", None, None, StatusEffects, ToggleStatusEffectsWindow),
+        MenuBarEntry::toggle("Basic info", "Info", None, None, StatusPanel, ToggleStatusPanelWindow),
         MenuBarEntry::toggle(
-            "game",
-            "Game",
-            "Game",
-            Some("Ctrl+S"),
-            "Game (Ctrl+S)",
-            GameSettings,
-            ToggleGameSettingsWindow,
-        ),
-        MenuBarEntry::open_close(
-            "roulette",
-            "Roulette",
-            "Wheel",
-            None,
-            "Roulette",
-            Roulette,
-            OpenRoulette,
-            CloseRoulette,
-        ),
-        MenuBarEntry::toggle(
-            "buffs",
-            "Status effects",
-            "Buffs",
-            None,
-            "Status effects",
-            StatusEffects,
-            ToggleStatusEffectsWindow,
-        ),
-        MenuBarEntry::toggle(
-            "info",
-            "Basic info",
-            "Info",
-            None,
-            "Basic info",
-            StatusPanel,
-            ToggleStatusPanelWindow,
-        ),
-        MenuBarEntry::toggle(
-            "character",
             "Character",
             "Char",
             None,
-            "Character",
+            None,
             CharacterOverview,
             ToggleCharacterOverviewWindow,
         ),
     ]
+}
+
+/// Cells on the bar: every entry plus the layout button at the end.
+pub fn menu_bar_cell_count() -> usize {
+    menu_bar_entries().len() + 1
 }
 
 /// Bit `i` is set when entry `i`'s window is open. The menu bar reads this
@@ -478,6 +425,136 @@ pub fn menu_bar_event_window(event: &InputEvent) -> Option<WindowClass> {
     })
 }
 
+/// Textures for entries that have a `menu_icon` file, filled in by the client
+/// while the bar is open. A missing icon keeps the caption.
+#[derive(Default)]
+pub struct MenuBarIcons {
+    textures: Vec<Option<Arc<Texture>>>,
+    attempts: Vec<u8>,
+    settled: Vec<bool>,
+}
+
+impl MenuBarIcons {
+    fn ensure_len(&mut self, count: usize) {
+        if self.textures.len() != count {
+            self.textures = vec![None; count];
+            self.attempts = vec![0; count];
+            self.settled = vec![false; count];
+        }
+    }
+
+    /// Up to `budget` entries whose icon still needs a read, as
+    /// `(index, file)`.
+    pub fn pending(&mut self, budget: usize) -> Vec<(usize, &'static str)> {
+        let entries = menu_bar_entries();
+        self.ensure_len(entries.len());
+        entries
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| entry.icon.map(|file| (index, file)))
+            .filter(|(index, _)| !self.settled[*index])
+            .take(budget)
+            .collect()
+    }
+
+    /// `Some` installs the texture. `None` with `missing` keeps the caption
+    /// for good; `None` without it is a failed read that is retried a few
+    /// times.
+    pub fn resolve(&mut self, index: usize, texture: Option<Arc<Texture>>, missing: bool) {
+        self.ensure_len(menu_bar_entries().len());
+        let Some(settled) = self.settled.get_mut(index) else {
+            return;
+        };
+        match texture {
+            Some(texture) => {
+                self.textures[index] = Some(texture);
+                *settled = true;
+            }
+            None => {
+                self.attempts[index] = self.attempts[index].saturating_add(1);
+                if missing || self.attempts[index] >= ICON_ATTEMPTS {
+                    *settled = true;
+                }
+            }
+        }
+    }
+
+    fn texture(&self, index: usize) -> Option<Arc<Texture>> {
+        self.textures.get(index).cloned().flatten()
+    }
+}
+
+/// Columns and rows of the button grid for `count` cells.
+pub fn menu_bar_grid(layout: MenuBarLayout, count: usize, screen_width: f32, screen_height: f32) -> (usize, usize) {
+    let count = count.max(1);
+    let (screen_width, screen_height) = finite_screen(screen_width, screen_height);
+    let usable_width = screen_width - MENU_BAR_EDGE_MARGIN * 2.0 - MENU_BAR_BORDER * 2.0 + BUTTON_GAP;
+    let usable_height = screen_height - MENU_BAR_EDGE_MARGIN * 2.0 - MENU_BAR_CHROME_HEIGHT + BUTTON_GAP;
+    let max_columns = ((usable_width / (MENU_BAR_CELL_WIDTH + BUTTON_GAP)).floor() as usize).max(1);
+    let max_rows = ((usable_height / (MENU_BAR_CELL_HEIGHT + BUTTON_GAP)).floor() as usize).max(1);
+
+    let rows_from = |minimum_rows: usize| {
+        let mut rows = minimum_rows.clamp(1, count);
+        while count.div_ceil(rows) > max_columns && rows < count {
+            rows += 1;
+        }
+        (count.div_ceil(rows), rows)
+    };
+
+    match layout {
+        MenuBarLayout::Auto => rows_from(1),
+        MenuBarLayout::TwoRows => rows_from(2),
+        MenuBarLayout::ThreeRows => rows_from(3),
+        MenuBarLayout::Vertical => {
+            let mut columns = 1;
+            while count.div_ceil(columns) > max_rows && columns < count {
+                columns += 1;
+            }
+            (columns, count.div_ceil(columns))
+        }
+    }
+}
+
+/// Outer window size for a grid.
+fn menu_bar_window_size(columns: usize, rows: usize) -> (f32, f32) {
+    let columns = columns.max(1) as f32;
+    let rows = rows.max(1) as f32;
+    let width = MENU_BAR_BORDER * 2.0 + columns * MENU_BAR_CELL_WIDTH + (columns - 1.0) * BUTTON_GAP;
+    let height = MENU_BAR_CHROME_HEIGHT + rows * MENU_BAR_CELL_HEIGHT + (rows - 1.0) * BUTTON_GAP;
+    (width, height)
+}
+
+/// Grid position of cell `index`. Rows fill left to right; the vertical strip
+/// fills top to bottom.
+fn menu_bar_cell_position(layout: MenuBarLayout, columns: usize, rows: usize, index: usize) -> (usize, usize) {
+    match layout {
+        MenuBarLayout::Vertical => (index / rows.max(1), index % rows.max(1)),
+        _ => (index % columns.max(1), index / columns.max(1)),
+    }
+}
+
+fn menu_bar_cell(content_left: f32, content_top: f32, column: usize, row: usize) -> HudFrame {
+    HudFrame {
+        left: content_left + (MENU_BAR_CELL_WIDTH + BUTTON_GAP) * column as f32,
+        top: content_top + (MENU_BAR_CELL_HEIGHT + BUTTON_GAP) * row as f32,
+        width: MENU_BAR_CELL_WIDTH,
+        height: MENU_BAR_CELL_HEIGHT,
+    }
+}
+
+/// Icon rectangle centered in a cell, at the art's own size when it fits.
+fn icon_area(cell: Area) -> Area {
+    let scale = (cell.width / ICON_WIDTH).min(cell.height / ICON_HEIGHT).min(1.0);
+    let width = ICON_WIDTH * scale;
+    let height = ICON_HEIGHT * scale;
+    Area {
+        left: cell.left + (cell.width - width) / 2.0,
+        top: cell.top + (cell.height - height) / 2.0,
+        width,
+        height,
+    }
+}
+
 /// A zero size is the value before the first resize, so use the client's
 /// initial 1280×720 window instead of collapsing the bar.
 fn finite_screen(screen_width: f32, screen_height: f32) -> (f32, f32) {
@@ -488,82 +565,81 @@ fn finite_screen(screen_width: f32, screen_height: f32) -> (f32, f32) {
     }
 }
 
-fn menu_bar_live_screen(state: &ClientState) -> (f32, f32) {
+fn menu_bar_live_layout(state: &ClientState) -> (MenuBarLayout, f32, f32) {
     let size = *client_state().window_size().follow_safe(state);
-    finite_screen(size.width, size.height)
+    let layout = *client_state().interface_settings().menu_bar_layout().follow_safe(state);
+    let (width, height) = finite_screen(size.width, size.height);
+    (layout, width, height)
 }
 
-/// Width the window sizer locks to. Both minimum and maximum use this, so the
-/// preset is the rendered width instead of a constant that ignores the screen.
+/// [`menu_bar_live_layout`] for an element, which sees the state wrapper.
+fn menu_bar_state_layout(state: &State<ClientState>) -> (MenuBarLayout, f32, f32) {
+    let size = *state.get(&client_state().window_size());
+    let layout = *state.get(&client_state().interface_settings().menu_bar_layout());
+    let (width, height) = finite_screen(size.width, size.height);
+    (layout, width, height)
+}
+
+fn menu_bar_live_size(state: &ClientState) -> (f32, f32) {
+    let (layout, width, height) = menu_bar_live_layout(state);
+    let (columns, rows) = menu_bar_grid(layout, menu_bar_cell_count(), width, height);
+    menu_bar_window_size(columns, rows)
+}
+
+/// The window sizer locks minimum and maximum to the grid, so the size
+/// follows the layout and the screen instead of a stale saved size.
 fn menu_bar_locked_width(state: &ClientState) -> f32 {
-    let (width, height) = menu_bar_live_screen(state);
-    default_menu_bar_frame(width, height).width
+    menu_bar_live_size(state).0
 }
 
 fn menu_bar_locked_height(state: &ClientState) -> f32 {
-    let (width, height) = menu_bar_live_screen(state);
-    default_menu_bar_frame(width, height).height
+    menu_bar_live_size(state).1
 }
 
-/// Rectangle used the first time the bar is opened.
+/// Rectangle used the first time the bar is opened, for `layout`.
 ///
-/// One row, centered, with its bottom just above chat and the hotbar. The
-/// width is the screen minus the side margins. The window's minimum and
-/// maximum size are this rectangle, so the sizer cannot force a wider bar.
-pub fn default_menu_bar_frame(screen_width: f32, screen_height: f32) -> HudFrame {
+/// Centered, with its bottom just above chat and the hotbar. When that band
+/// is too short it sits as low as it can while staying on screen.
+pub fn default_menu_bar_frame_for(layout: MenuBarLayout, screen_width: f32, screen_height: f32) -> HudFrame {
     let (screen_width, screen_height) = finite_screen(screen_width, screen_height);
+    let (columns, rows) = menu_bar_grid(layout, menu_bar_cell_count(), screen_width, screen_height);
+    let (width, height) = menu_bar_window_size(columns, rows);
+    let width = width.min(screen_width);
+    let height = height.min(screen_height);
     let hud = first_open_hud(screen_width, screen_height);
     let ceiling = (hud.chat.top.min(hud.hotbar.top) - MENU_BAR_HUD_CLEARANCE).min(screen_height);
-    let preferred = MENU_BAR_WINDOW_HEIGHT.min(screen_height);
-    let height = if ceiling >= preferred {
-        preferred
-    } else {
-        ceiling.max(1.0).min(screen_height)
-    };
-    let top = (ceiling - height).max(0.0);
-    let height = height.min((screen_height - top).max(1.0));
-
-    let width = (screen_width - MENU_BAR_EDGE_MARGIN * 2.0).clamp(1.0, screen_width);
+    let top = (ceiling - height).max(0.0).min(screen_height - height);
     let left = ((screen_width - width) * 0.5).max(0.0);
-
     HudFrame { left, top, width, height }
 }
 
-/// One button in the single row drawn inside the content box.
-fn menu_bar_cell(content_left: f32, content_top: f32, content_width: f32, content_height: f32, count: usize, index: usize) -> HudFrame {
-    let columns = count.max(1) as f32;
-    let gaps = count.saturating_sub(1) as f32;
-    let gap = if gaps == 0.0 || content_width <= columns {
-        0.0
-    } else {
-        BUTTON_GAP.min(((content_width - columns) / gaps).max(0.0))
-    };
-    let cell_width = ((content_width - gap * gaps) / columns).max(0.0);
-    HudFrame {
-        left: content_left + (cell_width + gap) * index as f32,
-        top: content_top,
-        width: cell_width,
-        height: content_height.max(0.0),
-    }
+/// [`default_menu_bar_frame_for`] with the default layout. The window cache
+/// has no state access, so the preset uses this.
+pub fn default_menu_bar_frame(screen_width: f32, screen_height: f32) -> HudFrame {
+    default_menu_bar_frame_for(MenuBarLayout::default(), screen_width, screen_height)
 }
 
 /// Content box under the title, using the same insets as the in-game window
-/// resolver. Tests place buttons with this so they match `lay_out`.
+/// resolver.
 #[cfg(test)]
-fn menu_bar_content_frame(window: HudFrame) -> HudFrame {
-    HudFrame {
-        left: window.left + MENU_BAR_BORDER,
-        top: window.top + MENU_BAR_TITLE + MENU_BAR_GAPS + MENU_BAR_TITLE_GAP,
-        width: (window.width - MENU_BAR_BORDER * 2.0).max(0.0),
-        height: (window.height - MENU_BAR_TITLE - MENU_BAR_GAPS - MENU_BAR_TITLE_GAP - MENU_BAR_BORDER).max(0.0),
-    }
+fn menu_bar_content_origin(window: HudFrame) -> (f32, f32) {
+    (
+        window.left + MENU_BAR_BORDER,
+        window.top + MENU_BAR_TITLE + MENU_BAR_GAPS + MENU_BAR_TITLE_GAP,
+    )
 }
 
+/// Every cell of a window laid out with `layout`, in cell order.
 #[cfg(test)]
-fn menu_bar_button_frames(window: HudFrame, count: usize) -> Vec<HudFrame> {
-    let content = menu_bar_content_frame(window);
+pub fn menu_bar_button_frames(layout: MenuBarLayout, window: HudFrame, screen_width: f32, screen_height: f32) -> Vec<HudFrame> {
+    let count = menu_bar_cell_count();
+    let (columns, rows) = menu_bar_grid(layout, count, screen_width, screen_height);
+    let (left, top) = menu_bar_content_origin(window);
     (0..count)
-        .map(|index| menu_bar_cell(content.left, content.top, content.width, content.height, count, index))
+        .map(|index| {
+            let (column, row) = menu_bar_cell_position(layout, columns, rows, index);
+            menu_bar_cell(left, top, column, row)
+        })
         .collect()
 }
 
@@ -592,7 +668,7 @@ impl CustomWindow<ClientState> for MenuBarWindow {
         use korangar_interface::prelude::*;
 
         window! {
-            title: "Menu bar",
+            title: "Menu",
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
             closable: false,
@@ -615,8 +691,17 @@ impl ClickHandler<ClientState> for MenuBarClick {
     }
 }
 
+struct MenuBarLayoutClick;
+
+impl ClickHandler<ClientState> for MenuBarLayoutClick {
+    fn handle_click(&self, _: &State<ClientState>, queue: &mut EventQueue<ClientState>) {
+        queue.queue(InputEvent::CycleMenuBarLayout);
+    }
+}
+
 struct MenuBarButtons {
     clicks: Vec<MenuBarClick>,
+    layout_click: MenuBarLayoutClick,
 }
 
 impl MenuBarButtons {
@@ -624,28 +709,32 @@ impl MenuBarButtons {
         let clicks = (0..menu_bar_entries().len())
             .map(|index| MenuBarClick { index: index as u8 })
             .collect();
-        Self { clicks }
+        Self {
+            clicks,
+            layout_click: MenuBarLayoutClick,
+        }
     }
 }
 
-struct MenuBarLayout {
+struct MenuBarLayoutInfo {
     area: Area,
 }
 
 impl Element<ClientState> for MenuBarButtons {
-    type LayoutInfo = MenuBarLayout;
+    type LayoutInfo = MenuBarLayoutInfo;
 
     fn create_layout_info(
         &mut self,
-        _: &State<ClientState>,
+        state: &State<ClientState>,
         _: ElementStoreMut,
         resolvers: &mut dyn Resolvers<ClientState>,
     ) -> Self::LayoutInfo {
+        let (bar_layout, screen_width, screen_height) = menu_bar_state_layout(state);
+        let (columns, rows) = menu_bar_grid(bar_layout, menu_bar_cell_count(), screen_width, screen_height);
+        let (_, height) = menu_bar_window_size(columns, rows);
         with_single_resolver(resolvers, |resolver| {
-            let available = resolver.push_available_area();
-            let height = available.height.unwrap_or(MENU_BAR_BUTTON_HEIGHT).max(1.0);
-            let area = resolver.with_height(height);
-            MenuBarLayout { area }
+            let area = resolver.with_height((height - MENU_BAR_CHROME_HEIGHT).max(1.0));
+            MenuBarLayoutInfo { area }
         })
     }
 
@@ -657,14 +746,15 @@ impl Element<ClientState> for MenuBarButtons {
         layout: &mut WindowLayout<'a, ClientState>,
     ) {
         let entries = menu_bar_entries();
-        if entries.is_empty() {
-            return;
-        }
+        let (bar_layout, screen_width, screen_height) = menu_bar_state_layout(state);
+        let count = menu_bar_cell_count();
+        let (columns, rows) = menu_bar_grid(bar_layout, count, screen_width, screen_height);
 
         let theme_path = client_theme();
-        let open_bits_path = client_state().menu_bar_open();
+        let icons_path = client_state().menu_bar_icons();
         let theme = state.get(&theme_path);
-        let bits = *state.get(&open_bits_path);
+        let bits = *state.get(&client_state().menu_bar_open());
+        let icons = state.get(&icons_path);
         let content = layout_info.area;
         let idle_background = theme.button.background_color;
         let idle_foreground = theme.button.foreground_color;
@@ -677,41 +767,61 @@ impl Element<ClientState> for MenuBarButtons {
         let font_size = theme.button.font_size;
         let highlight = theme.button.highlight_color;
 
-        for (index, entry) in entries.iter().enumerate() {
-            let cell = menu_bar_cell(content.left, content.top, content.width, content.height, entries.len(), index);
+        for index in 0..count {
+            let (column, row) = menu_bar_cell_position(bar_layout, columns, rows, index);
+            let cell = menu_bar_cell(content.left, content.top, column, row);
             let area = Area {
                 left: cell.left,
                 top: cell.top,
-                width: cell.width.max(1.0),
-                height: cell.height.max(1.0),
+                width: cell.width,
+                height: cell.height,
             };
             let hovered = area.check().run(layout);
-            let open = index < 64 && bits & (1_u64 << index) != 0;
+            let entry = entries.get(index);
+            let open = entry.is_some() && index < 64 && bits & (1_u64 << index) != 0;
+
             if hovered {
-                layout.add_tooltip(entry.tooltip, MenuBarTooltip.tooltip_id());
-                if let Some(click) = self.clicks.get(index) {
-                    layout.register_click_handler(korangar_interface::layout::MouseButton::Left, click);
+                match entry {
+                    Some(entry) => {
+                        layout.add_tooltip(&entry.tooltip, MenuBarTooltip.tooltip_id());
+                        if let Some(click) = self.clicks.get(index) {
+                            layout.register_click_handler(korangar_interface::layout::MouseButton::Left, click);
+                        }
+                    }
+                    None => {
+                        layout.add_tooltip(bar_layout.tooltip(), MenuBarTooltip.tooltip_id());
+                        layout.register_click_handler(korangar_interface::layout::MouseButton::Left, &self.layout_click);
+                    }
                 }
             }
 
+            // Neutral at rest. Gold only while hovered or while the window is
+            // open.
             let (background, foreground) = match (open, hovered) {
                 (true, true) => (hover_background, active),
                 (true, false) => (active, active_foreground),
                 (false, true) => (hover_background, active),
                 (false, false) => (idle_background, idle_foreground),
             };
-
             layout.add_rectangle(area, corner, background, shadow, shadow_padding);
-            layout.add_text(
-                area,
-                entry.icon,
-                font_size,
-                foreground,
-                highlight,
-                HorizontalAlignment::Center { offset: 0.0, border: 2.0 },
-                VerticalAlignment::Center { offset: 0.0 },
-                OverflowBehavior::Shrink,
-            );
+
+            let texture = entry.and_then(|_| icons.texture(index));
+            match texture {
+                Some(texture) => layout.add_texture(icon_area(area), texture, Color::WHITE, false),
+                None => {
+                    let caption = entry.map_or("Layout", |entry| entry.caption);
+                    layout.add_text(
+                        area,
+                        caption,
+                        font_size,
+                        foreground,
+                        highlight,
+                        HorizontalAlignment::Center { offset: 0.0, border: 2.0 },
+                        VerticalAlignment::Center { offset: 0.0 },
+                        OverflowBehavior::Shrink,
+                    );
+                }
+            }
         }
     }
 }
@@ -721,93 +831,121 @@ struct MenuBarTooltip;
 #[cfg(test)]
 mod tests {
     use super::{
-        MENU_BAR_WINDOW_HEIGHT, MenuBarKind, MenuBarPress, default_menu_bar_frame, default_menu_bar_window, menu_bar_button_frames,
-        menu_bar_entries, menu_bar_event_window, menu_bar_open_bits, press_menu_bar,
+        MENU_BAR_CELL_HEIGHT, MENU_BAR_CELL_WIDTH, MenuBarIcons, MenuBarKind, MenuBarLayout, MenuBarPress, default_menu_bar_frame,
+        default_menu_bar_frame_for, default_menu_bar_window, menu_bar_button_frames, menu_bar_cell_count, menu_bar_entries,
+        menu_bar_event_window, menu_bar_grid, menu_bar_open_bits, press_menu_bar,
     };
     use crate::graphics::ScreenPosition;
+    use crate::input::InputEvent;
     use crate::interface::windows::WindowClass;
     use crate::interface::windows::placement::{HudFrame, first_open_hud};
+
+    const LAYOUTS: [MenuBarLayout; 4] = [
+        MenuBarLayout::Auto,
+        MenuBarLayout::TwoRows,
+        MenuBarLayout::ThreeRows,
+        MenuBarLayout::Vertical,
+    ];
+    const SCREENS: [(f32, f32); 4] = [(1280.0, 720.0), (1279.0, 700.0), (1024.0, 576.0), (1024.0, 560.0)];
+
+    fn rects_overlap(a: HudFrame, b: HudFrame) -> bool {
+        a.left < b.right() && a.right() > b.left && a.top < b.bottom() && a.bottom() > b.top
+    }
+
+    /// Window a menu-bar event opens or closes.
+    fn event_window(event: &InputEvent) -> Option<WindowClass> {
+        menu_bar_event_window(event)
+    }
 
     #[test]
     fn every_entry_toggles_its_window_and_reports_open() {
         let entries = menu_bar_entries();
         assert!(entries.len() > 8);
-        assert!(entries.len() <= 64);
+        assert!(entries.len() < 64);
 
-        let mut ids = std::collections::HashSet::new();
         let mut classes = std::collections::HashSet::new();
         for (index, entry) in entries.iter().enumerate() {
-            assert!(ids.insert(entry.id), "duplicate id {}", entry.id);
             assert!(classes.insert(entry.class), "duplicate class {:?}", entry.class);
-            assert!(!entry.icon.is_empty());
-            assert!(entry.tooltip.contains(entry.label));
-            if let Some(hotkey) = entry.hotkey {
-                assert!(entry.tooltip.contains(hotkey), "{} tooltip missing {hotkey}", entry.id);
+            assert!(!entry.caption.is_empty());
+            assert!(
+                entry.caption.chars().count() <= 6,
+                "{} caption is too long for a cell",
+                entry.caption
+            );
+            assert!(!entry.tooltip.is_empty());
+            if let Some(icon) = entry.icon {
+                assert!(icon.starts_with("menu_icon\\bt_") && icon.ends_with(".bmp"), "{icon}");
             }
-
-            assert!(!entry.is_open(&[]));
-            assert!(entry.is_open(&[entry.class]));
-            assert!(!entry.is_open(&[WindowClass::Login]));
 
             let closed = press_menu_bar(index, |_| false);
             let opened = press_menu_bar(index, |class| class == entry.class);
             match (&entry.kind, closed, opened) {
                 (MenuBarKind::Toggle(event), Some(MenuBarPress::Dispatch(closed)), Some(MenuBarPress::Dispatch(opened))) => {
-                    assert_eq!(
-                        std::mem::discriminant(event.as_ref()),
-                        std::mem::discriminant(closed.as_ref()),
-                        "{}",
-                        entry.id
-                    );
-                    assert_eq!(
-                        std::mem::discriminant(event.as_ref()),
-                        std::mem::discriminant(opened.as_ref()),
-                        "{}",
-                        entry.id
-                    );
-                    assert_eq!(menu_bar_event_window(closed.as_ref()), Some(entry.class), "{}", entry.id);
+                    assert_eq!(std::mem::discriminant(event.as_ref()), std::mem::discriminant(closed.as_ref()));
+                    assert_eq!(std::mem::discriminant(event.as_ref()), std::mem::discriminant(opened.as_ref()));
+                    assert_eq!(event_window(closed.as_ref()), Some(entry.class), "{}", entry.tooltip);
                 }
                 (MenuBarKind::OpenClose { open, close }, Some(MenuBarPress::Dispatch(closed)), Some(MenuBarPress::Dispatch(opened))) => {
                     assert_eq!(
                         std::mem::discriminant(open.as_ref()),
                         std::mem::discriminant(closed.as_ref()),
                         "{} closed press must be the open event",
-                        entry.id
+                        entry.tooltip
                     );
                     assert_eq!(
                         std::mem::discriminant(close.as_ref()),
                         std::mem::discriminant(opened.as_ref()),
                         "{} open press must be the close event",
-                        entry.id
+                        entry.tooltip
                     );
-                    assert_ne!(
-                        std::mem::discriminant(open.as_ref()),
-                        std::mem::discriminant(close.as_ref()),
-                        "{} open and close events are the same",
-                        entry.id
-                    );
+                    assert_ne!(std::mem::discriminant(open.as_ref()), std::mem::discriminant(close.as_ref()));
+                    assert_eq!(event_window(closed.as_ref()), Some(entry.class));
+                    assert_eq!(event_window(opened.as_ref()), Some(entry.class));
                 }
                 (MenuBarKind::OpenOrDismiss(open), Some(MenuBarPress::Dispatch(closed)), Some(MenuBarPress::Close(class))) => {
-                    assert_eq!(
-                        std::mem::discriminant(open.as_ref()),
-                        std::mem::discriminant(closed.as_ref()),
-                        "{}",
-                        entry.id
-                    );
+                    assert_eq!(std::mem::discriminant(open.as_ref()), std::mem::discriminant(closed.as_ref()));
                     assert_eq!(class, entry.class);
-                    assert_eq!(menu_bar_event_window(closed.as_ref()), Some(entry.class), "{}", entry.id);
+                    assert_eq!(event_window(closed.as_ref()), Some(entry.class));
                 }
-                other => panic!("{} press mismatch: {other:?}", entry.id),
+                other => panic!("{} press mismatch: {other:?}", entry.tooltip),
             }
         }
 
         assert!(entries.iter().any(|entry| matches!(entry.kind, MenuBarKind::OpenClose { .. })));
-
-        assert!(entries.iter().any(|entry| entry.id == "status"));
-        assert!(entries.iter().any(|entry| entry.id == "emotes"));
-        assert!(entries.iter().any(|entry| entry.id == "hotkeys"));
-        assert!(entries.iter().all(|entry| entry.id != "cash_shop"));
+        assert!(entries.iter().any(|entry| entry.class == WindowClass::Stats));
+        assert!(entries.iter().any(|entry| entry.class == WindowClass::Emotes));
+        assert!(entries.iter().any(|entry| entry.class == WindowClass::Keybinds));
         assert!(press_menu_bar(entries.len(), |_| false).is_none());
+    }
+
+    #[test]
+    fn tooltips_carry_the_name_and_hotkey() {
+        let entries = menu_bar_entries();
+        let status = entries.iter().find(|entry| entry.class == WindowClass::Stats).unwrap();
+        assert_eq!(status.tooltip, "Status (Alt+A)");
+        let quests = entries.iter().find(|entry| entry.class == WindowClass::QuestJournal).unwrap();
+        assert_eq!(quests.tooltip, "Quests");
+    }
+
+    #[test]
+    fn robrowser_icons_cover_the_main_windows() {
+        let with_icon: Vec<WindowClass> = menu_bar_entries()
+            .iter()
+            .filter(|entry| entry.icon.is_some())
+            .map(|entry| entry.class)
+            .collect();
+        for class in [
+            WindowClass::Stats,
+            WindowClass::Equipment,
+            WindowClass::Inventory,
+            WindowClass::SkillTree,
+            WindowClass::QuestJournal,
+            WindowClass::FriendList,
+            WindowClass::Guild,
+            WindowClass::WorldMap,
+        ] {
+            assert!(with_icon.contains(&class), "{class:?} has no icon");
+        }
     }
 
     #[test]
@@ -817,35 +955,105 @@ mod tests {
         let bits = menu_bar_open_bits(|class| wanted.contains(&class));
         for (index, entry) in entries.iter().enumerate() {
             let on = bits & (1_u64 << index) != 0;
-            assert_eq!(on, entry.is_open(&wanted));
+            assert_eq!(on, wanted.contains(&entry.class));
         }
         assert_eq!(menu_bar_open_bits(|_| false), 0);
     }
 
     #[test]
-    fn menu_bar_starts_docked_on_the_bottom_and_remembers_a_drag() {
-        let screen_width = 1280.0;
-        let screen_height = 720.0;
-        let frame = default_menu_bar_frame(screen_width, screen_height);
-        let hud = first_open_hud(screen_width, screen_height);
-        let ceiling = hud.chat.top.min(hud.hotbar.top) - 4.0;
-        assert!(
-            (frame.top + frame.height - ceiling).abs() < 0.5,
-            "bar bottom {} is not just above chat and the hotbar ({ceiling})",
-            frame.top + frame.height
-        );
-        assert!(
-            screen_height - (frame.top + frame.height) > 40.0,
-            "bar still covers the bottom HUD"
-        );
-        assert!((frame.left + frame.width / 2.0 - screen_width / 2.0).abs() < 0.5);
-        assert!((frame.height - MENU_BAR_WINDOW_HEIGHT).abs() < 0.5);
+    fn layout_cycles_through_every_mode() {
+        let mut layout = MenuBarLayout::default();
+        let mut seen = Vec::new();
+        for _ in 0..4 {
+            seen.push(layout);
+            layout = layout.next();
+        }
+        assert_eq!(layout, MenuBarLayout::default());
+        for mode in LAYOUTS {
+            assert!(seen.contains(&mode));
+        }
+    }
 
+    #[test]
+    fn grid_shapes_follow_the_layout() {
+        let count = menu_bar_cell_count();
+        let (columns, rows) = menu_bar_grid(MenuBarLayout::TwoRows, count, 1920.0, 1080.0);
+        assert_eq!(rows, 2);
+        assert!(columns * rows >= count);
+        let (_, rows) = menu_bar_grid(MenuBarLayout::ThreeRows, count, 1920.0, 1080.0);
+        assert_eq!(rows, 3);
+        let (columns, rows) = menu_bar_grid(MenuBarLayout::Vertical, count, 1280.0, 720.0);
+        assert!(rows > columns, "vertical is {columns}x{rows}");
+        // Auto never uses more rows than it needs.
+        let (_, wide) = menu_bar_grid(MenuBarLayout::Auto, count, 3840.0, 2160.0);
+        assert_eq!(wide, 1);
+    }
+
+    #[test]
+    fn every_layout_keeps_full_size_buttons_on_screen() {
+        for (screen_width, screen_height) in SCREENS {
+            for layout in LAYOUTS {
+                let frame = default_menu_bar_frame_for(layout, screen_width, screen_height);
+                assert!(
+                    frame.left >= -0.5 && frame.top >= -0.5,
+                    "{layout:?} {screen_width}x{screen_height}"
+                );
+                assert!(
+                    frame.right() <= screen_width + 0.5,
+                    "{layout:?} {screen_width}x{screen_height} too wide"
+                );
+                assert!(
+                    frame.bottom() <= screen_height + 0.5,
+                    "{layout:?} {screen_width}x{screen_height} too tall"
+                );
+
+                let buttons = menu_bar_button_frames(layout, frame, screen_width, screen_height);
+                assert_eq!(buttons.len(), menu_bar_cell_count());
+                for (index, button) in buttons.iter().enumerate() {
+                    // Captions keep the normal font: no cell shrinks.
+                    assert_eq!(button.width, MENU_BAR_CELL_WIDTH);
+                    assert_eq!(button.height, MENU_BAR_CELL_HEIGHT);
+                    assert!(
+                        button.left + 0.5 >= frame.left && button.right() <= frame.right() + 0.5,
+                        "{layout:?} cell {index}"
+                    );
+                    assert!(
+                        button.top + 0.5 >= frame.top && button.bottom() <= frame.bottom() + 0.5,
+                        "{layout:?} cell {index}"
+                    );
+                    for other in &buttons[index + 1..] {
+                        assert!(!rects_overlap(*button, *other), "{layout:?} cells overlap");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn default_dock_clears_chat_and_the_hotbar() {
+        for (screen_width, screen_height) in [(1280.0, 720.0), (1279.0, 700.0), (1920.0, 1080.0)] {
+            let frame = default_menu_bar_frame(screen_width, screen_height);
+            let hud = first_open_hud(screen_width, screen_height);
+            assert!(
+                !rects_overlap(frame, hud.chat),
+                "bar covers chat at {screen_width}x{screen_height}"
+            );
+            assert!(
+                !rects_overlap(frame, hud.hotbar),
+                "bar covers hotbar at {screen_width}x{screen_height}"
+            );
+            assert!((frame.left + frame.width / 2.0 - screen_width / 2.0).abs() < 0.5);
+        }
+    }
+
+    #[test]
+    fn menu_bar_starts_docked_and_remembers_a_drag() {
         let screen = crate::graphics::ScreenSize {
-            width: screen_width,
-            height: screen_height,
+            width: 1280.0,
+            height: 720.0,
         };
-        let (mut anchor, size) = default_menu_bar_window(screen_width, screen_height);
+        let frame = default_menu_bar_frame(screen.width, screen.height);
+        let (mut anchor, size) = default_menu_bar_window(screen.width, screen.height);
         let start = anchor.to_position(screen);
         assert!((start.left - frame.left).abs() < 0.5);
         assert!((start.top - frame.top).abs() < 0.5);
@@ -855,61 +1063,32 @@ mod tests {
         let remembered = anchor.to_position(screen);
         assert!((remembered.left - dragged.left).abs() < 0.5);
         assert!((remembered.top - dragged.top).abs() < 0.5);
-
-        let again = anchor.to_position(screen);
-        assert_eq!(again.left, remembered.left);
-        assert_eq!(again.top, remembered.top);
-    }
-
-    fn rects_overlap(a: HudFrame, b: HudFrame) -> bool {
-        a.left < b.right() && a.right() > b.left && a.top < b.bottom() && a.bottom() > b.top
     }
 
     #[test]
-    fn menu_bar_buttons_fit_the_screen_and_clear_chat_and_hotbar() {
-        // 1280×720 is the client layout. The harness shot is 700px tall, so a
-        // button past y=700 is sliced off even though it is inside that layout.
-        let cases = [(1280.0, 720.0, 700.0), (1279.0, 700.0, 700.0), (1024.0, 576.0, 576.0)];
-        let count = menu_bar_entries().len();
+    fn icons_fall_back_to_captions_after_a_miss() {
+        let mut icons = MenuBarIcons::default();
+        let pending = icons.pending(64);
+        assert!(!pending.is_empty());
+        assert!(pending.iter().all(|(index, _)| menu_bar_entries()[*index].icon.is_some()));
 
-        for (screen_width, screen_height, visible_bottom) in cases {
-            let frame = default_menu_bar_frame(screen_width, screen_height);
-            let hud = first_open_hud(screen_width, screen_height);
-            assert!(
-                (frame.width - (screen_width - 16.0)).abs() < 0.5,
-                "{screen_width}x{screen_height} width {} is not the preset",
-                frame.width
-            );
-            assert!(frame.left >= -0.5 && frame.top >= -0.5);
-            assert!(frame.right() <= screen_width + 0.5);
-            assert!(frame.bottom() <= visible_bottom + 0.5, "bar hangs off the visible window");
-            assert!(
-                !rects_overlap(frame, hud.chat),
-                "bar covers chat at {screen_width}x{screen_height}"
-            );
-            assert!(
-                !rects_overlap(frame, hud.hotbar),
-                "bar covers hotbar at {screen_width}x{screen_height}"
-            );
+        let (first, _) = pending[0];
+        icons.resolve(first, None, true);
+        assert!(icons.texture(first).is_none());
+        assert!(
+            icons.pending(64).iter().all(|(index, _)| *index != first),
+            "a confirmed miss is not retried"
+        );
 
-            let buttons = menu_bar_button_frames(frame, count);
-            assert_eq!(buttons.len(), count);
-            let row_top = buttons[0].top;
-            let mut previous_right = frame.left;
-            for button in &buttons {
-                assert!((button.top - row_top).abs() < 0.5, "buttons are not one row");
-                assert!(button.width > 1.0, "button has no width");
-                assert!(button.left >= -0.5 && button.top >= -0.5);
-                assert!(button.right() <= screen_width + 0.5);
-                assert!(button.bottom() <= visible_bottom + 0.5);
-                assert!(button.left + 0.5 >= frame.left && button.right() <= frame.right() + 0.5);
-                assert!(button.bottom() <= frame.bottom() + 0.5);
-                assert!(button.left + 0.5 >= previous_right, "buttons overlap each other");
-                assert!(!rects_overlap(*button, hud.chat));
-                assert!(!rects_overlap(*button, hud.hotbar));
-                previous_right = button.right();
-            }
-            assert!(buttons.last().unwrap().right() <= screen_width + 0.5);
+        let (second, _) = pending[1];
+        for _ in 0..super::ICON_ATTEMPTS {
+            assert!(icons.pending(64).iter().any(|(index, _)| *index == second));
+            icons.resolve(second, None, false);
         }
+        assert!(
+            icons.pending(64).iter().all(|(index, _)| *index != second),
+            "failed reads stop after a few tries"
+        );
+        assert_eq!(icons.pending(2).len(), 2);
     }
 }

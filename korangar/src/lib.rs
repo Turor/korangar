@@ -4337,6 +4337,24 @@ impl Client {
     /// does not record the path, so the next frame can retry. A confirmed
     /// miss stays empty and the window paints an opaque theme panel
     /// underneath.
+    /// Load up to two `menu_icon` images per frame while the menu bar is
+    /// open. A miss keeps the caption.
+    fn sync_menu_bar_icons(&mut self) {
+        if !self.interface.is_window_with_class_open(WindowClass::MenuBar) {
+            return;
+        }
+        let pending = self.client_state.follow_mut(client_state().menu_bar_icons()).pending(2);
+        for (index, file) in pending {
+            let loaded = self.load_interface_texture(file);
+            let icons = self.client_state.follow_mut(client_state().menu_bar_icons());
+            match loaded {
+                LoadedInterfaceTexture::Image(texture) => icons.resolve(index, Some(texture), false),
+                LoadedInterfaceTexture::Retry => icons.resolve(index, None, false),
+                LoadedInterfaceTexture::Missing => icons.resolve(index, None, true),
+            }
+        }
+    }
+
     fn sync_world_map_textures(&mut self) {
         if !self.interface.is_window_with_class_open(WindowClass::WorldMap) {
             if self.client_state.follow(client_state().world_map_window()).holds_textures() {
@@ -4623,6 +4641,10 @@ impl Client {
                         Some(MenuBarPress::Close(class)) => self.interface.close_window_with_class(class),
                         None => {}
                     }
+                }
+                InputEvent::CycleMenuBarLayout => {
+                    let settings = self.client_state.follow_mut(client_state().interface_settings());
+                    settings.menu_bar_layout = settings.menu_bar_layout.next();
                 }
                 InputEvent::ToggleChatWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
@@ -7312,6 +7334,7 @@ impl Client {
             .update(self.client_state.follow(client_state().entities()), delta_time as f32);
 
         self.sync_world_map_textures();
+        self.sync_menu_bar_icons();
 
         let current_camera: &(dyn Camera + Send + Sync) = match currently_playing {
             #[cfg(feature = "debug")]

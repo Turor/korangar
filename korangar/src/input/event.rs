@@ -62,6 +62,8 @@ pub enum InputEvent {
     MenuBarPress {
         index: u8,
     },
+    /// Switch the menu bar between fit, two rows, three rows and vertical.
+    CycleMenuBarLayout,
     /// Open or close the chat window.
     ToggleChatWindow,
     /// Open or close the hotbar.

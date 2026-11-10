@@ -379,8 +379,6 @@ where
         self.vertical_resize_click_action.update(data.id);
         self.resize_click_action.update(data.id);
 
-        let store = store.get_or_create_from_window_id(data.id, generator);
-
         App::set_current_theme_type(self.theme);
 
         let title_height = *state.get(&self.title_height);
@@ -400,38 +398,55 @@ where
             data.anchor.initialize(window_size, adjusted_size);
         }
 
-        // Adjust position
-        let real_position = {
-            let anchor_position = data.anchor.to_position(window_size);
-            let half_width = adjusted_size.width() / 2.0;
+        // Keep the whole window inside the viewport. The real height is only
+        // known after layout, so a window whose content runs past the bottom
+        // edge is laid out once more, moved up by the overflow.
+        let anchor_position = data.anchor.to_position(window_size);
+        let mut window_height = title_height;
+        let mut laid_out = None;
+        for _ in 0..2 {
+            let (left, top) = clamp_window_origin(
+                anchor_position.left(),
+                anchor_position.top(),
+                adjusted_size.width(),
+                window_height,
+                window_size.width(),
+                window_size.height(),
+            );
 
-            App::Position::new(
-                anchor_position.left().max(-half_width).min(window_size.width() - half_width),
-                anchor_position.top().max(0.0).min(window_size.height() - title_height),
-            )
-        };
+            let available_area = Area {
+                left,
+                top,
+                width: adjusted_size.width(),
+                height: adjusted_size.height(),
+            };
 
-        let available_area = Area {
-            left: real_position.left(),
-            top: real_position.top(),
-            width: adjusted_size.width(),
-            height: adjusted_size.height(),
-        };
+            let element_store = store.get_or_create_from_window_id(data.id, generator);
+            let mut resolver = Resolver::new(available_area, 0.0, text_layouter);
 
-        let mut resolver = Resolver::new(available_area, 0.0, text_layouter);
+            let title_area = resolver.with_height(title_height);
 
-        let title_area = resolver.with_height(title_height);
+            let (area, children) =
+                resolver.with_derived_borderless(*state.get(&self.gaps), *state.get(&self.border), title_gap, |resolver| {
+                    self.elements.create_layout_info(state, element_store, resolver)
+                });
 
-        let (area, children) = resolver.with_derived_borderless(*state.get(&self.gaps), *state.get(&self.border), title_gap, |resolver| {
-            self.elements.create_layout_info(state, store, resolver)
-        });
+            let area = Area {
+                left: title_area.left,
+                top: title_area.top,
+                width: title_area.width,
+                height: (title_area.height + area.height).min(maximum_height).max(minimum_height),
+            };
 
-        let area = Area {
-            left: title_area.left,
-            top: title_area.top,
-            width: title_area.width,
-            height: (title_area.height + area.height).min(maximum_height).max(minimum_height),
-        };
+            let overflows = area.top > 0.5 && area.top + area.height > window_size.height() + 0.5;
+            let settled = !overflows || area.height <= window_height + 0.5;
+            window_height = area.height;
+            laid_out = Some((title_area, area, children));
+            if settled {
+                break;
+            }
+        }
+        let (title_area, area, children) = laid_out.expect("window layout ran");
 
         self.layout_info = Some(WindowLayoutInfoSet {
             area,
@@ -630,5 +645,42 @@ where
                 *state.get(&theme().window().overflow_behavior()),
             );
         }
+    }
+}
+
+/// Top-left corner for a window of `width` by `height` so it stays inside a
+/// `screen_width` by `screen_height` viewport. A window larger than the
+/// viewport is pinned to the top-left edge.
+pub(crate) fn clamp_window_origin(left: f32, top: f32, width: f32, height: f32, screen_width: f32, screen_height: f32) -> (f32, f32) {
+    let max_left = (screen_width - width).max(0.0);
+    let max_top = (screen_height - height).max(0.0);
+    (left.clamp(0.0, max_left), top.clamp(0.0, max_top))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clamp_window_origin;
+
+    #[test]
+    fn window_inside_the_viewport_does_not_move() {
+        assert_eq!(clamp_window_origin(100.0, 200.0, 300.0, 150.0, 1280.0, 720.0), (100.0, 200.0));
+    }
+
+    #[test]
+    fn window_hanging_off_the_bottom_moves_up() {
+        // A 140px hotbar placed for a 96px frame on a 700px window.
+        let (_, top) = clamp_window_origin(430.0, 596.0, 420.0, 140.0, 1279.0, 700.0);
+        assert_eq!(top, 560.0);
+    }
+
+    #[test]
+    fn window_hanging_off_the_sides_moves_in() {
+        assert_eq!(clamp_window_origin(-200.0, 10.0, 400.0, 100.0, 1024.0, 560.0).0, 0.0);
+        assert_eq!(clamp_window_origin(900.0, 10.0, 400.0, 100.0, 1024.0, 560.0).0, 624.0);
+    }
+
+    #[test]
+    fn window_larger_than_the_viewport_is_pinned_top_left() {
+        assert_eq!(clamp_window_origin(50.0, 50.0, 1400.0, 900.0, 1024.0, 560.0), (0.0, 0.0));
     }
 }
