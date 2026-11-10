@@ -607,6 +607,20 @@ fn menu_bar_locked_height(state: &ClientState) -> f32 {
     menu_bar_live_size(state).1
 }
 
+/// The menu bar stays opaque: it keeps the theme's window color but ignores
+/// any transparency the theme sets, so the world never shows through it.
+fn menu_bar_background(state: &ClientState) -> Color {
+    let color = client_theme()
+        .follow(state)
+        .map(|theme| theme.window.background_color)
+        .unwrap_or(Color::rgb_u8(0, 0, 0));
+    opaque(color)
+}
+
+fn opaque(color: Color) -> Color {
+    Color { alpha: 1.0, ..color }
+}
+
 /// Bottom strip the bar docks into: right of the hotbar (which sits right of
 /// chat), down to the same bottom margin as chat. Returns `(left, right,
 /// bottom)`.
@@ -735,6 +749,7 @@ impl CustomWindow<ClientState> for MenuBarWindow {
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
             closable: false,
+            background_color: ComputedSelector::new_default(menu_bar_background),
             minimum_width: ComputedSelector::new_default(menu_bar_locked_width),
             maximum_width: ComputedSelector::new_default(menu_bar_locked_width),
             minimum_height: ComputedSelector::new_default(menu_bar_locked_height),
@@ -896,9 +911,9 @@ mod tests {
     use super::{
         MENU_BAR_CELL_HEIGHT, MENU_BAR_CELL_WIDTH, MenuBarIcons, MenuBarKind, MenuBarLayout, MenuBarPress, default_menu_bar_frame,
         default_menu_bar_frame_for, default_menu_bar_window, docked_menu_bar_window, menu_bar_button_frames, menu_bar_cell_count,
-        menu_bar_entries, menu_bar_event_window, menu_bar_grid, menu_bar_open_bits, press_menu_bar,
+        menu_bar_entries, menu_bar_event_window, menu_bar_grid, menu_bar_open_bits, opaque, press_menu_bar,
     };
-    use crate::graphics::ScreenPosition;
+    use crate::graphics::{Color, ScreenPosition};
     use crate::input::InputEvent;
     use crate::interface::windows::WindowClass;
     use crate::interface::windows::placement::{HudFrame, first_open_hud};
@@ -1206,5 +1221,18 @@ mod tests {
             "failed reads stop after a few tries"
         );
         assert_eq!(icons.pending(2).len(), 2);
+    }
+
+    #[test]
+    fn menu_bar_background_is_always_opaque() {
+        let translucent = Color {
+            red: 0.1,
+            green: 0.2,
+            blue: 0.3,
+            alpha: 0.4,
+        };
+        let solid = opaque(translucent);
+        assert_eq!(solid.alpha, 1.0);
+        assert_eq!((solid.red, solid.green, solid.blue), (0.1, 0.2, 0.3));
     }
 }
