@@ -31,7 +31,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$SHA" && -f "$MANIFEST" && -f "$LINUX" && -f "$WINDOWS" ]] || {
+# --windows is optional: a release whose Windows build failed ships Linux only.
+[[ -n "$SHA" && -f "$MANIFEST" && -f "$LINUX" && ( -z "$WINDOWS" || -f "$WINDOWS" ) ]] || {
   usage >&2
   exit 1
 }
@@ -53,7 +54,8 @@ trap 'rm -rf "$WORKDIR"' EXIT
 chmod 700 "$WORKDIR"
 cp "$MANIFEST" "$WORKDIR/manifest.jsonup"
 cp "$LINUX" "$WORKDIR/linux.bin"
-cp "$WINDOWS" "$WORKDIR/windows.exe"
+if [[ -n "$WINDOWS" ]]; then cp "$WINDOWS" "$WORKDIR/windows.exe"; else : >"$WORKDIR/windows.exe"; fi
+HAS_WINDOWS=$([[ -n "$WINDOWS" ]] && echo 1 || echo 0)
 # credentials stay mode 600 and are sourced only on garage-1
 ssh -o BatchMode=yes $SSH_EXTRA "$GARAGE_HOST" -- "mkdir -p /root/korangar-release-upload && chmod 700 /root/korangar-release-upload"
 scp -q -o BatchMode=yes $SSH_EXTRA "$CRED" \
@@ -75,7 +77,7 @@ put() {
   aws --endpoint-url ${ENDPOINT} s3api put-object --bucket ${BUCKET} --key "\$key" --body "\$file" >/dev/null
 }
 put "${LINUX_KEY}" linux.bin
-put "${WIN_KEY}" windows.exe
+if [[ ${HAS_WINDOWS} == 1 ]]; then put "${WIN_KEY}" windows.exe; fi
 put "${STAGING_KEY}" manifest.jsonup
 # Atomic-ish replace: copy staging over the live key, then delete staging.
 aws --endpoint-url ${ENDPOINT} s3api copy-object --bucket ${BUCKET} \
