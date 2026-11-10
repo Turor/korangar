@@ -60,6 +60,10 @@ impl CustomWindow<ClientState> for MenuWindow {
                     event: InputEvent::OpenWarpra,
                 },
                 button! {
+                    text: "World Map",
+                    event: InputEvent::ToggleWorldMap,
+                },
+                button! {
                     text: "Companions",
                     event: InputEvent::OpenCompanions,
                 },

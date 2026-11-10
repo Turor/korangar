@@ -50,9 +50,9 @@ use theme::{InterfaceTheme, InterfaceThemePathExt, InterfaceThemeType};
 #[cfg(feature = "debug")]
 use self::cache_statistics::CacheStatistics;
 use self::clan::ClanState;
-use self::item_finder::ItemFinderState;
 use self::friends::FriendListEntry;
 use self::guild::GuildState;
+use self::item_finder::ItemFinderState;
 #[cfg(feature = "debug")]
 use crate::PacketHistory;
 #[cfg(feature = "debug")]
@@ -201,6 +201,8 @@ pub struct ClientState {
     eden_window: crate::interface::windows::EdenWindowState,
     /// Internal state of the Turoran Warpra menu.
     warpra_window: crate::interface::windows::WarpraWindowState,
+    /// World map region, hover, and dungeon floor picker.
+    world_map_window: crate::interface::windows::WorldMapWindowState,
     /// Homunculus, pet, mercenary, and elemental info.
     companion_window: crate::interface::windows::CompanionWindowState,
     /// Alive MVPs from `0x0EF5` and the loaded map size used to plot them.
@@ -464,6 +466,7 @@ impl ClientState {
             let stable_window = crate::interface::windows::StableWindowState::default();
             let eden_window = crate::interface::windows::EdenWindowState::default();
             let warpra_window = crate::interface::windows::WarpraWindowState::default();
+            let world_map_window = crate::interface::windows::WorldMapWindowState::default();
             let companion_window = crate::interface::windows::CompanionWindowState::default();
             let mvp_minimap = crate::interface::windows::MvpMinimapState::default();
             let mail_window = crate::interface::windows::MailWindowState::default();
@@ -560,6 +563,7 @@ impl ClientState {
             stable_window,
             eden_window,
             warpra_window,
+            world_map_window,
             companion_window,
             mvp_minimap,
             mail_window,
