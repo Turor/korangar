@@ -22,7 +22,7 @@ use ragnarok_packets::{EquipPosition, StatUpType};
 use rust_state::{ManuallyAssertExt, Path, PathExt, Selector, State, VecIndexExt};
 
 use crate::ItemSource;
-use crate::graphics::{Color, CornerDiameter, ShadowPadding};
+use crate::graphics::{CornerDiameter, ShadowPadding};
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
@@ -913,7 +913,7 @@ pub(crate) fn paint_portrait(state: &State<ClientState>, layout: &mut WindowLayo
         area,
         CornerDiameter::uniform(6.0),
         state.get(&client_theme().tokens().raised()).with_alpha_u8(230),
-        Color::rgba_u8(0, 0, 0, 120),
+        state.get(&client_theme().tokens().bg()).with_alpha_u8(120),
         ShadowPadding::diagonal(2.0, 4.0),
     );
 

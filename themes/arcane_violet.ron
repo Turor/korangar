@@ -17,6 +17,8 @@ ThemeFile(
     slot_size: 44.0,
     corner_radius: 8.0,
     font_size: 13.0,
+    // Window and chat background opacity (1.0 = opaque).
+    window_alpha: 1.0,
     // Status panel bars (status.hp_bar, status.sp_bar, status.base_exp_bar, status.job_exp_bar).
     status: (
         hp_bar: Some("#5DBE6A"),

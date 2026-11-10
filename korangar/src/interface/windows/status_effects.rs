@@ -8,12 +8,11 @@ use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
 use rust_state::{Path, State};
 
-use crate::graphics::Color;
 use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
-use crate::state::ClientState;
 use crate::state::status_effects::StatusEffects;
-use crate::state::theme::InterfaceThemeType;
+use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
+use crate::state::{ClientState, client_theme};
 
 struct StatusEffectsElement<A> {
     status_effects_path: A,
@@ -64,8 +63,8 @@ where
                 layout_info.area,
                 "No active statuses",
                 FontSize(12.0),
-                Color::rgb_u8(160, 164, 176),
-                Color::rgb_u8(255, 160, 60),
+                *state.get(&client_theme().tokens().muted()),
+                *state.get(&client_theme().tokens().accent()),
                 HorizontalAlignment::Left { offset: 4.0, border: 2.0 },
                 VerticalAlignment::Center { offset: 0.0 },
                 OverflowBehavior::Shrink,
@@ -84,8 +83,8 @@ where
                 area,
                 effect.label.as_str(),
                 FontSize(12.0),
-                Color::rgb_u8(230, 232, 240),
-                Color::rgb_u8(255, 160, 60),
+                *state.get(&client_theme().tokens().text()),
+                *state.get(&client_theme().tokens().accent()),
                 HorizontalAlignment::Left { offset: 4.0, border: 2.0 },
                 VerticalAlignment::Center { offset: 0.0 },
                 OverflowBehavior::Shrink,

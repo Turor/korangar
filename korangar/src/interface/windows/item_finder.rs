@@ -10,13 +10,12 @@ use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
 use rust_state::{Path, State};
 
-use crate::graphics::Color;
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
-use crate::state::ClientState;
 use crate::state::item_finder::{ItemFinderState, ItemFinderStatePathExt};
-use crate::state::theme::InterfaceThemeType;
+use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
+use crate::state::{ClientState, client_theme};
 
 const QUERY_LIMIT: usize = 64;
 
@@ -68,8 +67,8 @@ where
                 layout_info.area,
                 "No matches.",
                 FontSize(12.0),
-                Color::rgb_u8(220, 224, 232),
-                Color::rgb_u8(255, 160, 60),
+                *state.get(&client_theme().tokens().text()),
+                *state.get(&client_theme().tokens().accent()),
                 HorizontalAlignment::Left { offset: 4.0, border: 2.0 },
                 VerticalAlignment::Center { offset: 0.0 },
                 OverflowBehavior::Shrink,
@@ -87,8 +86,8 @@ where
                 area,
                 line.as_str(),
                 FontSize(12.0),
-                Color::rgb_u8(220, 224, 232),
-                Color::rgb_u8(255, 160, 60),
+                *state.get(&client_theme().tokens().text()),
+                *state.get(&client_theme().tokens().accent()),
                 HorizontalAlignment::Left { offset: 4.0, border: 2.0 },
                 VerticalAlignment::Center { offset: 0.0 },
                 OverflowBehavior::Shrink,

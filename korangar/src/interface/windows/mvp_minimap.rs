@@ -11,7 +11,7 @@ use rust_state::{Path, RustState, State};
 use super::WindowClass;
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::loaders::{FontSize, OverflowBehavior};
-use crate::state::theme::InterfaceThemePathExt;
+use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt};
 use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme, this_entity};
 
 /// Square minimap in interface pixels.
@@ -187,7 +187,7 @@ where
             canvas,
             CornerDiameter::uniform(4.0),
             tokens.raised,
-            Color::rgba_u8(0, 0, 0, 80),
+            state.get(&client_theme().tokens().bg()).with_alpha_u8(80),
             ShadowPadding::diagonal(1.0, 2.0),
         );
 

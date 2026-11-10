@@ -51,6 +51,10 @@ pub struct ThemeTokens {
     pub status_base_exp_bar: Color,
     /// `status.job_exp_bar`: Job EXP fill. Defaults to `accent2`.
     pub status_job_exp_bar: Color,
+    /// `window_alpha`: opacity of window and chat backgrounds, 0.0–1.0.
+    /// Defaults to 1.0 (opaque).
+    #[serde(default = "default_window_alpha")]
+    pub window_alpha: f32,
 }
 
 /// Status-panel HP fill when a theme file has no `status.hp_bar`.
@@ -97,6 +101,7 @@ impl ThemeTokens {
             status_sp_bar: Color::rgb_u8(64, 156, 210),
             status_base_exp_bar: Color::rgb_u8(255, 152, 48),
             status_job_exp_bar: Color::rgb_u8(198, 64, 88),
+            window_alpha: 1.0,
         }
     }
 
@@ -134,6 +139,9 @@ pub struct ThemeFile {
     pub corner_radius: f32,
     #[serde(default = "default_font_size")]
     pub font_size: f32,
+    /// Window and chat background opacity (1.0 = opaque).
+    #[serde(default = "default_window_alpha")]
+    pub window_alpha: f32,
     /// Optional `status: (...)` block (TOML: `[status]` or `status.key`).
     #[serde(default)]
     pub status: StatusThemeFile,
@@ -157,6 +165,16 @@ fn default_corner_radius() -> f32 {
 }
 fn default_font_size() -> f32 {
     13.0
+}
+fn default_window_alpha() -> f32 {
+    1.0
+}
+
+impl ThemeTokens {
+    /// `window_alpha` as a color alpha byte.
+    pub fn window_alpha_u8(&self) -> u8 {
+        (self.window_alpha.clamp(0.0, 1.0) * 255.0).round() as u8
+    }
 }
 
 /// Parse `#RRGGBB` or `RRGGBB`.
@@ -210,6 +228,7 @@ impl ThemeFile {
             status_sp_bar,
             status_base_exp_bar,
             status_job_exp_bar,
+            window_alpha: self.window_alpha.clamp(0.0, 1.0),
         })
     }
 }
@@ -275,6 +294,7 @@ fn parse_theme_toml(source: &str) -> Option<ThemeFile> {
         slot_size: nums.get("slot_size").copied().unwrap_or(44.0),
         corner_radius: nums.get("corner_radius").copied().unwrap_or(8.0),
         font_size: nums.get("font_size").copied().unwrap_or(13.0),
+        window_alpha: nums.get("window_alpha").copied().unwrap_or(1.0),
         status: StatusThemeFile {
             hp_bar: strings.remove("status.hp_bar"),
             sp_bar: strings.remove("status.sp_bar"),
@@ -620,6 +640,23 @@ job_exp_bar = "#445566"
             .replace("\nbase_exp_bar", "\nstatus.base_exp_bar");
         let dotted = parse_theme_file(&dotted).expect("dotted keys");
         assert_eq!(dotted.status_hp_bar, parse_hex_color("#00FF00").unwrap());
+    }
+
+    #[test]
+    fn bundled_themes_have_opaque_windows() {
+        for tokens in [
+            ThemeTokens::verdant_rune(),
+            ThemeTokens::ember_forge(),
+            ThemeTokens::arcane_violet(),
+        ] {
+            assert_eq!(tokens.window_alpha, 1.0, "{}", tokens.name);
+            assert_eq!(tokens.window_alpha_u8(), 255);
+        }
+        let toml = "name = \"T\"\nbg = \"#000000\"\npanel = \"#000000\"\nraised = \"#000000\"\nborder = \"#000000\"\ntext = \
+                    \"#FFFFFF\"\nmuted = \"#888888\"\naccent = \"#FF0000\"\naccent2 = \"#00FF00\"\nhover = \"#FFFF00\"\nhp = \
+                    \"#FF0000\"\nsp = \"#0000FF\"\ngold = \"#FFFF00\"\nwindow_alpha = 0.5\n";
+        let half = parse_theme_file(toml).expect("toml");
+        assert_eq!(half.window_alpha_u8(), 128);
     }
 
     #[test]

@@ -260,7 +260,7 @@ impl InterfaceTheme {
             window: WindowTheme {
                 title_color: text,
                 hovered_title_color: accent,
-                background_color: panel.with_alpha_u8(215),
+                background_color: panel.with_alpha_u8(tokens.window_alpha_u8()),
                 highlight_color: accent,
                 shadow_color: Color::rgba_u8(0, 0, 0, 120),
                 shadow_padding: ShadowPadding::diagonal(4.0, 8.0),
@@ -433,8 +433,8 @@ impl InterfaceTheme {
                 hovered_background_color: gold,
             },
             chat: ChatTheme {
-                window_color: panel.with_alpha_u8(205),
-                text_box_background_color: bg.with_alpha_u8(190),
+                window_color: panel.with_alpha_u8(tokens.window_alpha_u8()),
+                text_box_background_color: bg.with_alpha_u8(tokens.window_alpha_u8()),
                 broadcast_color: gold,
                 server_color: sp,
                 error_color: accent2,
@@ -540,7 +540,7 @@ impl InterfaceTheme {
 
     /// Original Turoran dark in-game HUD theme.
     ///
-    /// Charcoal translucent panels, orange accents, and compact chrome intended
+    /// Charcoal opaque panels, orange accents, and compact chrome intended
     /// for existing chat/hotbar/inventory/equipment/stats windows. This is an
     /// original Turoran palette inspired by modern dark HUD conventions, not a
     /// copy of any third-party artwork, logo, or proprietary theme assets.
@@ -558,6 +558,62 @@ impl InterfaceTheme {
 
     pub fn arcane_violet() -> Self {
         Self::from_tokens(&crate::state::theme::ThemeTokens::arcane_violet())
+    }
+
+    /// Login, server, character and PIN screens: colors from the active token
+    /// theme, larger chrome from the menu layout.
+    pub fn menu_from_tokens(tokens: &crate::state::theme::ThemeTokens) -> Self {
+        let geometry = Self::default_menu();
+        let mut theme = Self::from_tokens(tokens);
+        macro_rules! keep_geometry {
+            ($($part:ident . $field:ident),* $(,)?) => {
+                $( theme.$part.$field = geometry.$part.$field; )*
+            };
+        }
+        keep_geometry!(
+            window.gaps,
+            window.border,
+            window.corner_diameter,
+            window.close_button_size,
+            window.close_button_corner_diameter,
+            window.minimum_width,
+            window.maximum_width,
+            window.minimum_height,
+            window.maximum_height,
+            window.title_height,
+            window.title_gap,
+            window.font_size,
+            text.height,
+            text.font_size,
+            button.height,
+            button.corner_diameter,
+            button.font_size,
+            state_button.height,
+            state_button.corner_diameter,
+            state_button.font_size,
+            text_box.height,
+            text_box.corner_diameter,
+            text_box.font_size,
+            drop_down.item_height,
+            drop_down.item_corner_diameter,
+            drop_down.item_font_size,
+            drop_down.list_corner_diameter,
+            drop_down.button_height,
+            drop_down.button_corner_diameter,
+            drop_down.button_font_size,
+            field.height,
+            field.corner_diameter,
+            field.font_size,
+            tooltip.font_size,
+        );
+        theme
+    }
+
+    /// Menu theme that follows the in-game token theme (`Verdant Rune`,
+    /// `Ember Forge`, `Arcane Violet`, or a user token file).
+    pub fn menu_for_in_game(in_game_name: &str) -> Self {
+        let tokens = crate::state::theme::load_theme_tokens(in_game_name).unwrap_or_default();
+        Self::menu_from_tokens(&tokens)
     }
 
     fn default_menu() -> Self {
@@ -1028,11 +1084,8 @@ mod turoran_dark_theme_tests {
         assert_eq!(decoded.window.highlight_color.green_as_u8(), 152);
         assert_eq!(decoded.window.highlight_color.blue_as_u8(), 48);
         assert_eq!(decoded.chat.window_color.alpha_as_u8(), theme.chat.window_color.alpha_as_u8());
-        assert!(
-            decoded.window.background_color.alpha_as_u8() < 255,
-            "window should stay translucent"
-        );
-        assert!(decoded.chat.window_color.alpha_as_u8() < 255, "chat should stay translucent");
+        assert_eq!(decoded.window.background_color.alpha_as_u8(), 255, "windows are opaque (t249u)");
+        assert_eq!(decoded.chat.window_color.alpha_as_u8(), 255, "chat is opaque (t249u)");
         assert_ne!(decoded.chat.error_color, decoded.chat.server_color);
         assert_ne!(decoded.chat.broadcast_color, decoded.chat.information_color);
         assert_eq!(decoded.chat.party_color.red_as_u8(), 230);
@@ -1125,8 +1178,8 @@ mod verdant_rune_theme_tests {
             decoded.window.background_color.alpha_as_u8(),
             theme.window.background_color.alpha_as_u8()
         );
-        assert!(decoded.window.background_color.alpha_as_u8() < 255);
-        assert!(decoded.chat.window_color.alpha_as_u8() < 255);
+        assert_eq!(decoded.window.background_color.alpha_as_u8(), 255);
+        assert_eq!(decoded.chat.window_color.alpha_as_u8(), 255);
         assert_ne!(decoded.chat.error_color, decoded.chat.server_color);
     }
 
@@ -1214,5 +1267,47 @@ mod token_slot_border_tests {
                 theme.tokens.raised.blue_as_u8()
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod menu_theme_tests {
+    use super::InterfaceTheme;
+    use crate::state::theme::ThemeTokens;
+
+    /// Login, server select, character select and PIN windows take their
+    /// colors from the active token theme, not the old hard-coded menu palette.
+    #[test]
+    fn menu_theme_uses_token_colors_with_menu_geometry() {
+        let stock = InterfaceTheme::default_menu();
+        for tokens in [
+            ThemeTokens::verdant_rune(),
+            ThemeTokens::ember_forge(),
+            ThemeTokens::arcane_violet(),
+        ] {
+            let menu = InterfaceTheme::menu_from_tokens(&tokens);
+            let in_game = InterfaceTheme::from_tokens(&tokens);
+            assert_eq!(menu.tokens, tokens);
+            assert_eq!(menu.window.background_color, in_game.window.background_color, "{}", tokens.name);
+            assert_eq!(menu.window.title_color, in_game.window.title_color);
+            assert_eq!(menu.button.background_color, in_game.button.background_color);
+            assert_eq!(menu.text_box.background_color, in_game.text_box.background_color);
+            assert_eq!(menu.text.color, in_game.text.color);
+            assert_ne!(menu.window.background_color, stock.window.background_color);
+            assert_ne!(menu.button.highlight_color, stock.button.highlight_color);
+            // Menu screens keep their larger chrome.
+            assert_eq!(menu.window.border, stock.window.border);
+            assert_eq!(menu.window.title_height, stock.window.title_height);
+            assert_eq!(menu.button.height, stock.button.height);
+            assert_eq!(menu.text_box.font_size.0, stock.text_box.font_size.0);
+        }
+    }
+
+    #[test]
+    fn menu_for_in_game_follows_the_named_theme() {
+        let ember = InterfaceTheme::menu_for_in_game(crate::settings::EMBER_FORGE_THEME_NAME);
+        assert_eq!(ember.tokens.name, ThemeTokens::ember_forge().name);
+        let unknown = InterfaceTheme::menu_for_in_game("no-such-theme");
+        assert_eq!(unknown.tokens, ThemeTokens::default());
     }
 }
