@@ -235,7 +235,7 @@ where
         Rc::new(RefCell::new(Default::default()));
 
     packet_handler.register(|_: MapServerPingPacket| NoNetworkEvents)?;
-    packet_handler.register(|packet: BroadcastMessagePacket| NetworkEvent::ChatMessage {
+    packet_handler.register(|packet: BroadcastMessagePacket| NetworkEvent::BroadcastMessage {
         text: packet.message,
         color: MessageColor::Broadcast,
     })?;
@@ -246,17 +246,15 @@ where
             green: packet.font_color.green,
             blue: packet.font_color.blue,
         };
-        NetworkEvent::ChatMessage {
+        NetworkEvent::BroadcastMessage {
             text: packet.message,
             color,
         }
     })?;
-    packet_handler.register(|packet: OverheadMessagePacket| {
-        // FIX: This should be a different event.
-        NetworkEvent::ChatMessage {
-            text: packet.message,
-            color: MessageColor::Broadcast,
-        }
+    packet_handler.register(|packet: OverheadMessagePacket| NetworkEvent::EntitySpeech {
+        entity_id: packet.entity_id,
+        text: packet.message,
+        color: MessageColor::Public,
     })?;
     packet_handler.register(|packet: ServerMessagePacket| NetworkEvent::ChatMessage {
         text: packet.message,
@@ -270,11 +268,24 @@ where
             green: packet.color.green,
             blue: packet.color.blue,
         };
-        NetworkEvent::ChatMessage {
+        NetworkEvent::EntitySpeech {
+            entity_id: packet.entity_id,
             text: packet.message,
             color,
         }
     })?;
+    packet_handler.register(|packet: WhisperReceivedPacket| NetworkEvent::WhisperReceived {
+        sender: packet.sender,
+        text: packet.message,
+        is_admin: packet.is_admin != 0,
+    })?;
+    packet_handler.register(|packet: WhisperReceived2Packet| NetworkEvent::WhisperReceived {
+        sender: packet.sender,
+        text: packet.message,
+        is_admin: packet.is_admin != 0,
+    })?;
+    packet_handler.register(|packet: WhisperAckPacket| NetworkEvent::WhisperAck { result: packet.result })?;
+    packet_handler.register(|packet: WhisperAck2Packet| NetworkEvent::WhisperAck { result: packet.result })?;
     packet_handler.register(|packet: DisplayEmotionPacket| NetworkEvent::DisplayEmotion {
         entity_id: packet.entity_id,
         emotion: packet.emotion,

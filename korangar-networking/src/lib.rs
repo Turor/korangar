@@ -870,6 +870,16 @@ where
         }
     }
 
+    /// `CZ_WHISPER` (`0x0096`). The name is a 24-byte field; the message is
+    /// variable.
+    pub fn send_whisper(&mut self, target: &str, text: &str) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(WhisperMessagePacket::new(target.to_owned(), text.to_owned()))
+            }
+        }
+    }
+
     pub fn start_dialog(&mut self, npc_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
@@ -1358,12 +1368,14 @@ where
     /// `CZ_REQ_ACH_REWARD` (0x0A25).
     pub fn request_achievement_reward(&mut self, achievement_id: u32) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
-                .send_map_server_packet(ragnarok_packets::RequestAchievementRewardPacket { achievement_id }),
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(ragnarok_packets::RequestAchievementRewardPacket { achievement_id })
+            }
         }
     }
 
-    /// Claim today's attendance reward (`0x0AEF`). The server answers with `0x0AF0`.
+    /// Claim today's attendance reward (`0x0AEF`). The server answers with
+    /// `0x0AF0`.
     pub fn request_attendance(&mut self) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
@@ -2502,9 +2514,7 @@ mod packet_handlers {
         ragnarok_packets::RequestAchievementRewardPacket { achievement_id: 12 }
             .packet_to_bytes(&mut request)
             .unwrap();
-        ragnarok_packets::RequestAttendancePacket {}
-            .packet_to_bytes(&mut request)
-            .unwrap();
+        ragnarok_packets::RequestAttendancePacket {}.packet_to_bytes(&mut request).unwrap();
         let request = request.into_inner();
         assert_eq!(request, [0x25, 0x0A, 12, 0, 0, 0, 0xEF, 0x0A]);
     }
@@ -3050,8 +3060,8 @@ mod packet_handlers {
     fn rodex_mail_packets_round_trip() {
         use ragnarok_packets::{
             CloseRodexPacket, DeleteRodexPacket, NewMailStatusPacket, OpenRodexPacket, ReadRodexPacket, RefreshRodexPacket,
-            RequestRodexItemsPacket, RequestRodexZenyPacket, RodexDeleteAckPacket, RodexItemAckPacket, RodexMailEntry,
-            RodexMailListPacket, RodexReadPacket, RodexReadPacket2025, RodexWriteResultPacket, RodexZenyAckPacket,
+            RequestRodexItemsPacket, RequestRodexZenyPacket, RodexDeleteAckPacket, RodexItemAckPacket, RodexMailEntry, RodexMailListPacket,
+            RodexReadPacket, RodexReadPacket2025, RodexWriteResultPacket, RodexZenyAckPacket,
         };
 
         let status = NewMailStatusPacket { new_available: 1 };
@@ -3102,7 +3112,9 @@ mod packet_handlers {
         empty.packet_to_bytes(&mut writer).unwrap();
         assert_eq!(writer.as_slice().len(), 5);
         let events = process_one(SupportedPacketVersion::_20190530, writer.as_slice());
-        assert!(matches!(events.as_slice(), [NetworkEvent::RodexMailList { is_end: true, next_mail_id: 0, summary }] if summary == "Inbox is empty."));
+        assert!(
+            matches!(events.as_slice(), [NetworkEvent::RodexMailList { is_end: true, next_mail_id: 0, summary }] if summary == "Inbox is empty.")
+        );
 
         let write_result = RodexWriteResultPacket { result: 0 };
         let mut writer = ByteWriter::new();

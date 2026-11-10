@@ -1070,6 +1070,7 @@ impl Client {
     fn handle_network_events(&mut self, client_tick: ClientTick) {
         *self.client_state.follow_mut(client_state().client_tick()) = client_tick;
         self.client_state.follow_mut(client_state().navigation()).expire(client_tick.0);
+        self.client_state.follow_mut(client_state()).expire_chat_overlays(client_tick.0);
         self.client_state
             .follow_mut(client_state().roulette_window())
             .tick_spin(client_tick.0);
@@ -1745,6 +1746,22 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().chat_messages())
                         .push(ChatMessage::new(text, color));
+                }
+                NetworkEvent::EntitySpeech { entity_id, text, color } => {
+                    self.client_state
+                        .follow_mut(client_state())
+                        .record_entity_speech(entity_id, text, color, client_tick.0);
+                }
+                NetworkEvent::BroadcastMessage { text, color } => {
+                    self.client_state
+                        .follow_mut(client_state())
+                        .record_broadcast(text, color, client_tick.0);
+                }
+                NetworkEvent::WhisperReceived { sender, text, is_admin: _ } => {
+                    self.client_state.follow_mut(client_state()).record_whisper(sender, text);
+                }
+                NetworkEvent::WhisperAck { result } => {
+                    self.client_state.follow_mut(client_state()).record_whisper_ack(result);
                 }
                 NetworkEvent::UpdateEntityDetails { entity_id, name } => {
                     let entity = self
@@ -4211,9 +4228,23 @@ impl Client {
                         continue;
                     }
 
-                    let _ = self
-                        .networking_system
-                        .send_chat_message(self.client_state.follow(client_state().player_name()), &text);
+                    match self.client_state.follow(client_state()).outgoing_chat(&text) {
+                        state::chat::OutgoingChat::Whisper { target, text } => {
+                            let (target, text) = self.client_state.follow_mut(client_state()).begin_whisper(target, text);
+                            let _ = self.networking_system.send_whisper(&target, &text);
+                        }
+                        state::chat::OutgoingChat::Public(text) => {
+                            if let Some(entity_id) = self.client_state.try_follow(this_entity()).map(|player| player.get_entity_id()) {
+                                let bubble = state::chat::speech_bubble_text(&text).to_owned();
+                                self.client_state
+                                    .follow_mut(client_state())
+                                    .note_local_speech(entity_id, bubble, client_tick.0);
+                            }
+                            let _ = self
+                                .networking_system
+                                .send_chat_message(self.client_state.follow(client_state().player_name()), &text);
+                        }
+                    }
                 }
                 InputEvent::NextDialog { npc_id } => {
                     let _ = self.networking_system.next_dialog(npc_id);
@@ -6590,6 +6621,20 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
                 self.screen_size,
             );
         }
+
+        let font_size = self.client_state.follow(client_state().in_game_theme()).text.font_size;
+        let chat_theme = &self.client_state.follow(client_state().in_game_theme()).chat;
+        crate::interface::chat_overlay::render(&crate::interface::chat_overlay::ChatOverlayFrame {
+            renderer: self.middle_interface_renderer,
+            camera: self.current_camera,
+            entities: self.client_state.follow(client_state().entities()),
+            bubbles: self.client_state.follow(client_state().chat_bubbles()),
+            announce: self.client_state.follow(client_state().announce()),
+            chat_theme,
+            font_size,
+            window_size: self.screen_size,
+            now: self.client_tick.0,
+        });
 
         match self.mouse_target {
             PickerTarget::Tile { x, y } => {

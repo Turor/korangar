@@ -6,7 +6,7 @@ use cgmath::Point3;
 use cgmath::{EuclideanSpace, Vector2};
 
 use crate::graphics::{Color, RectangleInstruction, ScreenClip, ScreenPosition, ScreenSize, Texture};
-use crate::loaders::{FontLoader, FontSize, GLYPH_PADDING, GlyphInstruction, Scaling, TEXT_SHADOW_RADIUS};
+use crate::loaders::{FontLoader, FontSize, GLYPH_PADDING, GlyphInstruction, OverflowBehavior, Scaling, TEXT_SHADOW_RADIUS};
 #[cfg(feature = "debug")]
 use crate::loaders::{ImageType, TextureLoader};
 #[cfg(feature = "debug")]
@@ -174,6 +174,22 @@ impl GameInterfaceRenderer {
 
     pub fn update_scaling(&mut self, scaling: Scaling) {
         self.scaling = scaling;
+    }
+
+    /// Width and height of `text` in window pixels, using the same font scaling
+    /// as [`Self::render_text`].
+    pub fn measure_text(&self, text: &str, font_size: FontSize) -> ScreenSize {
+        let font_size = FontSize(font_size.0 * self.scaling.get_factor());
+        let (size, _) = self.font_loader.get_text_dimensions(
+            text,
+            Color::WHITE,
+            self.highlight_color,
+            font_size,
+            1.0,
+            f32::MAX,
+            OverflowBehavior::Shrink,
+        );
+        size
     }
 
     pub fn render_text(
