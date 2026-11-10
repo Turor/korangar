@@ -20,11 +20,13 @@ use crate::state::theme::InterfaceThemePathExt;
 use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 use crate::world::{AnimationData, AnimationFramePart};
 
-const COLUMNS: usize = 8;
-const CELL: f32 = 44.0;
+/// Twelve columns keep the 23 human styles in two rows and every color in one,
+/// so the creation window (name, picker, Create) fits a 720px screen.
+const COLUMNS: usize = 12;
+const CELL: f32 = 40.0;
 const GAP: f32 = 4.0;
 const ROW: f32 = 30.0;
-const PREVIEW: f32 = 140.0;
+const PREVIEW: f32 = 116.0;
 const LABEL: f32 = 16.0;
 
 const NUMBERS: [&str; 24] = [
@@ -445,5 +447,18 @@ fn paint_sprite(layout: &mut WindowLayout<ClientState>, area: korangar_interface
             part.color,
             false,
         );
+    }
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::block_height;
+
+    #[test]
+    fn picker_leaves_room_for_name_and_create_at_720p() {
+        // The window adds a title, the name box, and the Create button (about
+        // 110px) and opens about 150px from the top of a 720px screen.
+        assert!(block_height(23) <= 420.0, "picker height {}", block_height(23));
+        assert!(block_height(7) < block_height(23));
     }
 }
