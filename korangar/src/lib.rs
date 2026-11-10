@@ -124,8 +124,9 @@ const CLIENT_NAME: &str = "Korangar";
 const ROLLING_CUTTER_ID: SkillId = SkillId(2036);
 const DEFAULT_MAP: &str = "geffen";
 /// Screenshot login. Set `KORANGAR_HEADLESS_AUTO=1` to log in, pick the first
-/// character server, enter slot 0, and open Gear. It does not open Friends or
-/// standalone Stats. See `docs/headless-auto.md`.
+/// character server, enter slot 0, and open Gear. It does not open Friends,
+/// standalone Stats, Character Overview, Create Character, or the menu.
+/// See `docs/headless-auto.md`.
 static HEADLESS_AUTO_LOGIN_DONE: AtomicBool = AtomicBool::new(false);
 static HEADLESS_AUTO_INWORLD_UI: AtomicBool = AtomicBool::new(false);
 
@@ -1375,15 +1376,21 @@ impl Client {
                     self.client_state.follow_mut(client_state().entities()).push(player);
 
                     self.interface.close_window_with_class(WindowClass::CharacterSelection);
-                    self.interface.open_window(CharacterOverviewWindow::new(
-                        client_state().player_name(),
-                        // TODO: Check that manually asserting is fine. Technically this window should only
-                        // be open while the player is selected.
-                        this_player().manually_asserted().base_level(),
-                        // TODO: Check that manually asserting is fine. Technically this window should only
-                        // be open while the player is selected.
-                        this_player().manually_asserted().job_level(),
-                    ));
+                    self.interface.close_window_with_class(WindowClass::CharacterCreation);
+                    if headless_auto() {
+                        self.interface.close_window_with_class(WindowClass::CharacterOverview);
+                        self.interface.close_window_with_class(WindowClass::Menu);
+                    } else {
+                        self.interface.open_window(CharacterOverviewWindow::new(
+                            client_state().player_name(),
+                            // TODO: Check that manually asserting is fine. Technically this window should only
+                            // be open while the player is selected.
+                            this_player().manually_asserted().base_level(),
+                            // TODO: Check that manually asserting is fine. Technically this window should only
+                            // be open while the player is selected.
+                            this_player().manually_asserted().job_level(),
+                        ));
+                    }
                     self.interface
                         .open_window(ChatWindow::new(client_state().chat_window(), client_state().chat_messages()));
                     self.interface.open_window(HotbarWindow::new(
@@ -3827,11 +3834,15 @@ impl Client {
                     let _ = self.networking_system.select_character(slot);
                 }
                 InputEvent::OpenCharacterCreationWindow { slot } => {
-                    // Clear the name before opening the window.
-                    self.client_state.follow_mut(client_state().create_character_name()).clear();
-
-                    self.interface
-                        .open_window(CharacterCreationWindow::new(client_state().create_character_name(), slot))
+                    // The creation form is a character-select dialog. Opening it after the
+                    // player is already on a map paints "Create Character" over Gear.
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        self.interface.close_window_with_class(WindowClass::CharacterCreation);
+                    } else {
+                        self.client_state.follow_mut(client_state().create_character_name()).clear();
+                        self.interface
+                            .open_window(CharacterCreationWindow::new(client_state().create_character_name(), slot));
+                    }
                 }
                 InputEvent::CreateCharacter { slot, name } => {
                     let _ = self.networking_system.create_character(slot, name);
@@ -5034,22 +5045,27 @@ impl Client {
                 (LoaderId::Map(..), LoadableResource::Map { map, position }) => {
                     match self.client_state.try_follow(this_player()).is_none() {
                         true => {
-                            // Load of main menu map
+                            // Load of main menu map. Skip this when a map session is already
+                            // up: that load is stale and was painting Create Character in-world.
                             let map = self.map.insert(map);
 
                             map.set_ambient_sound_sources(&self.audio_engine);
                             self.audio_engine.play_background_music_track(DEFAULT_BACKGROUND_MUSIC);
 
-                            self.interface.open_window(CharacterSelectionWindow::new(
-                                client_state().character_slots(),
-                                client_state().switch_request(),
-                            ));
+                            if !self.networking_system.is_map_server_connected() {
+                                self.interface.open_window(CharacterSelectionWindow::new(
+                                    client_state().character_slots(),
+                                    client_state().switch_request(),
+                                ));
+                            }
 
                             self.start_camera.set_focus_point(START_CAMERA_FOCUS_POINT);
                             self.directional_shadow_camera.set_level_bound(map.get_level_bound());
                         }
                         false => {
-                            // Normal map switch
+                            // In-world map. A stale main-menu load must not reopen character select.
+                            self.interface.close_window_with_class(WindowClass::CharacterCreation);
+                            self.interface.close_window_with_class(WindowClass::CharacterSelection);
                             let map = self.map.insert(map);
 
                             map.set_ambient_sound_sources(&self.audio_engine);
@@ -5071,6 +5087,10 @@ impl Client {
                                 .set_map_size(width, height);
                             let _ = self.networking_system.map_loaded();
                             if headless_auto() && !HEADLESS_AUTO_INWORLD_UI.swap(true, Ordering::SeqCst) {
+                                self.interface.close_window_with_class(WindowClass::CharacterOverview);
+                                self.interface.close_window_with_class(WindowClass::CharacterCreation);
+                                self.interface.close_window_with_class(WindowClass::CharacterSelection);
+                                self.interface.close_window_with_class(WindowClass::Menu);
                                 self.input_event_buffer.push(InputEvent::ToggleEquipmentWindow);
                             }
                         }

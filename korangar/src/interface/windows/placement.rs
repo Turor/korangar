@@ -1,11 +1,12 @@
 //! First-open HUD frames, scaled from a 1280×720 reference.
 //!
-//! Gear is the upper left. Inventory is its own window, immediately to the
+//! Gear is the upper left and keeps its reference pixel size, so a 44px socket
+//! stays 44px at 1024×576. Inventory is its own window, immediately to the
 //! right of Gear. The character menu and standalone Stats stack under
 //! Inventory, clear of Gear (Gear already shows stats). Chat is the
-//! bottom-left corner. The hotbar is bottom-center. The minimap is the
-//! top-right, with status under it. Quest, friends, party, and guild stack
-//! below Stats, clear of Gear. The skill tree opens in the center of the screen.
+//! bottom-left corner, below Gear. The hotbar is bottom-center. The minimap
+//! is the top-right, with status under it. Quest, friends, party, and guild
+//! stack below Stats, clear of Gear. The skill tree opens in the center.
 
 use super::equipment::{GEAR_WINDOW_HEIGHT, GEAR_WINDOW_WIDTH};
 
@@ -84,12 +85,24 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
     let scale = (screen_width / REFERENCE_SCREEN_WIDTH).min(screen_height / REFERENCE_SCREEN_HEIGHT);
     let margin = 8.0 * scale;
 
-    let chat = HudFrame {
+    // Unscaled. Scaling this frame is what drew ~36px sockets at 1024×576.
+    let gear = HudFrame {
+        left: margin,
+        top: 36.0 * scale,
+        width: GEAR_WINDOW_WIDTH,
+        height: GEAR_WINDOW_HEIGHT,
+    };
+
+    let mut chat = HudFrame {
         left: margin,
         top: screen_height - 160.0 * scale - margin,
-        width: 340.0 * scale,
+        width: (340.0 * scale).min(gear.width),
         height: 160.0 * scale,
     };
+    if chat.top < gear.bottom() + margin {
+        chat.top = gear.bottom() + margin;
+        chat.height = screen_height - margin - chat.top;
+    }
     let mut hotbar = HudFrame {
         left: 0.0,
         top: screen_height - 48.0 * scale - margin,
@@ -101,13 +114,10 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
         hotbar.left = chat.right() + margin;
         hotbar.width = (screen_width - margin - hotbar.left).min(hotbar.width);
     }
-
-    let gear = HudFrame {
-        left: margin,
-        top: 36.0 * scale,
-        width: (GEAR_WINDOW_WIDTH * scale).min(screen_width * 0.50).min(880.0),
-        height: (GEAR_WINDOW_HEIGHT * scale).min(chat.top - 36.0 * scale - margin),
-    };
+    if hotbar.top < chat.top {
+        hotbar.top = chat.top;
+        hotbar.height = (screen_height - margin - hotbar.top).max(32.0);
+    }
 
     let minimap_side = (200.0 * scale).min(screen_width * 0.16);
     let minimap = HudFrame {
@@ -228,6 +238,9 @@ mod tests {
         assert!(hud.character.left >= hud.gear.right() - 0.5);
         assert!(hud.stats.left >= hud.gear.right() - 0.5);
         assert!(hud.inventory.left >= hud.gear.right() - 0.5);
+        assert!(hud.chat.top >= hud.gear.bottom() - 0.5, "chat overlaps gear");
+        assert!((hud.gear.width - super::GEAR_WINDOW_WIDTH).abs() < 0.5);
+        assert!((hud.gear.height - super::GEAR_WINDOW_HEIGHT).abs() < 0.5);
         assert!(hud.quest.left >= hud.gear.right() - 0.5);
         assert!(hud.hotbar.left + hud.hotbar.width / 2.0 - width / 2.0 < 1.0);
         let skill_center_x = hud.skill_tree.left + hud.skill_tree.width / 2.0;
@@ -242,13 +255,17 @@ mod tests {
     }
 
     #[test]
-    fn first_open_frames_fit_1280x720_and_1920x1080() {
+    fn first_open_frames_fit_1024_1280_and_1920() {
+        assert_layout(1024.0, 576.0);
         assert_layout(REFERENCE_SCREEN_WIDTH, REFERENCE_SCREEN_HEIGHT);
         assert_layout(1920.0, 1080.0);
-        let small = first_open_hud(REFERENCE_SCREEN_WIDTH, REFERENCE_SCREEN_HEIGHT);
+        let small = first_open_hud(1024.0, 576.0);
+        let mid = first_open_hud(REFERENCE_SCREEN_WIDTH, REFERENCE_SCREEN_HEIGHT);
         let large = first_open_hud(1920.0, 1080.0);
-        assert!(large.gear.width > small.gear.width);
-        assert!(large.inventory.left > small.inventory.left);
+        assert!((small.gear.width - mid.gear.width).abs() < 0.5);
+        assert!((large.gear.width - mid.gear.width).abs() < 0.5);
+        assert!((small.gear.height - super::GEAR_WINDOW_HEIGHT).abs() < 0.5);
+        assert!(large.inventory.left > mid.inventory.left);
     }
 
     #[test]
