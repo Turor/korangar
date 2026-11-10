@@ -293,7 +293,7 @@ mod tests {
             message: "Guard : go".to_owned(),
         };
         let bytes = bytes_of(&chat);
-        // opcode + length + account + name + message.
-        assert_eq!(bytes.len(), 2 + 2 + 4 + 24 + "Guard : go".len());
+        // opcode + length + account + name + message + NUL (Hercules sends one too).
+        assert_eq!(bytes.len(), 2 + 2 + 4 + 24 + "Guard : go".len() + 1);
     }
 }
