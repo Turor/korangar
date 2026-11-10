@@ -7,10 +7,10 @@
 use ragnarok_packets::handler::{DuplicateHandlerError, PacketCallback, PacketHandler};
 use ragnarok_packets::{
     NewMailStatusPacket, RodexDeleteAckPacket, RodexItemAckPacket, RodexMailEntry, RodexMailListPacket, RodexReadPacket,
-    RodexReadPacket2025, RodexWriteResultPacket, RodexZenyAckPacket,
+    RodexReadPacket2025, RodexReceiverPacket, RodexWriteOpenedPacket, RodexWriteResultPacket, RodexZenyAckPacket,
 };
 
-use crate::event::{NetworkEvent, NetworkEventList};
+use crate::event::{NetworkEvent, NetworkEventList, RodexMailSummary};
 
 pub fn register_rodex_packets<Callback>(packet_handler: &mut PacketHandler<NetworkEventList, Callback>) -> Result<(), DuplicateHandlerError>
 where
@@ -23,11 +23,32 @@ where
         let is_end = packet.is_end != 0;
         let next_mail_id = rodex_page_cursor(&packet.mails);
         let summary = format_rodex_mails(is_end, &packet.mails);
+        let mails = packet
+            .mails
+            .iter()
+            .map(|mail| RodexMailSummary {
+                mail_id: mail.mail_id,
+                sender: mail.sender_name.clone(),
+                title: mail.title.clone(),
+                is_read: mail.is_read != 0,
+            })
+            .collect();
         Some(NetworkEvent::RodexMailList {
             is_end,
             next_mail_id,
             summary,
+            mails,
         })
+    })?;
+    packet_handler.register(|packet: RodexWriteOpenedPacket| NetworkEvent::RodexWriteOpened {
+        receiver_name: packet.receiver_name,
+        allowed: packet.result == 1,
+    })?;
+    packet_handler.register(|packet: RodexReceiverPacket| NetworkEvent::RodexReceiver {
+        character_id: packet.character_id,
+        class: packet.class,
+        base_level: packet.base_level,
+        name: packet.name,
     })?;
     packet_handler.register(|packet: RodexWriteResultPacket| NetworkEvent::RodexWriteResult {
         result: packet.result,
