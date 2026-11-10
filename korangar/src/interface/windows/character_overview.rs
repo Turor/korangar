@@ -44,6 +44,7 @@ where
             minimum_width: 300.0,
             maximum_width: 300.0,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::CharacterOverview),
                 fragment! {
                     gaps: 4.0,
                     children: (

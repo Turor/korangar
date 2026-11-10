@@ -162,6 +162,7 @@ where
             theme: InterfaceThemeType::InGame,
             closable: true,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::Stats),
                 split! {
                     children: (
                         text! {

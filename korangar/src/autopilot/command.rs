@@ -49,6 +49,9 @@ impl DumpPath {
 #[derive(Clone, Debug)]
 pub enum Command {
     Chat(String),
+    /// Switch the open window of a tabbed group to this member, as a tab
+    /// click does.
+    Tab(WindowClass),
     Window {
         class: WindowClass,
         open: bool,
@@ -97,6 +100,7 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
         }
         "open" => parse_window(rest, true),
         "close" => parse_window(rest, false),
+        "tab" => parse_tab(rest),
         "toggle" => Ok(Command::Toggle(toggle_event(rest)?)),
         "event" => Ok(Command::Event(scripted_event(rest)?)),
         "wait" => {
@@ -158,6 +162,16 @@ fn parse_window(name: &str, open: bool) -> Result<Command, String> {
         open: command.open,
         event: command.event,
     })
+}
+
+fn parse_tab(name: &str) -> Result<Command, String> {
+    let Some(class) = crate::autopilot::events::parse_window_class(name) else {
+        return Err(format!("unknown window class {name}"));
+    };
+    if crate::interface::windows::WindowGroup::of(class).is_none() {
+        return Err(format!("{name} is not in a tabbed window group"));
+    }
+    Ok(Command::Tab(class))
 }
 
 fn parse_click(rest: &str, kind: ClickKind) -> Result<Command, String> {
@@ -348,6 +362,26 @@ fn pincode_event(rest: &str) -> Result<InputEvent, String> {
         other => Err(format!(
             "unknown pincode action {other} (digit, press, submit, change, reset, cancel, request)"
         )),
+    }
+}
+
+#[cfg(test)]
+mod tab_tests {
+    use super::{Command, parse_command};
+    use crate::interface::windows::WindowClass;
+
+    #[test]
+    fn tab_takes_a_group_member() {
+        assert!(matches!(
+            parse_command("tab graphicssettings").unwrap(),
+            Command::Tab(WindowClass::GraphicsSettings)
+        ));
+        assert!(matches!(
+            parse_command("tab companions").unwrap(),
+            Command::Tab(WindowClass::Companions)
+        ));
+        assert!(parse_command("tab inventory").is_err());
+        assert!(parse_command("tab nothing").is_err());
     }
 }
 

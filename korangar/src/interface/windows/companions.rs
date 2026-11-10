@@ -327,6 +327,7 @@ impl CustomWindow<ClientState> for CompanionWindow {
             theme: InterfaceThemeType::InGame,
             closable: true,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::Companions),
                 text! {
                     text: state_path.status(),
                     overflow_behavior: OverflowBehavior::Shrink,

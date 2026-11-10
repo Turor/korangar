@@ -61,6 +61,8 @@ pub enum Effect {
         sex: u8,
     },
     Input(InputEvent),
+    /// Show this member of its tabbed group in place of the open one.
+    Tab(WindowClass),
     Window {
         class: WindowClass,
         open: bool,
@@ -391,6 +393,11 @@ impl Autopilot {
             Command::Chat(text) => {
                 effects.push(log_ok(line));
                 effects.push(Effect::Input(InputEvent::SendMessage { text }));
+                false
+            }
+            Command::Tab(class) => {
+                effects.push(log_ok(line));
+                effects.push(Effect::Tab(class));
                 false
             }
             Command::Window { class, open, event } => {

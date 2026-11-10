@@ -468,6 +468,35 @@ where
         }
     }
 
+    /// Make `to` open where `from` is now. Used by tab strips so switching
+    /// tabs keeps the window in place. Does nothing when `from` is closed.
+    pub fn share_window_anchor(&mut self, from: App::WindowClass, to: App::WindowClass) {
+        let Some(anchor) = self
+            .windows
+            .iter()
+            .find(|wrapper| wrapper.window.get_class().is_some_and(|class| class == from))
+            .map(|wrapper| {
+                // The drawn area, not the stored anchor: a window taller than
+                // the screen is clamped, and the next tab should start where
+                // this one is seen.
+                let area = wrapper.display_information.real_area;
+                let mut anchor = wrapper.data.anchor;
+                anchor.update(
+                    self.window_size,
+                    App::Position::new(area.left, area.top),
+                    App::Size::new(area.width, area.height),
+                );
+                anchor
+            })
+        else {
+            return;
+        };
+        match self.window_cache.get_window_state(to, self.window_size) {
+            Some(_) => self.window_cache.update_anchor(to, anchor),
+            None => self.window_cache.register_window(to, anchor, App::Size::new(0.0, f32::MAX)),
+        }
+    }
+
     /// Move the open windows of these classes to the front, in the given
     /// order (the last class ends up on top). Windows that are already in that
     /// order are left alone.

@@ -164,6 +164,7 @@ where
             minimum_width: FRIEND_WINDOW_MINIMUM_WIDTH,
             closable: true,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::FriendList),
                 split! {
                     gaps: theme().window().gaps(),
                     children: (

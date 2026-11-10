@@ -35,6 +35,7 @@ where
             theme: InterfaceThemeType::InGame,
             closable: true,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::AudioSettings),
                 state_button! {
                     text: client_state().localization().mute_audio_on_focus_loss_button_text(),
                     state: self.audio_settings_path.mute_on_focus_loss(),
