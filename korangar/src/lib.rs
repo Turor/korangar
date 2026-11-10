@@ -1466,6 +1466,11 @@ impl Client {
                     }
                     self.interface
                         .open_window(ChatWindow::new(client_state().chat_window(), client_state().chat_messages()));
+                    self.interface.open_window(StatusPanelWindow::new(
+                        client_state().player_name(),
+                        this_player().manually_asserted(),
+                        client_state().status_effects(),
+                    ));
                     self.interface.open_window(HotbarWindow::new(
                         client_state().hotbar().skills(),
                         client_state().skill_tree().skills(),
@@ -2151,6 +2156,13 @@ impl Client {
                 NetworkEvent::UpdateStat { stat_type } => {
                     if let Some(player) = self.client_state.try_follow_mut(this_player()) {
                         player.update_stat(stat_type);
+                    }
+                }
+                NetworkEvent::StatUpResult { success, .. } => {
+                    if let Some(notice) = crate::world::stat_up_feedback(success) {
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(notice.to_owned(), MessageColor::Error));
                     }
                 }
                 NetworkEvent::OpenEnchant { enchant_group } => {
@@ -4118,6 +4130,18 @@ impl Client {
                         match self.interface.is_window_with_class_open(WindowClass::Navigation) {
                             true => self.interface.close_window_with_class(WindowClass::Navigation),
                             false => self.interface.open_window(NavigationWindow::new(client_state().navigation())),
+                        }
+                    }
+                }
+                InputEvent::ToggleStatusPanelWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::StatusPanel) {
+                            true => self.interface.close_window_with_class(WindowClass::StatusPanel),
+                            false => self.interface.open_window(StatusPanelWindow::new(
+                                client_state().player_name(),
+                                this_player().manually_asserted(),
+                                client_state().status_effects(),
+                            )),
                         }
                     }
                 }

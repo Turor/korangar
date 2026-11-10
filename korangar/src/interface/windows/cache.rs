@@ -118,6 +118,7 @@ fn preset_window(class: WindowClass, screen_width: f32, screen_height: f32) -> O
         WindowClass::Hotbar => (ScreenAnchor::BottomCenter, hud.hotbar),
         WindowClass::MvpMinimap => (ScreenAnchor::TopRight, hud.minimap),
         WindowClass::StatusEffects => (ScreenAnchor::TopRight, hud.status),
+        WindowClass::StatusPanel => (ScreenAnchor::TopLeft, hud.status_panel),
         WindowClass::SkillTree => (ScreenAnchor::Center, hud.skill_tree),
         WindowClass::QuestJournal => (ScreenAnchor::TopRight, hud.quest),
         WindowClass::FriendList => (ScreenAnchor::TopRight, hud.friends),

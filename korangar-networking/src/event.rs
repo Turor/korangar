@@ -255,6 +255,13 @@ pub enum NetworkEvent {
     UpdateStat {
         stat_type: StatType,
     },
+    /// `ZC_STATUS_CHANGE_ACK` (`0x00BC`). `success` is false when the server
+    /// rejected a base or trait stat-up.
+    StatUpResult {
+        status_id: u16,
+        success: bool,
+        value: u8,
+    },
     OpenDialog {
         text: String,
         npc_id: EntityId,

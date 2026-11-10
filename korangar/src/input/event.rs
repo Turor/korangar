@@ -140,6 +140,7 @@ pub enum InputEvent {
     ToggleNavigationWindow,
     /// Open or close the status effects strip. Only works while playing.
     ToggleStatusEffectsWindow,
+    ToggleStatusPanelWindow,
     /// Close the most recently opened or clicked closable window.
     CloseTopWindow,
     /// Escape closes the world map when it is open. Otherwise unfocus, close

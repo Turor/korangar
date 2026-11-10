@@ -202,9 +202,21 @@ pub fn status_effect_name(status_index: u16) -> String {
     name.to_owned()
 }
 
+/// Best-effort description for a status tooltip. Unknown IDs return an empty
+/// string.
+pub fn status_effect_description(status_index: u16) -> String {
+    let name = status_effect_name(status_index);
+    // `status_effect_name` writes unknown ids as `SC#{id}`.
+    if name.starts_with("SC#") {
+        String::new()
+    } else {
+        format!("Active status: {name}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::status_effect_name;
+    use super::{status_effect_description, status_effect_name};
 
     #[test]
     fn known_and_unknown_labels() {
@@ -215,5 +227,7 @@ mod tests {
         assert_eq!(status_effect_name(13), "Decrease AGI");
         assert_eq!(status_effect_name(877), "Stun");
         assert_eq!(status_effect_name(9999), "SC#9999");
+        assert_eq!(status_effect_description(10), "Active status: Blessing");
+        assert_eq!(status_effect_description(9999), "");
     }
 }

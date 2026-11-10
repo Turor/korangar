@@ -1,6 +1,7 @@
 mod achievements;
 mod audio_settings;
 mod bank;
+mod basic_info_view;
 mod buy;
 mod buy_cart;
 mod buy_or_sell;
@@ -62,6 +63,7 @@ mod skill_tree;
 mod stable;
 mod stats;
 mod status_effects;
+mod status_panel;
 mod storage;
 mod styling_shop;
 mod switch_equip;
@@ -139,6 +141,7 @@ pub use self::skill_tree::{SkillTreeWindow, SkillTreeWindowState, SkillTreeWindo
 pub use self::stable::{StableWindow, StableWindowState};
 pub use self::stats::StatsWindow;
 pub use self::status_effects::StatusEffectsWindow;
+pub use self::status_panel::StatusPanelWindow;
 pub use self::storage::StorageWindow;
 pub use self::styling_shop::StylingShopWindow;
 pub use self::switch_equip::SwitchEquipWindow;
@@ -181,6 +184,7 @@ pub enum WindowClass {
     WorldMap,
     Stats,
     StatusEffects,
+    StatusPanel,
     QuestJournal,
     Achievements,
     Navigation,

@@ -1589,6 +1589,16 @@ impl FromBytes for StatType {
             Ok((base as i32, bonus as i32))
         }
 
+        /// ZC_COUPLESTATUS stores the type as a `u32` and the base/bonus as
+        /// two `u32`s. The shared reader already consumed the low 16 bits of
+        /// the type, so skip the upper half before the values.
+        fn couple_status_pair_u32(byte_reader: &mut ByteReader) -> ConversionResult<(u32, u32)> {
+            let _ = u16::from_bytes(byte_reader)?;
+            let base = u32::from_bytes(byte_reader)?;
+            let bonus = u32::from_bytes(byte_reader)?;
+            Ok((base, bonus))
+        }
+
         let stat = match u16::from_bytes(byte_reader).trace::<Self>()? {
             0 => u32::from_bytes(byte_reader).map(Self::MovementSpeed),
             1 => u64::from_bytes(byte_reader).map(Self::BaseExperience),
@@ -1635,12 +1645,12 @@ impl FromBytes for StatType {
             55 => u32::from_bytes(byte_reader).map(Self::JobLevel),
             99 => u16::from_bytes(byte_reader)
                 .and_then(|a| Ok(Self::CartInfo(a, u32::from_bytes(byte_reader)?, u32::from_bytes(byte_reader)?))),
-            219 => u32::from_bytes(byte_reader).and_then(|a| Ok(Self::Power(a, u32::from_bytes(byte_reader)?))),
-            220 => u32::from_bytes(byte_reader).and_then(|a| Ok(Self::Stamina(a, u32::from_bytes(byte_reader)?))),
-            221 => u32::from_bytes(byte_reader).and_then(|a| Ok(Self::Wisdom(a, u32::from_bytes(byte_reader)?))),
-            222 => u32::from_bytes(byte_reader).and_then(|a| Ok(Self::Spell(a, u32::from_bytes(byte_reader)?))),
-            223 => u32::from_bytes(byte_reader).and_then(|a| Ok(Self::Concentration(a, u32::from_bytes(byte_reader)?))),
-            224 => u32::from_bytes(byte_reader).and_then(|a| Ok(Self::Creativity(a, u32::from_bytes(byte_reader)?))),
+            219 => couple_status_pair_u32(byte_reader).map(|(base, bonus)| Self::Power(base, bonus)),
+            220 => couple_status_pair_u32(byte_reader).map(|(base, bonus)| Self::Stamina(base, bonus)),
+            221 => couple_status_pair_u32(byte_reader).map(|(base, bonus)| Self::Wisdom(base, bonus)),
+            222 => couple_status_pair_u32(byte_reader).map(|(base, bonus)| Self::Spell(base, bonus)),
+            223 => couple_status_pair_u32(byte_reader).map(|(base, bonus)| Self::Concentration(base, bonus)),
+            224 => couple_status_pair_u32(byte_reader).map(|(base, bonus)| Self::Creativity(base, bonus)),
             225 => u32::from_bytes(byte_reader).map(Self::PhysicalAttack),
             226 => u32::from_bytes(byte_reader).map(Self::SpellMagicAttack),
             227 => u32::from_bytes(byte_reader).map(Self::Resistance),
