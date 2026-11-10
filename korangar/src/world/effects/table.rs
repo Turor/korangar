@@ -86,8 +86,8 @@ pub fn effect_id_value(effect_id: EffectId) -> u32 {
     numeric_u32(&effect_id)
 }
 
-pub fn unit_id_value(unit_id: UnitId) -> u32 {
-    numeric_u32(&unit_id)
+pub fn unit_id_value(unit_id: &UnitId) -> u32 {
+    numeric_u32(unit_id)
 }
 
 fn numeric_u32(value: &impl ToBytes) -> u32 {

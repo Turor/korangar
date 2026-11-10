@@ -3132,7 +3132,7 @@ impl Client {
                         print_debug!("[{}] entity with id {:?} is out of map bounds", "error".red(), entity_id);
                         continue;
                     };
-                    let Some(effect_ref) = effects::unit_effect(effects::unit_id_value(unit_id)) else {
+                    let Some(effect_ref) = effects::unit_effect(effects::unit_id_value(&unit_id)) else {
                         #[cfg(feature = "debug")]
                         print_debug!("[{}] unmapped skill unit {:?}", "effect".red(), unit_id);
                         continue;
