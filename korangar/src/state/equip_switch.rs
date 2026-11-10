@@ -16,6 +16,10 @@ impl EquipLoadout {
     pub fn slots(&self) -> &[EquipSwitchSlot] {
         &self.slots
     }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 /// Alternate equipment set plus locally named copies of that set.
@@ -29,6 +33,8 @@ pub struct EquipSwitch {
     loadouts: Vec<EquipLoadout>,
     draft_name: String,
     selected: usize,
+    sets_open: bool,
+    renaming: bool,
 }
 
 impl EquipSwitch {
@@ -46,6 +52,48 @@ impl EquipSwitch {
 
     pub fn slots(&self) -> &[EquipSwitchSlot] {
         &self.slots
+    }
+
+    pub fn loadout_count(&self) -> usize {
+        self.loadouts.len()
+    }
+
+    pub fn selected_index(&self) -> usize {
+        self.selected
+    }
+
+    pub fn sets_menu_open(&self) -> bool {
+        self.sets_open
+    }
+
+    pub fn renaming_set(&self) -> bool {
+        self.renaming
+    }
+
+    pub fn toggle_sets_menu(&mut self) {
+        self.sets_open = !self.sets_open;
+    }
+
+    pub fn begin_rename(&mut self) {
+        if let Some(set) = self.loadouts.get(self.selected) {
+            self.draft_name.clone_from(&set.name);
+            self.renaming = true;
+            self.sets_open = false;
+        }
+    }
+
+    /// Drop the selected snapshot. No-op when nothing is selected.
+    pub fn delete_selected(&mut self) -> bool {
+        if self.selected >= self.loadouts.len() {
+            return false;
+        }
+        self.loadouts.remove(self.selected);
+        if self.selected >= self.loadouts.len() {
+            self.selected = self.loadouts.len().saturating_sub(1);
+        }
+        self.renaming = false;
+        self.sets_open = false;
+        true
     }
 
     /// Remember which saved set the Load button applies.
@@ -71,10 +119,16 @@ impl EquipSwitch {
             existing.slots.clone_from(&self.slots);
         } else {
             self.loadouts.push(EquipLoadout {
-                name,
+                name: name.clone(),
                 slots: self.slots.clone(),
             });
         }
+        if let Some(index) = self.loadouts.iter().position(|set| set.name == name) {
+            self.selected = index;
+        }
+        self.draft_name.clear();
+        self.renaming = false;
+        self.sets_open = false;
     }
 
     /// Rename the selected set from the draft. Blank drafts are ignored.
@@ -158,6 +212,11 @@ mod tests {
         equip.save_loadout();
         assert_eq!(equip.loadouts.len(), 1);
         assert_eq!(equip.loadouts[0].slots[0].index, InventoryIndex(9));
+        assert!(!equip.delete_selected() || equip.loadouts.is_empty());
+        equip.save_loadout();
+        assert!(equip.delete_selected());
+        assert!(equip.loadouts.is_empty());
+        assert!(!equip.delete_selected());
     }
 
     #[test]

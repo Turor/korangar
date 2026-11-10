@@ -13,8 +13,9 @@ use korangar_interface::application::Application;
 use korangar_interface::components::text_box::DefaultHandler;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::{Element, ElementBox, ErasedElement};
+use korangar_interface::event::{ClickHandler, EventQueue};
 use korangar_interface::layout::area::{Area, PartialArea};
-use korangar_interface::layout::{Resolver, Resolvers, WindowLayout, with_single_resolver};
+use korangar_interface::layout::{MouseButton, Resolver, Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
 use korangar_networking::{InventoryItem, InventoryItemDetails};
@@ -34,20 +35,28 @@ use crate::world::{AnimationData, AnimationFramePart, Entity, PlayerPathExt, Res
 
 /// Square equipment socket: one item icon plus a small border. Width and height
 /// stay equal. The socket is not stretched to fill a grid cell.
-pub(crate) const GEAR_SLOT_SIDE: f32 = 28.0;
+pub(crate) const GEAR_SLOT_SIDE: f32 = 44.0;
+
+/// Item BMP drawn centered inside the square. Inventory icons are 24×24.
+pub(crate) const GEAR_ICON_SIDE: f32 = 24.0;
 
 /// Small caption under each square. The full name stays on the tooltip.
-pub(crate) const GEAR_SLOT_LABEL_HEIGHT: f32 = 10.0;
+pub(crate) const GEAR_SLOT_LABEL_HEIGHT: f32 = 12.0;
 
 /// Gap between paperdoll rows and between a square and its neighbors.
-pub(crate) const GEAR_SLOT_GAP: f32 = 3.0;
+pub(crate) const GEAR_SLOT_GAP: f32 = 4.0;
 
 /// Center column. The portrait is one frame spanning every body row.
-pub(crate) const GEAR_PORTRAIT_WIDTH: f32 = 112.0;
+pub(crate) const GEAR_PORTRAIT_WIDTH: f32 = 120.0;
 
-/// First-open Gear size at the 1280×720 reference. Two columns.
-pub(crate) const GEAR_WINDOW_WIDTH: f32 = 640.0;
-pub(crate) const GEAR_WINDOW_HEIGHT: f32 = 508.0;
+/// Costume and shadow wrap onto another row after this many squares so captions
+/// do not share a horizontal band.
+pub(crate) const STRIP_SLOTS_PER_ROW: usize = 4;
+
+/// First-open Gear size at the 1280×720 reference. The left half is the
+/// paperdoll width; the right half is the packed stat cluster.
+pub(crate) const GEAR_WINDOW_WIDTH: f32 = 480.0;
+pub(crate) const GEAR_WINDOW_HEIGHT: f32 = 640.0;
 
 /// Name, base, bonus, and the point button. They sit in this cluster.
 pub(crate) const BASE_STAT_PART_WIDTHS: [f32; 4] = [42.0, 32.0, 40.0, 52.0];
@@ -71,8 +80,16 @@ pub(crate) const GEAR_COLUMN_COUNT: usize = 2;
 /// The preview cell draws the character, not a text stub.
 pub(crate) const PREVIEW_RENDERS_CHARACTER: bool = true;
 
-/// Save, load, and rename for SwitchEquip loadouts, in that order.
-pub(crate) const LOADOUT_CONTROLS: [&str; 3] = ["Save", "Load", "Rename"];
+/// Add and remove for the saved-set row. The dropdown is the rest of the row.
+pub(crate) const LOADOUT_CONTROLS: [&str; 2] = ["+", "-"];
+
+/// Dropdown takes two thirds of the set row. + and − split the remaining third,
+/// which is half the dropdown's width.
+pub(crate) fn set_row_widths(row_width: f32) -> (f32, f32, f32) {
+    let dropdown = row_width * 2.0 / 3.0;
+    let button = (row_width - dropdown) / 2.0;
+    (dropdown, button, button)
+}
 
 /// Theme metrics the left column is stacked with. Kept here so a test can
 /// prove the loadout buttons fit in [`GEAR_WINDOW_HEIGHT`].
@@ -93,9 +110,9 @@ pub(crate) fn gear_slot_row_height() -> f32 {
 pub(crate) fn gear_left_column_content_height() -> f32 {
     let titles = 4.0 * SECTION_TITLE_HEIGHT;
     let paperdoll = paperdoll_block_height();
-    let strips = gear_slot_row_height() * 2.0;
-    let controls = CONTROL_HEIGHT * 2.0 + SECTION_TITLE_HEIGHT;
-    let children = 10.0;
+    let strips = strip_block_height(COSTUME_SLOTS.len()) + strip_block_height(SHADOW_SLOTS.len());
+    let controls = CONTROL_HEIGHT;
+    let children = 8.0;
     let gaps = (children - 1.0) * COLUMN_GAP;
     titles + paperdoll + strips + controls + gaps
 }
@@ -306,7 +323,7 @@ pub(crate) fn paperdoll_geometry(origin_left: f32, origin_top: f32) -> Paperdoll
     };
     let ammo = GearFrame {
         left: portrait.left + (portrait.width - GEAR_SLOT_SIDE) / 2.0,
-        top: portrait.top + portrait.height + GEAR_SLOT_GAP,
+        top: portrait.top + portrait.height - gear_slot_row_height(),
         width: GEAR_SLOT_SIDE,
         height: GEAR_SLOT_SIDE,
     };
@@ -319,22 +336,44 @@ pub(crate) fn paperdoll_geometry(origin_left: f32, origin_top: f32) -> Paperdoll
     }
 }
 
-/// Height of the paperdoll block, including the ammo square and its caption.
+/// Height of the paperdoll block. Ammo sits inside the portrait frame.
 pub(crate) fn paperdoll_block_height() -> f32 {
-    let geometry = paperdoll_geometry(0.0, 0.0);
-    geometry.ammo.top + gear_slot_row_height()
+    paperdoll_geometry(0.0, 0.0).portrait.height
 }
 
-/// Equal squares in one left-aligned strip (costume, shadow).
+/// How tall a wrapping strip of `count` squares is, including captions.
+pub(crate) fn strip_block_height(count: usize) -> f32 {
+    let rows = count.div_ceil(STRIP_SLOTS_PER_ROW).max(1);
+    rows as f32 * gear_slot_row_height() + (rows - 1) as f32 * GEAR_SLOT_GAP
+}
+
+/// Equal squares. More than [`STRIP_SLOTS_PER_ROW`] wraps onto the next row.
 pub(crate) fn square_strip_frames(count: usize, origin_left: f32, origin_top: f32) -> Vec<GearFrame> {
     (0..count)
-        .map(|index| GearFrame {
-            left: origin_left + index as f32 * (GEAR_SLOT_SIDE + GEAR_SLOT_GAP),
-            top: origin_top,
-            width: GEAR_SLOT_SIDE,
-            height: GEAR_SLOT_SIDE,
+        .map(|index| {
+            let column = index % STRIP_SLOTS_PER_ROW;
+            let row = index / STRIP_SLOTS_PER_ROW;
+            GearFrame {
+                left: origin_left + column as f32 * (GEAR_SLOT_SIDE + GEAR_SLOT_GAP),
+                top: origin_top + row as f32 * (gear_slot_row_height() + GEAR_SLOT_GAP),
+                width: GEAR_SLOT_SIDE,
+                height: GEAR_SLOT_SIDE,
+            }
         })
         .collect()
+}
+
+/// roBrowser `WinStats` renewal ASPD. Hercules `SP_ASPD` is amotion.
+/// `Math.floor(200 - val / 10)` equals `(2000 - amotion) / 10` for integer amotion.
+pub(crate) fn display_aspd(amotion: u32) -> u32 {
+    let delay = amotion.min(2000);
+    (2000 - delay) / 10
+}
+
+/// roBrowser `WinStats` prints HIT, FLEE, CRIT, ATK, MATK, DEF, and MDEF as the
+/// packet numbers. CRIT is not divided.
+pub(crate) fn display_packet_stat(value: u32) -> u32 {
+    value
 }
 
 /// Short socket name. Match order is historical.
@@ -513,8 +552,8 @@ where
     B: Path<ClientState, u32>,
 {
     fn select<'a>(&'a self, state: &'a ClientState) -> Option<&'a String> {
-        let base = *self.base_path.follow_safe(state);
-        let bonus = *self.bonus_path.follow_safe(state);
+        let base = display_packet_stat(*self.base_path.follow_safe(state));
+        let bonus = display_packet_stat(*self.bonus_path.follow_safe(state));
         if self.last_value.get() != Some((base, bonus)) {
             unsafe {
                 *self.text.get() = format!("{base} ^000001+ {bonus}^000000");
@@ -560,8 +599,247 @@ where
     }
 }
 
-/// Focus id for the loadout name box.
+struct PacketStatLabel<A> {
+    path: A,
+    last: Cell<u32>,
+    text: UnsafeCell<String>,
+}
+
+impl<A> PacketStatLabel<A> {
+    fn new(path: A) -> Self {
+        Self {
+            path,
+            last: Cell::new(u32::MAX),
+            text: UnsafeCell::default(),
+        }
+    }
+}
+
+impl<A> Selector<ClientState, String> for PacketStatLabel<A>
+where
+    A: Path<ClientState, u32>,
+{
+    fn select<'a>(&'a self, state: &'a ClientState) -> Option<&'a String> {
+        let raw = self.path.follow(state).copied().unwrap_or(0);
+        if self.last.get() != raw {
+            unsafe {
+                *self.text.get() = display_packet_stat(raw).to_string();
+            }
+            self.last.set(raw);
+        }
+        unsafe { Some(self.text.as_ref_unchecked()) }
+    }
+}
+
+struct AspdLabel<A> {
+    path: A,
+    last: Cell<u32>,
+    text: UnsafeCell<String>,
+}
+
+impl<A> AspdLabel<A> {
+    fn new(path: A) -> Self {
+        Self {
+            path,
+            last: Cell::new(u32::MAX),
+            text: UnsafeCell::default(),
+        }
+    }
+}
+
+impl<A> Selector<ClientState, String> for AspdLabel<A>
+where
+    A: Path<ClientState, u32>,
+{
+    fn select<'a>(&'a self, state: &'a ClientState) -> Option<&'a String> {
+        let amotion = self.path.follow(state).copied().unwrap_or(0);
+        if self.last.get() != amotion {
+            unsafe {
+                *self.text.get() = display_aspd(amotion).to_string();
+            }
+            self.last.set(amotion);
+        }
+        unsafe { Some(self.text.as_ref_unchecked()) }
+    }
+}
+
+struct SelectedSetName<A> {
+    path: A,
+    text: UnsafeCell<String>,
+}
+
+impl<A> SelectedSetName<A> {
+    fn new(path: A) -> Self {
+        Self {
+            path,
+            text: UnsafeCell::default(),
+        }
+    }
+}
+
+impl<A> Selector<ClientState, String> for SelectedSetName<A>
+where
+    A: Path<ClientState, EquipSwitch>,
+{
+    fn select<'a>(&'a self, state: &'a ClientState) -> Option<&'a String> {
+        let equip = self.path.follow(state)?;
+        let label = equip
+            .loadout(equip.selected_index())
+            .map(|set| set.name().to_string())
+            .unwrap_or_else(|| "Sets".to_string());
+        unsafe {
+            *self.text.get() = label;
+            Some(self.text.as_ref_unchecked())
+        }
+    }
+}
+
 struct GearSetName;
+
+struct BeginRenameClick;
+
+impl ClickHandler<ClientState> for BeginRenameClick {
+    fn handle_click(&self, _state: &State<ClientState>, queue: &mut EventQueue<ClientState>) {
+        queue.queue(InputEvent::BeginRenameLoadout);
+    }
+}
+
+/// One row: set dropdown, +, −. The menu lists saved names. Double-click the
+/// name to edit it inline.
+struct SetBar<A> {
+    switch_path: A,
+    elements: Vec<ElementBox<ClientState>>,
+    signature: usize,
+    rename_click: BeginRenameClick,
+    dropdown: Cell<Area>,
+}
+
+impl<A> SetBar<A>
+where
+    A: Copy + Path<ClientState, EquipSwitch> + 'static,
+{
+    fn new(switch_path: A) -> Self {
+        Self {
+            switch_path,
+            elements: Vec::new(),
+            signature: usize::MAX,
+            rename_click: BeginRenameClick,
+            dropdown: Cell::new(Area { left: 0.0, top: 0.0, width: 0.0, height: 0.0 }),
+        }
+    }
+}
+
+impl<A> Element<ClientState> for SetBar<A>
+where
+    A: Copy + Path<ClientState, EquipSwitch> + 'static,
+{
+    type LayoutInfo = ();
+
+    fn create_layout_info(
+        &mut self,
+        state: &State<ClientState>,
+        mut store: ElementStoreMut,
+        resolvers: &mut dyn Resolvers<ClientState>,
+    ) -> Self::LayoutInfo {
+        use korangar_interface::prelude::*;
+
+        with_single_resolver(resolvers, |resolver| {
+            let equip = state.get(&self.switch_path);
+            let count = equip.loadout_count();
+            let open = equip.sets_menu_open();
+            let renaming = equip.renaming_set();
+            let signature = count * 4 + usize::from(open) * 2 + usize::from(renaming);
+            if signature != self.signature {
+                self.signature = signature;
+                self.elements.clear();
+                let switch_path = self.switch_path;
+                if renaming {
+                    self.elements.push(ErasedElement::new(text_box! {
+                        ghost_text: "Set name",
+                        state: switch_path.draft_name(),
+                        input_handler: DefaultHandler::<_, _, 24>::new(switch_path.draft_name(), |_state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
+                            queue.queue(InputEvent::RenameEquipLoadout);
+                        }),
+                        focus_id: GearSetName,
+                    }));
+                } else {
+                    self.elements.push(ErasedElement::new(button! {
+                        text: SelectedSetName::new(switch_path),
+                        event: InputEvent::ToggleGearSets,
+                    }));
+                }
+                self.elements.push(ErasedElement::new(button! {
+                    text: LOADOUT_CONTROLS[0],
+                    event: InputEvent::SaveEquipLoadout,
+                }));
+                self.elements.push(ErasedElement::new(button! {
+                    text: LOADOUT_CONTROLS[1],
+                    disabled: ComputedSelector::new_default(move |state: &ClientState| {
+                        switch_path.follow(state).is_none_or(|equip| equip.loadout_count() == 0)
+                    }),
+                    event: InputEvent::DeleteEquipLoadout,
+                }));
+                if open {
+                    for index in 0..count {
+                        self.elements.push(ErasedElement::new(button! {
+                            text: ShowString::new(switch_path.loadouts().index(index).name()),
+                            event: move |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
+                                state.update_value_with(switch_path.selected(), move |selected| *selected = index);
+                                queue.queue(InputEvent::ApplyEquipLoadout { index, wear: true });
+                            },
+                        }));
+                    }
+                }
+            }
+
+            let menu_rows = if open { count } else { 0 };
+            let height = CONTROL_HEIGHT + menu_rows as f32 * (CONTROL_HEIGHT + COLUMN_GAP);
+            let origin = resolver.with_height(height);
+            let (dropdown, plus, minus) = set_row_widths(origin.width);
+            let frames = [
+                GearFrame { left: origin.left, top: origin.top, width: dropdown, height: CONTROL_HEIGHT },
+                GearFrame { left: origin.left + dropdown, top: origin.top, width: plus, height: CONTROL_HEIGHT },
+                GearFrame { left: origin.left + dropdown + plus, top: origin.top, width: minus, height: CONTROL_HEIGHT },
+            ];
+            self.dropdown.set(Area {
+                left: frames[0].left,
+                top: frames[0].top,
+                width: frames[0].width,
+                height: frames[0].height,
+            });
+            let text_layouter = resolver.get_text_layouter();
+            for (index, frame) in frames.into_iter().enumerate() {
+                if let Some(element) = self.elements.get_mut(index) {
+                    layout_erased_in_frame(element, state, store.child_store(index as u64), text_layouter, frame);
+                }
+            }
+            for (row, element) in self.elements.iter_mut().enumerate().skip(3) {
+                let frame = GearFrame {
+                    left: origin.left,
+                    top: origin.top + CONTROL_HEIGHT + COLUMN_GAP + (row - 3) as f32 * (CONTROL_HEIGHT + COLUMN_GAP),
+                    width: origin.width,
+                    height: CONTROL_HEIGHT,
+                };
+                layout_erased_in_frame(element, state, store.child_store(row as u64), text_layouter, frame);
+            }
+        })
+    }
+
+    fn lay_out<'a>(
+        &'a self,
+        state: &'a State<ClientState>,
+        store: ElementStore<'a>,
+        _: &'a Self::LayoutInfo,
+        layout: &mut WindowLayout<'a, ClientState>,
+    ) {
+        for (index, element) in self.elements.iter().enumerate() {
+            element.lay_out(state, store.child_store(index as u64), &(), layout);
+        }
+        if self.dropdown.get().check().run(layout) {
+            layout.register_click_handler(MouseButton::DoubleLeft, &self.rename_click);
+        }
+    }
+}
 
 fn paint_portrait(state: &State<ClientState>, layout: &mut WindowLayout<ClientState>, area: Area) {
     layout.add_rectangle(
@@ -631,9 +909,9 @@ fn paint_portrait(state: &State<ClientState>, layout: &mut WindowLayout<ClientSt
 fn paint_slot_label(layout: &mut WindowLayout<ClientState>, slot: GearFrame, label: &'static str) {
     layout.add_text(
         Area {
-            left: slot.left - 4.0,
+            left: slot.left,
             top: slot.top + slot.height,
-            width: slot.width + 8.0,
+            width: slot.width,
             height: GEAR_SLOT_LABEL_HEIGHT,
         },
         label,
@@ -788,7 +1066,7 @@ impl Element<ClientState> for LabeledStrip {
         resolvers: &mut dyn Resolvers<ClientState>,
     ) -> Self::LayoutInfo {
         with_single_resolver(resolvers, |resolver| {
-            let origin = resolver.with_height(gear_slot_row_height());
+            let origin = resolver.with_height(strip_block_height(self.positions.len()));
             let frames = square_strip_frames(self.positions.len(), origin.left, origin.top);
             let text_layouter = resolver.get_text_layouter();
             for (index, frame) in frames.iter().copied().enumerate() {
@@ -914,6 +1192,7 @@ where
         equipment_path,
         ItemSource::Equipment { position: equip_position },
         GEAR_SLOT_SIDE,
+        GEAR_ICON_SIDE,
         equip_slot_tooltip(equip_position),
     ))
 }
@@ -951,89 +1230,6 @@ where
             }
             Some(self.text.as_ref_unchecked())
         }
-    }
-}
-
-/// Saved switch-set names. Each name wears that set in one click.
-struct LoadoutStrip<A> {
-    switch_path: A,
-    elements: Vec<ElementBox<ClientState>>,
-    shown: usize,
-}
-
-impl<A> LoadoutStrip<A> {
-    fn new(switch_path: A) -> Self {
-        Self {
-            switch_path,
-            elements: Vec::new(),
-            shown: usize::MAX,
-        }
-    }
-}
-
-impl<A> Element<ClientState> for LoadoutStrip<A>
-where
-    A: Path<ClientState, EquipSwitch>,
-{
-    type LayoutInfo = ();
-
-    fn create_layout_info(
-        &mut self,
-        state: &State<ClientState>,
-        mut store: ElementStoreMut,
-        resolvers: &mut dyn Resolvers<ClientState>,
-    ) -> Self::LayoutInfo {
-        with_single_resolver(resolvers, |resolver| {
-            use korangar_interface::prelude::*;
-
-            let count = state.get(&self.switch_path.loadouts()).len();
-            if count != self.shown {
-                self.elements.clear();
-                self.shown = count;
-                if count == 0 {
-                    self.elements.push(ErasedElement::new(text! {
-                        text: "No saved sets.",
-                        overflow_behavior: OverflowBehavior::Shrink,
-                    }));
-                } else {
-                    for index in 0..count {
-                        let switch_path = self.switch_path;
-                        self.elements.push(ErasedElement::new(split! {
-                            gaps: theme().window().gaps(),
-                            children: (
-                                text! {
-                                    text: ShowString::new(switch_path.loadouts().index(index).name()),
-                                    overflow_behavior: OverflowBehavior::Shrink,
-                                },
-                                button! {
-                                    text: "Wear",
-                                    event: move |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
-                                        state.update_value_with(switch_path.selected(), move |selected| *selected = index);
-                                        queue.queue(InputEvent::ApplyEquipLoadout { index, wear: true });
-                                    },
-                                },
-                            ),
-                        }));
-                    }
-                }
-            }
-
-            self.elements.iter_mut().enumerate().for_each(|(index, element)| {
-                element.create_layout_info(state, store.child_store(index as u64), resolver);
-            });
-        })
-    }
-
-    fn lay_out<'a>(
-        &'a self,
-        state: &'a State<ClientState>,
-        store: ElementStore<'a>,
-        _: &'a Self::LayoutInfo,
-        layout: &mut WindowLayout<'a, ClientState>,
-    ) {
-        self.elements.iter().enumerate().for_each(|(index, element)| {
-            element.lay_out(state, store.child_store(index as u64), &(), layout);
-        });
     }
 }
 
@@ -1133,7 +1329,7 @@ where
                             overflow_behavior: OverflowBehavior::Shrink,
                         },
                         text! {
-                            text: PartialEqDisplaySelector::new(player.$value()),
+                            text: PacketStatLabel::new(player.$value()),
                             overflow_behavior: OverflowBehavior::Shrink,
                         },
                     ),
@@ -1176,33 +1372,7 @@ where
                                     text: "Sets",
                                     overflow_behavior: OverflowBehavior::Shrink,
                                 },
-                                text_box! {
-                                    ghost_text: "Set name",
-                                    state: switch_set.draft_name(),
-                                    input_handler: DefaultHandler::<_, _, 24>::new(switch_set.draft_name(), |_state: &State<ClientState>, _queue: &mut EventQueue<ClientState>| {}),
-                                    focus_id: GearSetName,
-                                },
-                                split! {
-                                    gaps: theme().window().gaps(),
-                                    children: (
-                                        button! {
-                                            text: LOADOUT_CONTROLS[0],
-                                            event: InputEvent::SaveEquipLoadout,
-                                        },
-                                        button! {
-                                            text: LOADOUT_CONTROLS[1],
-                                            event: move |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
-                                                let index = *state.get(&switch_set.selected());
-                                                queue.queue(InputEvent::ApplyEquipLoadout { index, wear: false });
-                                            },
-                                        },
-                                        button! {
-                                            text: LOADOUT_CONTROLS[2],
-                                            event: InputEvent::RenameEquipLoadout,
-                                        },
-                                    ),
-                                },
-                                LoadoutStrip::new(switch_set),
+                                SetBar::new(switch_set),
                             ),
                         },
                         fragment! {
@@ -1233,7 +1403,20 @@ where
                                 combat_single!("HIT", hit),
                                 combat_pair!("FLEE", flee_base, flee_bonus),
                                 combat_single!("CRIT", critical),
-                                combat_single!("ASPD", attack_speed),
+                                PackedSplit {
+                                    widths: &COMBAT_STAT_PART_WIDTHS,
+                                    gap: STAT_PART_GAP,
+                                    children: (
+                                        text! {
+                                            text: "ASPD",
+                                            overflow_behavior: OverflowBehavior::Shrink,
+                                        },
+                                        text! {
+                                            text: AspdLabel::new(player.attack_speed()),
+                                            overflow_behavior: OverflowBehavior::Shrink,
+                                        },
+                                    ),
+                                },
                             ),
                         },
                     ),
@@ -1249,11 +1432,11 @@ mod tests {
 
     use super::{
         BASE_STAT_PART_WIDTHS, COMBAT_STAT_LABELS, COMBAT_STAT_PART_WIDTHS, COSTUME_SLOTS, EQUIP_LABEL_MAX_CHARS, GEAR_COLUMN_COUNT,
-        GEAR_EMBEDS_INVENTORY, GEAR_PORTRAIT_WIDTH, GEAR_SLOT_SIDE, GEAR_WINDOW_HEIGHT, GEAR_WINDOW_WIDTH, INVENTORY_COLUMNS,
+        GEAR_EMBEDS_INVENTORY, GEAR_PORTRAIT_WIDTH, GEAR_SLOT_GAP, GEAR_SLOT_SIDE, GEAR_WINDOW_HEIGHT, GEAR_WINDOW_WIDTH, INVENTORY_COLUMNS,
         INVENTORY_ROWS, LOADOUT_CONTROLS, PAPERDOLL_COLUMN_COUNT, PAPERDOLL_ROWS, PORTRAIT_SPANS_ALL_ROWS, PREVIEW_RENDERS_CHARACTER,
-        SHADOW_SLOTS, STAT_PART_GAP, draw_world_entity, equip_slot_label, equip_slot_tooltip, fit_sprite_part, gear_content_budget,
-        gear_left_column_content_height, packed_width, paperdoll_geometry, shown_equip_positions, sprite_part_top_left,
-        square_strip_frames,
+        SHADOW_SLOTS, STAT_PART_GAP, STRIP_SLOTS_PER_ROW, display_aspd, display_packet_stat, draw_world_entity, equip_slot_label,
+        equip_slot_tooltip, fit_sprite_part, gear_content_budget, gear_left_column_content_height, packed_width, paperdoll_geometry,
+        set_row_widths, shown_equip_positions, sprite_part_top_left, square_strip_frames, strip_block_height,
     };
 
     #[test]
@@ -1326,14 +1509,26 @@ mod tests {
         let portrait_center = geometry.portrait.left + geometry.portrait.width / 2.0;
         let ammo_center = geometry.ammo.left + geometry.ammo.width / 2.0;
         assert!((portrait_center - ammo_center).abs() < 0.01);
-        assert!(geometry.ammo.top >= geometry.portrait.top + geometry.portrait.height);
+        assert!(geometry.ammo.top > geometry.portrait.top);
+        assert!(geometry.ammo.top + geometry.ammo.height <= geometry.portrait.top + geometry.portrait.height + 0.1);
+        assert!((geometry.ammo.width - GEAR_SLOT_SIDE).abs() < f32::EPSILON);
 
-        for frame in square_strip_frames(COSTUME_SLOTS.len(), 0.0, 0.0)
-            .into_iter()
-            .chain(square_strip_frames(SHADOW_SLOTS.len(), 0.0, 0.0))
-        {
+        let shadow = square_strip_frames(SHADOW_SLOTS.len(), 0.0, 0.0);
+        assert!(SHADOW_SLOTS.len() > STRIP_SLOTS_PER_ROW);
+        assert!(shadow[STRIP_SLOTS_PER_ROW].top >= shadow[0].top + shadow[0].height);
+        for frame in square_strip_frames(COSTUME_SLOTS.len(), 0.0, 0.0).into_iter().chain(shadow) {
             assert!(frame.is_square());
         }
+        let costume = square_strip_frames(COSTUME_SLOTS.len(), 8.0, 4.0);
+        for pair in costume.windows(2) {
+            let left = pair[0];
+            let right = pair[1];
+            if (left.top - right.top).abs() < f32::EPSILON {
+                let left_caption_right = left.left + left.width;
+                assert!(left_caption_right <= right.left + 0.1, "captions share a band");
+            }
+        }
+        assert!(strip_block_height(SHADOW_SLOTS.len()) > strip_block_height(COSTUME_SLOTS.len()));
         assert_eq!(COSTUME_SLOTS.len(), 4);
         assert_eq!(SHADOW_SLOTS.len(), 6);
         assert_eq!(COMBAT_STAT_LABELS, [
@@ -1341,9 +1536,10 @@ mod tests {
         ]);
         let base = packed_width(&BASE_STAT_PART_WIDTHS, STAT_PART_GAP);
         let combat = packed_width(&COMBAT_STAT_PART_WIDTHS, STAT_PART_GAP);
-        assert!(base < GEAR_WINDOW_WIDTH * 0.34, "base stats spread too wide: {base}");
+        assert!(base < GEAR_WINDOW_WIDTH / 2.0, "base stats spread too wide: {base}");
         assert!(combat < base);
-        assert!(GEAR_WINDOW_WIDTH / 2.0 - base > 80.0);
+        let paperdoll_width = GEAR_SLOT_SIDE * 2.0 + GEAR_PORTRAIT_WIDTH + GEAR_SLOT_GAP * 2.0;
+        assert!(paperdoll_width <= GEAR_WINDOW_WIDTH / 2.0 + 8.0, "left half is wider than the stats half");
     }
 
     #[test]
@@ -1380,7 +1576,14 @@ mod tests {
     #[test]
     #[allow(clippy::assertions_on_constants)]
     fn loadout_controls_fit_under_the_paperdoll() {
-        assert_eq!(LOADOUT_CONTROLS, ["Save", "Load", "Rename"]);
+        assert_eq!(LOADOUT_CONTROLS, ["+", "-"]);
+        let (dropdown, plus, minus) = set_row_widths(300.0);
+        assert!((plus + minus - dropdown / 2.0).abs() < 0.01);
+        assert_eq!(display_aspd(550), 145);
+        assert_eq!(display_aspd(2000), 0);
+        assert_eq!(display_aspd(551), 144);
+        assert_eq!(display_packet_stat(3), 3);
+        assert_eq!(display_packet_stat(225), 225);
         assert!(PREVIEW_RENDERS_CHARACTER);
         assert!(GEAR_PORTRAIT_WIDTH > GEAR_SLOT_SIDE);
         let content = gear_left_column_content_height();

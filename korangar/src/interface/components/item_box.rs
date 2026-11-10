@@ -85,6 +85,8 @@ pub struct ItemBox<A> {
     /// `0.0` keeps the historical 40px-tall stretched cell. A positive value is
     /// a square icon frame of that side, centered in the cell.
     side: f32,
+    /// Native icon size inside `side`. `0.0` stretches the texture to the cell.
+    icon_side: f32,
     tooltip: &'static str,
 }
 
@@ -95,12 +97,13 @@ where
     /// This function is supposed to be called from a component macro
     /// and not intended to be called manually.
     #[inline(always)]
-    pub fn component_new(item_path: A, source: ItemSource, side: f32, tooltip: &'static str) -> Self {
+    pub fn component_new(item_path: A, source: ItemSource, side: f32, icon_side: f32, tooltip: &'static str) -> Self {
         Self {
             item_path,
             handler: ItemBoxHandler::new(item_path, source),
             amount_display: AmountDisplay::default(),
             side,
+            icon_side,
             tooltip,
         }
     }
@@ -173,13 +176,36 @@ where
             true => 4.0,
             false => 20.0,
         };
-        layout.add_rectangle(
-            layout_info.area,
-            CornerDiameter::uniform(corner),
-            background_color,
-            Color::rgba_u8(0, 0, 0, 100),
-            ShadowPadding::diagonal(2.0, 5.0),
-        );
+        if self.side > 0.0 {
+            layout.add_rectangle(
+                layout_info.area,
+                CornerDiameter::uniform(corner),
+                Color::rgb_u8(90, 96, 110),
+                Color::rgba_u8(0, 0, 0, 140),
+                ShadowPadding::diagonal(0.0, 0.0),
+            );
+            let inset = 2.0;
+            layout.add_rectangle(
+                Area {
+                    left: layout_info.area.left + inset,
+                    top: layout_info.area.top + inset,
+                    width: (layout_info.area.width - inset * 2.0).max(1.0),
+                    height: (layout_info.area.height - inset * 2.0).max(1.0),
+                },
+                CornerDiameter::uniform(corner),
+                background_color,
+                Color::rgba_u8(0, 0, 0, 0),
+                ShadowPadding::diagonal(0.0, 0.0),
+            );
+        } else {
+            layout.add_rectangle(
+                layout_info.area,
+                CornerDiameter::uniform(corner),
+                background_color,
+                Color::rgba_u8(0, 0, 0, 100),
+                ShadowPadding::diagonal(2.0, 5.0),
+            );
+        }
 
         if is_hovered {
             layout.register_drop_handler(&self.handler);
@@ -192,7 +218,11 @@ where
         if let Some(item) = state.try_get(&self.item_path)
             && let Some(texture) = item.metadata.texture.as_ref()
         {
-            let texture_size = layout_info.area.width.min(layout_info.area.height);
+            let texture_size = if self.icon_side > 0.0 {
+                self.icon_side.min(layout_info.area.width).min(layout_info.area.height)
+            } else {
+                layout_info.area.width.min(layout_info.area.height)
+            };
             let texture_area = Area {
                 left: layout_info.area.left + (layout_info.area.width - texture_size) / 2.0,
                 top: layout_info.area.top + (layout_info.area.height - texture_size) / 2.0,

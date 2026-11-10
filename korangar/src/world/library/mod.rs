@@ -19,7 +19,7 @@ use mlua::{ErrorContext, Lua};
 pub use self::baby_job::IsBabyJob;
 pub use self::item_info::ItemInfo;
 pub use self::item_name::{ItemName, ItemNameKey};
-pub use self::item_resource::{ItemResource, ItemResourceKey};
+pub use self::item_resource::{ItemResource, ItemResourceKey, classify_item_icon_failure, inventory_icon_texture_path};
 pub use self::job_identity::JobIdentity;
 use self::lua::{execute_chunk, game_string};
 pub use self::map_sky_data::MapSkyData;

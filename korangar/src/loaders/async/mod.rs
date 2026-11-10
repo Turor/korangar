@@ -18,7 +18,7 @@ use crate::state::skills::{LearnableSkill, SkillTabLayout, SkillTreeLayout};
 #[cfg(feature = "debug")]
 use crate::threads;
 use crate::world::{
-    Actions, AnimationData, EntityType, ItemName, ItemNameKey, ItemResource, ItemResourceKey, Library, Map, ResourceMetadata,
+    Actions, AnimationData, EntityType, ItemName, ItemNameKey, ItemResourceKey, Library, Map, ResourceMetadata,
     SkillListInformation, SkillListKey, SkillListRequirements, SpriteAnimationState,
 };
 
@@ -178,19 +178,31 @@ impl AsyncLoader {
     }
 
     #[must_use]
-    pub fn request_item_sprite_load(&self, item_id: ItemId, path: &str, image_type: ImageType) -> Option<Arc<Texture>> {
+    pub fn request_item_sprite_load(&self, item_id: ItemId, resource_name: &str, path: &str, image_type: ImageType) -> Option<Arc<Texture>> {
         match self.texture_loader.get(path, image_type) {
             Some(texture) => Some(texture),
             None => {
                 let texture_loader = self.texture_loader.clone();
                 let path = path.to_string();
+                let resource_name = resource_name.to_string();
+                let item_number = item_id.0;
 
                 self.request_load(LoaderId::ItemSprite(item_id), move || {
                     #[cfg(feature = "debug")]
                     let _load_measurement = Profiler::start_measurement("item sprite load");
 
                     let texture = match texture_loader.get(&path, image_type) {
-                        None => texture_loader.load(&path, image_type)?,
+                        None => match texture_loader.load(&path, image_type) {
+                            Ok(texture) => texture,
+                            Err(error) => {
+                                let detail = format!("{error:?}");
+                                let reason = crate::world::classify_item_icon_failure(&detail);
+                                eprintln!(
+                                    "item icon miss: item_id={item_number} resname={resource_name} path=data\\texture\\{path} reason={reason} ({detail})"
+                                );
+                                return Err(error);
+                            }
+                        },
                         Some(texture) => texture,
                     };
                     Ok(LoadableResource::ItemSprite { texture })
@@ -204,12 +216,32 @@ impl AsyncLoader {
     pub fn request_inventory_item_metadata_load(&self, item: InventoryItem<NoMetadata>) -> InventoryItem<ResourceMetadata> {
         let is_identified = item.is_identified();
 
-        let resource_name = self.library.get::<ItemResource>(ItemResourceKey {
-            item_id: item.item_id,
-            is_identified,
-        });
-        let full_path = format!("유저인터페이스\\item\\{resource_name}.bmp");
-        let texture = self.request_item_sprite_load(item.item_id, &full_path, ImageType::Color);
+        let resource = <crate::world::ItemResource as crate::world::Table>::try_get(
+            &self.library,
+            ItemResourceKey {
+                item_id: item.item_id,
+                is_identified,
+            },
+        );
+        let texture = match resource {
+            Some(resource) => match crate::world::inventory_icon_texture_path(resource.as_str()) {
+                Ok(full_path) => self.request_item_sprite_load(item.item_id, resource.as_str(), &full_path, ImageType::Color),
+                Err(reason) => {
+                    eprintln!(
+                        "item icon miss: item_id={} resname=<rejected> path=<none> reason={reason}",
+                        item.item_id.0
+                    );
+                    None
+                }
+            },
+            None => {
+                eprintln!(
+                    "item icon miss: item_id={} resname=<unmapped> path=<none> reason=missing name mapping",
+                    item.item_id.0
+                );
+                None
+            }
+        };
         let name = self
             .library
             .get::<ItemName>(ItemNameKey {
@@ -224,12 +256,32 @@ impl AsyncLoader {
     }
 
     pub fn request_shop_item_metadata_load(&self, item: ShopItem<NoMetadata>) -> ShopItem<ResourceMetadata> {
-        let resource_name = self.library.get::<ItemResource>(ItemResourceKey {
-            item_id: item.item_id,
-            is_identified: true,
-        });
-        let full_path = format!("유저인터페이스\\item\\{resource_name}.bmp");
-        let texture = self.request_item_sprite_load(item.item_id, &full_path, ImageType::Color);
+        let resource = <crate::world::ItemResource as crate::world::Table>::try_get(
+            &self.library,
+            ItemResourceKey {
+                item_id: item.item_id,
+                is_identified: true,
+            },
+        );
+        let texture = match resource {
+            Some(resource) => match crate::world::inventory_icon_texture_path(resource.as_str()) {
+                Ok(full_path) => self.request_item_sprite_load(item.item_id, resource.as_str(), &full_path, ImageType::Color),
+                Err(reason) => {
+                    eprintln!(
+                        "item icon miss: item_id={} resname=<rejected> path=<none> reason={reason}",
+                        item.item_id.0
+                    );
+                    None
+                }
+            },
+            None => {
+                eprintln!(
+                    "item icon miss: item_id={} resname=<unmapped> path=<none> reason=missing name mapping",
+                    item.item_id.0
+                );
+                None
+            }
+        };
         let name = self
             .library
             .get::<ItemName>(ItemNameKey {
