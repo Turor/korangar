@@ -9,6 +9,14 @@ fn default_enable_signboards() -> bool {
     true
 }
 
+fn default_dialog_chars_per_second() -> f32 {
+    40.0
+}
+
+fn default_dialog_portrait_dim() -> f32 {
+    0.45
+}
+
 #[derive(Clone, Serialize, Deserialize, RustState, StateElement)]
 pub struct GameSettings {
     pub auto_attack: bool,
@@ -17,6 +25,15 @@ pub struct GameSettings {
     /// overrides this.
     #[serde(default = "default_enable_signboards")]
     pub enable_signboards: bool,
+
+    /// Characters revealed per second in the NPC dialog. `^RRGGBB` codes are
+    /// not counted.
+    #[serde(default = "default_dialog_chars_per_second")]
+    pub dialog_chars_per_second: f32,
+    /// Opacity of the portrait that is not speaking. `1` leaves both sides
+    /// fully lit. The tint stays the sprite color; only alpha changes.
+    #[serde(default = "default_dialog_portrait_dim")]
+    pub dialog_portrait_dim: f32,
 }
 
 impl Default for GameSettings {
@@ -24,6 +41,8 @@ impl Default for GameSettings {
         Self {
             auto_attack: true,
             enable_signboards: default_enable_signboards(),
+            dialog_chars_per_second: default_dialog_chars_per_second(),
+            dialog_portrait_dim: default_dialog_portrait_dim(),
         }
     }
 }

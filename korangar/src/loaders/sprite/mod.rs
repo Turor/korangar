@@ -92,6 +92,63 @@ impl SpriteLoader {
             }
         };
 
+        let sprite = self.rasterize(path, sprite_data);
+        let _result = self.cache.lock().unwrap().insert(path.to_string(), sprite.clone());
+
+        #[cfg(feature = "debug")]
+        if let Err(error) = _result {
+            print_debug!(
+                "[{}] sprite could not be added to cache. Path: '{}': {:?}",
+                "error".red(),
+                &path,
+                error
+            );
+        }
+
+        #[cfg(feature = "debug")]
+        timer.stop();
+
+        Ok(sprite)
+    }
+
+    pub fn get(&self, path: &str) -> Option<Arc<Sprite>> {
+        self.cache.lock().unwrap().get(path).cloned()
+    }
+
+    pub fn get_or_load(&self, path: &str) -> Result<Arc<Sprite>, LoadError> {
+        let Some(sprite) = self.get(path) else {
+            return self.load(path);
+        };
+
+        Ok(sprite)
+    }
+
+    /// Same sprite as [`Self::get_or_load`], with the indexed frames dyed by an
+    /// external `.pal`. The plain sprite cache entry is left alone.
+    pub fn get_with_palette(&self, sprite_path: &str, palette_grf_path: &str) -> Result<Arc<Sprite>, LoadError> {
+        let cache_key = format!("{sprite_path}\0{palette_grf_path}");
+        if let Some(sprite) = self.get(&cache_key) {
+            return Ok(sprite);
+        }
+
+        let bytes = self
+            .game_file_loader
+            .get(&format!("data\\sprite\\{sprite_path}"))
+            .map_err(LoadError::File)?;
+        let mut byte_reader: ByteReader = ByteReader::with_default_metadata::<GenericFormatMetadata>(&bytes);
+        let mut sprite_data = SpriteData::from_bytes(&mut byte_reader).map_err(LoadError::Conversion)?;
+
+        let palette_bytes = self.game_file_loader.get(palette_grf_path).map_err(LoadError::File)?;
+        let mut palette_reader: ByteReader = ByteReader::with_default_metadata::<GenericFormatMetadata>(&palette_bytes);
+        let palette = ragnarok_formats::sprite::Palette::from_bytes(&mut palette_reader).map_err(LoadError::Conversion)?;
+        sprite_data.palette = Some(palette);
+
+        let sprite = self.rasterize(&cache_key, sprite_data);
+        let _result = self.cache.lock().unwrap().insert(cache_key, sprite.clone());
+        Ok(sprite)
+    }
+
+    fn rasterize(&self, path: &str, sprite_data: SpriteData) -> Arc<Sprite> {
         #[cfg(feature = "debug")]
         let cloned_sprite_data = sprite_data.clone();
 
@@ -137,7 +194,6 @@ impl SpriteLoader {
         }
 
         let palette_images = sprite_data.palette_image_data.iter().map(|image_data| {
-            // Decode palette image data if necessary
             let data: Vec<u8> = image_data
                 .data
                 .0
@@ -171,40 +227,11 @@ impl SpriteLoader {
             })
             .collect();
 
-        let sprite = Arc::new(Sprite {
+        Arc::new(Sprite {
             palette_size,
             textures,
             #[cfg(feature = "debug")]
             sprite_data: cloned_sprite_data,
-        });
-
-        let _result = self.cache.lock().unwrap().insert(path.to_string(), sprite.clone());
-
-        #[cfg(feature = "debug")]
-        if let Err(error) = _result {
-            print_debug!(
-                "[{}] sprite could not be added to cache. Path: '{}': {:?}",
-                "error".red(),
-                &path,
-                error
-            );
-        }
-
-        #[cfg(feature = "debug")]
-        timer.stop();
-
-        Ok(sprite)
-    }
-
-    pub fn get(&self, path: &str) -> Option<Arc<Sprite>> {
-        self.cache.lock().unwrap().get(path).cloned()
-    }
-
-    pub fn get_or_load(&self, path: &str) -> Result<Arc<Sprite>, LoadError> {
-        let Some(sprite) = self.get(path) else {
-            return self.load(path);
-        };
-
-        Ok(sprite)
+        })
     }
 }

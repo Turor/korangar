@@ -11,6 +11,7 @@ use super::WindowClass;
 use crate::input::InputEvent;
 use crate::state::localization::LocalizationPathExt;
 use crate::state::theme::InterfaceThemeType;
+use crate::state::vn_dialog::{self, advance_reveal};
 use crate::state::{ClientState, ClientStatePathExt, client_state};
 
 /// A small wrapper struct that serves two purposes:
@@ -66,6 +67,21 @@ pub struct DialogWindowState {
     input_text: String,
     /// Focus the input box once after it opens.
     input_needs_focus: bool,
+    /// Full text of the current page, including `^RRGGBB` codes.
+    page_text: String,
+    /// Prefix of `page_text` the typewriter has revealed.
+    shown_text: String,
+    revealed_bytes: usize,
+    reveal_carry_ms: f32,
+    last_reveal_ms: Option<u32>,
+    /// Name plate above the text. Entity details fill this in.
+    npc_name: String,
+    /// An item prompt is waiting for an explicit choice.
+    prompt_blocks: bool,
+    /// Screen-derived width. Minimum and maximum are both this value.
+    band_width: f32,
+    /// Screen-derived height, including the name plate.
+    band_height: f32,
 }
 
 /// Values taken from the input box when the player confirms or cancels.
@@ -139,24 +155,102 @@ impl DialogWindowState {
         })
     }
 
+    pub fn has_page(&self) -> bool {
+        !self.page_text.is_empty()
+    }
+
+    pub fn is_revealing(&self) -> bool {
+        self.revealed_bytes < self.page_text.len()
+    }
+
+    /// Menus, inputs, and a cutin with no page block stray clicks. A cutin
+    /// drawn beside a next or close page does not.
+    pub fn blocks_advance(&self, cutin_visible: bool) -> bool {
+        let cutin_without_page = cutin_visible
+            && self.page_text.is_empty()
+            && !self.awaiting_next
+            && !self.awaiting_close
+            && !self.awaiting_choice
+            && !self.input_open;
+        vn_dialog::blocks_stray_click(self.awaiting_choice, self.input_open, self.prompt_blocks, cutin_without_page)
+    }
+
+    pub fn set_band(&mut self, width: f32, height: f32) {
+        self.band_width = width;
+        self.band_height = height;
+    }
+
+    pub fn set_npc_name(&mut self, name: String) {
+        if self.npc_name != name {
+            self.npc_name = name;
+        }
+    }
+
+    /// The first tick after a new page spends no time, so a long frame cannot
+    /// dump the whole page.
+    pub fn tick_typewriter(&mut self, now_ms: u32, chars_per_sec: f32) {
+        let delta_ms = match self.last_reveal_ms.replace(now_ms) {
+            Some(last) => now_ms.wrapping_sub(last),
+            None => 0,
+        };
+        let (end, carry) = advance_reveal(
+            &self.page_text,
+            self.revealed_bytes,
+            self.reveal_carry_ms,
+            delta_ms,
+            vn_dialog::typewriter_rate(chars_per_sec),
+        );
+        self.revealed_bytes = end;
+        self.reveal_carry_ms = carry;
+        self.shown_text = self.page_text[..end].to_owned();
+    }
+
+    pub fn complete_reveal(&mut self) {
+        self.revealed_bytes = self.page_text.len();
+        self.reveal_carry_ms = 0.0;
+        self.shown_text.clone_from(&self.page_text);
+    }
+
+    /// Enter or Space finishes the reveal and does not advance.
+    pub fn take_confirm_key(&mut self, characters: &[char]) -> bool {
+        if !self.is_revealing() || self.blocks_advance(false) {
+            return false;
+        }
+        let pressed = characters
+            .iter()
+            .any(|character| *character == '\n' || *character == '\r' || *character == ' ');
+        if !pressed {
+            return false;
+        }
+        self.complete_reveal();
+        true
+    }
+
     /// Add text to the dialog.
     pub fn add_text(&mut self, text: String) {
-        use korangar_interface::prelude::*;
-
         if self.clear_next {
             self.elements.clear();
             self.clear_next = false;
             self.awaiting_next = false;
             self.awaiting_close = false;
             self.awaiting_choice = false;
+            self.page_text.clear();
+            self.reset_reveal();
         }
 
-        self.elements.push(DialogElement::new(
-            text! {
-                text: text,
-            },
-            false,
-        ));
+        if !self.page_text.is_empty() {
+            self.page_text.push('\n');
+        }
+        self.page_text.push_str(&text);
+        let end = self.revealed_bytes.min(self.page_text.len());
+        self.shown_text = self.page_text[..end].to_owned();
+    }
+
+    fn reset_reveal(&mut self) {
+        self.revealed_bytes = 0;
+        self.reveal_carry_ms = 0.0;
+        self.last_reveal_ms = None;
+        self.shown_text.clear();
     }
 
     /// Add add next button to the dialog.
@@ -248,6 +342,9 @@ impl DialogWindowState {
         self.input_open = false;
         self.input_needs_focus = false;
         self.input_text.clear();
+        self.page_text.clear();
+        self.prompt_blocks = false;
+        self.reset_reveal();
     }
 }
 
@@ -265,6 +362,15 @@ impl Default for DialogWindowState {
             input_number: false,
             input_text: String::new(),
             input_needs_focus: false,
+            page_text: String::new(),
+            shown_text: String::new(),
+            revealed_bytes: 0,
+            reveal_carry_ms: 0.0,
+            last_reveal_ms: None,
+            npc_name: "NPC".to_owned(),
+            prompt_blocks: false,
+            band_width: 640.0,
+            band_height: 180.0,
         }
     }
 }
@@ -345,10 +451,19 @@ where
         use korangar_interface::prelude::*;
 
         window! {
-            title: client_state().localization().dialog_window_title(),
+            title: self.window_state_path.npc_name(),
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
+            closable: true,
+            resizable: false,
+            minimum_width: self.window_state_path.band_width(),
+            maximum_width: self.window_state_path.band_width(),
+            minimum_height: self.window_state_path.band_height(),
+            maximum_height: self.window_state_path.band_height(),
             elements: (
+                text! {
+                    text: self.window_state_path.shown_text(),
+                },
                 InnerElement {
                     dialog_elements_path: self.window_state_path.elements(),
                 },
@@ -399,5 +514,36 @@ mod tests {
         dialog.end();
         assert!(!dialog.input_is_open());
         assert!(dialog.take_input().is_none());
+        assert!(!dialog.has_page());
+    }
+
+    #[test]
+    fn typewriter_completes_on_demand_and_the_next_page_starts_over() {
+        let mut dialog = DialogWindowState::default();
+        dialog.add_text("Hello".to_owned());
+        assert!(dialog.is_revealing());
+        assert!(dialog.shown_text.is_empty());
+
+        dialog.tick_typewriter(1_000, 100.0);
+        dialog.tick_typewriter(1_050, 100.0);
+        assert_eq!(dialog.shown_text, "Hello");
+        assert!(!dialog.is_revealing());
+
+        dialog.add_next_button();
+        assert!(dialog.is_awaiting_next());
+        assert!(!dialog.blocks_advance(true));
+
+        dialog.add_text("^ff8800Slow".to_owned());
+        assert!(dialog.is_revealing());
+        assert!(!dialog.is_awaiting_next());
+        dialog.complete_reveal();
+        assert_eq!(dialog.shown_text, "^ff8800Slow");
+
+        dialog.add_choice_buttons(vec!["Stay".to_owned()]);
+        assert!(dialog.blocks_advance(false));
+
+        dialog.prompt_blocks = true;
+        dialog.awaiting_choice = false;
+        assert!(dialog.blocks_advance(false));
     }
 }

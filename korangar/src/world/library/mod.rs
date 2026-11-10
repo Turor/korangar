@@ -1,3 +1,4 @@
+mod accessory_name;
 mod baby_job;
 mod item_info;
 mod item_name;
@@ -56,6 +57,7 @@ pub struct Library {
     monster_names: HashMap<u32, String>,
     skill_descriptions: HashMap<u16, String>,
     job_parents: JobParents,
+    accessory_names: HashMap<u16, String>,
 }
 
 impl Library {
@@ -74,6 +76,7 @@ impl Library {
         let quest_displays = load_quest_displays(game_file_loader);
         let monster_names = load_monster_names(game_file_loader);
         let (skill_descriptions, job_parents) = load_skill_text(game_file_loader);
+        let accessory_names = accessory_name::load_accessory_names(game_file_loader);
 
         Ok(Self {
             job_identity_table,
@@ -89,6 +92,7 @@ impl Library {
             monster_names,
             skill_descriptions,
             job_parents,
+            accessory_names,
         })
     }
 
@@ -97,6 +101,11 @@ impl Library {
     pub fn skill_description_body(&self, skill_id: SkillId, job_id: JobId) -> String {
         let raw = self.skill_descriptions.get(&skill_id.0).map(String::as_str).unwrap_or("");
         filter_job_prefixed_lines(raw, job_id.0, &self.job_parents)
+    }
+
+    /// `AccNameTable` suffix for a headgear view id, such as `_고글`.
+    pub fn accessory_sprite_suffix(&self, view_id: u16) -> Option<&str> {
+        self.accessory_names.get(&view_id).map(String::as_str)
     }
 
     pub fn map_display_name(&self, internal: &str) -> String {
