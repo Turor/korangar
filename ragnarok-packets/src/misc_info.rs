@@ -7,6 +7,7 @@
 //! 10, `0x02CF` 6, `0x02DC` variable, `0x02DD` 32, `0x02DE` 6, `0x02DF` 36,
 //! `0x02E0` 34, `0x0A0E` 14.
 
+use ragnarok_bytes::{FromBytes, ToBytes};
 use ragnarok_macros::{ClientPacket, MapServer, Packet, ServerPacket};
 
 use crate::AccountId;
