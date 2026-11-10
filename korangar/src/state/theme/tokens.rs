@@ -401,7 +401,8 @@ impl WorldTheme {
             },
             status_bar: StatusBarTheme {
                 background_color: tokens.bg.with_alpha_u8(220),
-                player_health_color: tokens.hp,
+                // Same green as the status panel (`status.hp_bar`).
+                player_health_color: tokens.status_hp_bar,
                 enemy_health_color: tokens.accent2,
                 spell_point_color: tokens.sp,
                 activity_point_color: tokens.gold,

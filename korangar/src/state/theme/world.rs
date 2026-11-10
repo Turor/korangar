@@ -143,7 +143,7 @@ impl WorldTheme {
             },
             status_bar: StatusBarTheme {
                 background_color: Color::rgb_hex("0F1714").with_alpha_u8(220),
-                player_health_color: Color::rgb_hex("D2524A"),
+                player_health_color: Color::rgb_hex("5CC25A"),
                 enemy_health_color: Color::rgb_hex("E0708A"),
                 spell_point_color: Color::rgb_hex("4A86D8"),
                 activity_point_color: Color::rgb_hex("CFAE5A"),
@@ -261,9 +261,10 @@ mod verdant_rune_world_theme_tests {
     #[test]
     fn verdant_rune_status_uses_palette() {
         let theme = WorldTheme::verdant_rune();
-        assert_eq!(theme.status_bar.player_health_color.red_as_u8(), 210);
-        assert_eq!(theme.status_bar.player_health_color.green_as_u8(), 82);
-        assert_eq!(theme.status_bar.player_health_color.blue_as_u8(), 74);
+        // Green, matching `status.hp_bar` in themes/verdant_rune.ron.
+        assert_eq!(theme.status_bar.player_health_color.red_as_u8(), 0x5C);
+        assert_eq!(theme.status_bar.player_health_color.green_as_u8(), 0xC2);
+        assert_eq!(theme.status_bar.player_health_color.blue_as_u8(), 0x5A);
         assert_eq!(theme.status_bar.spell_point_color.red_as_u8(), 74);
         assert_eq!(theme.status_bar.spell_point_color.green_as_u8(), 134);
         assert_eq!(theme.status_bar.spell_point_color.blue_as_u8(), 216);
@@ -289,6 +290,30 @@ mod verdant_rune_world_theme_tests {
         assert_eq!(
             loaded.status_bar.spell_point_color.blue_as_u8(),
             expected.status_bar.spell_point_color.blue_as_u8()
+        );
+    }
+
+    #[test]
+    fn overhead_hp_matches_status_panel_green_in_every_theme() {
+        use crate::state::theme::ThemeTokens;
+
+        for tokens in [
+            ThemeTokens::verdant_rune(),
+            ThemeTokens::ember_forge(),
+            ThemeTokens::arcane_violet(),
+        ] {
+            let world = WorldTheme::from_tokens(&tokens);
+            assert_eq!(world.status_bar.player_health_color, tokens.status_hp_bar, "{}", tokens.name);
+            let hp = world.status_bar.player_health_color;
+            assert!(
+                hp.green > hp.red && hp.green > hp.blue,
+                "{} overhead HP must be green",
+                tokens.name
+            );
+        }
+        assert_eq!(
+            WorldTheme::verdant_rune().status_bar.player_health_color,
+            WorldTheme::from_tokens(&ThemeTokens::verdant_rune()).status_bar.player_health_color
         );
     }
 }
