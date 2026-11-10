@@ -30,6 +30,7 @@ mod graphics_settings;
 mod guild;
 mod guild_invite;
 mod hotbar;
+mod keybinds;
 mod interface_settings;
 mod inventory;
 mod item_details;
@@ -115,6 +116,7 @@ pub use self::graphics_settings::GraphicsSettingsWindow;
 pub use self::guild::{GuildWindow, GuildWindowState};
 pub use self::guild_invite::GuildInviteWindow;
 pub use self::hotbar::HotbarWindow;
+pub use self::keybinds::KeybindsWindow;
 pub use self::interface_settings::InterfaceSettingsWindow;
 #[allow(unused_imports)]
 pub use self::inventory::InventoryWindow;
@@ -190,6 +192,7 @@ pub enum WindowClass {
     InterfaceSettings,
     GraphicsSettings,
     Hotbar,
+    Keybinds,
     Inventory,
     ItemDrop,
     Storage,

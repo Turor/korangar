@@ -131,9 +131,9 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
     };
     let mut hotbar = HudFrame {
         left: 0.0,
-        top: screen_height - 48.0 * scale - margin,
+        top: screen_height - 96.0 * scale - margin,
         width: 420.0 * scale,
-        height: 48.0 * scale,
+        height: 96.0 * scale,
     };
     hotbar.left = (screen_width - hotbar.width) / 2.0;
 

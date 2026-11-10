@@ -482,6 +482,41 @@ pub enum InputEvent {
         /// Slot of the hotbar that the skill is bound to.
         slot: HotbarSlot,
     },
+    /// Press a hotbar slot. Items are used or equipped. Skills cast.
+    ActivateHotbar {
+        tab: ragnarok_packets::HotbarTab,
+        slot: HotbarSlot,
+    },
+    /// Release a hotbar slot. Stops a channeled skill.
+    ReleaseHotbar {
+        tab: ragnarok_packets::HotbarTab,
+        slot: HotbarSlot,
+    },
+    /// Use a consumable (`CZ_USE_ITEM2`, `0x0439`).
+    UseItem {
+        index: ragnarok_packets::InventoryIndex,
+    },
+    /// Sit down or stand up (`CZ_REQUEST_ACT` action 2 / 3).
+    ToggleSit,
+    /// Clear one hotbar slot and tell the map server.
+    ClearHotbar {
+        tab: ragnarok_packets::HotbarTab,
+        slot: HotbarSlot,
+    },
+    /// Show the next hotbar row count (1 through 4).
+    CycleHotbarRows,
+    /// Rotate which stored row the F-keys hit and send `0x0B22`.
+    RotateHotbar,
+    /// Switch between the two Hercules hotkey tabs.
+    SwitchHotbarTab,
+    /// Open or close the keybind editor.
+    ToggleKeybindsWindow,
+    /// The next non-modifier key replaces this shortcut. Escape cancels.
+    BeginKeybindCapture {
+        index: u16,
+    },
+    /// Restore roBrowser / official default shortcuts.
+    ResetKeybinds,
     /// Add a new friend.
     AddFriend {
         /// Name of the character to befriend.

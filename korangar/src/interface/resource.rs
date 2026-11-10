@@ -6,10 +6,14 @@ pub enum ItemSource {
     Cart,
     Equipment { position: EquipPosition },
     Storage,
+    Hotbar { tab: ragnarok_packets::HotbarTab, slot: HotbarSlot },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SkillSource {
     SkillTree,
-    Hotbar { slot: HotbarSlot },
+    Hotbar {
+        tab: ragnarok_packets::HotbarTab,
+        slot: HotbarSlot,
+    },
 }
