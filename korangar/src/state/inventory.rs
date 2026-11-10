@@ -75,11 +75,7 @@ impl Inventory {
     /// Returns the name and icon so a hotbar slot bound before this item
     /// arrived can pick up a cached texture. A later sprite load fills the
     /// icon when this returns `None`.
-    pub fn add_item(
-        &mut self,
-        async_loader: &AsyncLoader,
-        item: InventoryItem<NoMetadata>,
-    ) -> (u32, String, Option<Arc<Texture>>) {
+    pub fn add_item(&mut self, async_loader: &AsyncLoader, item: InventoryItem<NoMetadata>) -> (u32, String, Option<Arc<Texture>>) {
         if let Some(position) = self.items.iter().position(|inventory_item| inventory_item.index == item.index) {
             let found_item = &mut self.items[position];
             let InventoryItemDetails::Regular { amount, .. } = &mut found_item.details else {

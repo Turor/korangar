@@ -1,4 +1,5 @@
-//! Keyboard shortcuts, modeled on roBrowser `ShortCutControls` / `ShortCutOption`.
+//! Keyboard shortcuts, modeled on roBrowser `ShortCutControls` /
+//! `ShortCutOption`.
 //!
 //! Defaults follow the official bar: F1–F9 are hotbar row 1, Alt+F1–F9 row 2,
 //! Ctrl+F1–F9 row 3, Shift+F1–F9 row 4. Window toggles use the roBrowser chords
@@ -359,12 +360,36 @@ fn default_actions() -> Vec<ActionDef> {
         ("equipment", "Equipment", KeyName::Q, true, false, false, ActionKind::Equipment),
         ("skills", "Skills", KeyName::S, true, false, false, ActionKind::Skills),
         ("stats", "Stats", KeyName::A, true, false, false, ActionKind::Stats),
-        ("friends", "Party / friends", KeyName::Z, true, false, false, ActionKind::Friends),
+        (
+            "friends",
+            "Party / friends",
+            KeyName::Z,
+            true,
+            false,
+            false,
+            ActionKind::Friends,
+        ),
         ("guild", "Guild", KeyName::G, true, false, false, ActionKind::Guild),
         ("clan", "Clan", KeyName::C, true, false, false, ActionKind::Clan),
-        ("item-finder", "Item finder", KeyName::F, true, false, false, ActionKind::ItemFinder),
+        (
+            "item-finder",
+            "Item finder",
+            KeyName::F,
+            true,
+            false,
+            false,
+            ActionKind::ItemFinder,
+        ),
         ("cart", "Cart", KeyName::W, true, false, false, ActionKind::Cart),
-        ("game-settings", "Game settings", KeyName::S, false, true, false, ActionKind::GameSettings),
+        (
+            "game-settings",
+            "Game settings",
+            KeyName::S,
+            false,
+            true,
+            false,
+            ActionKind::GameSettings,
+        ),
         (
             "interface-settings",
             "Interface settings",
@@ -383,13 +408,61 @@ fn default_actions() -> Vec<ActionDef> {
             false,
             ActionKind::GraphicsSettings,
         ),
-        ("audio-settings", "Audio settings", KeyName::A, false, true, false, ActionKind::AudioSettings),
-        ("show-interface", "Show interface", KeyName::H, false, true, false, ActionKind::ShowInterface),
-        ("close-top", "Close top window", KeyName::Q, false, true, false, ActionKind::CloseTop),
+        (
+            "audio-settings",
+            "Audio settings",
+            KeyName::A,
+            false,
+            true,
+            false,
+            ActionKind::AudioSettings,
+        ),
+        (
+            "show-interface",
+            "Show interface",
+            KeyName::H,
+            false,
+            true,
+            false,
+            ActionKind::ShowInterface,
+        ),
+        (
+            "close-top",
+            "Close top window",
+            KeyName::Q,
+            false,
+            true,
+            false,
+            ActionKind::CloseTop,
+        ),
         ("sit", "Sit / stand", KeyName::Insert, false, false, false, ActionKind::Sit),
-        ("cycle-rows", "Hotbar rows", KeyName::F12, false, false, false, ActionKind::CycleRows),
-        ("rotate-row", "Shift hotbar row", KeyName::Unbound, false, false, false, ActionKind::RotateRow),
-        ("switch-tab", "Switch hotbar tab", KeyName::Unbound, false, false, false, ActionKind::SwitchTab),
+        (
+            "cycle-rows",
+            "Hotbar rows",
+            KeyName::F12,
+            false,
+            false,
+            false,
+            ActionKind::CycleRows,
+        ),
+        (
+            "rotate-row",
+            "Shift hotbar row",
+            KeyName::Unbound,
+            false,
+            false,
+            false,
+            ActionKind::RotateRow,
+        ),
+        (
+            "switch-tab",
+            "Switch hotbar tab",
+            KeyName::Unbound,
+            false,
+            false,
+            false,
+            ActionKind::SwitchTab,
+        ),
         ("keybinds", "Keybinds", KeyName::M, true, false, false, ActionKind::Keybinds),
     ];
     for (id, title, key, alt, ctrl, shift, kind) in windows {
@@ -582,10 +655,7 @@ impl KeybindMap {
                 push_action(&mut events, action.kind, active_tab, row_shift, false);
             }
         }
-        PollOutcome {
-            events,
-            rebound: None,
-        }
+        PollOutcome { events, rebound: None }
     }
 }
 
@@ -755,8 +825,9 @@ impl Drop for Keybinds {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ragnarok_packets::HotbarSlot;
+
+    use super::*;
 
     fn edges(pressed: Option<KeyName>, alt: bool, ctrl: bool, shift: bool) -> KeyEdges {
         let mut edges = KeyEdges {
@@ -778,24 +849,60 @@ mod tests {
     #[test]
     fn defaults_match_robrowser_chords_and_leave_escape_unbound() {
         let map = KeybindMap::default();
-        assert_eq!(map.chord(map.index_of("hotbar-0").unwrap()), Chord::new(KeyName::F1, false, false, false));
-        assert_eq!(map.chord(map.index_of("hotbar-8").unwrap()), Chord::new(KeyName::F9, false, false, false));
-        assert_eq!(map.chord(map.index_of("hotbar-9").unwrap()), Chord::new(KeyName::F1, true, false, false));
-        assert_eq!(map.chord(map.index_of("hotbar-18").unwrap()), Chord::new(KeyName::F1, false, true, false));
-        assert_eq!(map.chord(map.index_of("hotbar-27").unwrap()), Chord::new(KeyName::F1, false, false, true));
-        assert_eq!(map.chord(map.index_of("inventory").unwrap()), Chord::new(KeyName::E, true, false, false));
-        assert_eq!(map.chord(map.index_of("equipment").unwrap()), Chord::new(KeyName::Q, true, false, false));
-        assert_eq!(map.chord(map.index_of("skills").unwrap()), Chord::new(KeyName::S, true, false, false));
-        assert_eq!(map.chord(map.index_of("stats").unwrap()), Chord::new(KeyName::A, true, false, false));
-        assert_eq!(map.chord(map.index_of("friends").unwrap()), Chord::new(KeyName::Z, true, false, false));
-        assert_eq!(map.chord(map.index_of("guild").unwrap()), Chord::new(KeyName::G, true, false, false));
-        assert_eq!(map.chord(map.index_of("sit").unwrap()), Chord::new(KeyName::Insert, false, false, false));
-        assert_eq!(map.chord(map.index_of("game-settings").unwrap()), Chord::new(KeyName::S, false, true, false));
+        assert_eq!(
+            map.chord(map.index_of("hotbar-0").unwrap()),
+            Chord::new(KeyName::F1, false, false, false)
+        );
+        assert_eq!(
+            map.chord(map.index_of("hotbar-8").unwrap()),
+            Chord::new(KeyName::F9, false, false, false)
+        );
+        assert_eq!(
+            map.chord(map.index_of("hotbar-9").unwrap()),
+            Chord::new(KeyName::F1, true, false, false)
+        );
+        assert_eq!(
+            map.chord(map.index_of("hotbar-18").unwrap()),
+            Chord::new(KeyName::F1, false, true, false)
+        );
+        assert_eq!(
+            map.chord(map.index_of("hotbar-27").unwrap()),
+            Chord::new(KeyName::F1, false, false, true)
+        );
+        assert_eq!(
+            map.chord(map.index_of("inventory").unwrap()),
+            Chord::new(KeyName::E, true, false, false)
+        );
+        assert_eq!(
+            map.chord(map.index_of("equipment").unwrap()),
+            Chord::new(KeyName::Q, true, false, false)
+        );
+        assert_eq!(
+            map.chord(map.index_of("skills").unwrap()),
+            Chord::new(KeyName::S, true, false, false)
+        );
+        assert_eq!(
+            map.chord(map.index_of("stats").unwrap()),
+            Chord::new(KeyName::A, true, false, false)
+        );
+        assert_eq!(
+            map.chord(map.index_of("friends").unwrap()),
+            Chord::new(KeyName::Z, true, false, false)
+        );
+        assert_eq!(
+            map.chord(map.index_of("guild").unwrap()),
+            Chord::new(KeyName::G, true, false, false)
+        );
+        assert_eq!(
+            map.chord(map.index_of("sit").unwrap()),
+            Chord::new(KeyName::Insert, false, false, false)
+        );
+        assert_eq!(
+            map.chord(map.index_of("game-settings").unwrap()),
+            Chord::new(KeyName::S, false, true, false)
+        );
         assert!(map.actions.iter().all(|action| {
-            action.chord.key != KeyName::Unbound
-                || action.id.starts_with("quick")
-                || action.id == "rotate-row"
-                || action.id == "switch-tab"
+            action.chord.key != KeyName::Unbound || action.id.starts_with("quick") || action.id == "rotate-row" || action.id == "switch-tab"
         }));
         let escape_file = "[(action: \"sit\", key: Escape, alt: false, ctrl: false, shift: false)]";
         let rejected = KeybindMap::from_ron(escape_file);
@@ -812,7 +919,10 @@ mod tests {
         assert_eq!(loaded.chord(loaded.index_of("inventory").unwrap()).key, KeyName::E);
         assert_eq!(loaded.chord(loaded.index_of("sit").unwrap()).key, KeyName::Insert);
         let partial = KeybindMap::from_ron("[(action: \"guild\", key: H, alt: true, ctrl: false, shift: false)]");
-        assert_eq!(partial.chord(partial.index_of("guild").unwrap()), Chord::new(KeyName::H, true, false, false));
+        assert_eq!(
+            partial.chord(partial.index_of("guild").unwrap()),
+            Chord::new(KeyName::H, true, false, false)
+        );
         assert_eq!(partial.chord(partial.index_of("inventory").unwrap()).key, KeyName::E);
     }
 
@@ -820,20 +930,20 @@ mod tests {
     fn poll_dispatches_hotbar_rows_sit_and_capture() {
         let map = KeybindMap::default();
         let f1 = map.poll(None, 0, 0, &edges(Some(KeyName::F1), false, false, false));
-        assert!(matches!(
-            f1.events.as_slice(),
-            [InputEvent::ActivateHotbar { slot: HotbarSlot(0), .. }]
-        ));
+        assert!(matches!(f1.events.as_slice(), [InputEvent::ActivateHotbar {
+            slot: HotbarSlot(0),
+            ..
+        }]));
         let alt_f1 = map.poll(None, 0, 0, &edges(Some(KeyName::F1), true, false, false));
-        assert!(matches!(
-            alt_f1.events.as_slice(),
-            [InputEvent::ActivateHotbar { slot: HotbarSlot(9), .. }]
-        ));
+        assert!(matches!(alt_f1.events.as_slice(), [InputEvent::ActivateHotbar {
+            slot: HotbarSlot(9),
+            ..
+        }]));
         let shifted = map.poll(None, 0, 1, &edges(Some(KeyName::F1), false, false, false));
-        assert!(matches!(
-            shifted.events.as_slice(),
-            [InputEvent::ActivateHotbar { slot: HotbarSlot(9), .. }]
-        ));
+        assert!(matches!(shifted.events.as_slice(), [InputEvent::ActivateHotbar {
+            slot: HotbarSlot(9),
+            ..
+        }]));
         let sit = map.poll(None, 0, 0, &edges(Some(KeyName::Insert), false, false, false));
         assert!(matches!(sit.events.as_slice(), [InputEvent::ToggleSit]));
         let inventory = map.poll(None, 0, 0, &edges(Some(KeyName::E), true, false, false));

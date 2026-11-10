@@ -30,7 +30,6 @@ mod graphics_settings;
 mod guild;
 mod guild_invite;
 mod hotbar;
-mod keybinds;
 mod interface_settings;
 mod inventory;
 mod item_details;
@@ -38,6 +37,7 @@ mod item_drop;
 mod item_finder;
 pub(crate) mod item_skill_selection;
 mod item_workshop;
+mod keybinds;
 mod login;
 mod mail;
 #[cfg(feature = "debug")]
@@ -116,7 +116,6 @@ pub use self::graphics_settings::GraphicsSettingsWindow;
 pub use self::guild::{GuildWindow, GuildWindowState};
 pub use self::guild_invite::GuildInviteWindow;
 pub use self::hotbar::HotbarWindow;
-pub use self::keybinds::KeybindsWindow;
 pub use self::interface_settings::InterfaceSettingsWindow;
 #[allow(unused_imports)]
 pub use self::inventory::InventoryWindow;
@@ -124,6 +123,7 @@ pub use self::item_details::{ItemDetailsWindow, format_item_details, item_detail
 pub use self::item_drop::{ItemDropAmountBox, ItemDropWindow};
 pub use self::item_finder::ItemFinderWindow;
 pub use self::item_workshop::{EnchantGradeWindow, ItemReformWindow, LaphineSynthesisWindow, LaphineUpgradeWindow};
+pub use self::keybinds::KeybindsWindow;
 pub use self::login::{LoginWindow, LoginWindowState, LoginWindowStatePathExt};
 pub use self::mail::{MailWindow, MailWindowState};
 #[cfg(feature = "debug")]

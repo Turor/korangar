@@ -2305,7 +2305,8 @@ pub struct UpdateSkillTreePacket {
     pub skill_information: Vec<SkillInformation>,
 }
 
-/// Hercules `hotkey_data.isSkill`: `0` item, `1` skill. The numeric value is the wire flag.
+/// Hercules `hotkey_data.isSkill`: `0` item, `1` skill. The numeric value is
+/// the wire flag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub enum HotkeyType {
@@ -6942,15 +6943,12 @@ mod hotkey_wire_tests {
         let packet = SetHotkeyData2Packet::new(HotbarTab(1), HotbarSlot(2), HotkeyData::skill(42, 7));
         let mut writer = ByteWriter::new();
         packet.packet_to_bytes(&mut writer).unwrap();
-        assert_eq!(
-            writer.as_slice(),
-            &[
-                0x21, 0x0B, // header
-                0x01, 0x00, // tab
-                0x02, 0x00, // index
-                0x01, 42, 0, 0, 0, 7, 0, // isSkill, id, level
-            ]
-        );
+        assert_eq!(writer.as_slice(), &[
+            0x21, 0x0B, // header
+            0x01, 0x00, // tab
+            0x02, 0x00, // index
+            0x01, 42, 0, 0, 0, 7, 0, // isSkill, id, level
+        ]);
         assert_eq!(writer.len(), 13);
 
         let mut reader = ByteReader::without_metadata(writer.as_slice());

@@ -88,8 +88,8 @@ use settings::{
 use state::character_slots::CharacterSlotsExt;
 use state::equip_switch::{EquipSwitchPathExt, switch_delta};
 use state::hotbar::{
-    CELL_ITEM, CELL_SKILL, HOTBAR_SLOTS, HOTBAR_TABS, HotbarDispatch, HotbarItemPress, cast_bound_skill, dispatch_hotbar, hotbar_item_press,
-    inventory_hint, stop_bound_skill,
+    CELL_ITEM, CELL_SKILL, HOTBAR_SLOTS, HOTBAR_TABS, HotbarDispatch, HotbarItemPress, cast_bound_skill, dispatch_hotbar,
+    hotbar_item_press, inventory_hint, stop_bound_skill,
 };
 use state::inventory::{GroundDrop, InventoryPathExt, ItemActivation, ThrowUpdate, ground_drop, item_activation, use_ack_targets_self};
 use state::localization::Localization;
@@ -259,10 +259,7 @@ fn activate_hotbar_slot<Callback>(
     let item = if kind == CELL_SKILL {
         None
     } else {
-        state
-            .follow(client_state().inventory())
-            .find_by_item_id(ItemId(item_id))
-            .cloned()
+        state.follow(client_state().inventory()).find_by_item_id(ItemId(item_id)).cloned()
     };
     let dispatch = dispatch_hotbar(kind, skill_id, level, item_id, item.as_ref().map(inventory_hint));
 
@@ -2709,9 +2706,7 @@ impl Client {
                         .follow_mut(client_state().inventory())
                         .fill(&self.async_loader, items);
                     let visuals = self.client_state.follow(client_state().inventory()).item_visuals();
-                    self.client_state
-                        .follow_mut(client_state().hotbar())
-                        .apply_item_visuals(&visuals);
+                    self.client_state.follow_mut(client_state().hotbar()).apply_item_visuals(&visuals);
                 }
                 NetworkEvent::SetStorage { items } => {
                     self.client_state
@@ -3267,9 +3262,11 @@ impl Client {
                         match hotkey {
                             HotkeyState::Bound(data) if data.is_skill() => {
                                 if let Some(job_id) = job_id {
-                                    let mut skill = self
-                                        .async_loader
-                                        .request_learnable_skill_load(job_id, SkillId(data.item_or_skill_id as u16), client_tick);
+                                    let mut skill = self.async_loader.request_learnable_skill_load(
+                                        job_id,
+                                        SkillId(data.item_or_skill_id as u16),
+                                        client_tick,
+                                    );
                                     skill.maximum_level = SkillLevel(data.quantity_or_skill_level);
                                     self.client_state
                                         .follow_mut(client_state().hotbar())
@@ -3293,9 +3290,7 @@ impl Client {
                         .follow_mut(client_state().hotbar())
                         .set_server_row_shift(tab, rotate);
                     let visuals = self.client_state.follow(client_state().inventory()).item_visuals();
-                    self.client_state
-                        .follow_mut(client_state().hotbar())
-                        .apply_item_visuals(&visuals);
+                    self.client_state.follow_mut(client_state().hotbar()).apply_item_visuals(&visuals);
                 }
                 NetworkEvent::PlayerShopSign {
                     account_id,
@@ -4459,9 +4454,7 @@ impl Client {
                     .poll(capture_index, active_tab, row_shift, &edges);
                 self.input_event_buffer.extend(outcome.events);
                 if let Some((index, chord)) = outcome.rebound {
-                    self.client_state
-                        .follow_mut(client_state().keybinds())
-                        .apply_rebind(index, chord);
+                    self.client_state.follow_mut(client_state().keybinds()).apply_rebind(index, chord);
                 }
             }
         }
@@ -5738,7 +5731,8 @@ impl Client {
                         .is_some_and(|skill| skill.skill_id == crate::state::hotbar::ROLLING_CUTTER_ID);
                     release_hotbar_slot(&self.client_state, &mut self.networking_system, HotbarTab(0), slot);
                     if rolling_cutter {
-                        // `0x0B11` is outbound. The server cancel is `0x01B9`; this clears the local bar.
+                        // `0x0B11` is outbound. The server cancel is `0x01B9`; this clears the local
+                        // bar.
                         let player_id = self.client_state.try_follow(this_entity()).map(|player| player.get_entity_id().0);
                         if let Some(player_id) = player_id {
                             self.cast_bars.cancel(player_id);
@@ -7284,16 +7278,18 @@ impl Client {
             let is_grabbing = mouse_mode.is_grabbing();
             let dragged_from_hotbar = match mouse_mode {
                 korangar_interface::MouseMode::Custom {
-                    mode: MouseInputMode::MoveItem {
-                        source: ItemSource::Hotbar { tab, slot },
-                        ..
-                    },
+                    mode:
+                        MouseInputMode::MoveItem {
+                            source: ItemSource::Hotbar { tab, slot },
+                            ..
+                        },
                 }
                 | korangar_interface::MouseMode::Custom {
-                    mode: MouseInputMode::MoveSkill {
-                        source: SkillSource::Hotbar { tab, slot },
-                        ..
-                    },
+                    mode:
+                        MouseInputMode::MoveSkill {
+                            source: SkillSource::Hotbar { tab, slot },
+                            ..
+                        },
                 } => Some((*tab, *slot)),
                 _ => None,
             };

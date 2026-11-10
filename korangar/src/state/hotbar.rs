@@ -46,7 +46,8 @@ pub enum HotbarDispatch {
 }
 
 /// Decide what a hotbar press does. Skills cast. Consumables become `UseItem`.
-/// Equipment equips or unequips. An item the inventory would ignore does nothing.
+/// Equipment equips or unequips. An item the inventory would ignore does
+/// nothing.
 pub fn dispatch_hotbar(kind: u8, skill_id: u16, level: u16, item_id: u32, stack: Option<InventoryHint>) -> HotbarDispatch {
     match kind {
         CELL_SKILL => HotbarDispatch::CastSkill { skill_id, level },
@@ -87,7 +88,8 @@ pub fn hotbar_item_press<Meta>(item: &InventoryItem<Meta>) -> HotbarItemPress {
 }
 
 /// Classifies a bag item for [`dispatch_hotbar`]. Identified ammo is equipment,
-/// not a consumable. Cards and unidentified ammo are [`InventoryHint::Inactive`].
+/// not a consumable. Cards and unidentified ammo are
+/// [`InventoryHint::Inactive`].
 pub fn inventory_hint(item: &InventoryItem<ResourceMetadata>) -> InventoryHint {
     match hotbar_item_press(item) {
         HotbarItemPress::Use => InventoryHint::Consumable,
@@ -351,7 +353,7 @@ impl Hotbar {
             if cell.kind != CELL_ITEM {
                 continue;
             }
-            if let Some((_, name, texture)) = visuals.iter().find(|(item_id, _, _)| *item_id == cell.item_id) {
+            if let Some((_, name, texture)) = visuals.iter().find(|(item_id, ..)| *item_id == cell.item_id) {
                 if !name.is_empty() {
                     cell.item_name.clone_from(name);
                 }
@@ -475,10 +477,10 @@ mod tests {
 
     #[test]
     fn item_and_skill_dispatch_differ() {
-        assert_eq!(
-            dispatch_hotbar(CELL_SKILL, 12, 4, 0, None),
-            HotbarDispatch::CastSkill { skill_id: 12, level: 4 }
-        );
+        assert_eq!(dispatch_hotbar(CELL_SKILL, 12, 4, 0, None), HotbarDispatch::CastSkill {
+            skill_id: 12,
+            level: 4
+        });
         assert_eq!(
             dispatch_hotbar(CELL_ITEM, 0, 0, 501, Some(InventoryHint::Consumable)),
             HotbarDispatch::UseItem { item_id: 501 }
@@ -524,12 +526,9 @@ mod tests {
 
     #[test]
     fn identified_ammo_equips_and_unusable_items_are_ignored() {
-        assert_eq!(
-            hotbar_item_press(&regular_stack(10, true)),
-            HotbarItemPress::Equip {
-                position: EquipPosition::AMMO,
-            }
-        );
+        assert_eq!(hotbar_item_press(&regular_stack(10, true)), HotbarItemPress::Equip {
+            position: EquipPosition::AMMO,
+        });
         assert_eq!(hotbar_item_press(&regular_stack(10, false)), HotbarItemPress::Ignore);
         assert_eq!(hotbar_item_press(&regular_stack(6, true)), HotbarItemPress::Ignore);
         assert_eq!(hotbar_item_press(&regular_stack(0, true)), HotbarItemPress::Use);

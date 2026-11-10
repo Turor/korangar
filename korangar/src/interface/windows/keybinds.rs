@@ -1,8 +1,8 @@
-//! Shortcut list modeled on roBrowser `ShortCutOption`. Click a row, then press a key.
-//! Escape cancels the capture and is never stored.
+//! Shortcut list modeled on roBrowser `ShortCutOption`. Click a row, then press
+//! a key. Escape cancels the capture and is never stored.
 
-use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::Element;
+use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::event::{ClickHandler, EventQueue};
 use korangar_interface::layout::area::Area;
 use korangar_interface::layout::{MouseButton, Resolvers, WindowLayout, with_single_resolver};

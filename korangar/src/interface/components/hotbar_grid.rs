@@ -1,9 +1,10 @@
 //! Hotbar slots. Skills and items share one grid. F-key rows are visual;
-//! [`stored_slot`](crate::state::hotbar::stored_slot) maps them through the row shift.
+//! [`stored_slot`](crate::state::hotbar::stored_slot) maps them through the row
+//! shift.
 
 use korangar_interface::MouseMode;
-use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::Element;
+use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::event::{ClickHandler, DropHandler, Event, EventQueue};
 use korangar_interface::layout::area::Area;
 use korangar_interface::layout::tooltip::TooltipExt;
