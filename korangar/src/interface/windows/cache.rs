@@ -179,9 +179,14 @@ mod tests {
         };
         let (anchor, size) = resolve_window_state(None, WindowClass::MenuBar, screen).expect("menu bar preset");
         let start = anchor.to_position(screen);
+        let expected = super::super::menu_bar::default_menu_bar_frame(screen.width, screen.height);
+        assert!((start.left - expected.left).abs() < 0.5);
+        assert!((start.top - expected.top).abs() < 0.5);
+        assert!((size.width - expected.width).abs() < 0.5);
+        assert!((size.height - expected.height).abs() < 0.5);
         assert!(
-            (start.top + size.height - screen.height).abs() < 0.5,
-            "default bar is not on the bottom edge"
+            screen.height - (start.top + size.height) > 40.0,
+            "default bar still covers the bottom HUD"
         );
 
         let mut moved = anchor;

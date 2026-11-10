@@ -11,7 +11,10 @@
 //!
 //! The bar is [`WindowClass::MenuBar`]. It is not closable, so Escape still
 //! closes the top closable window or toggles the old menu. The first open is
-//! docked to the bottom edge. A drag is stored by the same
+//! one row of buttons, centered, and as low as it can sit without covering
+//! chat or the hotbar. Width is the screen width minus a margin on each side,
+//! and the window's minimum and maximum size follow that preset so a narrower
+//! client does not keep a wider bar. A drag is stored by the same
 //! [`super::WindowCache`] anchor path as every other window.
 
 use korangar_interface::element::Element;
@@ -22,43 +25,54 @@ use korangar_interface::layout::area::Area;
 use korangar_interface::layout::tooltip::TooltipExt;
 use korangar_interface::layout::{Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::window::{Anchor, AnchorPoint, CustomWindow, Window};
-use rust_state::State;
+use rust_state::{PathExt, State};
 
 use super::WindowClass;
-use super::placement::{HudFrame, ScreenAnchor, frame_anchor_offset};
+use super::placement::{HudFrame, ScreenAnchor, first_open_hud, frame_anchor_offset};
 use crate::graphics::{ScreenPosition, ScreenSize};
 use crate::input::InputEvent;
 use crate::loaders::OverflowBehavior;
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 
-/// Width of the bar the first time it is shown, before the player drags it.
-pub const MENU_BAR_WINDOW_WIDTH: f32 = 1248.0;
-/// Height of the bar, including the title strip used as the drag handle.
-pub const MENU_BAR_WINDOW_HEIGHT: f32 = 132.0;
-
-const BUTTON_COLUMNS: usize = 9;
+/// In-game window chrome ([`crate::state::theme::InterfaceThemeType::InGame`]).
+/// `with_derived_borderless` also inserts `gaps` between the title and the
+/// content, so the button row starts below title + gaps + title gap.
+const MENU_BAR_TITLE: f32 = 22.0;
+const MENU_BAR_GAPS: f32 = 6.0;
+const MENU_BAR_TITLE_GAP: f32 = 2.0;
+const MENU_BAR_BORDER: f32 = 8.0;
+/// One button, matching the in-game button height.
+const MENU_BAR_BUTTON_HEIGHT: f32 = 20.0;
 const BUTTON_GAP: f32 = 4.0;
+/// Empty margin on the left and right of the preset frame.
+const MENU_BAR_EDGE_MARGIN: f32 = 8.0;
+/// Space left between the bar and chat or the hotbar, whichever is higher.
+const MENU_BAR_HUD_CLEARANCE: f32 = 4.0;
+
+/// Height of one button row plus the title strip used as the drag handle.
+pub const MENU_BAR_WINDOW_HEIGHT: f32 = MENU_BAR_TITLE + MENU_BAR_GAPS + MENU_BAR_TITLE_GAP + MENU_BAR_BORDER + MENU_BAR_BUTTON_HEIGHT;
 
 /// What a menu-bar click should do.
 #[derive(Clone, Debug)]
 pub enum MenuBarPress {
     /// Run this input event. Toggle events ignore whether the window is open.
-    Dispatch(InputEvent),
+    Dispatch(Box<InputEvent>),
     /// Remove the window. Used when the open event has no matching close event.
     Close(WindowClass),
 }
 
+#[derive(Debug)]
 enum MenuBarKind {
     /// `event` opens the window when it is closed and closes it when it is
     /// open.
-    Toggle(InputEvent),
+    Toggle(Box<InputEvent>),
     OpenClose {
-        open: InputEvent,
-        close: InputEvent,
+        open: Box<InputEvent>,
+        close: Box<InputEvent>,
     },
     /// `open` shows the window. A second click only removes it.
-    OpenOrDismiss(InputEvent),
+    OpenOrDismiss(Box<InputEvent>),
 }
 
 /// One button. `icon` is the caption drawn on the button. `label` is the name
@@ -96,7 +110,7 @@ impl MenuBarEntry {
             hotkey,
             tooltip,
             class,
-            kind: MenuBarKind::Toggle(event),
+            kind: MenuBarKind::Toggle(Box::new(event)),
         }
     }
 
@@ -118,7 +132,10 @@ impl MenuBarEntry {
             hotkey,
             tooltip,
             class,
-            kind: MenuBarKind::OpenClose { open, close },
+            kind: MenuBarKind::OpenClose {
+                open: Box::new(open),
+                close: Box::new(close),
+            },
         }
     }
 
@@ -138,7 +155,7 @@ impl MenuBarEntry {
             hotkey,
             tooltip,
             class,
-            kind: MenuBarKind::OpenOrDismiss(open),
+            kind: MenuBarKind::OpenOrDismiss(Box::new(open)),
         }
     }
 
@@ -461,16 +478,93 @@ pub fn menu_bar_event_window(event: &InputEvent) -> Option<WindowClass> {
     })
 }
 
-/// Rectangle used the first time the bar is opened: bottom edge, centered.
-pub fn default_menu_bar_frame(screen_width: f32, screen_height: f32) -> HudFrame {
-    let width = MENU_BAR_WINDOW_WIDTH.min((screen_width - 16.0).max(320.0));
-    let height = MENU_BAR_WINDOW_HEIGHT.min(screen_height.max(1.0));
-    HudFrame {
-        left: (screen_width - width) / 2.0,
-        top: (screen_height - height).max(0.0),
-        width,
-        height,
+/// A zero size is the value before the first resize, so use the client's
+/// initial 1280×720 window instead of collapsing the bar.
+fn finite_screen(screen_width: f32, screen_height: f32) -> (f32, f32) {
+    if screen_width.is_finite() && screen_height.is_finite() && screen_width >= 1.0 && screen_height >= 1.0 {
+        (screen_width, screen_height)
+    } else {
+        (1280.0, 720.0)
     }
+}
+
+fn menu_bar_live_screen(state: &ClientState) -> (f32, f32) {
+    let size = *client_state().window_size().follow_safe(state);
+    finite_screen(size.width, size.height)
+}
+
+/// Width the window sizer locks to. Both minimum and maximum use this, so the
+/// preset is the rendered width instead of a constant that ignores the screen.
+fn menu_bar_locked_width(state: &ClientState) -> f32 {
+    let (width, height) = menu_bar_live_screen(state);
+    default_menu_bar_frame(width, height).width
+}
+
+fn menu_bar_locked_height(state: &ClientState) -> f32 {
+    let (width, height) = menu_bar_live_screen(state);
+    default_menu_bar_frame(width, height).height
+}
+
+/// Rectangle used the first time the bar is opened.
+///
+/// One row, centered, with its bottom just above chat and the hotbar. The
+/// width is the screen minus the side margins. The window's minimum and
+/// maximum size are this rectangle, so the sizer cannot force a wider bar.
+pub fn default_menu_bar_frame(screen_width: f32, screen_height: f32) -> HudFrame {
+    let (screen_width, screen_height) = finite_screen(screen_width, screen_height);
+    let hud = first_open_hud(screen_width, screen_height);
+    let ceiling = (hud.chat.top.min(hud.hotbar.top) - MENU_BAR_HUD_CLEARANCE).min(screen_height);
+    let preferred = MENU_BAR_WINDOW_HEIGHT.min(screen_height);
+    let height = if ceiling >= preferred {
+        preferred
+    } else {
+        ceiling.max(1.0).min(screen_height)
+    };
+    let top = (ceiling - height).max(0.0);
+    let height = height.min((screen_height - top).max(1.0));
+
+    let width = (screen_width - MENU_BAR_EDGE_MARGIN * 2.0).clamp(1.0, screen_width);
+    let left = ((screen_width - width) * 0.5).max(0.0);
+
+    HudFrame { left, top, width, height }
+}
+
+/// One button in the single row drawn inside the content box.
+fn menu_bar_cell(content_left: f32, content_top: f32, content_width: f32, content_height: f32, count: usize, index: usize) -> HudFrame {
+    let columns = count.max(1) as f32;
+    let gaps = count.saturating_sub(1) as f32;
+    let gap = if gaps == 0.0 || content_width <= columns {
+        0.0
+    } else {
+        BUTTON_GAP.min(((content_width - columns) / gaps).max(0.0))
+    };
+    let cell_width = ((content_width - gap * gaps) / columns).max(0.0);
+    HudFrame {
+        left: content_left + (cell_width + gap) * index as f32,
+        top: content_top,
+        width: cell_width,
+        height: content_height.max(0.0),
+    }
+}
+
+/// Content box under the title, using the same insets as the in-game window
+/// resolver. Tests place buttons with this so they match `lay_out`.
+#[cfg(test)]
+fn menu_bar_content_frame(window: HudFrame) -> HudFrame {
+    HudFrame {
+        left: window.left + MENU_BAR_BORDER,
+        top: window.top + MENU_BAR_TITLE + MENU_BAR_GAPS + MENU_BAR_TITLE_GAP,
+        width: (window.width - MENU_BAR_BORDER * 2.0).max(0.0),
+        height: (window.height - MENU_BAR_TITLE - MENU_BAR_GAPS - MENU_BAR_TITLE_GAP - MENU_BAR_BORDER).max(0.0),
+    }
+}
+
+#[cfg(test)]
+fn menu_bar_button_frames(window: HudFrame, count: usize) -> Vec<HudFrame> {
+    let content = menu_bar_content_frame(window);
+    (0..count)
+        .map(|index| menu_bar_cell(content.left, content.top, content.width, content.height, count, index))
+        .collect()
 }
 
 /// Anchor and size passed to the window cache when the bar has never been
@@ -502,10 +596,10 @@ impl CustomWindow<ClientState> for MenuBarWindow {
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
             closable: false,
-            minimum_width: MENU_BAR_WINDOW_WIDTH,
-            maximum_width: MENU_BAR_WINDOW_WIDTH,
-            minimum_height: MENU_BAR_WINDOW_HEIGHT,
-            maximum_height: MENU_BAR_WINDOW_HEIGHT,
+            minimum_width: ComputedSelector::new_default(menu_bar_locked_width),
+            maximum_width: ComputedSelector::new_default(menu_bar_locked_width),
+            minimum_height: ComputedSelector::new_default(menu_bar_locked_height),
+            maximum_height: ComputedSelector::new_default(menu_bar_locked_height),
             elements: MenuBarButtons::new(),
         }
     }
@@ -549,7 +643,7 @@ impl Element<ClientState> for MenuBarButtons {
     ) -> Self::LayoutInfo {
         with_single_resolver(resolvers, |resolver| {
             let available = resolver.push_available_area();
-            let height = available.height.unwrap_or(88.0).max(22.0);
+            let height = available.height.unwrap_or(MENU_BAR_BUTTON_HEIGHT).max(1.0);
             let area = resolver.with_height(height);
             MenuBarLayout { area }
         })
@@ -571,11 +665,7 @@ impl Element<ClientState> for MenuBarButtons {
         let open_bits_path = client_state().menu_bar_open();
         let theme = state.get(&theme_path);
         let bits = *state.get(&open_bits_path);
-        let columns = BUTTON_COLUMNS.min(entries.len()).max(1);
-        let rows = entries.len().div_ceil(columns);
-        let gap = BUTTON_GAP;
-        let cell_width = (layout_info.area.width - gap * (columns.saturating_sub(1) as f32)) / columns as f32;
-        let cell_height = (layout_info.area.height - gap * (rows.saturating_sub(1) as f32)) / rows as f32;
+        let content = layout_info.area;
         let idle_background = theme.button.background_color;
         let idle_foreground = theme.button.foreground_color;
         let hover_background = theme.button.hovered_background_color;
@@ -588,13 +678,12 @@ impl Element<ClientState> for MenuBarButtons {
         let highlight = theme.button.highlight_color;
 
         for (index, entry) in entries.iter().enumerate() {
-            let column = index % columns;
-            let row = index / columns;
+            let cell = menu_bar_cell(content.left, content.top, content.width, content.height, entries.len(), index);
             let area = Area {
-                left: layout_info.area.left + (cell_width + gap) * column as f32,
-                top: layout_info.area.top + (cell_height + gap) * row as f32,
-                width: cell_width.max(1.0),
-                height: cell_height.max(1.0),
+                left: cell.left,
+                top: cell.top,
+                width: cell.width.max(1.0),
+                height: cell.height.max(1.0),
             };
             let hovered = area.check().run(layout);
             let open = index < 64 && bits & (1_u64 << index) != 0;
@@ -632,11 +721,12 @@ struct MenuBarTooltip;
 #[cfg(test)]
 mod tests {
     use super::{
-        MENU_BAR_WINDOW_HEIGHT, MenuBarPress, default_menu_bar_frame, default_menu_bar_window, menu_bar_entries, menu_bar_event_window,
-        menu_bar_open_bits, press_menu_bar,
+        MENU_BAR_WINDOW_HEIGHT, MenuBarKind, MenuBarPress, default_menu_bar_frame, default_menu_bar_window, menu_bar_button_frames,
+        menu_bar_entries, menu_bar_event_window, menu_bar_open_bits, press_menu_bar,
     };
     use crate::graphics::ScreenPosition;
     use crate::interface::windows::WindowClass;
+    use crate::interface::windows::placement::{HudFrame, first_open_hud};
 
     #[test]
     fn every_entry_toggles_its_window_and_reports_open() {
@@ -660,20 +750,59 @@ mod tests {
             assert!(entry.is_open(&[entry.class]));
             assert!(!entry.is_open(&[WindowClass::Login]));
 
-            match press_menu_bar(index, |_| false) {
-                Some(MenuBarPress::Dispatch(event)) => {
-                    assert_eq!(menu_bar_event_window(&event), Some(entry.class), "{}", entry.id);
+            let closed = press_menu_bar(index, |_| false);
+            let opened = press_menu_bar(index, |class| class == entry.class);
+            match (&entry.kind, closed, opened) {
+                (MenuBarKind::Toggle(event), Some(MenuBarPress::Dispatch(closed)), Some(MenuBarPress::Dispatch(opened))) => {
+                    assert_eq!(
+                        std::mem::discriminant(event.as_ref()),
+                        std::mem::discriminant(closed.as_ref()),
+                        "{}",
+                        entry.id
+                    );
+                    assert_eq!(
+                        std::mem::discriminant(event.as_ref()),
+                        std::mem::discriminant(opened.as_ref()),
+                        "{}",
+                        entry.id
+                    );
+                    assert_eq!(menu_bar_event_window(closed.as_ref()), Some(entry.class), "{}", entry.id);
                 }
-                other => panic!("{} closed while shut: {other:?}", entry.id),
-            }
-            match press_menu_bar(index, |class| class == entry.class) {
-                Some(MenuBarPress::Dispatch(event)) => {
-                    assert_eq!(menu_bar_event_window(&event), Some(entry.class), "{}", entry.id);
+                (MenuBarKind::OpenClose { open, close }, Some(MenuBarPress::Dispatch(closed)), Some(MenuBarPress::Dispatch(opened))) => {
+                    assert_eq!(
+                        std::mem::discriminant(open.as_ref()),
+                        std::mem::discriminant(closed.as_ref()),
+                        "{} closed press must be the open event",
+                        entry.id
+                    );
+                    assert_eq!(
+                        std::mem::discriminant(close.as_ref()),
+                        std::mem::discriminant(opened.as_ref()),
+                        "{} open press must be the close event",
+                        entry.id
+                    );
+                    assert_ne!(
+                        std::mem::discriminant(open.as_ref()),
+                        std::mem::discriminant(close.as_ref()),
+                        "{} open and close events are the same",
+                        entry.id
+                    );
                 }
-                Some(MenuBarPress::Close(class)) => assert_eq!(class, entry.class),
-                None => panic!("missing press for {}", entry.id),
+                (MenuBarKind::OpenOrDismiss(open), Some(MenuBarPress::Dispatch(closed)), Some(MenuBarPress::Close(class))) => {
+                    assert_eq!(
+                        std::mem::discriminant(open.as_ref()),
+                        std::mem::discriminant(closed.as_ref()),
+                        "{}",
+                        entry.id
+                    );
+                    assert_eq!(class, entry.class);
+                    assert_eq!(menu_bar_event_window(closed.as_ref()), Some(entry.class), "{}", entry.id);
+                }
+                other => panic!("{} press mismatch: {other:?}", entry.id),
             }
         }
+
+        assert!(entries.iter().any(|entry| matches!(entry.kind, MenuBarKind::OpenClose { .. })));
 
         assert!(entries.iter().any(|entry| entry.id == "status"));
         assert!(entries.iter().any(|entry| entry.id == "emotes"));
@@ -699,7 +828,17 @@ mod tests {
         let screen_width = 1280.0;
         let screen_height = 720.0;
         let frame = default_menu_bar_frame(screen_width, screen_height);
-        assert!((frame.top + frame.height - screen_height).abs() < 0.5);
+        let hud = first_open_hud(screen_width, screen_height);
+        let ceiling = hud.chat.top.min(hud.hotbar.top) - 4.0;
+        assert!(
+            (frame.top + frame.height - ceiling).abs() < 0.5,
+            "bar bottom {} is not just above chat and the hotbar ({ceiling})",
+            frame.top + frame.height
+        );
+        assert!(
+            screen_height - (frame.top + frame.height) > 40.0,
+            "bar still covers the bottom HUD"
+        );
         assert!((frame.left + frame.width / 2.0 - screen_width / 2.0).abs() < 0.5);
         assert!((frame.height - MENU_BAR_WINDOW_HEIGHT).abs() < 0.5);
 
@@ -721,5 +860,57 @@ mod tests {
         let again = anchor.to_position(screen);
         assert_eq!(again.left, remembered.left);
         assert_eq!(again.top, remembered.top);
+    }
+
+    fn rects_overlap(a: HudFrame, b: HudFrame) -> bool {
+        a.left < b.right() && a.right() > b.left && a.top < b.bottom() && a.bottom() > b.top
+    }
+
+    #[test]
+    fn menu_bar_buttons_fit_the_screen_and_clear_chat_and_hotbar() {
+        // 1280×720 is the client layout. The harness shot is 700px tall, so a
+        // button past y=700 is sliced off even though it is inside that layout.
+        let cases = [(1280.0, 720.0, 700.0), (1279.0, 700.0, 700.0), (1024.0, 576.0, 576.0)];
+        let count = menu_bar_entries().len();
+
+        for (screen_width, screen_height, visible_bottom) in cases {
+            let frame = default_menu_bar_frame(screen_width, screen_height);
+            let hud = first_open_hud(screen_width, screen_height);
+            assert!(
+                (frame.width - (screen_width - 16.0)).abs() < 0.5,
+                "{screen_width}x{screen_height} width {} is not the preset",
+                frame.width
+            );
+            assert!(frame.left >= -0.5 && frame.top >= -0.5);
+            assert!(frame.right() <= screen_width + 0.5);
+            assert!(frame.bottom() <= visible_bottom + 0.5, "bar hangs off the visible window");
+            assert!(
+                !rects_overlap(frame, hud.chat),
+                "bar covers chat at {screen_width}x{screen_height}"
+            );
+            assert!(
+                !rects_overlap(frame, hud.hotbar),
+                "bar covers hotbar at {screen_width}x{screen_height}"
+            );
+
+            let buttons = menu_bar_button_frames(frame, count);
+            assert_eq!(buttons.len(), count);
+            let row_top = buttons[0].top;
+            let mut previous_right = frame.left;
+            for button in &buttons {
+                assert!((button.top - row_top).abs() < 0.5, "buttons are not one row");
+                assert!(button.width > 1.0, "button has no width");
+                assert!(button.left >= -0.5 && button.top >= -0.5);
+                assert!(button.right() <= screen_width + 0.5);
+                assert!(button.bottom() <= visible_bottom + 0.5);
+                assert!(button.left + 0.5 >= frame.left && button.right() <= frame.right() + 0.5);
+                assert!(button.bottom() <= frame.bottom() + 0.5);
+                assert!(button.left + 0.5 >= previous_right, "buttons overlap each other");
+                assert!(!rects_overlap(*button, hud.chat));
+                assert!(!rects_overlap(*button, hud.hotbar));
+                previous_right = button.right();
+            }
+            assert!(buttons.last().unwrap().right() <= screen_width + 0.5);
+        }
     }
 }

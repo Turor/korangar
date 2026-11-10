@@ -4603,7 +4603,7 @@ impl Client {
                 }
                 InputEvent::MenuBarPress { index } => {
                     match press_menu_bar(index as usize, |class| self.interface.is_window_with_class_open(class)) {
-                        Some(MenuBarPress::Dispatch(event)) => self.input_event_buffer.push(event),
+                        Some(MenuBarPress::Dispatch(event)) => self.input_event_buffer.push(*event),
                         Some(MenuBarPress::Close(class)) => self.interface.close_window_with_class(class),
                         None => {}
                     }
