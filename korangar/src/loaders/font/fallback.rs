@@ -72,6 +72,18 @@ mod tests {
 
     #[test]
     fn hangul_falls_back_to_the_cjk_face() {
+        use cosmic_text::{Fallback, PlatformFallback};
+
+        let fallback = super::CjkFallback;
+        assert_eq!(fallback.script_fallback(Script::Hangul, "en-US"), CJK_FAMILIES);
+        assert_eq!(fallback.script_fallback(Script::Han, "ko-KR"), CJK_FAMILIES);
+        assert_eq!(fallback.script_fallback(Script::Hiragana, "ja-JP"), CJK_FAMILIES);
+        assert_eq!(
+            fallback.script_fallback(Script::Latin, "en-US"),
+            PlatformFallback.script_fallback(Script::Latin, "en-US")
+        );
+        assert_ne!(fallback.script_fallback(Script::Latin, "en-US"), CJK_FAMILIES);
+
         assert!(cjk_script(Script::Hangul));
         assert!(CJK_FAMILIES.contains(&"Noto Sans KR"));
 

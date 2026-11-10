@@ -177,5 +177,33 @@ mod tests {
         assert_eq!(spans.len(), 2);
         assert_eq!(spans[0].0, "Highlighted ");
         assert_eq!(spans[1].0, "Default");
+        // ^000001 is the highlight token; ^000000 returns to the caller's color.
+        assert_eq!(spans[0].1.color_opt, Some(Color::WHITE.into()));
+        assert_eq!(spans[1].1.color_opt, Some(Color::BLACK.into()));
+    }
+
+    #[test]
+    fn welcome_line_uses_theme_default_and_lowercase_orange() {
+        let attributes = Attrs::new();
+        let text = "Welcome to ^ff8800Korangar^000000 version ^ff88000.1.1^000000!";
+        // Stand-in for the chat server color from the interface theme. Reset
+        // must use this color, not a hard-coded black.
+        let server = Color::rgb_u8(170, 210, 255);
+        let highlight = Color::rgb_u8(255, 196, 64);
+        let spans: Vec<_> = ColorSpanIterator::new(text, server, highlight, attributes).collect();
+
+        assert_eq!(spans.iter().map(|(text, _)| *text).collect::<Vec<_>>(), [
+            "Welcome to ",
+            "Korangar",
+            " version ",
+            "0.1.1",
+            "!"
+        ]);
+        assert!(spans.iter().all(|(text, _)| !text.contains('^')));
+        assert_eq!(spans[0].1.color_opt, None);
+        assert_eq!(spans[1].1.color_opt, Some(Color::rgb_hex("ff8800").into()));
+        assert_eq!(spans[2].1.color_opt, Some(server.into()));
+        assert_eq!(spans[3].1.color_opt, Some(Color::rgb_hex("FF8800").into()));
+        assert_eq!(spans[4].1.color_opt, Some(server.into()));
     }
 }
