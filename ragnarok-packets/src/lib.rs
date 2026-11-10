@@ -1135,7 +1135,8 @@ pub struct AttendanceDataPacket {
     pub rewards: Vec<AttendanceReward>,
 }
 
-/// Claim today's attendance reward (`pc_attendance_claim_reward`, 0x0AEF, 2 bytes).
+/// Claim today's attendance reward (`pc_attendance_claim_reward`, 0x0AEF, 2
+/// bytes).
 ///
 /// This is not a request for `0x0AE3`. The map server answers with
 /// `ZC_ATTENDANCE_RESPONSE` (`0x0AF0`).
