@@ -5,6 +5,7 @@ pub mod handler;
 mod item_use;
 pub mod pincode;
 mod position;
+mod styling;
 pub mod version_20190530;
 pub mod version_20250716;
 pub mod whisper;
@@ -26,6 +27,9 @@ pub use self::pincode::{
     advance_pincode_visual_seed, decrypt_pincode, encrypt_pincode, pincode_decrypt_table, pincode_keypad,
 };
 pub use self::position::{Direction, WorldPosition, WorldPosition2};
+pub use self::styling::{
+    CloseStyleShopPacket, RequestStyleChange2Packet, RequestStyleChangePacket, STYLIST_UI_TYPE, StyleChangeResultPacket,
+};
 pub use self::whisper::{WhisperAck2Packet, WhisperAckPacket, WhisperMessagePacket, WhisperReceived2Packet, WhisperReceivedPacket};
 
 // To make proc macros work in korangar_interface.

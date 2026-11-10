@@ -13,6 +13,7 @@ pub mod mvp_minimap;
 pub mod refine;
 pub mod rodex;
 pub mod stable;
+pub mod styling_shop;
 pub mod version_20190530;
 pub mod version_20220406;
 pub mod version_20250716;

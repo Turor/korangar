@@ -1637,6 +1637,40 @@ where
         }
     }
 
+    /// Buy the selected stylist indexes (`CZ_REQ_STYLE_CHANGE2`, `0x0AFC`).
+    /// Each value is a 1-based catalog index. Zero keeps the current look.
+    pub fn buy_styling(
+        &mut self,
+        head_palette: i16,
+        head_style: i16,
+        body_palette: i16,
+        top_accessory: i16,
+        mid_accessory: i16,
+        bottom_accessory: i16,
+    ) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(ragnarok_packets::RequestStyleChange2Packet {
+                    head_palette,
+                    head_style,
+                    body_palette,
+                    top_accessory,
+                    mid_accessory,
+                    bottom_accessory,
+                    body_style: 0,
+                }),
+        }
+    }
+
+    /// Tell the server the styling shop closed (`0x0A48`).
+    pub fn close_styling_shop(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(ragnarok_packets::CloseStyleShopPacket {})
+            }
+        }
+    }
+
     /// Tell the server the reform UI closed.
     pub fn close_item_reform(&mut self) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
@@ -2562,6 +2596,94 @@ mod packet_handlers {
         };
         assert!(reader.remaining_bytes().is_empty());
         events.0
+    }
+
+    #[test]
+    fn styling_shop_packets_match_hercules_20250716() {
+        use ragnarok_packets::{
+            AccountId, CloseStyleShopPacket, RequestStyleChange2Packet, RequestStyleChangePacket, SpriteChangePacket, SpriteChangeType,
+            StyleChangeResultPacket,
+        };
+
+        let buy = RequestStyleChange2Packet {
+            head_palette: 2,
+            head_style: 3,
+            body_palette: 0,
+            top_accessory: 1,
+            mid_accessory: 0,
+            bottom_accessory: 4,
+            body_style: 0,
+        };
+        let mut writer = ByteWriter::new();
+        buy.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0xFC, 0x0A, 2, 0, 3, 0, 0, 0, 1, 0, 0, 0, 4, 0, 0, 0]);
+
+        let legacy = RequestStyleChangePacket {
+            head_palette: 2,
+            head_style: 3,
+            body_palette: 0,
+            top_accessory: 1,
+            mid_accessory: 0,
+            bottom_accessory: 4,
+        };
+        let mut writer = ByteWriter::new();
+        legacy.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice().len(), 14);
+        assert_eq!(&writer.as_slice()[..2], &[0x46, 0x0A]);
+
+        let close = CloseStyleShopPacket {};
+        let mut writer = ByteWriter::new();
+        close.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0x48, 0x0A]);
+
+        let result = StyleChangeResultPacket { flag: 0 };
+        let mut writer = ByteWriter::new();
+        result.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0x47, 0x0A, 0]);
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20250716, writer.as_slice()).as_slice(),
+            [NetworkEvent::StylingShopResult { success: true }]
+        ));
+
+        let failed = StyleChangeResultPacket { flag: 1 };
+        let mut writer = ByteWriter::new();
+        failed.packet_to_bytes(&mut writer).unwrap();
+        assert!(matches!(
+            process_one(SupportedPacketVersion::_20250716, writer.as_slice()).as_slice(),
+            [NetworkEvent::StylingShopResult { success: false }]
+        ));
+
+        let looks = [
+            (SpriteChangeType::HairCollor, 6u8, 4u32),
+            (SpriteChangeType::ClothesColor, 7, 2),
+            (SpriteChangeType::HeadBottom, 3, 9),
+            (SpriteChangeType::HeadTop, 4, 8),
+            (SpriteChangeType::HeadMiddle, 5, 7),
+        ];
+        for (sprite_type, type_byte, value) in looks {
+            let packet = SpriteChangePacket {
+                account_id: AccountId(9),
+                sprite_type,
+                value,
+                value2: 0,
+            };
+            let mut writer = ByteWriter::new();
+            packet.packet_to_bytes(&mut writer).unwrap();
+            let bytes = writer.as_slice();
+            assert_eq!(bytes.len(), 15);
+            assert_eq!(&bytes[..2], &[0xD7, 0x01]);
+            assert_eq!(bytes[6], type_byte);
+            assert_eq!(u32::from_le_bytes(bytes[7..11].try_into().unwrap()), value);
+            let events = process_one(SupportedPacketVersion::_20250716, bytes);
+            match type_byte {
+                6 => assert!(matches!(events.as_slice(), [NetworkEvent::ChangeHairColor { color: 4, .. }])),
+                7 => assert!(matches!(events.as_slice(), [NetworkEvent::ChangeClothColor { color: 2, .. }])),
+                3 => assert!(matches!(events.as_slice(), [NetworkEvent::ChangeHeadBottom { view_id: 9, .. }])),
+                4 => assert!(matches!(events.as_slice(), [NetworkEvent::ChangeHeadTop { view_id: 8, .. }])),
+                5 => assert!(matches!(events.as_slice(), [NetworkEvent::ChangeHeadMid { view_id: 7, .. }])),
+                _ => unreachable!(),
+            }
+        }
     }
 
     #[test]
@@ -4113,7 +4235,21 @@ mod packet_handlers {
             ]));
         }
 
-        let other_ui = UiOpenPacket { ui_type: 1, data: 4 };
+        let stylist = UiOpenPacket { ui_type: 1, data: 0 };
+        let mut writer = ByteWriter::new();
+        stylist.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0xE2, 0x0A, 1, 0, 0, 0, 0]);
+        for version in [
+            SupportedPacketVersion::_20250716,
+            SupportedPacketVersion::_20220406,
+            SupportedPacketVersion::_20190530,
+        ] {
+            assert!(matches!(process_one(version, writer.as_slice()).as_slice(), [
+                NetworkEvent::OpenStylingShop
+            ]));
+        }
+
+        let other_ui = UiOpenPacket { ui_type: 4, data: 4 };
         let mut writer = ByteWriter::new();
         other_ui.packet_to_bytes(&mut writer).unwrap();
         assert!(process_one(SupportedPacketVersion::_20250716, writer.as_slice()).is_empty());

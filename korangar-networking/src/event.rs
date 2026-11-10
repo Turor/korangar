@@ -329,6 +329,38 @@ pub enum NetworkEvent {
         account_id: AccountId,
         hair_id: u32,
     },
+    /// `ZC_SPRITE_CHANGE2` look `LOOK_HAIR_COLOR`.
+    ChangeHairColor {
+        account_id: AccountId,
+        color: u32,
+    },
+    /// `ZC_SPRITE_CHANGE2` look `LOOK_CLOTHES_COLOR`.
+    ChangeClothColor {
+        account_id: AccountId,
+        color: u32,
+    },
+    /// `ZC_SPRITE_CHANGE2` look `LOOK_HEAD_TOP`. `view_id` is the hat sprite
+    /// id.
+    ChangeHeadTop {
+        account_id: AccountId,
+        view_id: u32,
+    },
+    /// `ZC_SPRITE_CHANGE2` look `LOOK_HEAD_MID`.
+    ChangeHeadMid {
+        account_id: AccountId,
+        view_id: u32,
+    },
+    /// `ZC_SPRITE_CHANGE2` look `LOOK_HEAD_BOTTOM`.
+    ChangeHeadBottom {
+        account_id: AccountId,
+        view_id: u32,
+    },
+    /// `ZC_UI_OPEN` type 1 (`openstylist`).
+    OpenStylingShop,
+    /// `ZC_STYLE_CHANGE_RES`. `success` is flag 0.
+    StylingShopResult {
+        success: bool,
+    },
     LoggedOut,
     FriendRequest {
         requestee: Friend,
