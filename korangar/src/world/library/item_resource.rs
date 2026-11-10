@@ -71,6 +71,10 @@ impl ItemResource {
             None => ItemResource::not_found_value(),
         }
     }
+
+    pub(super) fn is_placeholder(&self) -> bool {
+        self.0 == DEFAULT_STRING || self.0.is_empty()
+    }
 }
 
 impl Table for ItemResource {
@@ -103,10 +107,19 @@ mod tests {
     fn korean_resource_maps_to_the_inventory_bmp() {
         let path = inventory_icon_texture_path("빨간포션").unwrap();
         assert_eq!(path, "유저인터페이스\\item\\빨간포션.bmp");
-        assert_eq!(classify_item_icon_failure("can't find file: data\\texture\\x.bmp"), "remote 404");
+        assert_eq!(
+            classify_item_icon_failure("can't find file: data\\texture\\x.bmp"),
+            "remote 404"
+        );
         assert_eq!(classify_item_icon_failure("asset not found"), "remote 404");
-        assert_eq!(classify_item_icon_failure("verified remote retrieval failed: asset not found"), "remote 404");
-        assert_eq!(classify_item_icon_failure("Lua string is neither valid UTF-8 nor valid Windows-949/EUC-KR"), "EUC-KR/encoding");
+        assert_eq!(
+            classify_item_icon_failure("verified remote retrieval failed: asset not found"),
+            "remote 404"
+        );
+        assert_eq!(
+            classify_item_icon_failure("Lua string is neither valid UTF-8 nor valid Windows-949/EUC-KR"),
+            "EUC-KR/encoding"
+        );
         assert_eq!(classify_item_icon_failure("Failed to decode image"), "parse miss");
         assert_eq!(inventory_icon_texture_path("").unwrap_err(), "missing name mapping");
         assert_eq!(inventory_icon_texture_path("a:b").unwrap_err(), "EUC-KR/encoding");

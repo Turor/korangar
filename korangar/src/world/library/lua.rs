@@ -36,15 +36,23 @@ pub(super) fn execute_chunk(state: &Lua, name: &str, data: &[u8]) -> mlua::Resul
 /// Prefer valid UTF-8 verbatim (including non-Korean user translations). Only
 /// otherwise decode the original bytes as Windows-949/EUC-KR, without lossy
 /// replacement, low-byte truncation, or rewriting the source/cache on disk.
-pub(super) fn game_string(value: mlua::String) -> mlua::Result<String> {
-    let bytes = value.as_bytes();
-    if let Ok(text) = std::str::from_utf8(&bytes) {
+///
+/// This matches roBrowser `TextEncoding.smartDecode`: UTF-8 when the bytes are
+/// well-formed, CP949/EUC-KR for legacy Korean client files. `encoding_rs`'s
+/// `EUC_KR` is the Windows-949 mapping.
+pub(super) fn decode_game_bytes(bytes: &[u8]) -> Result<String, ()> {
+    if let Ok(text) = std::str::from_utf8(bytes) {
         return Ok(text.to_owned());
     }
     EUC_KR
-        .decode_without_bom_handling_and_without_replacement(&bytes)
+        .decode_without_bom_handling_and_without_replacement(bytes)
         .map(Cow::into_owned)
-        .ok_or_else(|| Error::RuntimeError("Lua string is neither valid UTF-8 nor valid Windows-949/EUC-KR".into()))
+        .ok_or(())
+}
+
+pub(super) fn game_string(value: mlua::String) -> mlua::Result<String> {
+    let bytes = value.as_bytes();
+    decode_game_bytes(&bytes).map_err(|_| Error::RuntimeError("Lua string is neither valid UTF-8 nor valid Windows-949/EUC-KR".into()))
 }
 
 #[cfg(test)]
@@ -55,7 +63,7 @@ mod tests {
     use lunify::{BitWidth, Format, Settings, unify};
     use mlua::Lua;
 
-    use super::{chunk_bytes, execute_chunk, game_string};
+    use super::{chunk_bytes, decode_game_bytes, execute_chunk, game_string};
     use crate::world::library::LuaExt;
 
     #[test]
@@ -88,6 +96,16 @@ mod tests {
         assert!(!had_errors);
         assert_eq!(game_string(lua.create_string(bytes.as_ref()).unwrap()).unwrap(), "가나다");
         assert!(game_string(lua.create_string([0xFF]).unwrap()).is_err());
+    }
+
+    #[test]
+    fn cp949_item_resource_bytes_decode_to_hangul() {
+        // `identifiedResourceName` for Red Potion in itemInfo.turoran.renewal11.lua.
+        let bytes = [0xBB, 0xA1, 0xB0, 0xA3, 0xC6, 0xF7, 0xBC, 0xC7];
+        assert_eq!(decode_game_bytes(&bytes).unwrap(), "빨간포션");
+        let (encoded, _, had_errors) = EUC_KR.encode("빨간포션");
+        assert!(!had_errors);
+        assert_eq!(encoded.as_ref(), bytes);
     }
 
     #[test]

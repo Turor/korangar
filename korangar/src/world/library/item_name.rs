@@ -36,6 +36,14 @@ impl ItemName {
             None => ItemName::not_found_value(),
         }
     }
+
+    pub(super) fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub(super) fn is_placeholder(&self) -> bool {
+        self.0 == DEFAULT_STRING || self.0.is_empty()
+    }
 }
 
 impl Table for ItemName {
