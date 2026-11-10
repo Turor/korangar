@@ -81,7 +81,8 @@ pub fn hotbar_item_press<Meta>(item: &InventoryItem<Meta>) -> HotbarItemPress {
     match item_activation(item) {
         ItemActivation::Use => HotbarItemPress::Use,
         ItemActivation::Equip { position } => HotbarItemPress::Equip { position },
-        ItemActivation::Ignore => HotbarItemPress::Ignore,
+        // Card insert is an inventory action. A hotbar key does not pick a target item.
+        ItemActivation::Ignore | ItemActivation::InsertCard => HotbarItemPress::Ignore,
     }
 }
 
