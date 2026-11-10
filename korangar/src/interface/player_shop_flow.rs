@@ -181,13 +181,33 @@ impl Client {
     }
 
     pub(crate) fn close_own_shop(&mut self) {
+        self.send_close_own_shop();
+        self.interface.close_window_with_class(WindowClass::VendingReport);
+    }
+
+    fn send_close_own_shop(&mut self) {
         let buying = *self.client_state.follow(client_state().shop_report().buying());
         if buying {
             let _ = self.networking_system.close_buying_store();
         } else {
             let _ = self.networking_system.close_vending_shop();
         }
-        self.interface.close_window_with_class(WindowClass::VendingReport);
+    }
+
+    /// The title-bar X removes the window inside the interface and does not
+    /// emit an input event. Escape closes through
+    /// [`Self::on_close_top_window`]. Either way, a dismissed setup,
+    /// search, or report must tell the server.
+    pub(crate) fn on_shop_windows_dismissed(&mut self, setup_was_open: bool, search_was_open: bool, report_was_open: bool) {
+        if setup_was_open && !self.interface.is_window_with_class_open(WindowClass::VendingSetup) {
+            self.send_shop_setup_cancel();
+        }
+        if search_was_open && !self.interface.is_window_with_class_open(WindowClass::SearchStore) {
+            let _ = self.networking_system.close_search_store();
+        }
+        if report_was_open && !self.interface.is_window_with_class_open(WindowClass::VendingReport) {
+            self.send_close_own_shop();
+        }
     }
 
     pub(crate) fn suggest_shop_search(&mut self) {
@@ -254,12 +274,9 @@ impl Client {
     pub(crate) fn on_close_top_window(&mut self) {
         let setup_open = self.interface.is_window_with_class_open(WindowClass::VendingSetup);
         let search_open = self.interface.is_window_with_class_open(WindowClass::SearchStore);
+        let report_open = self.interface.is_window_with_class_open(WindowClass::VendingReport);
         self.interface.close_top_window(&self.client_state);
-        if setup_open && !self.interface.is_window_with_class_open(WindowClass::VendingSetup) {
-            self.send_shop_setup_cancel();
-        } else if search_open && !self.interface.is_window_with_class_open(WindowClass::SearchStore) {
-            let _ = self.networking_system.close_search_store();
-        }
+        self.on_shop_windows_dismissed(setup_open, search_open, report_open);
     }
 
     fn reopen_shop_setup(&mut self) {

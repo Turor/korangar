@@ -4086,7 +4086,7 @@ mod packet_handlers {
             VendingPurchaseInformation, VendingShopItem, VendingShopListPacket,
         };
 
-        assert_eq!(VendingShopItem::size_in_bytes(), 64);
+        assert_eq!(VendingShopItem::size_in_bytes(), 79);
         let empty_option = || ItemOptions {
             index: 0,
             value: 0,
@@ -4106,6 +4106,7 @@ mod packet_handlers {
                 damaged: 0,
                 cards: [0; 4],
                 options: std::array::from_fn(|_| empty_option()),
+                forge_data: std::array::from_fn(|_| empty_option()),
                 location: 0,
                 view_sprite: 0,
                 refine: 0,
@@ -4115,6 +4116,7 @@ mod packet_handlers {
         let mut writer = ByteWriter::new();
         list.packet_to_bytes(&mut writer).unwrap();
         assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0B3D);
+        assert_eq!(writer.as_slice().len(), 2 + 2 + 4 + 4 + 79);
 
         for version in [SupportedPacketVersion::_20250716, SupportedPacketVersion::_20220406] {
             let events = process_one(version, writer.as_slice());
@@ -4234,7 +4236,7 @@ mod packet_handlers {
 
     #[test]
     fn own_shop_setup_packets_shift_indexes_and_parse_reports() {
-        use ragnarok_packets::ItemId;
+        use ragnarok_packets::{AccountId, ItemId, Price};
 
         let opened = super::open_vending_shop_packet("Pot", 1, &[(2, 2, 100)]);
         assert_eq!(opened.result, 1);
@@ -4274,6 +4276,80 @@ mod packet_handlers {
             map_handler(SupportedPacketVersion::_20190530).process_one(&mut ByteReader::without_metadata(&sold)),
             HandlerResult::UnhandledPacket
         ));
+
+        // 20250716 vend rows are 79 bytes (`0x0B3D`) and own rows are 73 (`0x0B40`),
+        // including `forge_data[3]`.
+        let shop_row = {
+            let mut item = vec![0u8; 79];
+            item[..4].copy_from_slice(&120u32.to_le_bytes());
+            item[4..6].copy_from_slice(&4u16.to_le_bytes());
+            item[6..8].copy_from_slice(&3i16.to_le_bytes());
+            item[9..13].copy_from_slice(&501u32.to_le_bytes());
+            item
+        };
+        let mut second_shop = shop_row.clone();
+        second_shop[..4].copy_from_slice(&121u32.to_le_bytes());
+        second_shop[6..8].copy_from_slice(&4i16.to_le_bytes());
+        let shop_lists = [vec![shop_row.clone()], vec![shop_row, second_shop]];
+        let own_row = {
+            let mut item = vec![0u8; 73];
+            item[..4].copy_from_slice(&50u32.to_le_bytes());
+            item[4..6].copy_from_slice(&4i16.to_le_bytes());
+            item[6..8].copy_from_slice(&2i16.to_le_bytes());
+            item[9..13].copy_from_slice(&501u32.to_le_bytes());
+            item
+        };
+        let mut second_own = own_row.clone();
+        second_own[..4].copy_from_slice(&51u32.to_le_bytes());
+        second_own[4..6].copy_from_slice(&5i16.to_le_bytes());
+        let own_lists = [vec![own_row.clone()], vec![own_row, second_own]];
+
+        for version in [SupportedPacketVersion::_20250716, SupportedPacketVersion::_20220406] {
+            for (count, rows) in shop_lists.iter().enumerate() {
+                let mut bytes = Vec::new();
+                let len = 4 + 8 + rows.iter().map(Vec::len).sum::<usize>();
+                bytes.extend(0x0B3Du16.to_le_bytes());
+                bytes.extend((len as u16).to_le_bytes());
+                bytes.extend(9u32.to_le_bytes());
+                bytes.extend(77u32.to_le_bytes());
+                for row in rows {
+                    bytes.extend(row);
+                }
+                let events = process_one(version, &bytes);
+                assert!(matches!(events.as_slice(), [NetworkEvent::PlayerShopOpened {
+                    account_id: AccountId(9),
+                    store_id: 77,
+                    buying_store: false,
+                    items,
+                    indexes,
+                }] if items.len() == count + 1
+                    && indexes.len() == count + 1
+                    && items[0].item_id == ItemId(501)
+                    && items[0].price == Price(120)
+                    && indexes[0] == 3
+                    && (count == 0 || (items[1].price == Price(121) && indexes[1] == 4))));
+            }
+            for (count, rows) in own_lists.iter().enumerate() {
+                let mut bytes = Vec::new();
+                let len = 4 + 4 + rows.iter().map(Vec::len).sum::<usize>();
+                bytes.extend(0x0B40u16.to_le_bytes());
+                bytes.extend((len as u16).to_le_bytes());
+                bytes.extend(9u32.to_le_bytes());
+                for row in rows {
+                    bytes.extend(row);
+                }
+                let events = process_one(version, &bytes);
+                assert!(matches!(events.as_slice(), [NetworkEvent::OwnPlayerShopOpened {
+                    buying_store: false,
+                    lines,
+                }] if lines.len() == count + 1
+                    && lines[0].index == 4
+                    && lines[0].item_id == ItemId(501)
+                    && lines[0].amount == 2
+                    && lines[0].price == 50
+                    && (count == 0 || (lines[1].index == 5 && lines[1].price == 51))));
+            }
+        }
     }
 
     #[test]

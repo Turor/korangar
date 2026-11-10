@@ -13,23 +13,26 @@ use crate::state::player_shops::{ShopSearchPick, ShopSearchPickPathExt, ShopSear
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, SearchStoreRowPathExt};
 
-struct SearchList<A> {
+struct SearchList<A, B> {
     rows_path: A,
+    search_path: B,
     elements: Vec<ElementBox<ClientState>>,
 }
 
-impl<A> SearchList<A> {
-    fn new(rows_path: A) -> Self {
+impl<A, B> SearchList<A, B> {
+    fn new(rows_path: A, search_path: B) -> Self {
         Self {
             rows_path,
+            search_path,
             elements: Vec::new(),
         }
     }
 }
 
-impl<A> Element<ClientState> for SearchList<A>
+impl<A, B> Element<ClientState> for SearchList<A, B>
 where
     A: Path<ClientState, Vec<crate::state::SearchStoreRow>>,
+    B: Path<ClientState, ShopSearchState> + Copy,
 {
     type LayoutInfo = ();
 
@@ -51,26 +54,18 @@ where
                     for index in self.elements.len()..rows.len() {
                         let row_path = self.rows_path.index(index).manually_asserted();
                         let label_path = row_path.label();
+                        let search_path = self.search_path;
                         self.elements.push(ErasedElement::new(split! {
                             children: (
                                 text! { text: label_path },
                                 button! {
-                                    text: "Vending",
+                                    text: "Open",
                                     event: move |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
                                         let row = state.get(&row_path);
+                                        let buying_store = *state.get(&search_path.buying());
                                         queue.queue(InputEvent::OpenPlayerShop {
                                             account_id: row.account_id,
-                                            buying_store: false,
-                                        });
-                                    },
-                                },
-                                button! {
-                                    text: "Buying",
-                                    event: move |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
-                                        let row = state.get(&row_path);
-                                        queue.queue(InputEvent::OpenPlayerShop {
-                                            account_id: row.account_id,
-                                            buying_store: true,
+                                            buying_store,
                                         });
                                     },
                                 },
@@ -283,7 +278,7 @@ where
                     ),
                 },
                 scroll_view! {
-                    children: SearchList::new(self.rows_path),
+                    children: SearchList::new(self.rows_path, search_path),
                 },
             ),
         }

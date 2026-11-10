@@ -5624,6 +5624,8 @@ pub struct VendingShopItem {
     pub damaged: u8,
     pub cards: [u32; 4],
     pub options: [ItemOptions; 5],
+    /// `ItemOptions forge_data[MAX_FORGE_OPTIONS]` (3 × 5 bytes) on 20250716.
+    pub forge_data: [ItemOptions; 3],
     pub location: u32,
     pub view_sprite: u16,
     pub refine: u8,
@@ -5665,6 +5667,8 @@ pub struct OwnVendingItem {
     pub damaged: u8,
     pub cards: [u32; 4],
     pub options: [ItemOptions; 5],
+    /// `ItemOptions forge_data[MAX_FORGE_OPTIONS]` (3 × 5 bytes) on 20250716.
+    pub forge_data: [ItemOptions; 3],
     pub refine: u8,
     pub grade: u8,
 }

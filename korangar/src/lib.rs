@@ -3797,7 +3797,11 @@ impl Client {
         client_tick: ClientTick,
         #[cfg(feature = "debug")] delta_time: f32,
     ) -> bool {
+        let shop_setup_open = self.interface.is_window_with_class_open(WindowClass::VendingSetup);
+        let shop_search_open = self.interface.is_window_with_class_open(WindowClass::SearchStore);
+        let shop_report_open = self.interface.is_window_with_class_open(WindowClass::VendingReport);
         self.interface.process_events(&mut self.input_event_buffer);
+        self.on_shop_windows_dismissed(shop_setup_open, shop_search_open, shop_report_open);
 
         let interface_has_focus = self.interface.has_focus();
 

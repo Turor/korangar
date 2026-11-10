@@ -1,21 +1,23 @@
 //! Draft, search, and sales state for this client's own shops.
 //!
-//! Counts and prices follow Hercules `MAX_VENDING` (12), `vending_max_value`
-//! (10_000_000), `MAX_BUYINGSTORE_SLOTS` (5), `BUYINGSTORE_MAX_PRICE`
-//! (99_990_000), and `BUYINGSTORE_MAX_AMOUNT` (9999). The UI rejects a price of
-//! 0. Hercules caps an over-max vending price instead of rejecting it, and it
-//! accepts a vending price of 0; the setup window still refuses both so a shop
-//! cannot list a free or uncapped line. Buying-store prices of 0 are rejected
-//! by the server. Pocket zeny is not tracked here, so a buying limit above 0
-//! is checked locally and the server still rejects a limit above the pocket.
+//! Counts and prices follow Hercules `MAX_VENDING` (12), the shipped
+//! `conf/map/battle/items.conf` value `vending_max_value` (1_000_000_000),
+//! `MAX_BUYINGSTORE_SLOTS` (5), `BUYINGSTORE_MAX_PRICE` (99_990_000), and
+//! `BUYINGSTORE_MAX_AMOUNT` (9999). The UI rejects a price of 0 and a vending
+//! price above that config value. Hercules `cap_value`s a higher vending price
+//! instead of rejecting it, and it accepts a vending price of 0. Buying-store
+//! prices of 0 are rejected by the server. Pocket zeny is not tracked here, so
+//! a buying limit above 0 is checked locally and the server still rejects a
+//! limit above the pocket.
 
 use korangar_interface::element::StateElement;
 use rust_state::RustState;
 
 /// Hercules `MAX_VENDING`.
 pub const VENDING_MAX_ITEMS: usize = 12;
-/// Hercules `battle_config.vending_max_value` default.
-pub const VENDING_MAX_PRICE: u32 = 10_000_000;
+/// Shipped `vending_max_value` in `conf/map/battle/items.conf`.
+/// The `battle.c` default is 10_000_000; this client follows the config.
+pub const VENDING_MAX_PRICE: u32 = 1_000_000_000;
 /// Hercules `MAX_BUYINGSTORE_SLOTS`.
 pub const BUYING_STORE_MAX_SLOTS: usize = 5;
 /// Hercules `BUYINGSTORE_MAX_PRICE`.
@@ -685,13 +687,13 @@ mod tests {
         let mut setup = ShopSetupState::default();
         setup.start_vending(2, vec![candidate("Potion", 4, 501, 2)]);
         assert!(list_line(&mut setup, 0, "1", "0").is_err());
-        assert!(list_line(&mut setup, 0, "1", "10000001").unwrap_err().contains("10000000"));
+        assert!(list_line(&mut setup, 0, "1", "1000000001").unwrap_err().contains("1000000000"));
         assert!(list_line(&mut setup, 0, "3", "10").unwrap_err().contains("cart"));
-        assert!(list_line(&mut setup, 0, "2", "10000000").is_ok());
+        assert!(list_line(&mut setup, 0, "2", "1000000000").is_ok());
         setup.title = "Potions".to_owned();
         assert_eq!(setup.open_request().unwrap(), ShopOpenRequest::Vending {
             title: "Potions".to_owned(),
-            items: vec![(4, 2, 10_000_000)],
+            items: vec![(4, 2, 1_000_000_000)],
         });
     }
 

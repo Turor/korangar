@@ -289,4 +289,112 @@ mod tests {
         assert_eq!(bytes.len(), 20);
         assert_eq!(u16::from_le_bytes([bytes[12], bytes[13]]), 7);
     }
+
+    #[test]
+    fn vend_list_items_include_three_forge_options() {
+        use ragnarok_bytes::FixedByteSize;
+
+        assert_eq!(VendingShopItem::size_in_bytes(), 79);
+        assert_eq!(OwnVendingItem::size_in_bytes(), 73);
+
+        fn shop_item(price: u32, index: i16, forge_index: u16, refine: u8) -> Vec<u8> {
+            let mut item = Vec::new();
+            item.extend(price.to_le_bytes());
+            item.extend(4u16.to_le_bytes());
+            item.extend(index.to_le_bytes());
+            item.push(0);
+            item.extend(501u32.to_le_bytes());
+            item.push(1);
+            item.push(0);
+            item.extend([0u8; 16]);
+            item.extend([0u8; 25]);
+            item.extend(forge_index.to_le_bytes());
+            item.extend([0u8; 3]);
+            item.extend([0u8; 10]);
+            item.extend(0u32.to_le_bytes());
+            item.extend(8u16.to_le_bytes());
+            item.push(refine);
+            item.push(2);
+            assert_eq!(item.len(), 79);
+            item
+        }
+
+        fn own_item(price: u32, index: i16, forge_index: u16, refine: u8) -> Vec<u8> {
+            let mut item = Vec::new();
+            item.extend(price.to_le_bytes());
+            item.extend(index.to_le_bytes());
+            item.extend(2i16.to_le_bytes());
+            item.push(0);
+            item.extend(501u32.to_le_bytes());
+            item.push(1);
+            item.push(0);
+            item.extend([0u8; 16]);
+            item.extend([0u8; 25]);
+            item.extend(forge_index.to_le_bytes());
+            item.extend([0u8; 3]);
+            item.extend([0u8; 10]);
+            item.push(refine);
+            item.push(2);
+            assert_eq!(item.len(), 73);
+            item
+        }
+
+        fn frame(header: u16, prefix: &[u8], items: &[Vec<u8>]) -> Vec<u8> {
+            let len = 4 + prefix.len() + items.iter().map(Vec::len).sum::<usize>();
+            let mut bytes = Vec::new();
+            bytes.extend(header.to_le_bytes());
+            bytes.extend((len as u16).to_le_bytes());
+            bytes.extend(prefix);
+            for item in items {
+                bytes.extend(item);
+            }
+            bytes
+        }
+
+        let one_shop = frame(0x0B3D, &[9, 0, 0, 0, 77, 0, 0, 0], &[shop_item(120, 3, 100, 9)]);
+        assert_eq!(one_shop.len(), 4 + 8 + 79);
+        let two_shops = frame(0x0B3D, &[9, 0, 0, 0, 77, 0, 0, 0], &[
+            shop_item(120, 3, 100, 9),
+            shop_item(121, 4, 101, 8),
+        ]);
+        assert_eq!(two_shops.len(), 4 + 8 + 79 * 2);
+        let mut reader = ByteReader::without_metadata(&two_shops);
+        let parsed = VendingShopListPacket::packet_from_bytes(&mut reader).unwrap();
+        assert!(reader.is_empty());
+        assert_eq!(parsed.account_id, AccountId(9));
+        assert_eq!(parsed.vender_id, 77);
+        assert_eq!(parsed.items.len(), 2);
+        assert_eq!(parsed.items[0].price, Price(120));
+        assert_eq!(parsed.items[0].index, 3);
+        assert_eq!(parsed.items[0].item_id, ItemId(501));
+        assert_eq!(parsed.items[0].forge_data[0].index, 100);
+        assert_eq!(parsed.items[0].view_sprite, 8);
+        assert_eq!(parsed.items[0].refine, 9);
+        assert_eq!(parsed.items[1].price, Price(121));
+        assert_eq!(parsed.items[1].index, 4);
+        assert_eq!(parsed.items[1].forge_data[0].index, 101);
+        assert_eq!(parsed.items[1].refine, 8);
+        let mut reader = ByteReader::without_metadata(&one_shop);
+        assert_eq!(VendingShopListPacket::packet_from_bytes(&mut reader).unwrap().items.len(), 1);
+
+        let one_own = frame(0x0B40, &[9, 0, 0, 0], &[own_item(50, 4, 200, 7)]);
+        assert_eq!(one_own.len(), 4 + 4 + 73);
+        let two_own = frame(0x0B40, &[9, 0, 0, 0], &[own_item(50, 4, 200, 7), own_item(51, 5, 201, 6)]);
+        assert_eq!(two_own.len(), 4 + 4 + 73 * 2);
+        let mut reader = ByteReader::without_metadata(&two_own);
+        let parsed = OwnVendingListPacket::packet_from_bytes(&mut reader).unwrap();
+        assert!(reader.is_empty());
+        assert_eq!(parsed.items.len(), 2);
+        assert_eq!(parsed.items[0].price, Price(50));
+        assert_eq!(parsed.items[0].index, 4);
+        assert_eq!(parsed.items[0].amount, 2);
+        assert_eq!(parsed.items[0].forge_data[0].index, 200);
+        assert_eq!(parsed.items[0].refine, 7);
+        assert_eq!(parsed.items[1].price, Price(51));
+        assert_eq!(parsed.items[1].index, 5);
+        assert_eq!(parsed.items[1].forge_data[0].index, 201);
+        assert_eq!(parsed.items[1].refine, 6);
+        let mut reader = ByteReader::without_metadata(&one_own);
+        assert_eq!(OwnVendingListPacket::packet_from_bytes(&mut reader).unwrap().items.len(), 1);
+    }
 }
