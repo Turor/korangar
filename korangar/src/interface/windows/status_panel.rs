@@ -29,6 +29,23 @@ const BAR_HEIGHT: f32 = 8.0;
 const ICON_SIDE: f32 = 24.0;
 const ICON_GAP: f32 = 3.0;
 
+/// Outer height of this window on the in-game token theme (title 22, title gap
+/// 2, border 6, body font 13 so each label is 14). Counts the portrait, six
+/// labels, four bars, the buff row, and the eleven 4px gaps. The first-open
+/// HUD reserves this so the left gutter starts below the panel.
+pub(crate) const STATUS_PANEL_WINDOW_HEIGHT: f32 = {
+    const TITLE_HEIGHT: f32 = 22.0;
+    const TITLE_GAP: f32 = 2.0;
+    const BORDER: f32 = 6.0;
+    const LABEL_HEIGHT: f32 = 14.0;
+    const LABEL_COUNT: f32 = 6.0;
+    const BAR_COUNT: f32 = 4.0;
+    const ELEMENT_GAPS: f32 = 11.0 * 4.0;
+    const BUFF_ROW: f32 = ICON_SIDE + 2.0;
+
+    TITLE_HEIGHT + TITLE_GAP + BORDER + PORTRAIT_SIDE + LABEL_COUNT * LABEL_HEIGHT + BAR_COUNT * BAR_HEIGHT + BUFF_ROW + ELEMENT_GAPS
+};
+
 pub struct PairLabel<A, B> {
     current: A,
     maximum: B,

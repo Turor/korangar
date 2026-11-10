@@ -12,6 +12,7 @@
 //! the left), clear of Gear. The skill tree opens in the center.
 
 use super::equipment::{GEAR_WINDOW_HEIGHT, GEAR_WINDOW_WIDTH};
+use super::status_panel::STATUS_PANEL_WINDOW_HEIGHT;
 
 /// One window rectangle in screen pixels. Origin is the top-left of the client.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -93,16 +94,19 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
     let scale = (screen_width / REFERENCE_SCREEN_WIDTH).min(screen_height / REFERENCE_SCREEN_HEIGHT);
     let margin = 8.0 * scale;
 
-    // Unscaled. Scaling this frame is what drew ~36px sockets at 1024x576.
+    // Width stays at the BasicInfo reference size. Height is the laid-out
+    // window, including the buff row; a shorter slot lets the panel cover the
+    // inventory packed under it at 1024x576.
+    let top_band = 36.0 * scale;
     let status_panel = HudFrame {
         left: margin,
-        top: 36.0 * scale,
+        top: top_band,
         width: 240.0,
-        height: 248.0,
+        height: STATUS_PANEL_WINDOW_HEIGHT,
     };
     let mut gear = HudFrame {
         left: margin,
-        top: 36.0 * scale,
+        top: top_band,
         width: GEAR_WINDOW_WIDTH,
         height: GEAR_WINDOW_HEIGHT,
     };
@@ -135,7 +139,9 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
 
     let minimap = HudFrame {
         left: minimap_left,
-        top: gear.top,
+        // Stay on the top band. Gear can drop under the status panel; the
+        // minimap should not follow it.
+        top: top_band,
         width: minimap_width,
         height: minimap_side.max(220.0),
     };
@@ -348,9 +354,18 @@ mod tests {
         let compact = first_open_hud(1024.0, 576.0);
         assert!(compact.status_panel.left >= 0.0);
         assert!(compact.status_panel.right() <= 1024.0);
+        assert!((compact.status_panel.height - super::STATUS_PANEL_WINDOW_HEIGHT).abs() < 0.5);
+        assert!(
+            !frames_overlap(compact.status_panel, compact.inventory),
+            "status panel overlaps inventory at 1024"
+        );
         assert!(
             !frames_overlap(compact.status_panel, compact.chat),
             "status panel overlaps chat at 1024"
+        );
+        assert!(
+            (compact.minimap.top - compact.status_panel.top).abs() < 0.5,
+            "minimap leaves the top band"
         );
 
         assert!(large.inventory.left > mid.inventory.left);
