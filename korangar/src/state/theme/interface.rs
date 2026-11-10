@@ -1272,3 +1272,45 @@ mod token_slot_border_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod menu_theme_tests {
+    use super::InterfaceTheme;
+    use crate::state::theme::ThemeTokens;
+
+    /// Login, server select, character select and PIN windows take their
+    /// colors from the active token theme, not the old hard-coded menu palette.
+    #[test]
+    fn menu_theme_uses_token_colors_with_menu_geometry() {
+        let stock = InterfaceTheme::default_menu();
+        for tokens in [
+            ThemeTokens::verdant_rune(),
+            ThemeTokens::ember_forge(),
+            ThemeTokens::arcane_violet(),
+        ] {
+            let menu = InterfaceTheme::menu_from_tokens(&tokens);
+            let in_game = InterfaceTheme::from_tokens(&tokens);
+            assert_eq!(menu.tokens, tokens);
+            assert_eq!(menu.window.background_color, in_game.window.background_color, "{}", tokens.name);
+            assert_eq!(menu.window.title_color, in_game.window.title_color);
+            assert_eq!(menu.button.background_color, in_game.button.background_color);
+            assert_eq!(menu.text_box.background_color, in_game.text_box.background_color);
+            assert_eq!(menu.text.color, in_game.text.color);
+            assert_ne!(menu.window.background_color, stock.window.background_color);
+            assert_ne!(menu.button.highlight_color, stock.button.highlight_color);
+            // Menu screens keep their larger chrome.
+            assert_eq!(menu.window.border, stock.window.border);
+            assert_eq!(menu.window.title_height, stock.window.title_height);
+            assert_eq!(menu.button.height, stock.button.height);
+            assert_eq!(menu.text_box.font_size.0, stock.text_box.font_size.0);
+        }
+    }
+
+    #[test]
+    fn menu_for_in_game_follows_the_named_theme() {
+        let ember = InterfaceTheme::menu_for_in_game(crate::settings::EMBER_FORGE_THEME_NAME);
+        assert_eq!(ember.tokens.name, ThemeTokens::ember_forge().name);
+        let unknown = InterfaceTheme::menu_for_in_game("no-such-theme");
+        assert_eq!(unknown.tokens, ThemeTokens::default());
+    }
+}
