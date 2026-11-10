@@ -450,6 +450,24 @@ where
         }
     }
 
+    /// `true` when the user placed a window of this class.
+    pub fn is_window_class_placed(&self, window_class: App::WindowClass) -> bool {
+        self.window_cache.has_saved_state(window_class)
+    }
+
+    /// Move an open window without saving the position, so it keeps following
+    /// its default dock.
+    pub fn redock_window_class(&mut self, window_class: App::WindowClass, anchor: Anchor<App>, size: App::Size) {
+        if let Some(wrapper) = self
+            .windows
+            .iter_mut()
+            .find(|wrapper| wrapper.window.get_class().is_some_and(|class| class == window_class))
+        {
+            wrapper.data.anchor = anchor;
+            wrapper.data.size = size;
+        }
+    }
+
     /// Move a window that is already open. The saved anchor is updated too, so
     /// the next open starts at the same place.
     pub fn place_window_class(&mut self, window_class: App::WindowClass, anchor: Anchor<App>, size: App::Size) {

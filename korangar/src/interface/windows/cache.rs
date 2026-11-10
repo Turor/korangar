@@ -86,6 +86,10 @@ impl korangar_interface::application::WindowCache<ClientState> for WindowCache {
         })
     }
 
+    fn has_saved_state(&self, class: WindowClass) -> bool {
+        self.entries.contains_key(&class)
+    }
+
     fn register_window(&mut self, class: WindowClass, anchor: Anchor<ClientState>, size: ScreenSize) {
         if let Some(entry) = self.entries.get_mut(&class) {
             entry.anchor = anchor;
