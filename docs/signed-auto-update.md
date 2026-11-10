@@ -63,18 +63,84 @@ The same arguments work if you call `korangar-sign-release sign` directly.
 
 The default artifact URL is the relative path, resolved against the manifest URL's directory.
 
-## Hosting proposal (not applied)
+## Hosting proposal (draft — not live)
 
-Do not change HAProxy, remoteclient2, or DNS from this change. Do not publish a manifest.
+**Status:** design only. Do not publish manifests, change remoteclient2/HAProxy, or enable CI publish until Matthew approves.
 
-Proposed public base, once an operator chooses to serve it:
+### Goal
+
+Korangar tracks `main` as a cutting-edge client. Every merge to `main` produces signed Linux + Windows builds on a **`main` channel**. On launch, the auto-updater pulls the newest `main` build (verify Ed25519 + SHA256, atomic swap, relaunch).
+
+### Public layout (proposed)
+
+Base (existing HTTPS vhost):
 
 `https://ro.turoran.com/client/releases/`
 
-That host already terminates HTTPS for the game client assets. A later change can place release files on the existing remoteclient2 document root (for example `client/releases/manifest.krup` and the named artifacts) or add a path on the existing HAProxy HTTPS frontend for `ro.turoran.com`. No new public hostname.
+Channel layout:
 
-Clients would then set:
+```
+/client/releases/main/manifest.jsonup
+/client/releases/main/korangar-linux-<gitsha>
+/client/releases/main/korangar-windows-<gitsha>.exe
+```
 
-`KORANGAR_UPDATE_MANIFEST_URL=https://ro.turoran.com/client/releases/manifest.krup`
+Optional later: `stable/`, `nightly/` with the same shape. Default client env / setting:
 
-Relative file URLs in the manifest stay under that directory. The updater will fetch them only when the host is exactly `ro.turoran.com`. Tests keep using `file://` and loopback `http://`. Until a manifest is published, leave `KORANGAR_UPDATE_MANIFEST_URL` unset so startup does not contact the site.
+`KORANGAR_UPDATE_MANIFEST_URL=https://ro.turoran.com/client/releases/main/manifest.jsonup`
+
+Relative artifact URLs in the manifest stay under that directory. The fetcher already allows `https://ro.turoran.com/...` only (plus `file://` and loopback `http://` for tests).
+
+Serving options (pick one when enabling; do not apply yet):
+
+1. **remoteclient2** document root: place files under the existing `client/` tree (or an overlay path already served for `/client/`).
+2. **HAProxy** HTTPS frontend for `ro.turoran.com`: path ACL `/client/releases/` → static dir / backend.
+
+No new public hostname.
+
+### Release pipeline (every merge to `main`)
+
+```
+merge → build (Linux + Windows) → sign manifest (offline seed) → publish to main channel
+         ↑                              ↑
+    gha-elastic                      controller or msi1 host-local signer
+    (unsigned artifacts only)        (seed NEVER on GitHub / NEVER in ephemeral VM)
+```
+
+1. **Build (CI, unsigned)**  
+   Workflow on `push` to `main` with `runs-on: [self-hosted, elastic]` (Turoran gha-elastic; placement prefers **msi1**). Job builds Linux and Windows clients, uploads **unsigned** binaries as Actions artifacts (or to a private staging path). No signing key in the workflow, repo secrets, or ephemeral guest.
+
+2. **Sign (seed off GitHub)** — choose one when enabling:  
+   - **Preferred: controller poller / post-merge webhook** on the controller box. Watches `Turor/korangar` main merges (or workflow completion), downloads unsigned artifacts, runs `scripts/sign-korangar-release.sh` / `korangar-sign-release` with `--private-key` pointing at the local seed (e.g. `~/Work/korangar-signing/update.seed`), writes `manifest.jsonup`.  
+   - **Alternative: msi1 host-local signer** — a process or non-ephemeral runner on the **msi1 host** that reads the seed from a **host-local path** (mode 600). Do **not** copy the seed into gha-elastic ephemeral guests (VMID 900–999); those VMs are destroyed after the job and must never see key material.
+
+3. **Publish to `main` channel**  
+   After a good signature, upload `manifest.jsonup` + both binaries to `/client/releases/main/` on the chosen static backend. Atomic replace of the manifest (write temp + rename) so clients never see a half-written envelope.
+
+4. **Client launch**  
+   Updater fetches the `main` channel manifest URL, verifies the embedded Ed25519 public key + per-file SHA256, downloads, atomically swaps the exe (Windows-safe rollback), relaunches. If unset/unreachable, startup continues on the current binary (no hard fail closed for missing channel until Matthew turns the URL on).
+
+### What stays offline
+
+- Ed25519 **private seed** and passphrase: controller `~/Work/korangar-signing/` (or Bitwarden → restored only to the signer host). Never committed, never a GitHub Actions secret, never SCP’d into ephemeral elastic VMs.
+- Public key only is embedded in the client (`EMBEDDED_UPDATE_PUBLIC_KEY`).
+
+### Explicit non-goals for this PR
+
+- No live remoteclient2 / HAProxy / DNS change.
+- No published `main` manifest or binaries.
+- No workflow enabled that publishes or holds the seed.
+- Enabling the pipeline is a separate Matthew-approved change.
+
+### Operator cheat-sheet (after approval)
+
+```bash
+# on signer host, seed mode 600
+./scripts/sign-korangar-release.sh \
+  --private-key "$HOME/Work/korangar-signing/update.seed" \
+  --version "main-$(git rev-parse --short HEAD)" \
+  --out /tmp/manifest.jsonup \
+  --file korangar-linux=<path-to-linux-bin> \
+  --file korangar-windows.exe=<path-to-windows-exe>
+# then publish /tmp/manifest.jsonup + bins to client/releases/main/
+```
