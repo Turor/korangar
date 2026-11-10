@@ -50,9 +50,9 @@ use theme::{InterfaceTheme, InterfaceThemePathExt, InterfaceThemeType};
 #[cfg(feature = "debug")]
 use self::cache_statistics::CacheStatistics;
 use self::clan::ClanState;
+use self::item_finder::ItemFinderState;
 use self::friends::FriendListEntry;
 use self::guild::GuildState;
-use self::item_finder::ItemFinderState;
 #[cfg(feature = "debug")]
 use crate::PacketHistory;
 #[cfg(feature = "debug")]

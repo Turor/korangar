@@ -393,10 +393,7 @@ impl InterfaceTheme {
         }
     }
 
-    /// Original Verdant Rune in-game HUD theme.
-    ///
-    /// Deep green panels, mint focus, rose warnings, and gold rarity chrome.
-    /// Original Turoran palette. Not a copy of any third-party theme assets.
+    /// Built-in HUD theme for first-run defaults and headless screenshots.
     pub fn verdant_rune() -> Self {
         let background = Color::rgb_hex("0F1714");
         let panel = Color::rgb_hex("17221E");

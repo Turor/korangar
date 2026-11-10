@@ -27,15 +27,23 @@ pub const TURORAN_DARK_THEME_NAME: &str = "turoran_dark";
 /// `KORANGAR_HEADLESS_AUTO` screenshots use this theme.
 pub const VERDANT_RUNE_THEME_NAME: &str = "verdant_rune";
 
-/// Theme name to load for this process. Headless screenshots ignore the saved
-/// selection and use [`VERDANT_RUNE_THEME_NAME`] without rewriting the settings
-/// file.
+fn headless_auto_session() -> bool {
+    std::env::var_os("KORANGAR_HEADLESS_AUTO").is_some()
+}
+
+/// Theme name to load. Headless screenshots use [`VERDANT_RUNE_THEME_NAME`].
+/// The returned name must not be stored on [`InterfaceSettings`]: that type
+/// saves itself on drop.
 pub fn session_theme_name(saved: &str) -> &str {
-    if std::env::var_os("KORANGAR_HEADLESS_AUTO").is_some() {
-        VERDANT_RUNE_THEME_NAME
-    } else {
-        saved
-    }
+    theme_name_to_load(saved, headless_auto_session())
+}
+
+fn theme_name_to_load(saved: &str, headless: bool) -> &str {
+    if headless { VERDANT_RUNE_THEME_NAME } else { saved }
+}
+
+fn should_persist_interface_settings(headless: bool) -> bool {
+    !headless
 }
 pub const MENU_THEMES_PATH: &str = "client/menu_themes";
 pub const IN_GAME_THEMES_PATH: &str = "client/in_game_themes";
@@ -84,6 +92,11 @@ impl InterfaceSettings {
     }
 
     pub fn save(&self) {
+        // Headless only borrows Verdant Rune in memory. Never rewrite the file.
+        if !should_persist_interface_settings(headless_auto_session()) {
+            return;
+        }
+
         #[cfg(feature = "debug")]
         print_debug!("saving interface settings to {}", Self::FILE_NAME.magenta());
 
@@ -199,6 +212,20 @@ mod interface_settings_theme_tests {
             themes.iter().any(|name| name == VERDANT_RUNE_THEME_NAME),
             "expected {VERDANT_RUNE_THEME_NAME} in {themes:?}"
         );
+    }
+
+    #[test]
+    fn headless_loads_verdant_rune_without_persisting() {
+        assert_eq!(
+            super::theme_name_to_load(TURORAN_DARK_THEME_NAME, true),
+            VERDANT_RUNE_THEME_NAME
+        );
+        assert_eq!(
+            super::theme_name_to_load(TURORAN_DARK_THEME_NAME, false),
+            TURORAN_DARK_THEME_NAME
+        );
+        assert!(!super::should_persist_interface_settings(true));
+        assert!(super::should_persist_interface_settings(false));
     }
 
     #[test]
