@@ -142,7 +142,8 @@ pub enum InputEvent {
     ToggleStatusEffectsWindow,
     /// Close the most recently opened or clicked closable window.
     CloseTopWindow,
-    /// Escape: unfocus, close the top closable window, or toggle the menu.
+    /// Escape closes the world map when it is open. Otherwise unfocus, close
+    /// the top closable window, or toggle the menu.
     Escape,
     /// Re-read the active theme file from disk.
     ReloadTheme,
@@ -245,6 +246,15 @@ pub enum InputEvent {
     RequestWarpraWarp,
     /// Unlock the kind and location id typed in the Warpra window.
     RequestWarpraBuy,
+    /// Open or close the world map. Only works while on a map.
+    ToggleWorldMap,
+    /// Warp to an unlocked world-map square (`0x0EF4` action warp).
+    WorldMapWarp {
+        /// Warpra destination kind.
+        kind: i16,
+        /// Warpra location id.
+        location_id: i16,
+    },
     /// Open the companion info window.
     OpenCompanions,
     /// `CZ_COMMAND_PET` feed.

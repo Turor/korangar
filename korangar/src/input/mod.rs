@@ -303,6 +303,13 @@ impl InputSystem {
             }
         }
 
+        // roBrowser world map is Alt+0 (digit 0). Either Alt key toggles it.
+        // Other Alt shortcuts stay on the left Alt key.
+        let either_alt = alt_down || self.get_key(KeyCode::AltRight).down();
+        if either_alt && self.get_key(KeyCode::Digit0).pressed() {
+            events.push(InputEvent::ToggleWorldMap);
+        }
+
         if self.get_key(KeyCode::KeyJ).pressed() {
             events.push(InputEvent::CastSkill { slot: HotbarSlot(0) });
         }

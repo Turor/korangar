@@ -24,6 +24,11 @@ pub struct WarpraWindowState {
     price: i32,
     destinations: Vec<WarpraDestinationEntry>,
     pending: Vec<WarpraDestinationEntry>,
+    /// When set, the next list or result opens the text Warpra window.
+    /// The world map leaves this clear so a catalog request stays on the map.
+    reveal_text: bool,
+    /// Last `0x0EF4` action. `-1` until the player warps or unlocks.
+    last_action: i16,
 }
 
 impl Default for WarpraWindowState {
@@ -39,6 +44,8 @@ impl Default for WarpraWindowState {
             price: 0,
             destinations: Vec::new(),
             pending: Vec::new(),
+            reveal_text: false,
+            last_action: -1,
         }
     }
 }
@@ -56,7 +63,36 @@ impl WarpraWindowState {
         self.list_text.clear();
         self.zeny = 0;
         self.price = 0;
+        self.reveal_text = false;
         self.status = "Open Warpra to load towns, fields, dungeons, and special maps.".to_owned();
+    }
+
+    /// The text window asked for this list or result.
+    pub fn mark_text_surface(&mut self) {
+        self.reveal_text = true;
+    }
+
+    /// Take the text-window flag so a world-map catalog does not reopen it.
+    pub fn take_text_surface(&mut self) -> bool {
+        let reveal = self.reveal_text;
+        self.reveal_text = false;
+        reveal
+    }
+
+    pub fn clear_text_surface(&mut self) {
+        self.reveal_text = false;
+    }
+
+    pub fn set_last_action(&mut self, action: i16) {
+        self.last_action = action;
+    }
+
+    pub fn last_action(&self) -> i16 {
+        self.last_action
+    }
+
+    pub fn status(&self) -> &str {
+        &self.status
     }
 
     pub fn apply_list(&mut self, zeny: i32, price: i32, flags: u8, total: u16, entries: Vec<WarpraDestinationEntry>) {
@@ -79,7 +115,7 @@ impl WarpraWindowState {
         }
     }
 
-    pub fn show_result(&mut self, result: i16, kind: i16, location_id: i16) {
+    pub fn show_result(&mut self, result: i16, kind: i16, location_id: i16) -> String {
         let name = self
             .destinations
             .iter()
@@ -96,6 +132,7 @@ impl WarpraWindowState {
             self.list_text = format_warpra_destinations(&self.destinations);
         }
         self.status = format_warpra_result(result, kind, location_id, name.as_deref(), Some(self.price));
+        self.status.clone()
     }
 
     pub fn set_status(&mut self, status: String) {

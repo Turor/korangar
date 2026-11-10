@@ -1224,6 +1224,7 @@ impl Client {
                     self.client_state.follow_mut(client_state().guild_window()).clear();
                     self.client_state.follow_mut(client_state().clan()).clear();
                     self.client_state.follow_mut(client_state().warpra_window()).clear_catalog();
+                    self.client_state.follow_mut(client_state().world_map_window()).on_catalog_cleared();
                     self.client_state.follow_mut(client_state().companion_window()).clear();
                     self.client_state.follow_mut(client_state().mvp_minimap()).clear_markers();
                     self.client_state.follow_mut(client_state().mvp_minimap()).set_map_size(0, 0);
@@ -1321,6 +1322,7 @@ impl Client {
                         self.client_state.follow_mut(client_state().guild()).clear();
                         self.client_state.follow_mut(client_state().guild_window()).clear();
                         self.client_state.follow_mut(client_state().warpra_window()).clear_catalog();
+                        self.client_state.follow_mut(client_state().world_map_window()).on_catalog_cleared();
                         self.client_state.follow_mut(client_state().companion_window()).clear();
                         self.interface.open_window(CharacterSelectionWindow::new(
                             client_state().character_slots(),
@@ -1678,7 +1680,9 @@ impl Client {
                     self.interface.close_window_with_class(WindowClass::Stable);
                     self.interface.close_window_with_class(WindowClass::Eden);
                     self.interface.close_window_with_class(WindowClass::Warpra);
+                    self.interface.close_window_with_class(WindowClass::WorldMap);
                     self.client_state.follow_mut(client_state().warpra_window()).clear_catalog();
+                    self.client_state.follow_mut(client_state().world_map_window()).on_catalog_cleared();
                     self.interface.close_window_with_class(WindowClass::Companions);
                     self.client_state.follow_mut(client_state().companion_window()).clear();
                     if self.interface.is_window_with_class_open(WindowClass::Refine) {
@@ -2120,15 +2124,39 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().warpra_window())
                         .apply_list(zeny, price, flags, total, destinations);
-                    self.interface.open_window(WarpraWindow::new());
+                    let reveal = self.client_state.follow_mut(client_state().warpra_window()).take_text_surface();
+                    if reveal {
+                        self.interface.open_window(WarpraWindow::new());
+                    }
+                    if self.interface.is_window_with_class_open(WindowClass::WorldMap) {
+                        let status = self.client_state.follow(client_state().warpra_window()).status().to_owned();
+                        self.client_state.follow_mut(client_state().world_map_window()).set_status(status);
+                    }
                 }
                 NetworkEvent::WarpraResult {
                     result, kind, location_id, ..
                 } => {
-                    self.client_state
+                    let message = self
+                        .client_state
                         .follow_mut(client_state().warpra_window())
                         .show_result(result, kind, location_id);
-                    self.interface.open_window(WarpraWindow::new());
+                    let action = self.client_state.follow(client_state().warpra_window()).last_action();
+                    let reveal = self.client_state.follow_mut(client_state().warpra_window()).take_text_surface();
+                    if result != 0 {
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(message.clone(), MessageColor::Error));
+                        if self.interface.is_window_with_class_open(WindowClass::WorldMap) {
+                            self.client_state.follow_mut(client_state().world_map_window()).set_status(message);
+                        }
+                    }
+                    if should_close_after_result(result, action) {
+                        self.interface.close_window_with_class(WindowClass::WorldMap);
+                        self.client_state.follow_mut(client_state().world_map_window()).close_floors();
+                    }
+                    if reveal || self.interface.is_window_with_class_open(WindowClass::Warpra) {
+                        self.interface.open_window(WarpraWindow::new());
+                    }
                 }
                 NetworkEvent::PetInfo {
                     summary,
@@ -3516,6 +3544,57 @@ impl Client {
         }
     }
 
+    /// Load world-map images from the GRF while the window is open.
+    ///
+    /// Paths match the interface texture loader (`data/texture/` + region id).
+    /// A missing file stays blank instead of the placeholder texture.
+    fn sync_world_map_textures(&mut self) {
+        if !self.interface.is_window_with_class_open(WindowClass::WorldMap) {
+            if self.client_state.follow(client_state().world_map_window()).holds_textures() {
+                self.client_state.follow_mut(client_state().world_map_window()).drop_textures();
+            }
+            return;
+        }
+
+        let (region_path, hover_path, loaded_region, loaded_hover) = {
+            let window = self.client_state.follow(client_state().world_map_window());
+            (
+                window.desired_region_texture(),
+                window.desired_hover_texture(),
+                window.loaded_region().to_owned(),
+                window.loaded_hover().to_owned(),
+            )
+        };
+
+        if region_path != loaded_region {
+            let archive_path = format!("data\\texture\\{region_path}");
+            let texture = if self.game_file_loader.file_exists(&archive_path) {
+                self.texture_loader.get_or_load(&region_path, ImageType::Color).ok()
+            } else {
+                None
+            };
+            self.client_state
+                .follow_mut(client_state().world_map_window())
+                .install_region_texture(region_path, texture);
+        }
+
+        if hover_path != loaded_hover {
+            let texture = if hover_path.is_empty() {
+                None
+            } else {
+                let archive_path = format!("data\\texture\\{hover_path}");
+                if self.game_file_loader.file_exists(&archive_path) {
+                    self.texture_loader.get_or_load(&hover_path, ImageType::Color).ok()
+                } else {
+                    None
+                }
+            };
+            self.client_state
+                .follow_mut(client_state().world_map_window())
+                .install_hover_texture(hover_path, texture);
+        }
+    }
+
     /// Returns whether or not the interface is focused.
     #[inline(always)]
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
@@ -3621,6 +3700,22 @@ impl Client {
                         match self.interface.is_window_with_class_open(WindowClass::Menu) {
                             true => self.interface.close_window_with_class(WindowClass::Menu),
                             false => self.interface.open_window(MenuWindow),
+                        }
+                    }
+                }
+                InputEvent::ToggleWorldMap => {
+                    if self.map.is_some() && self.client_state.try_follow(this_entity()).is_some() {
+                        if self.interface.is_window_with_class_open(WindowClass::WorldMap) {
+                            self.interface.close_window_with_class(WindowClass::WorldMap);
+                            self.client_state.follow_mut(client_state().world_map_window()).close_floors();
+                        } else {
+                            self.client_state.follow_mut(client_state().warpra_window()).begin_list_request();
+                            let _ = self.networking_system.request_warpra(WarpraWindowState::list_action(), 0, 0);
+                            if !self.interface.is_window_with_class_open(WindowClass::Warpra) {
+                                self.client_state.follow_mut(client_state().warpra_window()).clear_text_surface();
+                            }
+                            self.client_state.follow_mut(client_state().world_map_window()).prepare_open();
+                            self.interface.open_window(WorldMapWindow::new());
                         }
                     }
                 }
@@ -3857,21 +3952,28 @@ impl Client {
                     }
                 }
                 InputEvent::CloseTopWindow => self.interface.close_top_window(&self.client_state),
-                InputEvent::Escape => match crate::input::escape_action(
-                    self.interface.has_focus(),
-                    self.interface.has_closable_window(&self.client_state),
-                ) {
-                    crate::input::EscapeAction::Unfocus => self.interface.unfocus(),
-                    crate::input::EscapeAction::CloseTop => self.interface.close_top_window(&self.client_state),
-                    crate::input::EscapeAction::ToggleMenu => {
-                        if self.client_state.try_follow(this_entity()).is_some() {
-                            match self.interface.is_window_with_class_open(WindowClass::Menu) {
-                                true => self.interface.close_window_with_class(WindowClass::Menu),
-                                false => self.interface.open_window(MenuWindow),
+                InputEvent::Escape => {
+                    if self.interface.is_window_with_class_open(WindowClass::WorldMap) {
+                        self.interface.close_window_with_class(WindowClass::WorldMap);
+                        self.client_state.follow_mut(client_state().world_map_window()).close_floors();
+                    } else {
+                        match crate::input::escape_action(
+                            self.interface.has_focus(),
+                            self.interface.has_closable_window(&self.client_state),
+                        ) {
+                            crate::input::EscapeAction::Unfocus => self.interface.unfocus(),
+                            crate::input::EscapeAction::CloseTop => self.interface.close_top_window(&self.client_state),
+                            crate::input::EscapeAction::ToggleMenu => {
+                                if self.client_state.try_follow(this_entity()).is_some() {
+                                    match self.interface.is_window_with_class_open(WindowClass::Menu) {
+                                        true => self.interface.close_window_with_class(WindowClass::Menu),
+                                        false => self.interface.open_window(MenuWindow),
+                                    }
+                                }
                             }
                         }
                     }
-                },
+                }
                 InputEvent::ReloadTheme => self.force_reload_themes = true,
                 InputEvent::OpenItemDetails { key, title, body } => {
                     self.interface.open_or_raise_instance(key, ItemDetailsWindow { title, body });
@@ -4201,6 +4303,7 @@ impl Client {
                 },
                 InputEvent::OpenWarpra | InputEvent::RequestWarpraList => {
                     if self.client_state.try_follow(this_entity()).is_some() {
+                        self.client_state.follow_mut(client_state().warpra_window()).mark_text_surface();
                         self.client_state.follow_mut(client_state().warpra_window()).begin_list_request();
                         let _ = self.networking_system.request_warpra(WarpraWindowState::list_action(), 0, 0);
                         self.interface.open_window(WarpraWindow::new());
@@ -4208,12 +4311,27 @@ impl Client {
                 }
                 InputEvent::RequestWarpraWarp => match self.client_state.follow(client_state().warpra_window()).warp_request() {
                     Ok((kind, location_id)) => {
+                        self.client_state
+                            .follow_mut(client_state().warpra_window())
+                            .set_last_action(WarpraWindowState::warp_action());
+                        self.client_state.follow_mut(client_state().warpra_window()).mark_text_surface();
                         let _ = self
                             .networking_system
                             .request_warpra(WarpraWindowState::warp_action(), kind, location_id);
                     }
                     Err(message) => self.client_state.follow_mut(client_state().warpra_window()).set_status(message),
                 },
+                InputEvent::WorldMapWarp { kind, location_id } => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        self.client_state
+                            .follow_mut(client_state().warpra_window())
+                            .set_last_action(WarpraWindowState::warp_action());
+                        self.client_state.follow_mut(client_state().warpra_window()).clear_text_surface();
+                        let _ = self
+                            .networking_system
+                            .request_warpra(WarpraWindowState::warp_action(), kind, location_id);
+                    }
+                }
                 InputEvent::OpenCompanions => {
                     self.interface.open_window(CompanionWindow::new());
                 }
@@ -4240,6 +4358,10 @@ impl Client {
                 }
                 InputEvent::RequestWarpraBuy => match self.client_state.follow(client_state().warpra_window()).buy_request() {
                     Ok((kind, location_id)) => {
+                        self.client_state
+                            .follow_mut(client_state().warpra_window())
+                            .set_last_action(WarpraWindowState::buy_action());
+                        self.client_state.follow_mut(client_state().warpra_window()).mark_text_surface();
                         let _ = self
                             .networking_system
                             .request_warpra(WarpraWindowState::buy_action(), kind, location_id);
@@ -5499,6 +5621,8 @@ impl Client {
         self.particle_holder.update(delta_time as f32);
         self.effect_holder
             .update(self.client_state.follow(client_state().entities()), delta_time as f32);
+
+        self.sync_world_map_textures();
 
         let current_camera: &(dyn Camera + Send + Sync) = match currently_playing {
             #[cfg(feature = "debug")]
