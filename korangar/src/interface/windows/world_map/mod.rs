@@ -515,7 +515,6 @@ where
         if let Some(texture) = window.region_texture.clone() {
             layout.add_texture(map, texture, Color::WHITE, true);
         }
-        stroke(layout, map, border, 2.0);
 
         let map_rect = logic::BaseRect {
             left: map.left,
@@ -534,76 +533,81 @@ where
         };
 
         let mut click = ClickTarget::None;
-        let section_views: Vec<_> = sections.iter().copied().map(section_ref).collect();
-        for (index, section) in sections.iter().enumerate() {
-            let scaled = scale_rect(map_rect, section_rect(section));
-            let area = area_from_rect(scaled);
-            let class = overlay_class(&section_views, entries, index);
-            let current = logic::maps_match(section.id, current_map);
-            let hovered = hovered_section == Some(index);
-            let paint = marker_paint(class, current, hovered);
-            match paint.square {
-                MarkerTone::Accent => layout.add_rectangle(
-                    area,
-                    CornerDiameter::default(),
-                    with_alpha(accent, logic::UNLOCKED_WASH_ALPHA),
-                    Color::TRANSPARENT,
-                    ShadowPadding::default(),
-                ),
-                MarkerTone::Dim => layout.add_rectangle(
-                    area,
-                    CornerDiameter::default(),
-                    with_alpha(panel, logic::LOCKED_DIM_ALPHA),
-                    Color::TRANSPARENT,
-                    ShadowPadding::default(),
-                ),
-                MarkerTone::Gold | MarkerTone::None => {}
-            }
-            let marker = marker_area(area);
-            match paint.fill {
-                MarkerTone::Accent => layout.add_rectangle(
-                    marker,
-                    CornerDiameter::uniform(2.0),
-                    accent,
-                    Color::TRANSPARENT,
-                    ShadowPadding::default(),
-                ),
-                MarkerTone::Dim => layout.add_rectangle(
-                    marker,
-                    CornerDiameter::uniform(2.0),
-                    muted,
-                    Color::TRANSPARENT,
-                    ShadowPadding::default(),
-                ),
-                MarkerTone::Gold => layout.add_rectangle(
-                    marker,
-                    CornerDiameter::uniform(2.0),
-                    gold,
-                    Color::TRANSPARENT,
-                    ShadowPadding::default(),
-                ),
-                MarkerTone::None => {}
-            }
-            match paint.stroke {
-                MarkerTone::Gold => stroke(layout, area, gold, paint.stroke_width),
-                MarkerTone::Accent => stroke(layout, area, accent, paint.stroke_width),
-                MarkerTone::Dim | MarkerTone::None => {}
-            }
-            if hovered {
-                let catalog_name = entry_for_map(entries, section.id).map(|entry| entry.name.as_str());
-                let caption = hover_caption(&section_views[index], class, catalog_name, player_level);
-                let map_id = logic::normalize_map_id(section.id);
-                if state.get(&self.world_map.hover_caption()) != &caption {
-                    state.update_value(self.world_map.hover_caption(), caption);
+        // Rectangles draw before textures inside one layer, so the markers need
+        // their own layer or the region art covers them.
+        layout.with_layer(|layout| {
+            stroke(layout, map, border, 2.0);
+            let section_views: Vec<_> = sections.iter().copied().map(section_ref).collect();
+            for (index, section) in sections.iter().enumerate() {
+                let scaled = scale_rect(map_rect, section_rect(section));
+                let area = area_from_rect(scaled);
+                let class = overlay_class(&section_views, entries, index);
+                let current = logic::maps_match(section.id, current_map);
+                let hovered = hovered_section == Some(index);
+                let paint = marker_paint(class, current, hovered);
+                match paint.square {
+                    MarkerTone::Accent => layout.add_rectangle(
+                        area,
+                        CornerDiameter::default(),
+                        with_alpha(accent, logic::UNLOCKED_WASH_ALPHA),
+                        Color::TRANSPARENT,
+                        ShadowPadding::default(),
+                    ),
+                    MarkerTone::Dim => layout.add_rectangle(
+                        area,
+                        CornerDiameter::default(),
+                        with_alpha(panel, logic::LOCKED_DIM_ALPHA),
+                        Color::TRANSPARENT,
+                        ShadowPadding::default(),
+                    ),
+                    MarkerTone::Gold | MarkerTone::None => {}
                 }
-                if state.get(&self.world_map.hover_map_id()) != &map_id {
-                    state.update_value(self.world_map.hover_map_id(), map_id);
+                let marker = marker_area(area);
+                match paint.fill {
+                    MarkerTone::Accent => layout.add_rectangle(
+                        marker,
+                        CornerDiameter::uniform(2.0),
+                        accent,
+                        Color::TRANSPARENT,
+                        ShadowPadding::default(),
+                    ),
+                    MarkerTone::Dim => layout.add_rectangle(
+                        marker,
+                        CornerDiameter::uniform(2.0),
+                        muted,
+                        Color::TRANSPARENT,
+                        ShadowPadding::default(),
+                    ),
+                    MarkerTone::Gold => layout.add_rectangle(
+                        marker,
+                        CornerDiameter::uniform(2.0),
+                        gold,
+                        Color::TRANSPARENT,
+                        ShadowPadding::default(),
+                    ),
+                    MarkerTone::None => {}
                 }
-                if class != OverlayClass::Locked {
-                    click = ClickTarget::Section(index as u16);
+                match paint.stroke {
+                    MarkerTone::Gold => stroke(layout, area, gold, paint.stroke_width),
+                    MarkerTone::Accent => stroke(layout, area, accent, paint.stroke_width),
+                    MarkerTone::Dim | MarkerTone::None => {}
+                }
+                if hovered {
+                    let catalog_name = entry_for_map(entries, section.id).map(|entry| entry.name.as_str());
+                    let caption = hover_caption(&section_views[index], class, catalog_name, player_level);
+                    let map_id = logic::normalize_map_id(section.id);
+                    if state.get(&self.world_map.hover_caption()) != &caption {
+                        state.update_value(self.world_map.hover_caption(), caption);
+                    }
+                    if state.get(&self.world_map.hover_map_id()) != &map_id {
+                        state.update_value(self.world_map.hover_map_id(), map_id);
+                    }
+                    if class != OverlayClass::Locked {
+                        click = ClickTarget::Section(index as u16);
+                    }
                 }
             }
-        }
+        });
         if hovered_section.is_none() && !state.get(&self.world_map.hover_map_id()).is_empty() && !window.show_floors {
             state.update_value(self.world_map.hover_caption(), String::new());
             state.update_value(self.world_map.hover_map_id(), String::new());

@@ -63,6 +63,22 @@ pub(crate) const COMPOSITE_ORDER: [CompositeStep; 5] = [
     CompositeStep::TopRectangles,
 ];
 
+/// What the next frame has to rebuild before it renders.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct FrameResizePlan {
+    pub reconfigure: bool,
+    pub resize_targets: bool,
+}
+
+/// An invalid surface is reconfigured. Both an invalid surface and a window
+/// resize (which reconfigures immediately) resize the render targets.
+pub(crate) fn frame_resize_plan(invalid: bool, resized: bool) -> FrameResizePlan {
+    FrameResizePlan {
+        reconfigure: invalid,
+        resize_targets: invalid || resized,
+    }
+}
+
 pub struct GraphicsEngineDescriptor {
     pub capabilities: Capabilities,
     pub instance: Instance,
@@ -795,13 +811,20 @@ impl GraphicsEngine {
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
     pub fn wait_for_next_frame(&mut self) -> Option<SurfaceTexture> {
         // Before we wait for the next frame, we verify that the surface is still valid.
+        let plan = self
+            .surface
+            .as_mut()
+            .map(|surface| frame_resize_plan(surface.is_invalid(), surface.take_resized()))
+            .unwrap_or_default();
         if let Some(surface) = self.surface.as_mut()
-            && surface.is_invalid()
+            && plan.resize_targets
         {
             #[cfg(feature = "debug")]
             profile_block!("re-configure surface and textures");
 
-            surface.reconfigure();
+            if plan.reconfigure {
+                surface.reconfigure();
+            }
 
             let screen_size = surface.window_screen_size();
 
@@ -1713,7 +1736,20 @@ impl PostProcessingResources {
 
 #[cfg(test)]
 mod tests {
-    use super::{COMPOSITE_ORDER, CompositeStep};
+    use super::{COMPOSITE_ORDER, CompositeStep, FrameResizePlan, frame_resize_plan};
+
+    #[test]
+    fn a_window_resize_also_resizes_the_render_targets() {
+        assert_eq!(frame_resize_plan(false, false), FrameResizePlan::default());
+        assert_eq!(frame_resize_plan(false, true), FrameResizePlan {
+            reconfigure: false,
+            resize_targets: true,
+        });
+        assert_eq!(frame_resize_plan(true, false), FrameResizePlan {
+            reconfigure: true,
+            resize_targets: true,
+        });
+    }
 
     #[test]
     fn world_layers_composite_before_every_window() {
