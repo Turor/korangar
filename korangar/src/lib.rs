@@ -1385,10 +1385,7 @@ impl Client {
                             client_state().player_name(),
                             // TODO: Check that manually asserting is fine. Technically this window should only
                             // be open while the player is selected.
-                            this_player().manually_asserted().base_level(),
-                            // TODO: Check that manually asserting is fine. Technically this window should only
-                            // be open while the player is selected.
-                            this_player().manually_asserted().job_level(),
+                            this_player().manually_asserted(),
                         ));
                     }
                     self.interface
@@ -2048,6 +2045,16 @@ impl Client {
                 NetworkEvent::UpdateStat { stat_type } => {
                     if let Some(player) = self.client_state.try_follow_mut(this_player()) {
                         player.update_stat(stat_type);
+                    }
+                }
+                NetworkEvent::StatUpResult { success, .. } => {
+                    if let Some(notice) = crate::world::stat_up_feedback(success) {
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(notice.to_owned(), MessageColor::Error));
+                        *self.client_state.follow_mut(client_state().stats_window().notice()) = notice.to_owned();
+                    } else {
+                        self.client_state.follow_mut(client_state().stats_window().notice()).clear();
                     }
                 }
                 NetworkEvent::OpenEnchant { enchant_group } => {

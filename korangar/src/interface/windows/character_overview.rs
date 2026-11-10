@@ -1,35 +1,35 @@
 use korangar_interface::window::{CustomWindow, Window};
 use rust_state::Path;
 
+use super::basic_info_view::{ExpPercentLabel, ExpTotalLabel, WeightColor, WeightLabel, ZenyLabel};
 use crate::graphics::Color;
 use crate::input::InputEvent;
+use crate::interface::components::exp_bar::ExpBar;
 use crate::interface::windows::WindowClass;
 use crate::loaders::OverflowBehavior;
 use crate::state::localization::LocalizationPathExt;
-use crate::state::theme::InterfaceThemeType;
-use crate::state::{ClientState, ClientStatePathExt, client_state};
+use crate::state::theme::{BasicInfoThemePathExt, InterfaceThemePathExt, InterfaceThemeType};
+use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
+use crate::world::{BasicInfoStatsPathExt, Player, PlayerPathExt};
 
-pub struct CharacterOverviewWindow<A, B, C> {
+pub struct CharacterOverviewWindow<A, P> {
     player_name_path: A,
-    base_level_path: B,
-    job_level_path: C,
+    player_path: P,
 }
 
-impl<A, B, C> CharacterOverviewWindow<A, B, C> {
-    pub fn new(player_name_path: A, base_level_path: B, job_level_path: C) -> Self {
+impl<A, P> CharacterOverviewWindow<A, P> {
+    pub fn new(player_name_path: A, player_path: P) -> Self {
         Self {
             player_name_path,
-            base_level_path,
-            job_level_path,
+            player_path,
         }
     }
 }
 
-impl<A, B, C> CustomWindow<ClientState> for CharacterOverviewWindow<A, B, C>
+impl<A, P> CustomWindow<ClientState> for CharacterOverviewWindow<A, P>
 where
     A: Path<ClientState, String>,
-    B: Path<ClientState, usize>,
-    C: Path<ClientState, usize>,
+    P: Path<ClientState, Player>,
 {
     fn window_class() -> Option<WindowClass> {
         Some(WindowClass::CharacterOverview)
@@ -37,6 +37,9 @@ where
 
     fn to_window<'a>(self) -> impl Window<ClientState> + 'a {
         use korangar_interface::prelude::*;
+
+        let player = self.player_path;
+        let info = player.basic_info();
 
         window! {
             title: client_state().localization().character_overview_window_title(),
@@ -69,7 +72,7 @@ where
                                     overflow_behavior: OverflowBehavior::Shrink,
                                 },
                                 text! {
-                                    text: PartialEqDisplaySelector::new(self.base_level_path),
+                                    text: PartialEqDisplaySelector::new(player.base_level()),
                                     color: Color::rgb_u8(13, 231, 255),
                                     horizontal_alignment: HorizontalAlignment::Right { offset: 0.0, border: 3.0 },
                                     overflow_behavior: OverflowBehavior::Shrink,
@@ -83,7 +86,7 @@ where
                                     overflow_behavior: OverflowBehavior::Shrink,
                                 },
                                 text! {
-                                    text: PartialEqDisplaySelector::new(self.job_level_path),
+                                    text: PartialEqDisplaySelector::new(player.job_level()),
                                     color: Color::rgb_u8(13, 231, 255),
                                     horizontal_alignment: HorizontalAlignment::Right { offset: 0.0, border: 3.0 },
                                     overflow_behavior: OverflowBehavior::Shrink,
@@ -91,6 +94,36 @@ where
                             ),
                         },
                     ),
+                },
+                text! {
+                    text: ExpPercentLabel::new("Base EXP", info.base_experience(), info.next_base_experience()),
+                    color: client_theme().basic_info().base_exp_color(),
+                    overflow_behavior: OverflowBehavior::Shrink,
+                },
+                ExpBar::base(info.base_experience(), info.next_base_experience()),
+                text! {
+                    text: ExpTotalLabel::new(info.base_experience(), info.next_base_experience()),
+                    overflow_behavior: OverflowBehavior::Shrink,
+                },
+                text! {
+                    text: ExpPercentLabel::new("Job EXP", info.job_experience(), info.next_job_experience()),
+                    color: client_theme().basic_info().job_exp_color(),
+                    overflow_behavior: OverflowBehavior::Shrink,
+                },
+                ExpBar::job(info.job_experience(), info.next_job_experience()),
+                text! {
+                    text: ExpTotalLabel::new(info.job_experience(), info.next_job_experience()),
+                    overflow_behavior: OverflowBehavior::Shrink,
+                },
+                text! {
+                    text: WeightLabel::new(info.weight(), info.maximum_weight()),
+                    color: WeightColor::new(info.weight(), info.maximum_weight()),
+                    overflow_behavior: OverflowBehavior::Shrink,
+                },
+                text! {
+                    text: ZenyLabel::new(info.zeny()),
+                    color: client_theme().basic_info().zeny_color(),
+                    overflow_behavior: OverflowBehavior::Shrink,
                 },
                 button! {
                     text: client_state().localization().inventory_button_text(),

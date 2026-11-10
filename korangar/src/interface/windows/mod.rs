@@ -1,5 +1,6 @@
 mod achievements;
 mod audio_settings;
+mod basic_info_view;
 mod bank;
 mod buy;
 mod buy_cart;
@@ -129,7 +130,7 @@ pub use self::sell_cart::SellCartWindow;
 pub use self::server_selection::ServerSelectionWindow;
 pub use self::skill_tree::{SkillTreeWindow, SkillTreeWindowState, SkillTreeWindowStatePathExt};
 pub use self::stable::{StableWindow, StableWindowState};
-pub use self::stats::StatsWindow;
+pub use self::stats::{StatsWindow, StatsWindowState, StatsWindowStatePathExt};
 pub use self::status_effects::StatusEffectsWindow;
 pub use self::storage::StorageWindow;
 pub use self::switch_equip::SwitchEquipWindow;

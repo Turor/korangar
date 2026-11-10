@@ -1351,7 +1351,17 @@ where
     }
 
     pub fn request_stat_up(&mut self, stat_type: StatUpType) -> Result<(), NotConnectedError> {
-        match self.map_server_packet_version()? {
+        let version = self.map_server_packet_version()?;
+        if stat_type.is_trait() {
+            // `CZ_ADVANCED_STATUS_CHANGE` (0x0B24) is the 20250716 trait raise.
+            // Older profiles keep the six base stats on 0x00BB.
+            if !matches!(version, SupportedPacketVersion::_20250716) {
+                return Ok(());
+            }
+            let packet = RequestTraitStatUpPacket::from_stat(&stat_type).expect("trait stat-up has a status id");
+            return self.send_map_server_packet(packet);
+        }
+        match version {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(RequestStatUpPacket::new(stat_type))
             }

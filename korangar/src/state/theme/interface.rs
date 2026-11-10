@@ -89,6 +89,63 @@ pub struct GlobalTheme {
     drop_area_outline: ShadowPadding,
 }
 
+/// Colors for the basic-info HUD, inventory footer, and experience bars.
+#[derive(Serialize, Deserialize, RustState, StateElement, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct BasicInfoTheme {
+    pub base_exp_color: Color,
+    pub job_exp_color: Color,
+    pub exp_track_color: Color,
+    pub zeny_color: Color,
+    pub weight_color: Color,
+    pub weight_caution_color: Color,
+    pub weight_over_color: Color,
+}
+
+impl Default for BasicInfoTheme {
+    fn default() -> Self {
+        Self::turoran_dark()
+    }
+}
+
+impl BasicInfoTheme {
+    pub fn turoran_dark() -> Self {
+        Self {
+            base_exp_color: Color::rgb_u8(74, 134, 216),
+            job_exp_color: Color::rgb_u8(207, 170, 70),
+            exp_track_color: Color::rgba_u8(28, 32, 42, 230),
+            zeny_color: Color::rgb_u8(255, 200, 96),
+            weight_color: Color::rgb_u8(230, 232, 238),
+            weight_caution_color: Color::rgb_u8(255, 170, 60),
+            weight_over_color: Color::rgb_u8(240, 110, 110),
+        }
+    }
+
+    pub fn verdant_rune() -> Self {
+        Self {
+            base_exp_color: Color::rgb_hex("4A86D8"),
+            job_exp_color: Color::rgb_hex("CFAE5A"),
+            exp_track_color: Color::rgb_hex("203029").with_alpha_u8(230),
+            zeny_color: Color::rgb_hex("CFAE5A"),
+            weight_color: Color::rgb_hex("E3EDE6"),
+            weight_caution_color: Color::rgb_hex("E0B15A"),
+            weight_over_color: Color::rgb_hex("E0708A"),
+        }
+    }
+
+    pub fn stock() -> Self {
+        Self {
+            base_exp_color: Color::rgb_u8(80, 160, 255),
+            job_exp_color: Color::rgb_u8(255, 196, 80),
+            exp_track_color: Color::rgba_u8(20, 20, 20, 180),
+            zeny_color: Color::rgb_u8(255, 210, 90),
+            weight_color: Color::rgb_u8(220, 220, 220),
+            weight_caution_color: Color::rgb_u8(255, 180, 60),
+            weight_over_color: Color::rgb_u8(255, 90, 90),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, RustState, StateElement, StateWindow)]
 #[window_title("Theme Inspector")]
 pub struct InterfaceTheme {
@@ -114,6 +171,9 @@ pub struct InterfaceTheme {
     pub chat: ChatTheme,
     pub skill_tree: SkillTreeTheme,
     pub global: GlobalTheme,
+    /// Experience bars, zeny, and weight. Missing from older theme files.
+    #[serde(default)]
+    pub basic_info: BasicInfoTheme,
 }
 
 impl InterfaceTheme {
@@ -390,6 +450,7 @@ impl InterfaceTheme {
                 fill_alpha: 0.12,
                 drop_area_outline: ShadowPadding::uniform(3.0),
             },
+            basic_info: BasicInfoTheme::turoran_dark(),
         }
     }
 
@@ -614,6 +675,7 @@ impl InterfaceTheme {
                 fill_alpha: 0.12,
                 drop_area_outline: ShadowPadding::uniform(3.0),
             },
+            basic_info: BasicInfoTheme::verdant_rune(),
         }
     }
 
@@ -826,6 +888,7 @@ impl InterfaceTheme {
                 fill_alpha: 0.1,
                 drop_area_outline: ShadowPadding::uniform(4.0),
             },
+            basic_info: BasicInfoTheme::stock(),
         }
     }
 
@@ -1038,6 +1101,7 @@ impl InterfaceTheme {
                 fill_alpha: 0.1,
                 drop_area_outline: ShadowPadding::uniform(4.0),
             },
+            basic_info: BasicInfoTheme::stock(),
         }
     }
 }
@@ -1046,6 +1110,21 @@ impl InterfaceTheme {
 mod turoran_dark_theme_tests {
     use super::{InterfaceTheme, InterfaceThemeType};
     use crate::settings::TURORAN_DARK_THEME_NAME;
+
+    #[test]
+    fn basic_info_colors_differ_for_each_built_in_theme() {
+        for theme in [
+            InterfaceTheme::turoran_dark(),
+            InterfaceTheme::verdant_rune(),
+            InterfaceTheme::default_menu(),
+            InterfaceTheme::default_in_game(),
+        ] {
+            let info = &theme.basic_info;
+            assert_ne!(info.weight_color, info.weight_caution_color);
+            assert_ne!(info.weight_caution_color, info.weight_over_color);
+            assert_ne!(info.base_exp_color, info.job_exp_color);
+        }
+    }
 
     #[test]
     fn turoran_dark_roundtrips_through_ron() {

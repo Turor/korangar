@@ -216,6 +216,8 @@ pub struct ClientState {
     roulette_window: crate::state::bank_cash_roulette::RouletteWindowState,
     /// Internal state of the skill tree window.
     skill_tree_window: SkillTreeWindowState,
+    /// Status / trait tab and the last stat-up failure.
+    stats_window: crate::interface::windows::StatsWindowState,
 
     /// All entities on the map.
     entities: Vec<Entity>,
@@ -567,6 +569,7 @@ impl ClientState {
             cash_shop_window,
             roulette_window,
             skill_tree_window,
+            stats_window: crate::interface::windows::StatsWindowState::default(),
             entities: Vec::new(),
             dead_entities: Vec::new(),
             ground_items: Vec::new(),
