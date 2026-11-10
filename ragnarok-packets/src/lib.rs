@@ -6680,57 +6680,8 @@ pub struct BankWithdrawAckPacket {
     pub zeny: i32,
 }
 
-/// Cash shop button on clients before 2019-12-24 (`CZ_SE_CASHSHOP_OPEN`,
-/// 0x0844).
-#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
-#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0844)]
-pub struct CashShopOpenRequestPacket {}
-
-/// Cash shop button from 2019-12-24 (`CZ_SE_CASHSHOP_OPEN2`, 0x0B6D).
-#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
-#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0B6D)]
-pub struct CashShopOpenRequestV2Packet {
-    pub tab: u32,
-}
-
-/// Close the cash shop (`CZ_SE_CASHSHOP_CLOSE`, 0x084A).
-#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
-#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x084A)]
-pub struct CashShopClosePacket {}
-
-/// Ask for one cash-shop tab (`CZ_REQ_SE_CASH_TAB_CODE`, 0x0846).
-#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
-#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0846)]
-pub struct CashShopTabRequestPacket {
-    pub tab: i16,
-}
-
-/// One line in a cash-shop purchase (`CZ_SE_PC_BUY_CASHITEM_LIST`, 0x0848).
-#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
-#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-pub struct CashShopBuyItem {
-    pub item_id: u32,
-    pub amount: u32,
-    pub tab: u16,
-}
-
-/// Buy from the cash shop (`CZ_SE_PC_BUY_CASHITEM_LIST`, 0x0848).
-#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
-#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0848)]
-#[variable_length]
-pub struct CashShopBuyPacket {
-    pub count: u16,
-    pub kafra_points: u32,
-    #[repeating_remaining]
-    pub items: Vec<CashShopBuyItem>,
-}
-
-/// Cash shop opened without a tab (`ZC_SE_CASHSHOP_OPEN`, 0x0845).
+/// Ignored cash-shop open without a tab (`ZC_SE_CASHSHOP_OPEN`, 0x0845).
+/// 10 bytes. Parsed only so the frame can be dropped.
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0845)]
@@ -6739,8 +6690,7 @@ pub struct CashShopOpenLegacyPacket {
     pub kafra_points: u32,
 }
 
-/// Cash shop opened with a tab, 2014-07-30 through 2019 (`ZC_SE_CASHSHOP_OPEN`,
-/// 0x0A2B).
+/// Ignored cash-shop open with a tab (`ZC_SE_CASHSHOP_OPEN`, 0x0A2B). 14 bytes.
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0A2B)]
@@ -6750,7 +6700,7 @@ pub struct CashShopOpenPacket {
     pub tab: u32,
 }
 
-/// Cash shop opened with a tab from 2020-01-29 (`ZC_SE_CASHSHOP_OPEN`, 0x0B6E).
+/// Ignored cash-shop open with a tab (`ZC_SE_CASHSHOP_OPEN`, 0x0B6E). 14 bytes.
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0B6E)]
@@ -6760,8 +6710,8 @@ pub struct CashShopOpenV2Packet {
     pub tab: u32,
 }
 
-/// One catalog row (`ZC_ACK_SE_CASH_ITEM_LIST`, 0x08C0). Item ids are 32-bit
-/// on the 20190530, 20220406, and 20250716 layouts.
+/// One ignored catalog row (`ZC_ACK_SE_CASH_ITEM_LIST`, 0x08C0). Item ids are
+/// 32-bit on the 20190530, 20220406, and 20250716 layouts.
 #[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct CashShopItemEntry {
@@ -6769,7 +6719,7 @@ pub struct CashShopItemEntry {
     pub price: i32,
 }
 
-/// Catalog for one tab (`ZC_ACK_SE_CASH_ITEM_LIST`, 0x08C0).
+/// Ignored catalog for one tab (`ZC_ACK_SE_CASH_ITEM_LIST`, 0x08C0).
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x08C0)]
@@ -6781,7 +6731,7 @@ pub struct CashShopItemListPacket {
     pub items: Vec<CashShopItemEntry>,
 }
 
-/// Purchase result (`ZC_SE_PC_BUY_CASHITEM_RESULT`, 0x0849).
+/// Ignored purchase result (`ZC_SE_PC_BUY_CASHITEM_RESULT`, 0x0849). 16 bytes.
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0849)]
@@ -6790,6 +6740,34 @@ pub struct CashShopBuyResultPacket {
     pub result: u16,
     pub cash_points: u32,
     pub kafra_points: u32,
+}
+
+/// Ignored cash-point update (`ZC_PC_CASH_POINT_UPDATE`, 0x0289). 12 bytes.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0289)]
+pub struct CashPointUpdatePacket {
+    pub cash_points: u32,
+    pub kafra_points: u32,
+    pub error: i16,
+}
+
+/// Ignored rental timer (`ZC_CASH_TIME_COUNTER`, 0x0298). 10 bytes from 2018.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0298)]
+pub struct CashTimeCounterPacket {
+    pub item_id: u32,
+    pub seconds: u32,
+}
+
+/// Ignored rental removal (`ZC_CASH_ITEM_DELETE`, 0x0299). 8 bytes from 2018.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0299)]
+pub struct CashItemDeletePacket {
+    pub index: u16,
+    pub item_id: u32,
 }
 
 /// Open the roulette (`CZ_REQ_OPEN_ROULETTE`, 0x0A19).
