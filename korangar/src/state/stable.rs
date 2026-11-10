@@ -107,6 +107,8 @@ pub struct StablePetRow {
     pub next_experience: i32,
     pub egg: bool,
     pub active: bool,
+    /// `flags & 0x02`: out with some character, not necessarily this one.
+    pub out: bool,
     pub selected: bool,
     pub renamed: bool,
     pub owner: String,
@@ -351,15 +353,18 @@ impl StableWindowState {
         self.action_request(self.can_evolve, PET_EVOLVE, self.evolve_egg_id)
     }
 
-    /// `inventory_index` is the client index already stored on the item
-    /// (`server + 2`).
-    pub fn equip_request(&self, inventory_index: i32) -> Option<StableRequest> {
-        if !self.can_equip || inventory_index < 0 {
+    /// `stored_index` is `InventoryIndex.0` (the server slot). The `0x0EF2`
+    /// id is the client index: Hercules subtracts 2.
+    pub fn equip_request(&self, stored_index: i32) -> Option<StableRequest> {
+        if !self.can_equip || stored_index < 0 {
             return None;
         }
+        let Ok(stored) = u16::try_from(stored_index) else {
+            return None;
+        };
         Some(StableRequest::Pet {
             action: PET_EQUIP,
-            id: inventory_index,
+            id: equip_wire_index(stored),
         })
     }
 
@@ -591,10 +596,16 @@ fn exp_line(exp: i32, next: i32) -> String {
     }
 }
 
+/// Client index written in `0x0EF2` action 5. `InventoryIndex` stores the
+/// server slot (`FromBytes` already subtracted 2).
+pub fn equip_wire_index(stored_index: u16) -> i32 {
+    i32::from(stored_index.saturating_add(2))
+}
+
 fn pet_place(pet: &StablePetRow) -> String {
     if pet.egg {
         "Legacy egg on this character".to_owned()
-    } else if pet.active {
+    } else if pet.active || pet.out {
         if pet.owner.is_empty() {
             "Out".to_owned()
         } else {
@@ -608,6 +619,7 @@ fn pet_place(pet: &StablePetRow) -> String {
 fn pet_row(entry: &StablePetEntry, active_id: i32, selected: i32) -> StablePetRow {
     let egg = entry.flags & PET_FLAG_EGG != 0;
     let active = !egg && entry.pet_id == active_id && active_id != 0;
+    let out = !egg && entry.flags & PET_FLAG_OUT != 0;
     let species_info = pet_species(entry.class_id);
     let species = species_info.map(|species| species.name).unwrap_or("Pet");
     let accessory_item_id = species_info.map(|species| species.accessory_item_id).unwrap_or(0);
@@ -621,7 +633,7 @@ fn pet_row(entry: &StablePetEntry, active_id: i32, selected: i32) -> StablePetRo
     } else {
         entry.name.clone()
     };
-    if active || entry.flags & PET_FLAG_OUT != 0 && !egg {
+    if active || out {
         title.push_str(" · Out");
     }
     let icon_item_id = if entry.egg_item_id > 0 {
@@ -648,6 +660,7 @@ fn pet_row(entry: &StablePetEntry, active_id: i32, selected: i32) -> StablePetRo
         next_experience: entry.next_experience,
         egg,
         active,
+        out,
         selected: entry.pet_id == selected,
         renamed: entry.rename_flag != 0,
         owner: entry.owner_name.clone(),
@@ -799,7 +812,17 @@ mod tests {
                 id: 9069
             })
         );
-        assert_eq!(state.equip_request(14), Some(StableRequest::Pet { action: PET_EQUIP, id: 14 }));
+        let wire = equip_wire_index(14);
+        assert_eq!(wire, 16);
+        let equip = state.equip_request(14).unwrap();
+        assert_eq!(equip, StableRequest::Pet {
+            action: PET_EQUIP,
+            id: wire
+        });
+        let equip_bytes = equip.encode();
+        assert_eq!(opcode(&equip_bytes), 0x0EF2);
+        assert_eq!(&equip_bytes[2..4], &PET_EQUIP.to_le_bytes());
+        assert_eq!(&equip_bytes[4..8], &wire.to_le_bytes());
         assert!(state.unequip_request().is_none());
         let leaf = state.materials.iter().find(|row| row.item_id == 610).unwrap();
         assert_eq!(leaf.qty, "10/10");
@@ -817,6 +840,13 @@ mod tests {
         assert!(state.feed_request().is_none());
         assert!(state.evolve_request().is_none());
         assert_eq!(state.detail_status, "Legacy egg on this character");
+
+        state.show_pets(9, &[pet(4, 1002, PET_FLAG_OUT, 100, 0)], &faces);
+        state.select_pet(4);
+        assert!(!state.pets[0].active);
+        assert!(state.pets[0].out);
+        assert!(state.pets[0].title.contains("· Out"));
+        assert_eq!(state.detail_status, "Out · Ada");
 
         state.show_result(11, 9);
         assert_eq!(state.status, "No pet food in inventory or storage.");

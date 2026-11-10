@@ -584,12 +584,12 @@ impl Element<ClientState> for Board {
                 event: |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
                     let window_path = client_state().stable_window();
                     let accessory = *state.get(&window_path.species_accessory_id());
-                    let Some(index) = state.get(&client_state().inventory().items()).iter().find_map(|item| {
+                    let Some(stored_index) = state.get(&client_state().inventory().items()).iter().find_map(|item| {
                         (i32::try_from(item.item_id.0).ok() == Some(accessory)).then_some(i32::from(item.index.0))
                     }) else {
                         return;
                     };
-                    if let Some(request) = state.get(&window_path).equip_request(index) {
+                    if let Some(request) = state.get(&window_path).equip_request(stored_index) {
                         queue_request(queue, request);
                     }
                 },
