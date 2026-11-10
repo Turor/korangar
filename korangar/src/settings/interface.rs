@@ -325,7 +325,7 @@ mod interface_settings_theme_tests {
 
     #[test]
     fn a_settings_file_without_a_menu_bar_layout_still_loads() {
-        let old = r#"(language: English, scaling: (1.0), menu_theme: "a", in_game_theme: "b", world_theme: "c")"#;
+        let old = r#"(language: English, scaling: 1.0, menu_theme: "a", in_game_theme: "b", world_theme: "c")"#;
         let settings: InterfaceSettings = ron::from_str(old).expect("old settings file");
         assert_eq!(settings.menu_bar_layout, MenuBarLayout::Auto);
         let settings = std::mem::ManuallyDrop::new(settings);
