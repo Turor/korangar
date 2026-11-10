@@ -1977,16 +1977,6 @@ pub struct RequestActionPacket {
     pub action: Action,
 }
 
-/// `CZ_USE_ITEM2` (`0x0439`): inventory index plus the player's account id.
-/// Length 8 matches the 20250716 framing table.
-#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
-#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0439)]
-pub struct UseItemPacket {
-    pub index: InventoryIndex,
-    pub account_id: AccountId,
-}
-
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0362)]

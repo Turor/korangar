@@ -369,7 +369,7 @@ pub fn cell_skill_level(cell: &HotbarCell) -> SkillLevel {
     cell.skill.as_ref().map(|skill| skill.maximum_level).unwrap_or(SkillLevel(0))
 }
 
-const ROLLING_CUTTER_ID: SkillId = SkillId(2036);
+pub(crate) const ROLLING_CUTTER_ID: SkillId = SkillId(2036);
 
 /// Cast a skill that is already bound to a hotbar slot.
 pub fn cast_bound_skill<Callback>(

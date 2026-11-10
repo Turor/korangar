@@ -492,10 +492,6 @@ pub enum InputEvent {
         tab: ragnarok_packets::HotbarTab,
         slot: HotbarSlot,
     },
-    /// Use a consumable (`CZ_USE_ITEM2`, `0x0439`).
-    UseItem {
-        index: ragnarok_packets::InventoryIndex,
-    },
     /// Sit down or stand up (`CZ_REQUEST_ACT` action 2 / 3).
     ToggleSit,
     /// Clear one hotbar slot and tell the map server.

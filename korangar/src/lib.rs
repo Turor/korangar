@@ -73,9 +73,9 @@ use networking::{PacketHistory, PacketHistoryCallback};
 #[cfg(not(feature = "debug"))]
 use ragnarok_packets::handler::NoPacketCallback;
 use ragnarok_packets::{
-    AccountId, AttackRange, BuyShopItemsResult, CharacterServerInformation, ClientTick, Direction, DisappearanceReason, EffectId, EntityId,
-    EquipPosition, EquippableItemFlags, ExperienceSource, ExperienceType, GuildPositionEdit, HealType, HotbarSlot, InventoryIndex,
-    SellItemsResult, SkillId, SkillLevel, SkillType, TilePosition, WorldPosition,
+    AccountId, Action, AttackRange, BuyShopItemsResult, CharacterServerInformation, ClientTick, Direction, DisappearanceReason, EffectId,
+    EntityId, EquipPosition, EquippableItemFlags, ExperienceSource, ExperienceType, GuildPositionEdit, HealType, HotbarSlot, HotbarTab,
+    InventoryIndex, ItemId, SellItemsResult, SkillId, SkillLevel, TilePosition, WorldPosition,
 };
 use renderer::InterfaceRenderer;
 use rust_state::{ManuallyAssertExt, State};
@@ -87,7 +87,9 @@ use settings::{
 };
 use state::character_slots::CharacterSlotsExt;
 use state::equip_switch::{EquipSwitchPathExt, switch_delta};
-use state::hotbar::HotbarPathExt;
+use state::hotbar::{
+    HOTBAR_SLOTS, HOTBAR_TABS, HotbarDispatch, HotbarPathExt, cast_bound_skill, cell_item_id, inventory_hint, stop_bound_skill,
+};
 use state::inventory::{GroundDrop, InventoryPathExt, ItemActivation, ThrowUpdate, ground_drop, item_activation, use_ack_targets_self};
 use state::localization::Localization;
 use state::skills::SkillTreePathExt;
@@ -101,7 +103,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{ModifiersState, PhysicalKey};
+use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{Icon, Window, WindowId};
 
 use crate::graphics::*;
@@ -126,7 +128,6 @@ use crate::world::effects::{self, SkillField};
 use crate::world::*;
 
 const CLIENT_NAME: &str = "Korangar";
-const ROLLING_CUTTER_ID: SkillId = SkillId(2036);
 const DEFAULT_MAP: &str = "geffen";
 /// Screenshot login. Set `KORANGAR_HEADLESS_AUTO=1` to log in, pick the first
 /// character server, enter slot 0, and open Gear. It does not open Friends,
@@ -231,6 +232,92 @@ fn initialize_shutdown_signal() {
         SHUTDOWN_SIGNAL.store(true, Ordering::SeqCst);
     })
     .expect("Error setting Ctrl-C handler");
+}
+
+fn activate_hotbar_slot<Callback>(
+    state: &State<ClientState>,
+    networking_system: &mut NetworkingSystem<Callback>,
+    account_id: Option<AccountId>,
+    tab: HotbarTab,
+    slot: HotbarSlot,
+    mouse_target: PickerTarget,
+) where
+    Callback: ragnarok_packets::handler::PacketCallback + Send,
+{
+    let item_id = state.follow(client_state().hotbar()).cell(tab, slot).and_then(cell_item_id);
+    let hint = item_id.and_then(|item_id| {
+        state
+            .follow(client_state().inventory())
+            .find_by_item_id(item_id)
+            .map(inventory_hint)
+    });
+    let dispatch = state.follow(client_state().hotbar()).cell(tab, slot).map(|cell| cell.dispatch(hint));
+
+    match dispatch {
+        Some(HotbarDispatch::CastSkill { .. }) => {
+            let Some(learnable) = state.follow(client_state().hotbar()).skill_in_slot(tab, slot).cloned() else {
+                return;
+            };
+            let learned = state
+                .follow(client_state().skill_tree().skills())
+                .iter()
+                .find(|learned_skill| {
+                    learned_skill.skill_id == learnable.skill_id && learned_skill.skill_level.0 >= learnable.maximum_level.0
+                })
+                .cloned();
+            if let Some(learned) = learned
+                && state.try_follow(this_entity()).is_some()
+            {
+                let player_entity_id = state.follow(this_entity().manually_asserted()).get_entity_id();
+                cast_bound_skill(networking_system, &learnable, &learned, mouse_target, player_entity_id);
+            }
+        }
+        Some(HotbarDispatch::UseItem { item_id }) => {
+            let index = state
+                .follow(client_state().inventory())
+                .find_by_item_id(ItemId(item_id))
+                .map(|item| item.index);
+            if let Some(index) = index
+                && let Some(account_id) = account_id
+            {
+                let _ = networking_system.use_inventory_item(index, account_id);
+            }
+        }
+        Some(HotbarDispatch::Equip { item_id }) => {
+            let request = state.follow(client_state().inventory()).find_by_item_id(ItemId(item_id)).and_then(|item| {
+                match &item.details {
+                    InventoryItemDetails::Equippable { equip_position, .. } => Some((item.index, *equip_position)),
+                    InventoryItemDetails::Regular { .. } => None,
+                }
+            });
+            if let Some((index, position)) = request {
+                let _ = networking_system.request_item_equip(index, position);
+            }
+        }
+        Some(HotbarDispatch::Unequip { item_id }) => {
+            let index = state
+                .follow(client_state().inventory())
+                .find_by_item_id(ItemId(item_id))
+                .map(|item| item.index);
+            if let Some(index) = index {
+                let _ = networking_system.request_item_unequip(index);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn release_hotbar_slot<Callback>(
+    state: &State<ClientState>,
+    networking_system: &mut NetworkingSystem<Callback>,
+    tab: HotbarTab,
+    slot: HotbarSlot,
+) where
+    Callback: ragnarok_packets::handler::PacketCallback + Send,
+{
+    if let Some(skill) = state.follow(client_state().hotbar()).skill_in_slot(tab, slot).cloned() {
+        stop_bound_skill(networking_system, &skill);
+    }
 }
 
 pub struct Client {
@@ -1383,6 +1470,13 @@ impl Client {
                     }
                 }
                 NetworkEvent::PlayerStandUp { entity_id } => {
+                    if self
+                        .client_state
+                        .try_follow(this_entity())
+                        .is_some_and(|player| player.get_entity_id() == entity_id)
+                    {
+                        self.client_state.follow_mut(client_state().hotbar()).mark_standing();
+                    }
                     if let Some(entity) = self
                         .client_state
                         .follow_mut(client_state().entities())
@@ -1559,10 +1653,8 @@ impl Client {
                         this_player().manually_asserted(),
                         client_state().status_effects(),
                     ));
-                    self.interface.open_window(HotbarWindow::new(
-                        client_state().hotbar().skills(),
-                        client_state().skill_tree().skills(),
-                    ));
+                    self.interface
+                        .open_window(HotbarWindow::new(client_state().hotbar(), client_state().inventory()));
 
                     // Put the dialog system in a well-defined state.
                     crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
@@ -2613,6 +2705,10 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().inventory())
                         .fill(&self.async_loader, items);
+                    let visuals = self.client_state.follow(client_state().inventory()).item_visuals();
+                    self.client_state
+                        .follow_mut(client_state().hotbar())
+                        .apply_item_visuals(&visuals);
                 }
                 NetworkEvent::SetStorage { items } => {
                     self.client_state
@@ -3149,34 +3245,46 @@ impl Client {
                         .map(|friend| crate::state::friends::FriendListEntry::from_friend(friend, false))
                         .collect();
                 }
-                NetworkEvent::SetHotkeyData { tab, hotkeys } => {
-                    // FIX: Since we only have one hotbar at the moment, we ignore
-                    // everything but 0.
-                    if tab.0 != 0 {
+                NetworkEvent::SetHotkeyData { tab, rotate, hotkeys } => {
+                    if (tab.0 as usize) >= HOTBAR_TABS {
                         continue;
                     }
 
-                    if let Some(job_id) = self.client_state.try_follow(this_entity()).map(Entity::get_job_id) {
-                        for (index, hotkey) in hotkeys.into_iter().take(10).enumerate() {
-                            match hotkey {
-                                HotkeyState::Bound(hotkey) => {
-                                    // TODO: Properly distinguish between skill and item.
-                                    let skill_id = SkillId(hotkey.item_or_skill_id as u16);
-
-                                    let mut skill = self.async_loader.request_learnable_skill_load(job_id, skill_id, client_tick);
-                                    skill.maximum_level.0 = hotkey.quantity_or_skill_level;
-
+                    let job_id = self.client_state.try_follow(this_entity()).map(Entity::get_job_id);
+                    for (index, hotkey) in hotkeys.into_iter().enumerate().take(HOTBAR_SLOTS) {
+                        let slot = HotbarSlot(index as u16);
+                        match hotkey {
+                            HotkeyState::Bound(data) if data.is_skill() => {
+                                if let Some(job_id) = job_id {
+                                    let mut skill = self
+                                        .async_loader
+                                        .request_learnable_skill_load(job_id, SkillId(data.item_or_skill_id as u16), client_tick);
+                                    skill.maximum_level = SkillLevel(data.quantity_or_skill_level);
                                     self.client_state
                                         .follow_mut(client_state().hotbar())
-                                        .set_slot(HotbarSlot(index as u16), skill);
+                                        .set_skill_local(tab, slot, skill);
                                 }
-                                HotkeyState::Unbound => self
-                                    .client_state
-                                    .follow_mut(client_state().hotbar())
-                                    .unset_slot(HotbarSlot(index as u16)),
+                            }
+                            HotkeyState::Bound(data) => {
+                                self.client_state.follow_mut(client_state().hotbar()).set_item_local(
+                                    tab,
+                                    slot,
+                                    data.item_or_skill_id,
+                                    data.quantity_or_skill_level,
+                                );
+                            }
+                            HotkeyState::Unbound => {
+                                self.client_state.follow_mut(client_state().hotbar()).clear_local(tab, slot);
                             }
                         }
                     }
+                    self.client_state
+                        .follow_mut(client_state().hotbar())
+                        .set_server_row_shift(tab, rotate);
+                    let visuals = self.client_state.follow(client_state().inventory()).item_visuals();
+                    self.client_state
+                        .follow_mut(client_state().hotbar())
+                        .apply_item_visuals(&visuals);
                 }
                 NetworkEvent::PlayerShopSign {
                     account_id,
@@ -4302,14 +4410,52 @@ impl Client {
             self.input_event_buffer.push(InputEvent::RotateCamera { rotation });
         }
 
-        if !interface_has_focus {
-            self.input_system.handle_keyboard_input(
+        let capturing_keybind = self.client_state.follow(client_state().keybinds()).is_capturing();
+        let mut cancel_keybind_capture = false;
+        if !interface_has_focus || capturing_keybind {
+            cancel_keybind_capture = self.input_system.handle_keyboard_input(
                 &mut self.input_event_buffer,
+                capturing_keybind,
                 #[cfg(feature = "debug")]
                 self.interface.get_mouse_mode().is_default(),
                 #[cfg(feature = "debug")]
                 *self.client_state.follow(client_state().render_options().use_debug_camera()),
             );
+            if !cancel_keybind_capture {
+                let lock_movement_keys = {
+                    #[cfg(feature = "debug")]
+                    {
+                        *self.client_state.follow(client_state().render_options().use_debug_camera())
+                    }
+                    #[cfg(not(feature = "debug"))]
+                    {
+                        false
+                    }
+                };
+                let alt = self.input_system.key_down(KeyCode::AltLeft) || self.input_system.key_down(KeyCode::AltRight);
+                let ctrl = self.input_system.key_down(KeyCode::ControlLeft) || self.input_system.key_down(KeyCode::ControlRight);
+                let shift = self.input_system.key_down(KeyCode::ShiftLeft) || self.input_system.key_down(KeyCode::ShiftRight);
+                let edges = crate::settings::edges_from_transitions(alt, ctrl, shift, lock_movement_keys, |code| {
+                    (self.input_system.key_pressed(code), self.input_system.key_released(code))
+                });
+                let active_tab = self.client_state.follow(client_state().hotbar()).active_tab();
+                let row_shift = self.client_state.follow(client_state().hotbar()).row_shift(active_tab);
+                let capture_index = self.client_state.follow(client_state().keybinds()).capturing();
+                let outcome = self
+                    .client_state
+                    .follow(client_state().keybinds())
+                    .map()
+                    .poll(capture_index, active_tab, row_shift, &edges);
+                self.input_event_buffer.extend(outcome.events);
+                if let Some((index, chord)) = outcome.rebound {
+                    self.client_state
+                        .follow_mut(client_state().keybinds())
+                        .apply_rebind(index, chord);
+                }
+            }
+        }
+        if cancel_keybind_capture {
+            self.client_state.follow_mut(client_state().keybinds()).cancel_capture();
         }
 
         let mut pincode_effects = Vec::new();
@@ -5179,6 +5325,34 @@ impl Client {
                     (ItemSource::Cart, ItemSource::Inventory) => {
                         let _ = self.networking_system.move_item_from_cart(item.index, cart_move_amount(&item));
                     }
+                    (ItemSource::Inventory, ItemSource::Hotbar { tab, slot }) => {
+                        self.client_state
+                            .follow_mut(client_state().hotbar())
+                            .bind_item(&mut self.networking_system, tab, slot, &item);
+                    }
+                    (ItemSource::Hotbar { tab, slot }, ItemSource::Inventory) => {
+                        self.client_state
+                            .follow_mut(client_state().hotbar())
+                            .clear_slot(&mut self.networking_system, tab, slot);
+                    }
+                    (
+                        ItemSource::Hotbar {
+                            tab: source_tab,
+                            slot: source_slot,
+                        },
+                        ItemSource::Hotbar {
+                            tab: destination_tab,
+                            slot: destination_slot,
+                        },
+                    ) => {
+                        self.client_state.follow_mut(client_state().hotbar()).swap_slots(
+                            &mut self.networking_system,
+                            source_tab,
+                            source_slot,
+                            destination_tab,
+                            destination_slot,
+                        );
+                    }
                     _ => {}
                 },
                 InputEvent::CloseStorage => {
@@ -5496,109 +5670,120 @@ impl Client {
                     destination,
                     skill,
                 } => match (source, destination) {
-                    (SkillSource::SkillTree, SkillSource::Hotbar { slot }) => {
+                    (SkillSource::SkillTree, SkillSource::Hotbar { tab, slot }) => {
                         self.client_state
                             .follow_mut(client_state().hotbar())
-                            .update_slot(&mut self.networking_system, slot, skill);
+                            .bind_skill(&mut self.networking_system, tab, slot, skill);
                     }
-                    (SkillSource::Hotbar { slot }, SkillSource::SkillTree) => {
+                    (SkillSource::Hotbar { tab, slot }, SkillSource::SkillTree) => {
                         self.client_state
                             .follow_mut(client_state().hotbar())
-                            .clear_slot(&mut self.networking_system, slot);
+                            .clear_slot(&mut self.networking_system, tab, slot);
                     }
-                    (SkillSource::Hotbar { slot: source_slot }, SkillSource::Hotbar { slot: destination_slot }) => {
-                        self.client_state.follow_mut(client_state().hotbar()).swap_slot(
+                    (
+                        SkillSource::Hotbar {
+                            tab: source_tab,
+                            slot: source_slot,
+                        },
+                        SkillSource::Hotbar {
+                            tab: destination_tab,
+                            slot: destination_slot,
+                        },
+                    ) => {
+                        self.client_state.follow_mut(client_state().hotbar()).swap_slots(
                             &mut self.networking_system,
+                            source_tab,
                             source_slot,
+                            destination_tab,
                             destination_slot,
                         );
                     }
                     _ => {}
                 },
                 InputEvent::CastSkill { slot } => {
-                    // Copy the cast before Change Cart opens a window. The hotbar borrow cannot
-                    // overlap that mutable client-state update.
-                    let cast = self
+                    // Copy the id before Change Cart opens a window. That path mutably borrows
+                    // client state, so it cannot overlap the hotbar lookup.
+                    let change_cart = self
                         .client_state
                         .follow(client_state().hotbar())
-                        .get_skill_in_slot(slot)
-                        .as_ref()
-                        .and_then(|learnable_skill| {
-                            self.client_state
-                                .follow(client_state().skill_tree().skills())
-                                .iter()
-                                .find(|learned_skill| {
-                                    learned_skill.skill_id == learnable_skill.skill_id
-                                        && learned_skill.skill_level.0 >= learnable_skill.maximum_level.0
-                                })
-                                .map(|learned_skill| {
-                                    (
-                                        learnable_skill.skill_id,
-                                        learnable_skill.maximum_level,
-                                        learned_skill.skill_type,
-                                    )
-                                })
-                        });
-                    if let Some((skill_id, skill_level, skill_type)) = cast {
-                        if skill_id == SkillId(crate::state::item_skill_selection::CHANGE_CART_SKILL) {
-                            crate::interface::windows::item_skill_selection::open_change_cart(&mut self.client_state, &mut self.interface);
-                        }
-                        match skill_type {
-                            SkillType::Passive => {}
-                            SkillType::Attack => {
-                                if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
-                                    let _ = self.networking_system.cast_skill(skill_id, skill_level, entity_id);
-                                }
-                            }
-                            SkillType::Ground | SkillType::Trap => {
-                                if let PickerTarget::Tile { x, y } = input_report.mouse_target {
-                                    let _ = self
-                                        .networking_system
-                                        .cast_ground_skill(skill_id, skill_level, TilePosition { x, y });
-                                }
-                            }
-                            SkillType::SelfCast => match skill_id == ROLLING_CUTTER_ID {
-                                true => {
-                                    let _ = self.networking_system.cast_channeling_skill(
-                                        skill_id,
-                                        skill_level,
-                                        self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
-                                    );
-                                }
-                                false => {
-                                    let _ = self.networking_system.cast_skill(
-                                        skill_id,
-                                        skill_level,
-                                        self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
-                                    );
-                                }
-                            },
-                            SkillType::Support => {
-                                if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
-                                    let _ = self.networking_system.cast_skill(skill_id, skill_level, entity_id);
-                                } else {
-                                    let _ = self.networking_system.cast_skill(
-                                        skill_id,
-                                        skill_level,
-                                        self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
-                                    );
-                                }
-                            }
-                        }
+                        .skill_in_slot(HotbarTab(0), slot)
+                        .is_some_and(|skill| skill.skill_id == SkillId(crate::state::item_skill_selection::CHANGE_CART_SKILL));
+                    if change_cart {
+                        crate::interface::windows::item_skill_selection::open_change_cart(&mut self.client_state, &mut self.interface);
                     }
+                    activate_hotbar_slot(
+                        &self.client_state,
+                        &mut self.networking_system,
+                        self.saved_login_data.as_ref().map(|login| login.account_id),
+                        HotbarTab(0),
+                        slot,
+                        input_report.mouse_target,
+                    );
                 }
                 InputEvent::StopSkill { slot } => {
-                    if let Some(skill) = self.client_state.follow(client_state().hotbar()).get_skill_in_slot(slot).as_ref()
-                        && skill.skill_id == ROLLING_CUTTER_ID
-                    {
-                        let _ = self.networking_system.stop_channeling_skill(skill.skill_id);
-                        // `0x0B11` is outbound. The server cancel is `0x01B9`; this clears the local
-                        // bar.
+                    let rolling_cutter = self
+                        .client_state
+                        .follow(client_state().hotbar())
+                        .skill_in_slot(HotbarTab(0), slot)
+                        .is_some_and(|skill| skill.skill_id == crate::state::hotbar::ROLLING_CUTTER_ID);
+                    release_hotbar_slot(&self.client_state, &mut self.networking_system, HotbarTab(0), slot);
+                    if rolling_cutter {
+                        // `0x0B11` is outbound. The server cancel is `0x01B9`; this clears the local bar.
                         let player_id = self.client_state.try_follow(this_entity()).map(|player| player.get_entity_id().0);
                         if let Some(player_id) = player_id {
                             self.cast_bars.cancel(player_id);
                         }
                     }
+                }
+                InputEvent::ActivateHotbar { tab, slot } => {
+                    activate_hotbar_slot(
+                        &self.client_state,
+                        &mut self.networking_system,
+                        self.saved_login_data.as_ref().map(|login| login.account_id),
+                        tab,
+                        slot,
+                        input_report.mouse_target,
+                    );
+                }
+                InputEvent::ReleaseHotbar { tab, slot } => {
+                    release_hotbar_slot(&self.client_state, &mut self.networking_system, tab, slot);
+                }
+                InputEvent::ToggleSit => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        let sit = self.client_state.follow_mut(client_state().hotbar()).toggle_sitting();
+                        let entity_id = self.client_state.follow(this_entity().manually_asserted()).get_entity_id();
+                        let action = match sit {
+                            true => Action::SitDown,
+                            false => Action::StandUp,
+                        };
+                        let _ = self.networking_system.player_action(entity_id, action);
+                    }
+                }
+                InputEvent::ClearHotbar { tab, slot } => {
+                    self.client_state
+                        .follow_mut(client_state().hotbar())
+                        .clear_slot(&mut self.networking_system, tab, slot);
+                }
+                InputEvent::CycleHotbarRows => {
+                    self.client_state.follow_mut(client_state().hotbar()).cycle_visible_rows();
+                }
+                InputEvent::RotateHotbar => {
+                    self.client_state
+                        .follow_mut(client_state().hotbar())
+                        .rotate_active_row(&mut self.networking_system);
+                }
+                InputEvent::SwitchHotbarTab => {
+                    self.client_state.follow_mut(client_state().hotbar()).switch_tab();
+                }
+                InputEvent::ToggleKeybindsWindow => match self.interface.is_window_with_class_open(WindowClass::Keybinds) {
+                    true => self.interface.close_window_with_class(WindowClass::Keybinds),
+                    false => self.interface.open_window(KeybindsWindow::new(client_state().keybinds())),
+                },
+                InputEvent::BeginKeybindCapture { index } => {
+                    self.client_state.follow_mut(client_state().keybinds()).begin_capture(index);
+                }
+                InputEvent::ResetKeybinds => {
+                    self.client_state.follow_mut(client_state().keybinds()).reset_defaults();
                 }
                 InputEvent::AddFriend { character_name } => {
                     if character_name.len() > 24 {
@@ -6450,13 +6635,8 @@ impl Client {
                             .note_skill_icon(skill_id.0, icon);
                     }
                     self.client_state
-                        .follow_mut(client_state().hotbar().skills())
-                        .iter_mut()
-                        .filter_map(|slot| slot.as_mut())
-                        .filter(|skill| skill.skill_id == skill_id)
-                        .for_each(|skill| {
-                            skill.sprite = Some(sprite.clone());
-                        });
+                        .follow_mut(client_state().hotbar())
+                        .apply_skill_sprite(skill_id, sprite.clone());
 
                     self.client_state
                         .follow_mut(client_state().guild())
@@ -6474,13 +6654,8 @@ impl Client {
                 }
                 (LoaderId::SkillActions(skill_id), LoadableResource::SkillActions { actions }) => {
                     self.client_state
-                        .follow_mut(client_state().hotbar().skills())
-                        .iter_mut()
-                        .filter_map(|slot| slot.as_mut())
-                        .filter(|skill| skill.skill_id == skill_id)
-                        .for_each(|skill| {
-                            skill.actions = Some(actions.clone());
-                        });
+                        .follow_mut(client_state().hotbar())
+                        .apply_skill_actions(skill_id, actions.clone());
 
                     self.client_state
                         .follow_mut(client_state().guild())
@@ -7084,6 +7259,21 @@ impl Client {
 
             let is_rotating_camera = mouse_mode.is_rotating_camera();
             let is_grabbing = mouse_mode.is_grabbing();
+            let dragged_from_hotbar = match mouse_mode {
+                korangar_interface::MouseMode::Custom {
+                    mode: MouseInputMode::MoveItem {
+                        source: ItemSource::Hotbar { tab, slot },
+                        ..
+                    },
+                }
+                | korangar_interface::MouseMode::Custom {
+                    mode: MouseInputMode::MoveSkill {
+                        source: SkillSource::Hotbar { tab, slot },
+                        ..
+                    },
+                } => Some((*tab, *slot)),
+                _ => None,
+            };
             let is_chat_open = self.interface.is_window_with_class_open(WindowClass::Chat);
 
             let mut interface_frame = self
@@ -7194,6 +7384,9 @@ impl Client {
             if input_report.mouse_button_released {
                 if !is_interface_hovered && let Some(item) = dragged_inventory_item {
                     self.input_event_buffer.push(InputEvent::DropItem { item });
+                }
+                if !is_interface_hovered && let Some((tab, slot)) = dragged_from_hotbar {
+                    self.input_event_buffer.push(InputEvent::ClearHotbar { tab, slot });
                 }
                 interface_frame.drop(&self.client_state);
             }
