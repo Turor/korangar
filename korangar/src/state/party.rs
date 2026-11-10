@@ -1,7 +1,7 @@
 //! Local party roster, options, and minimap positions.
 //!
-//! The minimap window reads [`PartyState::minimap_positions`]. `mvp_minimap.rs`
-//! is left unchanged.
+//! The minimap window reads [`PartyState::minimap_positions`] in
+//! `mvp_minimap.rs`. is left unchanged.
 
 use korangar_interface::element::StateElement;
 use korangar_networking::{PartyRosterEntry, PartyUpdate};
@@ -92,16 +92,21 @@ impl PartyState {
         self.invitations_allowed = invitations_allowed;
     }
 
-    /// Same-map party members for the minimap. Omits the local character and
-    /// anyone whose last `0x0107` coordinate was negative.
-    ///
-    /// `mvp_minimap.rs` is intentionally unchanged. The minimap worker should
-    /// read this accessor.
-    #[allow(dead_code)]
-    pub fn minimap_positions(&self) -> Vec<(AccountId, i16, i16)> {
+    /// Online party members on `current_map` for the minimap, from their last
+    /// `0x0107` coordinate. Omits the local character and anyone whose last
+    /// coordinate was negative. `current_map` may carry a `.gat` suffix; an
+    /// empty name on either side is treated as the same map.
+    pub fn minimap_positions(&self, current_map: &str) -> Vec<(AccountId, i16, i16)> {
         self.members
             .iter()
-            .filter(|member| member.has_position && member.x >= 0 && member.y >= 0 && member.account_id != self.local_account_id)
+            .filter(|member| {
+                member.has_position
+                    && member.x >= 0
+                    && member.y >= 0
+                    && member.online
+                    && member.account_id != self.local_account_id
+                    && same_map(&member.map_name, current_map)
+            })
             .map(|member| (member.account_id, member.x, member.y))
             .collect()
     }
@@ -526,6 +531,12 @@ fn invite_notice(name: &str, result: i32) -> Option<PartyNotice> {
     Some(PartyNotice { text, error })
 }
 
+/// Map names from party packets carry `.gat`; the client map id may not.
+fn same_map(member_map: &str, current_map: &str) -> bool {
+    let base = |name: &str| name.trim().trim_end_matches(".gat").trim_end_matches(".rsw").to_ascii_lowercase();
+    member_map.trim().is_empty() || current_map.trim().is_empty() || base(member_map) == base(current_map)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -600,14 +611,40 @@ mod tests {
             x: 30,
             y: 40,
         });
-        assert_eq!(state.minimap_positions(), vec![(AccountId(2), 30, 40)]);
+        assert_eq!(state.minimap_positions("prontera"), vec![(AccountId(2), 30, 40)]);
         apply(&mut state, PartyUpdate::Position {
             account_id: AccountId(2),
             x: -1,
             y: 40,
         });
-        assert!(state.minimap_positions().is_empty());
+        assert!(state.minimap_positions("prontera").is_empty());
         assert!(state.world_health_bars().is_empty());
+    }
+
+    #[test]
+    fn minimap_shows_only_online_members_on_this_map() {
+        let mut state = PartyState::default();
+        apply(&mut state, PartyUpdate::Roster {
+            name: "Wolves".to_owned(),
+            members: vec![entry(1, "Hero", true), entry(2, "Nova", false), entry(3, "Rin", false)],
+        });
+        for account_id in [2, 3] {
+            apply(&mut state, PartyUpdate::Position {
+                account_id: AccountId(account_id),
+                x: 10 * account_id as i16,
+                y: 20,
+            });
+        }
+        state
+            .members
+            .iter_mut()
+            .find(|member| member.account_id == AccountId(3))
+            .unwrap()
+            .map_name = "geffen.gat".to_owned();
+        assert_eq!(state.minimap_positions("prontera.gat"), vec![(AccountId(2), 20, 20)]);
+        assert_eq!(state.minimap_positions("Geffen"), vec![(AccountId(3), 30, 20)]);
+        state.members.iter_mut().for_each(|member| member.online = false);
+        assert!(state.minimap_positions("prontera").is_empty());
     }
 
     #[test]

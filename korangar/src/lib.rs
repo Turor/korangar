@@ -1995,6 +1995,7 @@ impl Client {
                         let display = self.library.map_display_name(&map_name);
                         let board = self.client_state.follow_mut(client_state().mvp_minimap());
                         board.set_display_name(display);
+                        board.set_map_id(&map_name);
                         board.set_player_cell(position.x, position.y);
                     }
                     self.async_loader.request_map_load(map_name, Some(position));
