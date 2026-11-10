@@ -109,6 +109,39 @@ impl AchievementFilter {
     }
 }
 
+/// Hercules ships 20 attendance days by default. Used until `0x0AE3` gives
+/// the real reward list.
+pub const DEFAULT_ATTENDANCE_DAYS: usize = 20;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AttendanceCellState {
+    Claimed,
+    Today,
+    #[default]
+    Upcoming,
+}
+
+/// One calendar cell. `label` is `Day N` plus the reward when known.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AttendanceCell {
+    pub label: String,
+    pub state: AttendanceCellState,
+}
+
+/// Hercules `ZC_UI_OPEN` attendance payload: `days` already includes today
+/// once it is claimed. Unclaimed, today is the cell right after the last
+/// claimed day.
+pub fn attendance_cell_state(index: usize, days_attended: u32, claimed_today: bool) -> AttendanceCellState {
+    let days = days_attended as usize;
+    if index < days {
+        AttendanceCellState::Claimed
+    } else if index == days && !claimed_today {
+        AttendanceCellState::Today
+    } else {
+        AttendanceCellState::Upcoming
+    }
+}
+
 /// Achievement list and the latest attendance period.
 #[derive(Clone, Debug, Default, RustState, StateElement)]
 pub struct Achievements {
@@ -122,6 +155,11 @@ pub struct Achievements {
     attendance_end: u32,
     attendance_known: bool,
     attendance_rewards: Vec<AttendanceReward>,
+    attendance_status: String,
+    #[hidden_element]
+    attendance_claimed_today: bool,
+    #[hidden_element]
+    attendance_cells: Vec<AttendanceCell>,
     lines: Vec<String>,
     filter_label: String,
     category_label: String,
@@ -217,6 +255,58 @@ impl Achievements {
         self.rebuild_lines();
     }
 
+    /// `ZC_UI_OPEN` type 7. `item_name` names a reward item id.
+    pub fn open_attendance(&mut self, days_attended: u32, claimed_today: bool, item_name: &dyn Fn(u32) -> String) {
+        self.attendance_count = days_attended;
+        self.attendance_claimed_today = claimed_today;
+        self.attendance_known = true;
+        self.rebuild_attendance_cells(item_name);
+        self.rebuild_lines();
+    }
+
+    /// Rebuild the calendar after a claim or new reward data.
+    pub fn rebuild_attendance_cells(&mut self, item_name: &dyn Fn(u32) -> String) {
+        let total = if self.attendance_rewards.is_empty() {
+            DEFAULT_ATTENDANCE_DAYS.max(self.attendance_count as usize + 1)
+        } else {
+            self.attendance_rewards.len()
+        };
+        self.attendance_cells = (0..total)
+            .map(|index| {
+                let label = match self.attendance_rewards.get(index) {
+                    Some(reward) => format!("Day {}\n{} x{}", index + 1, item_name(reward.item_id), reward.amount),
+                    None => format!("Day {}", index + 1),
+                };
+                AttendanceCell {
+                    label,
+                    state: attendance_cell_state(index, self.attendance_count, self.attendance_claimed_today),
+                }
+            })
+            .collect();
+        self.attendance_status = if self.attendance_claimed_today {
+            format!(
+                "{} days attended. Today's reward is claimed; come back tomorrow.",
+                self.attendance_count
+            )
+        } else {
+            format!("{} days attended. Today's reward is ready.", self.attendance_count)
+        };
+    }
+
+    /// A successful claim moves today into the claimed days.
+    pub fn mark_attendance_claimed(&mut self, item_name: &dyn Fn(u32) -> String) {
+        self.attendance_claimed_today = true;
+        self.rebuild_attendance_cells(item_name);
+    }
+
+    pub fn attendance_cells(&self) -> &[AttendanceCell] {
+        &self.attendance_cells
+    }
+
+    pub fn attendance_status_text(&self) -> &str {
+        &self.attendance_status
+    }
+
     pub fn claimable_id(&self) -> Option<u32> {
         let filter = AchievementFilter::from_code(self.filter);
         self.entries
@@ -298,7 +388,7 @@ fn tracked_from(entry: AchievementData) -> TrackedAchievement {
 mod tests {
     use ragnarok_packets::AchievementData;
 
-    use super::Achievements;
+    use super::{Achievements, AttendanceCellState, DEFAULT_ATTENDANCE_DAYS, attendance_cell_state};
 
     fn sample(id: u32, completed: u8, rewarded: u8) -> AchievementData {
         AchievementData {
@@ -364,5 +454,39 @@ mod tests {
         assert!(!log.lines().iter().any(|line| line.starts_with("#120001")));
         log.cycle_category();
         assert!(log.lines()[0].contains("category All"));
+    }
+
+    #[test]
+    fn attendance_cells_mark_claimed_today_and_upcoming() {
+        assert_eq!(attendance_cell_state(0, 3, false), AttendanceCellState::Claimed);
+        assert_eq!(attendance_cell_state(2, 3, false), AttendanceCellState::Claimed);
+        assert_eq!(attendance_cell_state(3, 3, false), AttendanceCellState::Today);
+        assert_eq!(attendance_cell_state(4, 3, false), AttendanceCellState::Upcoming);
+        // Claimed today: the count already includes today, nothing is "today".
+        assert_eq!(attendance_cell_state(3, 3, true), AttendanceCellState::Upcoming);
+        assert_eq!(attendance_cell_state(2, 3, true), AttendanceCellState::Claimed);
+    }
+
+    #[test]
+    fn attendance_calendar_uses_rewards_when_known() {
+        let name = |id: u32| format!("Item {id}");
+        let mut log = Achievements::default();
+        log.open_attendance(2, false, &name);
+        assert_eq!(log.attendance_cells().len(), DEFAULT_ATTENDANCE_DAYS);
+        assert_eq!(log.attendance_cells()[0].label, "Day 1");
+        assert_eq!(log.attendance_cells()[2].state, AttendanceCellState::Today);
+        assert!(log.attendance_status_text().contains("ready"));
+
+        log.set_attendance(1, 2, 2, vec![
+            ragnarok_packets::AttendanceReward { item_id: 501, amount: 3 },
+            ragnarok_packets::AttendanceReward { item_id: 502, amount: 1 },
+            ragnarok_packets::AttendanceReward { item_id: 503, amount: 1 },
+        ]);
+        log.rebuild_attendance_cells(&name);
+        assert_eq!(log.attendance_cells().len(), 3);
+        assert_eq!(log.attendance_cells()[0].label, "Day 1\nItem 501 x3");
+        log.mark_attendance_claimed(&name);
+        assert_eq!(log.attendance_cells()[2].state, AttendanceCellState::Upcoming);
+        assert!(log.attendance_status_text().contains("claimed"));
     }
 }

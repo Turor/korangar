@@ -25,6 +25,12 @@ where
             Some(NetworkEvent::EnchantGradeOpened { data: packet.data })
         } else if packet.ui_type == STYLIST_UI_TYPE {
             Some(NetworkEvent::OpenStylingShop)
+        } else if packet.ui_type == ragnarok_packets::ATTENDANCE_UI_TYPE {
+            let data = packet.data.max(0) as u32;
+            Some(NetworkEvent::AttendanceOpened {
+                days_attended: data / 10,
+                claimed_today: !data.is_multiple_of(10),
+            })
         } else {
             None
         }

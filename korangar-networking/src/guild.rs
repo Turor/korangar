@@ -161,6 +161,28 @@ where
         }
     }
 
+    /// `CZ_CLAN_CHAT` (`0x098D`). Same `Name : text` form and length cap as
+    /// guild chat.
+    pub fn send_clan_chat(&mut self, player_name: &str, text: &str) -> Result<(), NotConnectedError> {
+        let text = super::clip_guild_text(text.to_owned(), 70);
+        let message = format!("{player_name} : {text}");
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(ragnarok_packets::ClanChatPacket { message })
+            }
+        }
+    }
+
+    /// `CZ_OPEN_UI` (`0x0A68`) for the attendance calendar.
+    pub fn request_attendance_ui(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(ragnarok_packets::OpenUiRequestPacket {
+                    ui_type: ragnarok_packets::CZ_ATTENDANCE_UI_TYPE,
+                }),
+        }
+    }
+
     /// `CZ_REQ_DELETE_RELATED_GUILD` (`0x0183`).
     pub fn break_guild_relation(&mut self, guild_id: u32, opposition: i32) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {

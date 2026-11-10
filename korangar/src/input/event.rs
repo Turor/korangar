@@ -212,6 +212,8 @@ pub enum InputEvent {
     },
     /// Open or close the achievement and attendance list.
     ToggleAchievementsWindow,
+    /// Open or close the attendance calendar (`CZ_OPEN_UI` 5).
+    ToggleAttendanceWindow,
     /// Ask the map server for the attendance period.
     RequestAttendance,
     /// Ask the map server to grant the first completed achievement reward.
