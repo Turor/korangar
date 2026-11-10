@@ -106,6 +106,12 @@ impl Client {
                         .open_window(ChatWindow::new(client_state().chat_window(), client_state().chat_messages()));
                 }
             }
+            ContextMenuAction::SendMail => {
+                if !character_name.is_empty() {
+                    self.input_event_buffer
+                        .push(crate::input::InputEvent::ComposeMailTo { receiver: character_name });
+                }
+            }
             ContextMenuAction::AddFriend => {
                 if !character_name.is_empty() {
                     self.input_event_buffer.push(crate::input::InputEvent::AddFriend { character_name });

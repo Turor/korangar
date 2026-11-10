@@ -2703,13 +2703,18 @@ impl Client {
                     summary,
                     is_end,
                     next_mail_id,
+                    mails,
                 } => {
+                    self.on_rodex_page(mails);
                     self.client_state
                         .follow_mut(client_state().mail_window())
                         .set_list(summary, is_end, next_mail_id);
                     self.interface.open_window(MailWindow::new());
                 }
-                NetworkEvent::RodexWriteResult { summary, .. } => {
+                NetworkEvent::RodexWriteOpened { allowed, .. } => self.on_rodex_write_opened(allowed),
+                NetworkEvent::RodexReceiver { character_id, .. } => self.on_rodex_receiver(character_id),
+                NetworkEvent::RodexWriteResult { summary, result } => {
+                    self.on_rodex_send_result(result);
                     self.client_state.follow_mut(client_state().mail_window()).set_status(summary);
                     self.interface.open_window(MailWindow::new());
                 }
@@ -5901,6 +5906,13 @@ impl Client {
                         .follow_mut(client_state().mail_window())
                         .set_status(message.to_owned()),
                 },
+                event @ (InputEvent::OpenMailCompose
+                | InputEvent::ComposeMailTo { .. }
+                | InputEvent::ReadMailId { .. }
+                | InputEvent::ReplyMail
+                | InputEvent::SearchMail
+                | InputEvent::SendMail
+                | InputEvent::CancelMailCompose) => self.on_mail_compose_input(event),
                 InputEvent::CloseMail => {
                     let _ = self.networking_system.close_rodex();
                     self.interface.close_window_with_class(WindowClass::Mail);
