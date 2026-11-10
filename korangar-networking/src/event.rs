@@ -99,6 +99,15 @@ pub struct ViewedEquipPiece {
     pub identified: bool,
 }
 
+/// One row of a Rodex mail page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RodexMailSummary {
+    pub mail_id: i64,
+    pub sender: String,
+    pub title: String,
+    pub is_read: bool,
+}
+
 /// An event triggered by one of the Ragnarok Online servers.
 #[derive(Debug)]
 pub enum NetworkEvent {
@@ -757,6 +766,20 @@ pub enum NetworkEvent {
         is_end: bool,
         next_mail_id: i64,
         summary: String,
+        /// The page rows, for reply and search.
+        mails: Vec<RodexMailSummary>,
+    },
+    /// `ZC_ACK_OPEN_WRITE_MAIL` (`0x0A12`).
+    RodexWriteOpened {
+        receiver_name: String,
+        allowed: bool,
+    },
+    /// `ZC_CHECKNAME` (`0x0A51`). `character_id` 0: no such character.
+    RodexReceiver {
+        character_id: u32,
+        class: u16,
+        base_level: u16,
+        name: String,
     },
     /// `ZC_ACK_WRITE_MAIL` (`0x09ED`).
     RodexWriteResult {

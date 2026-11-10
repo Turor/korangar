@@ -12,6 +12,7 @@ mod message;
 mod packet_versions;
 mod party;
 mod pincode;
+mod rodex_write;
 mod server;
 
 use std::net::{IpAddr, SocketAddr};
@@ -38,7 +39,8 @@ pub use self::equip_switch::EquipSwitchSlotPathExt;
 pub use self::equip_switch::{EquipSwitchSlot, assign_slot, position_label, replace_slots};
 pub use self::event::{
     DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, GuildSkillSnapshot, HuntIndexUpdate, NetworkEvent,
-    OwnShopLine, RefineMaterialOffer, RoulettePrize, SearchStoreHit, StatusChangeState, ViewedEquipPiece, WeaponRefineOffer,
+    OwnShopLine, RefineMaterialOffer, RodexMailSummary, RoulettePrize, SearchStoreHit, StatusChangeState, ViewedEquipPiece,
+    WeaponRefineOffer,
 };
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
@@ -2077,7 +2079,7 @@ mod packet_handlers {
         DisplayEmotionPacket, EntityId, PacketExt, RequestEmotionPacket, StatusChangePacket, StatusChangeSequencePacket,
     };
 
-    use crate::{NetworkEvent, NetworkingSystem, StatusChangeState, SupportedPacketVersion};
+    use crate::{NetworkEvent, NetworkingSystem, RodexMailSummary, StatusChangeState, SupportedPacketVersion};
 
     #[test]
     fn login_server() {
@@ -3781,8 +3783,10 @@ mod packet_handlers {
         assert_eq!(writer.as_slice().len(), 2 + 2 + 1 + 1 + 8 + 1 + 1 + 24 + 4 + 2 + title.len());
         let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
         assert!(
-            matches!(events.as_slice(), [NetworkEvent::RodexMailList { is_end: true, next_mail_id: 42, summary }]
-            if summary.contains("#42 from Kafra: Welcome [unread] (item)"))
+            matches!(events.as_slice(), [NetworkEvent::RodexMailList { is_end: true, next_mail_id: 42, summary, mails }]
+            if summary.contains("#42 from Kafra: Welcome [unread] (item)")
+                && matches!(mails.as_slice(), [RodexMailSummary { mail_id: 42, sender, title, is_read: false }]
+                    if sender == "Kafra" && title == "Welcome"))
         );
 
         let empty = RodexMailListPacket {
@@ -3794,8 +3798,35 @@ mod packet_handlers {
         assert_eq!(writer.as_slice().len(), 5);
         let events = process_one(SupportedPacketVersion::_20190530, writer.as_slice());
         assert!(
-            matches!(events.as_slice(), [NetworkEvent::RodexMailList { is_end: true, next_mail_id: 0, summary }] if summary == "Inbox is empty.")
+            matches!(events.as_slice(), [NetworkEvent::RodexMailList { is_end: true, next_mail_id: 0, summary, mails }] if summary == "Inbox is empty." && mails.is_empty())
         );
+
+        // Compose replies: the write form opened, and the receiver check.
+        let mut opened = 0x0A12u16.to_le_bytes().to_vec();
+        let mut name = b"Bob".to_vec();
+        name.resize(24, 0);
+        opened.extend(&name);
+        opened.push(1);
+        let mut receiver = 0x0A51u16.to_le_bytes().to_vec();
+        receiver.extend(150001u32.to_le_bytes());
+        receiver.extend(4001u16.to_le_bytes());
+        receiver.extend(12u16.to_le_bytes());
+        receiver.extend(&name);
+        for version in [
+            SupportedPacketVersion::_20250716,
+            SupportedPacketVersion::_20220406,
+            SupportedPacketVersion::_20190530,
+        ] {
+            let events = process_one(version, &opened);
+            assert!(
+                matches!(events.as_slice(), [NetworkEvent::RodexWriteOpened { receiver_name, allowed: true }] if receiver_name == "Bob")
+            );
+            let events = process_one(version, &receiver);
+            assert!(matches!(
+                events.as_slice(),
+                [NetworkEvent::RodexReceiver { character_id: 150001, class: 4001, base_level: 12, name }] if name == "Bob"
+            ));
+        }
 
         let write_result = RodexWriteResultPacket { result: 0 };
         let mut writer = ByteWriter::new();
