@@ -1,7 +1,8 @@
 //! List window for identify, card insert, warp memo, auto spell, crafting,
 //! Whitesmith refine, and change cart. Rows use item icons when a texture
-//! exists. Skill, map, and cart rows are named text in the same slot chrome.
-//! Cart ACT sprites are not drawn: the UI has no cart sprite renderer.
+//! exists. Auto Spell and Auto Shadow Spell rows draw the first frame of
+//! `아이템\{file_name}.spr`, the same sprite the skill tree loads. Map and cart
+//! rows are named text. Cart ACT sprites are not drawn.
 
 use std::sync::Arc;
 
@@ -26,7 +27,8 @@ use crate::renderer::LayoutExt;
 use crate::state::inventory::InventoryPathExt;
 use crate::state::item_skill_selection::{
     ItemSkillSelectionStatePathExt, SelectionCommand, SelectionKind, SelectionRow, catalog_label, card_message, change_cart_types,
-    identify_message, making_title, produce_message, skill_label, warp_destinations, warp_title, weapon_refine_message,
+    identify_chat, making_title, produce_message, skill_icon_sprite_path, skill_label, warp_destinations, warp_title,
+    weapon_refine_applies_refine, weapon_refine_message,
 };
 use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
 use crate::state::{ChatMessage, ClientState, ClientStatePathExt, client_state, client_theme, this_player};
@@ -285,6 +287,24 @@ fn skill_name(library: &Library, skill_id: i32) -> String {
     skill_label(&info.name, skill_id)
 }
 
+fn skill_icon(library: &Library, loader: &AsyncLoader, skill_id: i32) -> Option<Arc<Texture>> {
+    let Ok(id) = u16::try_from(skill_id) else {
+        return None;
+    };
+    let info = library.get::<SkillListInformation>(SkillId(id));
+    let path = skill_icon_sprite_path(&info.file_name)?;
+    loader
+        .request_skill_sprite_load(SkillId(id), &path)
+        .and_then(|sprite| sprite.textures.first().cloned())
+}
+
+fn skill_row(library: &Library, loader: &AsyncLoader, skill_id: i32) -> SelectionRow {
+    let mut row = SelectionRow::named(skill_name(library, skill_id));
+    row.value = skill_id;
+    row.texture = skill_icon(library, loader, skill_id);
+    row
+}
+
 fn push_chat(state: &mut State<ClientState>, text: String) {
     state
         .follow_mut(client_state().chat_messages())
@@ -371,6 +391,11 @@ pub(crate) fn on_identify_result(
     wire: u16,
     result: u8,
 ) {
+    // Cancel sends `0xFFFF`. Hercules answers with that index and result 1.
+    if wire == 0xFFFF {
+        close_window(state, interface);
+        return;
+    }
     let success = result == 0;
     let index = identify_index(wire);
     if success
@@ -387,7 +412,9 @@ pub(crate) fn on_identify_result(
                 .map(|item| item.metadata.name.clone())
         })
         .unwrap_or_else(|| "item".to_owned());
-    push_chat(state, identify_message(success, &name));
+    if let Some(text) = identify_chat(wire, result, &name) {
+        push_chat(state, text);
+    }
     close_window(state, interface);
 }
 
@@ -396,7 +423,15 @@ pub(crate) fn begin_card_insert<C: PacketCallback + Send>(
     network: &mut NetworkingSystem<C>,
     index: InventoryIndex,
 ) {
-    state.follow_mut(client_state().item_skill_selection()).remember_card(index.0);
+    let item_id = state
+        .follow(client_state().inventory().items())
+        .iter()
+        .find(|item| item.index == index)
+        .map(|item| item.item_id.0)
+        .unwrap_or(0);
+    state
+        .follow_mut(client_state().item_skill_selection())
+        .remember_card(index.0, item_id);
     let _ = network.request_item_composition_list(index);
 }
 
@@ -413,7 +448,16 @@ pub(crate) fn open_composition_list(state: &mut State<ClientState>, interface: &
     show_or_tell(state, interface, "No equipment can take this card.");
 }
 
-pub(crate) fn on_composition_result(state: &mut State<ClientState>, interface: &mut GameInterface, result: u8) {
+pub(crate) fn on_composition_result(
+    state: &mut State<ClientState>,
+    interface: &mut GameInterface,
+    equip_index: InventoryIndex,
+    result: u8,
+) {
+    let card_item_id = state.follow(client_state().item_skill_selection()).card_item_id;
+    if result == 0 && card_item_id != 0 {
+        state.follow_mut(client_state().inventory()).insert_card(equip_index, card_item_id);
+    }
     push_chat(state, card_message(result == 0).to_owned());
     close_window(state, interface);
 }
@@ -429,15 +473,17 @@ pub(crate) fn open_warp_list(state: &mut State<ClientState>, interface: &mut Gam
     show_or_tell(state, interface, "No warp destinations.");
 }
 
-pub(crate) fn open_auto_spell_list(state: &mut State<ClientState>, interface: &mut GameInterface, library: &Library, skill_ids: Vec<i32>) {
+pub(crate) fn open_auto_spell_list(
+    state: &mut State<ClientState>,
+    interface: &mut GameInterface,
+    library: &Library,
+    loader: &AsyncLoader,
+    skill_ids: Vec<i32>,
+) {
     let rows = skill_ids
         .into_iter()
         .filter(|skill_id| *skill_id != 0)
-        .map(|skill_id| {
-            let mut row = SelectionRow::named(skill_name(library, skill_id));
-            row.value = skill_id;
-            row
-        })
+        .map(|skill_id| skill_row(library, loader, skill_id))
         .collect();
     state
         .follow_mut(client_state().item_skill_selection())
@@ -449,17 +495,14 @@ pub(crate) fn open_skill_select_list(
     state: &mut State<ClientState>,
     interface: &mut GameInterface,
     library: &Library,
+    loader: &AsyncLoader,
     flag: i32,
     skill_ids: Vec<i16>,
 ) {
     let rows = skill_ids
         .into_iter()
         .filter(|skill_id| *skill_id != 0)
-        .map(|skill_id| {
-            let mut row = SelectionRow::named(skill_name(library, i32::from(skill_id)));
-            row.value = i32::from(skill_id);
-            row
-        })
+        .map(|skill_id| skill_row(library, loader, i32::from(skill_id)))
         .collect();
     let selection = state.follow_mut(client_state().item_skill_selection());
     selection.shadow_flag = flag;
@@ -565,7 +608,7 @@ pub(crate) fn open_weapon_refine_list(
 pub(crate) fn on_weapon_refine_result(state: &mut State<ClientState>, library: &Library, loader: &AsyncLoader, result: i32, item_id: ItemId) {
     let (name, _) = catalog_face(library, loader, item_id);
     let message = weapon_refine_message(result, &name);
-    if result == 0 || result == 1 {
+    if weapon_refine_applies_refine(result) {
         let index = state
             .follow_mut(client_state().item_skill_selection())
             .note_weapon_refine_success(item_id.0);
@@ -620,6 +663,27 @@ pub(crate) fn on_confirm<C: PacketCallback + Send>(
     dispatch(network, command);
     if close {
         close_window(state, interface);
+    }
+}
+
+/// The title-bar X removes the window inside the interface and does not emit
+/// an event. Escape closes through `Client::on_close_top_window`. When this
+/// window was open and is now gone, send the protocol cancel.
+pub(crate) fn on_window_dismissed<C: PacketCallback + Send>(
+    was_open: bool,
+    state: &mut State<ClientState>,
+    network: &mut NetworkingSystem<C>,
+    interface: &mut GameInterface,
+) {
+    if !was_open || interface.is_window_with_class_open(WindowClass::ItemSkillSelection) {
+        return;
+    }
+    let pending = {
+        let selection = state.follow(client_state().item_skill_selection());
+        !selection.title.is_empty() || !selection.rows.is_empty()
+    };
+    if pending {
+        on_cancel(state, network, interface);
     }
 }
 

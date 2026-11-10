@@ -115,6 +115,9 @@ pub struct ItemSkillSelectionState {
     pub status: String,
     pub skill_id: u16,
     pub card_index: u16,
+    /// Item id of the card being inserted. The delete packet can remove the
+    /// stack before `0x017D` arrives, so the ack cannot look the card up.
+    pub card_item_id: u32,
     pub make_type: u16,
     pub shadow_flag: i32,
     pub selected: u32,
@@ -129,6 +132,7 @@ impl Default for ItemSkillSelectionState {
             status: String::new(),
             skill_id: 0,
             card_index: 0,
+            card_item_id: 0,
             make_type: 0,
             shadow_flag: 0,
             selected: NONE,
@@ -142,14 +146,16 @@ impl ItemSkillSelectionState {
         *self = Self::default();
     }
 
-    pub fn remember_card(&mut self, index: u16) {
+    pub fn remember_card(&mut self, index: u16, item_id: u32) {
         self.card_index = index;
+        self.card_item_id = item_id;
         self.kind = SelectionKind::CardInsert;
     }
 
     pub fn show(&mut self, kind: SelectionKind, title: impl Into<String>, rows: Vec<SelectionRow>) {
         let skill_id = self.skill_id;
         let card_index = self.card_index;
+        let card_item_id = self.card_item_id;
         let make_type = self.make_type;
         let shadow_flag = self.shadow_flag;
         let selected = if rows.is_empty() { NONE } else { 0 };
@@ -159,6 +165,7 @@ impl ItemSkillSelectionState {
             status: String::new(),
             skill_id,
             card_index,
+            card_item_id,
             make_type,
             shadow_flag,
             selected,
@@ -249,6 +256,20 @@ impl ItemSkillSelectionState {
         }
     }
 
+    /// First frame of a skill sprite, once `아이템\{file_name}.spr` finishes loading.
+    /// Cart rows share `value` for the cart type, so only spell lists take the icon.
+    pub fn note_skill_icon(&mut self, skill_id: u16, texture: Arc<Texture>) {
+        if !matches!(self.kind, SelectionKind::AutoSpell | SelectionKind::ShadowSpell) {
+            return;
+        }
+        let skill_id = i32::from(skill_id);
+        for row in &mut self.rows {
+            if row.value == skill_id {
+                row.texture = Some(texture.clone());
+            }
+        }
+    }
+
     pub fn note_weapon_refine_success(&mut self, item_id: u32) -> Option<u16> {
         let row = self.rows.iter_mut().find(|row| row.item_id == item_id)?;
         row.label = bump_refine_label(&row.label);
@@ -300,6 +321,15 @@ pub fn identify_message(success: bool, name: &str) -> String {
     }
 }
 
+/// Cancel ack is wire index `0xFFFF` and result 1. roBrowser shows nothing.
+pub fn identify_chat(wire: u16, result: u8, name: &str) -> Option<String> {
+    if wire == 0xFFFF {
+        None
+    } else {
+        Some(identify_message(result == 0, name))
+    }
+}
+
 pub fn card_message(success: bool) -> &'static str {
     if success {
         "The card was inserted."
@@ -318,10 +348,26 @@ pub fn produce_message(result: u16, name: &str) -> String {
 
 pub fn weapon_refine_message(result: i32, name: &str) -> String {
     match result {
+        // `name` is the equipment for 0, 1, and 2.
         0 | 1 => format!("Weapon upgraded: {name}"),
         2 => format!("Cannot upgrade {name} until the refine skill level is higher."),
-        3 => format!("Missing the item required to upgrade {name}."),
+        // Result 3 carries the missing material id, not the equipment.
+        3 => format!("You lack the item {name} to upgrade the weapon."),
         other => format!("Weapon refine result {other} for {name}."),
+    }
+}
+
+/// Hercules messages 0 and 1 are "weapon upgraded". Result 3 is a missing ore.
+pub fn weapon_refine_applies_refine(result: i32) -> bool {
+    result == 0 || result == 1
+}
+
+/// Same sprite path `request_learnable_skill_load` uses (`아이템\{file_name}.spr`).
+pub fn skill_icon_sprite_path(file_name: &str) -> Option<String> {
+    if file_name.is_empty() || file_name == "notfound" {
+        None
+    } else {
+        Some(format!("아이템\\{file_name}"))
     }
 }
 
@@ -370,7 +416,8 @@ pub fn warp_destinations(maps: impl IntoIterator<Item = String>, mut label_for: 
 #[cfg(test)]
 mod tests {
     use super::{
-        ItemSkillSelectionState, SelectionCommand, SelectionKind, SelectionRow, bump_refine_label, change_cart_types, warp_destinations,
+        ItemSkillSelectionState, SelectionCommand, SelectionKind, SelectionRow, bump_refine_label, change_cart_types, identify_chat,
+        skill_icon_sprite_path, warp_destinations, weapon_refine_applies_refine, weapon_refine_message,
     };
 
     fn identify_state() -> ItemSkillSelectionState {
@@ -393,7 +440,7 @@ mod tests {
     #[test]
     fn card_cancel_is_silent_and_confirm_keeps_the_card_index() {
         let mut state = ItemSkillSelectionState::default();
-        state.remember_card(4);
+        state.remember_card(4, 4001);
         state.show(
             SelectionKind::CardInsert,
             "Insert Card",
@@ -404,6 +451,35 @@ mod tests {
             equip_index: 1,
         }));
         assert_eq!(state.cancel(), SelectionCommand::Silent);
+        assert_eq!(state.card_item_id, 4001);
+    }
+
+    #[test]
+    fn identify_cancel_ack_has_no_chat_line() {
+        assert_eq!(identify_chat(0xFFFF, 1, "item"), None);
+        assert_eq!(identify_chat(5, 1, "Sword"), Some("Could not identify the item.".to_owned()));
+        assert_eq!(identify_chat(5, 0, "Sword"), Some("Identified Sword.".to_owned()));
+    }
+
+    #[test]
+    fn weapon_refine_result_three_names_the_missing_material() {
+        assert_eq!(
+            weapon_refine_message(3, "Phracon"),
+            "You lack the item Phracon to upgrade the weapon."
+        );
+        assert_eq!(weapon_refine_message(0, "Sword"), "Weapon upgraded: Sword");
+        assert!(weapon_refine_message(2, "Sword").contains("Sword"));
+        assert!(weapon_refine_applies_refine(0));
+        assert!(weapon_refine_applies_refine(1));
+        assert!(!weapon_refine_applies_refine(2));
+        assert!(!weapon_refine_applies_refine(3));
+    }
+
+    #[test]
+    fn skill_icon_path_matches_the_learnable_skill_sprite() {
+        assert_eq!(skill_icon_sprite_path("화이어볼트").as_deref(), Some("아이템\\화이어볼트"));
+        assert_eq!(skill_icon_sprite_path("notfound"), None);
+        assert_eq!(skill_icon_sprite_path(""), None);
     }
 
     #[test]

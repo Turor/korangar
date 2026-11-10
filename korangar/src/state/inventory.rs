@@ -104,6 +104,22 @@ impl Inventory {
         }
     }
 
+    /// `pc_insert_card` writes the card id into the first empty card slot.
+    /// The composition ack does not resend the inventory list.
+    pub fn insert_card(&mut self, equip_index: InventoryIndex, card_item_id: u32) -> bool {
+        if card_item_id == 0 {
+            return false;
+        }
+        let Some(item) = self.items.iter_mut().find(|item| item.index == equip_index) else {
+            return false;
+        };
+        let Some(slot) = item.slot.iter_mut().find(|slot| **slot == 0) else {
+            return false;
+        };
+        *slot = card_item_id;
+        true
+    }
+
     pub fn set_refinement(&mut self, index: InventoryIndex, refine_level: u8) {
         let Some(item) = self.items.iter_mut().find(|item| item.index == index) else {
             return;
@@ -472,5 +488,23 @@ mod tests {
         assert!(use_ack_targets_self(ours, Some(AccountId(9))));
         assert!(!use_ack_targets_self(ours, Some(AccountId(4))));
         assert!(!use_ack_targets_self(None, Some(AccountId(9))));
+    }
+
+    #[test]
+    fn insert_card_fills_the_first_empty_slot() {
+        let mut inventory = Inventory::default();
+        let mut weapon = equip(2, 0, 0);
+        weapon.slot = [4001, 0, 0, 0];
+        inventory.items.push(weapon);
+
+        assert!(inventory.insert_card(InventoryIndex(2), 4121));
+        assert_eq!(inventory.items[0].slot, [4001, 4121, 0, 0]);
+        assert!(!inventory.insert_card(InventoryIndex(2), 0));
+        assert_eq!(inventory.items[0].slot, [4001, 4121, 0, 0]);
+
+        inventory.items[0].slot = [1, 2, 3, 4];
+        assert!(!inventory.insert_card(InventoryIndex(2), 5));
+        assert_eq!(inventory.items[0].slot, [1, 2, 3, 4]);
+        assert!(!inventory.insert_card(InventoryIndex(9), 5));
     }
 }

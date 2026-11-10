@@ -3485,8 +3485,15 @@ impl Client {
                         indexes,
                     );
                 }
-                NetworkEvent::ItemCompositionResult { result, .. } => {
-                    crate::interface::windows::item_skill_selection::on_composition_result(&mut self.client_state, &mut self.interface, result);
+                NetworkEvent::ItemCompositionResult {
+                    equip_index, result, ..
+                } => {
+                    crate::interface::windows::item_skill_selection::on_composition_result(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        equip_index,
+                        result,
+                    );
                 }
                 NetworkEvent::WarpList { skill_id, maps } => {
                     crate::interface::windows::item_skill_selection::open_warp_list(
@@ -3502,6 +3509,7 @@ impl Client {
                         &mut self.client_state,
                         &mut self.interface,
                         &self.library,
+                        &self.async_loader,
                         skill_ids,
                     );
                 }
@@ -3510,6 +3518,7 @@ impl Client {
                         &mut self.client_state,
                         &mut self.interface,
                         &self.library,
+                        &self.async_loader,
                         flag,
                         skill_ids,
                     );
@@ -4268,8 +4277,15 @@ impl Client {
         let shop_setup_open = self.interface.is_window_with_class_open(WindowClass::VendingSetup);
         let shop_search_open = self.interface.is_window_with_class_open(WindowClass::SearchStore);
         let shop_report_open = self.interface.is_window_with_class_open(WindowClass::VendingReport);
+        let selection_open = self.interface.is_window_with_class_open(WindowClass::ItemSkillSelection);
         self.interface.process_events(&mut self.input_event_buffer);
         self.on_shop_windows_dismissed(shop_setup_open, shop_search_open, shop_report_open);
+        crate::interface::windows::item_skill_selection::on_window_dismissed(
+            selection_open,
+            &mut self.client_state,
+            &mut self.networking_system,
+            &mut self.interface,
+        );
 
         let interface_has_focus = self.interface.has_focus();
 
@@ -6462,6 +6478,11 @@ impl Client {
                     }
                 }
                 (LoaderId::SkillSprite(skill_id), LoadableResource::SkillSprite { sprite }) => {
+                    if let Some(icon) = sprite.textures.first().cloned() {
+                        self.client_state
+                            .follow_mut(client_state().item_skill_selection())
+                            .note_skill_icon(skill_id.0, icon);
+                    }
                     self.client_state
                         .follow_mut(client_state().hotbar().skills())
                         .iter_mut()

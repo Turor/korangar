@@ -275,8 +275,15 @@ impl Client {
         let setup_open = self.interface.is_window_with_class_open(WindowClass::VendingSetup);
         let search_open = self.interface.is_window_with_class_open(WindowClass::SearchStore);
         let report_open = self.interface.is_window_with_class_open(WindowClass::VendingReport);
+        let selection_open = self.interface.is_window_with_class_open(WindowClass::ItemSkillSelection);
         self.interface.close_top_window(&self.client_state);
         self.on_shop_windows_dismissed(setup_open, search_open, report_open);
+        crate::interface::windows::item_skill_selection::on_window_dismissed(
+            selection_open,
+            &mut self.client_state,
+            &mut self.networking_system,
+            &mut self.interface,
+        );
     }
 
     fn reopen_shop_setup(&mut self) {
