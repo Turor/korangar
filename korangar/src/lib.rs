@@ -1089,6 +1089,8 @@ impl Client {
         }
         self.networking_system.get_events(&mut self.network_event_buffer);
 
+        let mut defer_headless_character = false;
+        let mut pincode_effects = Vec::new();
         for event in self.network_event_buffer.drain() {
             match event {
                 NetworkEvent::LoginServerConnected {
@@ -1329,8 +1331,21 @@ impl Client {
                             client_state().switch_request(),
                         ));
                         if headless_auto() {
-                            self.input_event_buffer.push(InputEvent::SelectCharacter { slot: 0 });
+                            defer_headless_character = true;
                         }
+                    }
+                }
+                NetworkEvent::Pincode { notice } => {
+                    let autopilot = crate::state::pincode::PincodeWindowState::autopilot_pin();
+                    let effect = self
+                        .client_state
+                        .follow_mut(client_state().pincode_window())
+                        .apply_notice(notice, autopilot.as_deref());
+                    pincode_effects.push(effect);
+                    if !self.client_state.follow(client_state().pincode_window()).allows_select() {
+                        defer_headless_character = false;
+                    } else if headless_auto() && self.interface.is_window_with_class_open(WindowClass::CharacterSelection) {
+                        defer_headless_character = true;
                     }
                 }
                 NetworkEvent::CharacterSelectionFailed { message, .. } => self.interface.open_window(ErrorWindow::new(message.to_owned())),
@@ -1396,6 +1411,7 @@ impl Client {
 
                     self.interface.close_window_with_class(WindowClass::CharacterSelection);
                     self.interface.close_window_with_class(WindowClass::CharacterCreation);
+                    self.interface.close_window_with_class(WindowClass::Pincode);
                     if headless_auto() {
                         self.interface.close_window_with_class(WindowClass::CharacterOverview);
                         self.interface.close_window_with_class(WindowClass::Menu);
@@ -3542,6 +3558,44 @@ impl Client {
                 }
             }
         }
+
+        for effect in pincode_effects {
+            self.apply_pincode_effect(effect);
+        }
+
+        if defer_headless_character
+            && self.client_state.follow(client_state().pincode_window()).allows_select()
+            && self.interface.is_window_with_class_open(WindowClass::CharacterSelection)
+        {
+            self.input_event_buffer.push(InputEvent::SelectCharacter { slot: 0 });
+        }
+    }
+
+    fn apply_pincode_effect(&mut self, effect: crate::state::pincode::PincodeEffect) {
+        use crate::state::pincode::PincodeOutbound;
+
+        if effect.close_window {
+            self.interface.close_window_with_class(WindowClass::Pincode);
+        }
+        if effect.open_window {
+            self.interface.open_window(PincodeWindow);
+        }
+        if let Some(outbound) = effect.outbound {
+            let _ = match outbound {
+                PincodeOutbound::Check { account_id, pin } => self.networking_system.send_pincode_check(account_id, pin),
+                PincodeOutbound::Make { account_id, pin } => self.networking_system.send_pincode_make(account_id, pin),
+                PincodeOutbound::Edit {
+                    account_id,
+                    old_pin,
+                    new_pin,
+                } => self.networking_system.send_pincode_edit(account_id, old_pin, new_pin),
+                PincodeOutbound::Available { account_id } => self.networking_system.send_pincode_available(account_id),
+            };
+        }
+        if effect.disconnect {
+            self.interface.close_window_with_class(WindowClass::Pincode);
+            self.networking_system.disconnect_from_character_server();
+        }
     }
 
     /// Load world-map images from the GRF while the window is open.
@@ -3624,6 +3678,7 @@ impl Client {
             );
         }
 
+        let mut pincode_effects = Vec::new();
         for event in self.input_event_buffer.drain(..) {
             match event {
                 InputEvent::LogIn {
@@ -3678,6 +3733,7 @@ impl Client {
                     // server before it logged in to the login server, so it's fine to
                     // unwrap here.
                     let login_data = self.saved_login_data.as_ref().unwrap();
+                    self.client_state.follow_mut(client_state().pincode_window()).reset();
                     self.networking_system
                         .connect_to_character_server(self.saved_packet_version, login_data, character_server_information);
                 }
@@ -3689,7 +3745,27 @@ impl Client {
                     let _ = self.networking_system.log_out();
                 }
                 InputEvent::LogOutCharacter => {
+                    self.client_state.follow_mut(client_state().pincode_window()).reset();
+                    self.interface.close_window_with_class(WindowClass::Pincode);
                     self.networking_system.disconnect_from_character_server();
+                }
+                InputEvent::PincodeDigit { index } => {
+                    self.client_state.follow_mut(client_state().pincode_window()).press_digit(index);
+                }
+                InputEvent::PincodeReset => {
+                    self.client_state.follow_mut(client_state().pincode_window()).reset_entry();
+                }
+                InputEvent::PincodeSubmit => {
+                    pincode_effects.push(self.client_state.follow_mut(client_state().pincode_window()).submit());
+                }
+                InputEvent::PincodeChange => {
+                    pincode_effects.push(self.client_state.follow_mut(client_state().pincode_window()).start_change());
+                }
+                InputEvent::PincodeRequest => {
+                    pincode_effects.push(self.client_state.follow_mut(client_state().pincode_window()).request_or_reopen());
+                }
+                InputEvent::PincodeCancel => {
+                    pincode_effects.push(self.client_state.follow_mut(client_state().pincode_window()).cancel());
                 }
                 InputEvent::Exit => SHUTDOWN_SIGNAL.store(true, Ordering::SeqCst),
                 InputEvent::ZoomCamera { zoom_factor } => self.player_camera.soft_zoom(zoom_factor),
@@ -3980,7 +4056,9 @@ impl Client {
                 }
                 InputEvent::ToggleShowInterface => self.show_interface = !self.show_interface,
                 InputEvent::SelectCharacter { slot } => {
-                    let _ = self.networking_system.select_character(slot);
+                    if self.client_state.follow(client_state().pincode_window()).allows_select() {
+                        let _ = self.networking_system.select_character(slot);
+                    }
                 }
                 InputEvent::OpenCharacterCreationWindow { slot } => {
                     // The creation form is a character-select dialog. Opening it after the
@@ -3997,7 +4075,9 @@ impl Client {
                     let _ = self.networking_system.create_character(slot, name);
                 }
                 InputEvent::DeleteCharacter { character_id } => {
-                    if self.client_state.follow(client_state().currently_deleting()).is_none() {
+                    if self.client_state.follow(client_state().pincode_window()).allows_select()
+                        && self.client_state.follow(client_state().currently_deleting()).is_none()
+                    {
                         let _ = self.networking_system.delete_character(character_id);
                         *self.client_state.follow_mut(client_state().currently_deleting()) = Some(character_id);
                     }
@@ -5133,6 +5213,10 @@ impl Client {
                 #[cfg(feature = "debug")]
                 InputEvent::InspectFrame { measurement } => self.interface.open_window(FrameInspectorWindow::new(measurement)),
             }
+        }
+
+        for effect in pincode_effects {
+            self.apply_pincode_effect(effect);
         }
 
         interface_has_focus

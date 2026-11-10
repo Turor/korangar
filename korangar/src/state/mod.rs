@@ -13,6 +13,7 @@ pub mod item_finder;
 pub mod item_workshop;
 pub mod localization;
 pub mod navigation;
+pub mod pincode;
 pub mod quest_log;
 pub mod refine;
 pub mod skill_cooldowns;
@@ -78,6 +79,7 @@ use crate::state::hotbar::Hotbar;
 use crate::state::inventory::Inventory;
 use crate::state::item_workshop::{EnchantGradeState, ItemReformState, LaphineSynthesisState, LaphineUpgradeState};
 use crate::state::navigation::Navigation;
+use crate::state::pincode::PincodeWindowState;
 use crate::state::quest_log::QuestLog;
 use crate::state::refine::RefineState;
 use crate::state::skill_cooldowns::SkillCooldowns;
@@ -324,6 +326,8 @@ pub struct ClientState {
     switch_request: Option<usize>,
     /// Name of the character being created currently.
     create_character_name: String,
+    /// Second password asked by the character server before character select.
+    pincode_window: PincodeWindowState,
 
     /// Size of the Korangar window.
     window_size: ScreenSize,
@@ -449,6 +453,7 @@ impl ClientState {
             // TODO: This could be in a single struct.
             let switch_request = None;
             let create_character_name = String::new();
+            let pincode_window = PincodeWindowState::default();
         });
 
         time_phase!("create friend list state", {
@@ -616,6 +621,7 @@ impl ClientState {
             currently_deleting,
             switch_request,
             create_character_name,
+            pincode_window,
             window_size,
             buffered_action,
             #[cfg(feature = "debug")]

@@ -16,7 +16,7 @@ use crate::items::ItemQuantity;
 use crate::packet_versions::economy::open_market_event;
 use crate::{
     CharacterServerLoginData, GuildMemberSnapshot, HotkeyState, InventoryItem, InventoryItemDetails, LoginServerLoginData, MessageColor,
-    NetworkEvent, NoMetadata, ShopItem, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
+    NetworkEvent, NoMetadata, PincodeNotice, ShopItem, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
 };
 
 pub fn register_login_server_packets<Callback>(
@@ -132,7 +132,34 @@ where
     packet_handler.register_noop::<CharacterListPacket>()?;
     packet_handler.register_noop::<CharacterSlotPagePacket>()?;
     packet_handler.register_noop::<CharacterBanListPacket>()?;
-    packet_handler.register_noop::<LoginPincodePacket>()?;
+    packet_handler.register(|packet: LoginPincodePacket| NetworkEvent::Pincode {
+        notice: PincodeNotice::Login {
+            seed: packet.pincode_seed,
+            account_id: packet.account_id,
+            state: packet.state,
+            flag: None,
+        },
+    })?;
+    packet_handler.register(|packet: SecondPasswdLogin2Packet| NetworkEvent::Pincode {
+        notice: PincodeNotice::Login {
+            seed: packet.seed,
+            account_id: packet.account_id,
+            state: packet.state,
+            flag: Some(packet.flag),
+        },
+    })?;
+    packet_handler.register(|packet: MakeSecondPasswdResultPacket| NetworkEvent::Pincode {
+        notice: PincodeNotice::MakeResult {
+            state: packet.state,
+            seed: packet.seed,
+        },
+    })?;
+    packet_handler.register(|packet: EditSecondPasswdResultPacket| NetworkEvent::Pincode {
+        notice: PincodeNotice::EditResult {
+            state: packet.state,
+            seed: packet.seed,
+        },
+    })?;
     packet_handler.register_noop::<Packet0b18>()?;
     packet_handler.register(|packet: CharacterSelectionSuccessPacket| {
         let login_data = CharacterServerLoginData {
