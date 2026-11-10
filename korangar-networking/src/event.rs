@@ -90,6 +90,15 @@ pub struct SearchStoreHit {
     pub amount: u16,
 }
 
+/// One item inside `ZC_EQUIPWIN_MICROSCOPE`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ViewedEquipPiece {
+    pub item_id: u32,
+    pub location: u32,
+    pub refine: u8,
+    pub identified: bool,
+}
+
 /// An event triggered by one of the Ragnarok Online servers.
 #[derive(Debug)]
 pub enum NetworkEvent {
@@ -183,8 +192,13 @@ pub enum NetworkEvent {
     ResurrectPlayer {
         entity_id: EntityId,
     },
-    /// Make a player stand up.
+    /// Make a player stand up. Hercules `clif_standing` puts the actor in the
+    /// source id of `ZC_NOTIFY_ACT`.
     PlayerStandUp {
+        entity_id: EntityId,
+    },
+    /// Make a player sit. Hercules `clif_sitting` uses the same source id.
+    PlayerSitDown {
         entity_id: EntityId,
     },
     /// Show an emotion above an entity.
@@ -977,6 +991,18 @@ pub enum NetworkEvent {
     },
     /// Locks were cleared because an offer changed (`ZC_EXCHANGEITEM_UNDO`).
     TradeLockRemoved,
+    /// "Show my equipment" from `ZC_CONFIG_NOTIFY` (`0x02DA`) or `ZC_CONFIG`
+    /// (`0x02D9`) type 0. Applying this must not send `CZ_CONFIG` again.
+    ShowEquipment {
+        enabled: bool,
+    },
+    /// Another player's worn items (`ZC_EQUIPWIN_MICROSCOPE`, `0x0B37`).
+    PlayerEquipment {
+        name: String,
+        job: i16,
+        sex: u8,
+        items: Vec<ViewedEquipPiece>,
+    },
     InventoryItemRemoved {
         reason: RemoveItemReason,
         index: InventoryIndex,

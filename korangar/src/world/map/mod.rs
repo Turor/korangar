@@ -393,10 +393,10 @@ impl Map {
         camera: &dyn Camera,
         client_tick: ClientTick,
     ) {
+        // Include the local player (entities[0]) so a right-click can open the menu.
         entities
             .iter()
-            .enumerate()
-            .for_each(|(index, entity)| entity.render(instructions, camera, index != 0, client_tick));
+            .for_each(|entity| entity.render(instructions, camera, true, client_tick));
     }
 
     #[cfg_attr(feature = "debug", korangar_debug::profile)]

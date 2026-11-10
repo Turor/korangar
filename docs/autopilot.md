@@ -72,6 +72,10 @@ A left `click` on an NPC sprite box walks within three cells and then opens its 
 - `RequestStablePet(action: 0, id: 0)` (`action` is the stable pet word; id 0 stores the current pet)
 - `CreateParty(name: "Name", item_pickup: false, item_division: false)`
 - `InviteToParty("Character")`
+- `OpenPlayerContextMenu(2000043)` (a player entity id, which is its account id)
+- `ContextMenuPick(1)` (a row in the open player context menu)
+- `TradeAddItem(index: 4, amount: 1)`, `TradeAddZeny(100)`
+- `SetShowEquipment(true)`
 - `LeaveParty` and `AcceptPendingPartyInvite` (unit events; accept uses the open invite)
 
 `event LogIn` is rejected so a command file cannot be asked to print a password.

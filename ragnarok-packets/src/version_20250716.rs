@@ -221,6 +221,33 @@ pub struct TradeCompletePacket {
 #[header(0x00F1)]
 pub struct TradeUnlockPacket {}
 
+/// Another player's equipment (`ZC_EQUIPWIN_MICROSCOPE`, `0x0B37`).
+///
+/// Hercules `PACKETVER_MAIN_NUM >= 20200916` (this profile is 20250716) sends
+/// this header. The fixed prefix is 47 bytes including the header and length:
+/// name (24), nine `int16` look fields, and sex. Each entry is one
+/// [`EquippableItemInformation`] (83 bytes, with three forge options).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B37)]
+#[variable_length]
+pub struct EquipWindowMicroscopePacket {
+    #[length(24)]
+    pub character_name: String,
+    pub job: i16,
+    pub head: i16,
+    pub accessory: i16,
+    pub accessory2: i16,
+    pub accessory3: i16,
+    pub robe: i16,
+    pub head_palette: i16,
+    pub body_palette: i16,
+    pub body: i16,
+    pub sex: u8,
+    #[repeating_remaining]
+    pub items: Vec<EquippableItemInformation>,
+}
+
 #[cfg(test)]
 mod tests {
     use ragnarok_bytes::{ByteReader, ByteWriter};
@@ -310,5 +337,85 @@ mod tests {
             .unwrap();
         assert_eq!(writer.as_slice().len(), 23);
         assert_eq!(&writer.as_slice()[19..], &[0u8; 4]);
+    }
+
+    #[test]
+    fn equip_window_microscope_is_0b37_with_a_forty_seven_byte_prefix() {
+        let option = || ItemOptions {
+            index: 0,
+            value: 0,
+            parameter: 0,
+        };
+        let item = EquippableItemInformation {
+            index: InventoryIndex(2),
+            item_id: ItemId(501),
+            item_type: 5,
+            equip_position: EquipPosition::ARMOR,
+            equipped_position: EquipPosition::ARMOR,
+            slot: [0; 4],
+            hire_expiration_date: 0,
+            bind_on_equip_type: 0,
+            w_item_sprite_number: 0,
+            option_count: 0,
+            option_data: std::array::from_fn(|_| option()),
+            forge_data: std::array::from_fn(|_| option()),
+            refinement_level: 7,
+            enchantment_level: 0,
+            flags: EquippableItemFlags::IDENTIFIED,
+        };
+        let mut empty = ByteWriter::new();
+        EquipWindowMicroscopePacket {
+            character_name: "Alice".to_owned(),
+            job: 4001,
+            head: 1,
+            accessory: 2,
+            accessory2: 3,
+            accessory3: 4,
+            robe: 5,
+            head_palette: 6,
+            body_palette: 7,
+            body: 8,
+            sex: 0,
+            items: vec![],
+        }
+        .packet_to_bytes(&mut empty)
+        .unwrap();
+        assert_eq!(empty.as_slice().len(), 47);
+        assert_eq!(&empty.as_slice()[..4], &[0x37, 0x0B, 47, 0]);
+        assert_eq!(&empty.as_slice()[4..9], b"Alice");
+        assert_eq!(empty.as_slice()[9], 0);
+        assert_eq!(&empty.as_slice()[28..30], &4001i16.to_le_bytes());
+        assert_eq!(empty.as_slice()[46], 0);
+
+        let mut with_item = ByteWriter::new();
+        EquipWindowMicroscopePacket {
+            character_name: "Alice".to_owned(),
+            job: 4001,
+            head: 1,
+            accessory: 2,
+            accessory2: 3,
+            accessory3: 4,
+            robe: 5,
+            head_palette: 6,
+            body_palette: 7,
+            body: 8,
+            sex: 1,
+            items: vec![item],
+        }
+        .packet_to_bytes(&mut with_item)
+        .unwrap();
+        assert_eq!(with_item.as_slice().len(), 130);
+        assert_eq!(&with_item.as_slice()[2..4], &130u16.to_le_bytes());
+        assert_eq!(&with_item.as_slice()[49..53], &501u32.to_le_bytes());
+        assert_eq!(with_item.as_slice()[127], 7);
+        let mut reader = ByteReader::without_metadata(with_item.as_slice());
+        let decoded = EquipWindowMicroscopePacket::packet_from_bytes(&mut reader).unwrap();
+        assert!(reader.is_empty());
+        assert_eq!(decoded.character_name, "Alice");
+        assert_eq!(decoded.sex, 1);
+        assert_eq!(decoded.items.len(), 1);
+        assert_eq!(decoded.items[0].item_id, ItemId(501));
+        assert_eq!(decoded.items[0].refinement_level, 7);
+        assert!(decoded.items[0].flags.contains(EquippableItemFlags::IDENTIFIED));
     }
 }

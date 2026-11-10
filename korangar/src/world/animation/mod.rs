@@ -102,6 +102,15 @@ impl AnimationState {
         self.looping = true;
     }
 
+    pub fn sit(&mut self, entity_type: EntityType, client_tick: ClientTick) {
+        self.action_type = AnimationActionType::Sit;
+        self.action_base_offset = self.action_type.action_base_offset(entity_type);
+        self.start_time = client_tick;
+        self.duration = None;
+        self.factor = None;
+        self.looping = true;
+    }
+
     pub fn attack(&mut self, entity_type: EntityType, attack_duration: u32, critical: bool, client_tick: ClientTick) {
         self.action_type = match critical {
             true => AnimationActionType::Attack3,

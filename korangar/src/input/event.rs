@@ -763,6 +763,18 @@ pub enum InputEvent {
     ShopSearchNextPage,
     /// Close the search store.
     CloseShopSearch,
+    /// Right-click a player, including this character.
+    OpenPlayerContextMenu {
+        entity_id: EntityId,
+    },
+    /// A row in the open player context menu. The action lives on menu state.
+    ContextMenuPick {
+        index: usize,
+    },
+    /// Toggle "show my equipment" and tell the map server.
+    SetShowEquipment {
+        enabled: bool,
+    },
     /// `buying` selects buying stores. Otherwise the search looks at vending
     /// shops.
     SetShopSearchBuying {

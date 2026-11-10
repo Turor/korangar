@@ -1,10 +1,17 @@
+use std::sync::Arc;
+
 use korangar_interface::element::StateElement;
 use rust_state::RustState;
+
+use crate::graphics::Texture;
 
 /// One line shown on a side of the trade window.
 #[derive(Clone, Default, RustState, StateElement)]
 pub struct TradeOfferLine {
     pub label: String,
+    pub item_id: u32,
+    #[hidden_element]
+    pub texture: Option<Arc<Texture>>,
 }
 
 /// An inventory stack the player can place into the trade.
@@ -12,8 +19,11 @@ pub struct TradeOfferLine {
 pub struct TradeInventoryOffer {
     /// Stored inventory index (wire index minus 2).
     pub index: u16,
+    pub item_id: u32,
     pub label: String,
     pub amount: u16,
+    #[hidden_element]
+    pub texture: Option<Arc<Texture>>,
 }
 
 /// An item add waiting for `ZC_ACK_ADD_EXCHANGE_ITEM`.
@@ -24,8 +34,11 @@ pub struct TradeInventoryOffer {
 pub struct PendingTradeAdd {
     /// Wire inventory index (`stored + 2`). Never zero.
     pub index: u16,
+    pub item_id: u32,
     pub label: String,
     pub amount: u32,
+    #[hidden_element]
+    pub texture: Option<Arc<Texture>>,
 }
 
 /// Both sides of an in-progress player trade.
@@ -48,11 +61,22 @@ pub struct TradeState {
     /// In-flight item adds. One entry per inventory index, so a silent
     /// over-stack reject on one stack does not block the rest of the window.
     pub pending_adds: Vec<PendingTradeAdd>,
+    /// Own stacks the server accepted, as (stored inventory index, amount).
+    /// Hercules `trade_tradecommit` removes them with `pc->delitem(..., 1,
+    /// ...)`, which sends no delete packet, so the client removes them on
+    /// success.
+    #[hidden_element]
+    pub committed_items: Vec<(u16, u16)>,
 }
 
 impl TradeState {
     pub fn clear(&mut self) {
         *self = Self::default();
+    }
+
+    /// Stacks to remove from the bag after `ZC_EXEC_EXCHANGE_ITEM` result 0.
+    pub fn take_committed_items(&mut self) -> Vec<(u16, u16)> {
+        std::mem::take(&mut self.committed_items)
     }
 
     pub fn refresh_summaries(&mut self) {
@@ -128,12 +152,36 @@ impl TradeState {
         if !self.can_note_item_add(stored_index, amount) {
             return false;
         }
+        let (item_id, texture) = self
+            .inventory_offers
+            .iter()
+            .find(|offer| offer.index == stored_index)
+            .map(|offer| (offer.item_id, offer.texture.clone()))
+            .unwrap_or((0, None));
         self.pending_adds.push(PendingTradeAdd {
             index: stored_index.saturating_add(2),
+            item_id,
             label,
             amount,
+            texture,
         });
         true
+    }
+
+    pub fn set_item_texture(&mut self, item_id: u32, texture: Arc<Texture>) {
+        if item_id == 0 {
+            return;
+        }
+        for line in self.partner_lines.iter_mut().chain(self.own_lines.iter_mut()) {
+            if line.item_id == item_id {
+                line.texture = Some(texture.clone());
+            }
+        }
+        for offer in &mut self.inventory_offers {
+            if offer.item_id == item_id {
+                offer.texture = Some(texture.clone());
+            }
+        }
     }
 
     /// Apply `ZC_ACK_ADD_EXCHANGE_ITEM`.
@@ -157,9 +205,15 @@ impl TradeState {
             });
         }
         if !pending.label.is_empty() {
-            self.own_lines.push(TradeOfferLine { label: pending.label });
+            self.own_lines.push(TradeOfferLine {
+                label: pending.label,
+                item_id: pending.item_id,
+                texture: pending.texture,
+            });
         }
         let stored = index.saturating_sub(2);
+        self.committed_items
+            .push((stored, u16::try_from(pending.amount).unwrap_or(u16::MAX)));
         if let Some(offer_at) = self.inventory_offers.iter().position(|offer| offer.index == stored) {
             let offer_amount = u32::from(self.inventory_offers[offer_at].amount);
             if pending.amount >= offer_amount {
@@ -201,12 +255,45 @@ mod tests {
     }
 
     #[test]
+    fn accepted_own_stacks_are_kept_for_removal_on_trade_complete() {
+        let mut trade = TradeState::default();
+        trade.inventory_offers.push(TradeInventoryOffer {
+            index: 5,
+            item_id: 501,
+            label: "Red Potion x3".to_owned(),
+            amount: 3,
+            texture: None,
+        });
+        assert!(trade.note_item_add(5, "Red Potion x3".to_owned(), 3));
+        assert!(trade.apply_add_result(7, 0).is_none());
+        assert_eq!(trade.take_committed_items(), vec![(5, 3)]);
+        assert!(trade.committed_items.is_empty());
+    }
+
+    #[test]
+    fn rejected_own_stack_is_not_removed_on_trade_complete() {
+        let mut trade = TradeState::default();
+        trade.inventory_offers.push(TradeInventoryOffer {
+            index: 2,
+            item_id: 7060,
+            label: "Novice Potion x20".to_owned(),
+            amount: 20,
+            texture: None,
+        });
+        assert!(trade.note_item_add(2, "Novice Potion x5".to_owned(), 5));
+        assert!(trade.apply_add_result(4, 4).is_some());
+        assert!(trade.take_committed_items().is_empty());
+    }
+
+    #[test]
     fn trade_dummy_zero_ack_leaves_a_pending_item_alone() {
         let mut trade = TradeState::default();
         trade.inventory_offers.push(TradeInventoryOffer {
             index: 3,
+            item_id: 512,
             label: "Apple x5".to_owned(),
             amount: 5,
+            texture: None,
         });
         assert!(trade.note_item_add(3, "Apple x5".to_owned(), 5));
         assert!(trade.apply_add_result(0, 0).is_none());
@@ -221,19 +308,24 @@ mod tests {
         let mut trade = TradeState::default();
         trade.inventory_offers.push(TradeInventoryOffer {
             index: 3,
+            item_id: 512,
             label: "Apple x5".to_owned(),
             amount: 5,
+            texture: None,
         });
         trade.inventory_offers.push(TradeInventoryOffer {
             index: 4,
+            item_id: 501,
             label: "Potion x2".to_owned(),
             amount: 2,
+            texture: None,
         });
         assert!(trade.note_item_add(3, "Apple x5".to_owned(), 5));
         assert!(!trade.note_item_add(3, "Apple x5".to_owned(), 5));
         assert!(trade.note_item_add(4, "Potion x2".to_owned(), 2));
         assert!(trade.apply_add_result(5, 0).is_none());
         assert_eq!(trade.own_lines.len(), 1);
+        assert_eq!(trade.own_lines[0].item_id, 512);
         assert_eq!(trade.inventory_offers.len(), 1);
         assert_eq!(trade.inventory_offers[0].index, 4);
         assert_eq!(trade.pending_adds.len(), 1);
@@ -244,8 +336,10 @@ mod tests {
         let mut trade = TradeState::default();
         trade.inventory_offers.push(TradeInventoryOffer {
             index: 3,
+            item_id: 512,
             label: "Apple x5".to_owned(),
             amount: 5,
+            texture: None,
         });
         assert!(!trade.note_item_add(3, "Apple x5".to_owned(), 9));
         assert!(trade.pending_adds.is_empty());

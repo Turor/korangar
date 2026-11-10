@@ -17,6 +17,10 @@ fn default_dialog_portrait_dim() -> f32 {
     0.45
 }
 
+fn default_show_equipment() -> bool {
+    true
+}
+
 #[derive(Clone, Serialize, Deserialize, RustState, StateElement)]
 pub struct GameSettings {
     pub auto_attack: bool,
@@ -34,6 +38,10 @@ pub struct GameSettings {
     /// fully lit. The tint stays the sprite color; only alpha changes.
     #[serde(default = "default_dialog_portrait_dim")]
     pub dialog_portrait_dim: f32,
+    /// Let other players open this character's equipment window.
+    /// The server echo (`0x02DA` / `0x02D9`) overwrites the saved value.
+    #[serde(default = "default_show_equipment")]
+    pub show_equipment: bool,
 }
 
 impl Default for GameSettings {
@@ -43,6 +51,7 @@ impl Default for GameSettings {
             enable_signboards: default_enable_signboards(),
             dialog_chars_per_second: default_dialog_chars_per_second(),
             dialog_portrait_dim: default_dialog_portrait_dim(),
+            show_equipment: default_show_equipment(),
         }
     }
 }

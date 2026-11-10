@@ -551,8 +551,7 @@ where
         // `0x02C9` is a refuse flag (`denyPartyInvites`): 0 allows invites, non-zero denies them.
         invitations_allowed: packet.allowed == 0,
     })?;
-    packet_handler.register_noop::<UpdateShowEquipPacket>()?;
-    packet_handler.register_noop::<UpdateConfigurationPacket>()?;
+    crate::packet_versions::equip_window::register_show_equip_packets(packet_handler)?;
     packet_handler.register(navigate_to_event)?;
     packet_handler.register(minimap_mark_event)?;
     packet_handler.register(|packet: NextButtonPacket| {
@@ -881,8 +880,11 @@ where
             entity_id: packet.source_entity_id,
             item_entity_id: packet.destination_entity_id,
         }),
+        DamageType::SitDown => Some(NetworkEvent::PlayerSitDown {
+            entity_id: packet.source_entity_id,
+        }),
         DamageType::StandUp => Some(NetworkEvent::PlayerStandUp {
-            entity_id: packet.destination_entity_id,
+            entity_id: packet.source_entity_id,
         }),
         _ => None,
     })?;
@@ -905,8 +907,11 @@ where
             entity_id: packet.source_entity_id,
             item_entity_id: packet.destination_entity_id,
         }),
+        DamageType::SitDown => Some(NetworkEvent::PlayerSitDown {
+            entity_id: packet.source_entity_id,
+        }),
         DamageType::StandUp => Some(NetworkEvent::PlayerStandUp {
-            entity_id: packet.destination_entity_id,
+            entity_id: packet.source_entity_id,
         }),
         _ => None,
     })?;
@@ -1220,6 +1225,7 @@ where
     packet_handler.register(|_packet: TradeCancelPacket| NetworkEvent::TradeCancelled)?;
     packet_handler.register(|packet: TradeCompletePacket| NetworkEvent::TradeCompleted { result: packet.result })?;
     packet_handler.register(|_packet: TradeUnlockPacket| NetworkEvent::TradeLockRemoved)?;
+    crate::packet_versions::equip_window::register_view_equip_packets(packet_handler)?;
     packet_handler.register(|packet: AddSkillPacket| {
         let p = packet.skill_information;
         NetworkEvent::UpdateSkill {

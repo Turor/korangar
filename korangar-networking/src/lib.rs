@@ -38,7 +38,7 @@ pub use self::equip_switch::EquipSwitchSlotPathExt;
 pub use self::equip_switch::{EquipSwitchSlot, assign_slot, position_label, replace_slots};
 pub use self::event::{
     DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, GuildSkillSnapshot, HuntIndexUpdate, NetworkEvent,
-    OwnShopLine, RefineMaterialOffer, RoulettePrize, SearchStoreHit, StatusChangeState, WeaponRefineOffer,
+    OwnShopLine, RefineMaterialOffer, RoulettePrize, SearchStoreHit, StatusChangeState, ViewedEquipPiece, WeaponRefineOffer,
 };
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
@@ -1628,6 +1628,33 @@ where
         }
     }
 
+    pub fn request_view_player_equip(&mut self, account_id: AccountId) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20250716 => self.send_map_server_packet(RequestViewPlayerEquipPacket::new(account_id)),
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 => Ok(()),
+        }
+    }
+
+    /// `CZ_CONFIG` type 0. Value 1 shows this character's equipment.
+    pub fn set_show_equipment(&mut self, enabled: bool) -> Result<(), NotConnectedError> {
+        let value = u32::from(enabled);
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(SetConfigurationPacket::new(CONFIG_OPEN_EQUIPMENT_WINDOW, value))
+            }
+        }
+    }
+
+    /// `CZ_REQUEST_ACT` sit or stand. `entity_id` is this player's id.
+    pub fn player_posture(&mut self, entity_id: EntityId, sit: bool) -> Result<(), NotConnectedError> {
+        let action = if sit { Action::SitDown } else { Action::StandUp };
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(RequestActionPacket::new(entity_id, action))
+            }
+        }
+    }
+
     pub fn request_trade(&mut self, partner_account_id: AccountId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
@@ -2986,6 +3013,81 @@ mod packet_handlers {
         };
         assert!(reader.remaining_bytes().is_empty());
         events.0
+    }
+
+    #[test]
+    fn map_handler_reads_show_equipment_and_the_microscope() {
+        use ragnarok_packets::version_20250716::EquipWindowMicroscopePacket;
+        use ragnarok_packets::{
+            CONFIG_OPEN_EQUIPMENT_WINDOW, EquipPosition, EquippableItemFlags, InventoryIndex, ItemId, ItemOptions, PacketExt,
+            UpdateConfigurationPacket, UpdateShowEquipPacket,
+        };
+
+        let mut writer = ByteWriter::new();
+        UpdateShowEquipPacket { open_equip_window: 1 }.packet_to_bytes(&mut writer).unwrap();
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::ShowEquipment { enabled: true }]));
+
+        let mut writer = ByteWriter::new();
+        UpdateConfigurationPacket {
+            config_type: CONFIG_OPEN_EQUIPMENT_WINDOW,
+            value: 0,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(events.as_slice(), [NetworkEvent::ShowEquipment { enabled: false }]));
+
+        let mut writer = ByteWriter::new();
+        UpdateConfigurationPacket { config_type: 4, value: 1 }
+            .packet_to_bytes(&mut writer)
+            .unwrap();
+        assert!(process_one(SupportedPacketVersion::_20250716, writer.as_slice()).is_empty());
+
+        let option = || ItemOptions {
+            index: 0,
+            value: 0,
+            parameter: 0,
+        };
+        let mut writer = ByteWriter::new();
+        EquipWindowMicroscopePacket {
+            character_name: "Alice".to_owned(),
+            job: 7,
+            head: 0,
+            accessory: 0,
+            accessory2: 0,
+            accessory3: 0,
+            robe: 0,
+            head_palette: 0,
+            body_palette: 0,
+            body: 0,
+            sex: 1,
+            items: vec![ragnarok_packets::version_20250716::EquippableItemInformation {
+                index: InventoryIndex(1),
+                item_id: ItemId(501),
+                item_type: 5,
+                equip_position: EquipPosition::ARMOR,
+                equipped_position: EquipPosition::ARMOR,
+                slot: [0; 4],
+                hire_expiration_date: 0,
+                bind_on_equip_type: 0,
+                w_item_sprite_number: 0,
+                option_count: 0,
+                option_data: std::array::from_fn(|_| option()),
+                forge_data: std::array::from_fn(|_| option()),
+                refinement_level: 4,
+                enchantment_level: 0,
+                flags: EquippableItemFlags::IDENTIFIED,
+            }],
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        let events = process_one(SupportedPacketVersion::_20250716, writer.as_slice());
+        assert!(matches!(
+            events.as_slice(),
+            [NetworkEvent::PlayerEquipment { name, sex, items, .. }]
+                if name == "Alice" && *sex == 1 && items.len() == 1 && items[0].item_id == 501 && items[0].refine == 4
+        ));
     }
 
     #[test]

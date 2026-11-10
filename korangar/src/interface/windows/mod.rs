@@ -19,6 +19,7 @@ mod clan;
 #[cfg(feature = "debug")]
 mod commands;
 mod companions;
+mod context_menu;
 mod dialog;
 mod eden;
 mod emotes;
@@ -84,6 +85,7 @@ mod trade;
 mod vending_report;
 mod vending_setup;
 mod vendor;
+mod view_equip;
 mod warpra;
 mod world_map;
 
@@ -108,6 +110,7 @@ pub use self::clan::ClanWindow;
 #[cfg(feature = "debug")]
 pub use self::commands::CommandsWindow;
 pub use self::companions::{CompanionWindow, CompanionWindowState, MercenaryPanel, PetPanel};
+pub use self::context_menu::ContextMenuWindow;
 pub use self::dialog::{DialogWindow, DialogWindowState};
 pub use self::eden::EdenWindow;
 pub use self::emotes::EmotesWindow;
@@ -175,6 +178,7 @@ pub use self::trade::{TradeRequestWindow, TradeWindow};
 pub use self::vending_report::VendingReportWindow;
 pub use self::vending_setup::VendingSetupWindow;
 pub use self::vendor::VendorWindow;
+pub use self::view_equip::ViewEquipWindow;
 pub use self::warpra::{WarpraWindow, WarpraWindowState};
 #[cfg(test)]
 pub use self::world_map::interface_texture_candidates;
@@ -240,6 +244,8 @@ pub enum WindowClass {
     SellCart,
     Trade,
     TradeRequest,
+    ContextMenu,
+    ViewEquip,
     Vendor,
     SearchStore,
     VendingSetup,
