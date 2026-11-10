@@ -7601,9 +7601,12 @@ impl Client {
                     });
                 }
                 autopilot::Effect::Input(mut event) => {
-                    // `DialogNext` and `DialogChoose` carry NPC id 0; use the open dialog.
+                    // `DialogNext`, `DialogClose` and `DialogChoose` carry NPC id 0; use the open
+                    // dialog.
                     let open_npc = self.client_state.follow(client_state().dialog_window()).npc_id();
-                    if let InputEvent::NextDialog { npc_id } | InputEvent::ChooseDialogOption { npc_id, .. } = &mut event
+                    if let InputEvent::NextDialog { npc_id }
+                    | InputEvent::CloseDialog { npc_id }
+                    | InputEvent::ChooseDialogOption { npc_id, .. } = &mut event
                         && npc_id.0 == 0
                     {
                         *npc_id = open_npc;

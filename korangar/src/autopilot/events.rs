@@ -246,6 +246,8 @@ enum ScriptedEvent {
     DialogNext,
     /// Pick a 1-based menu row in the open NPC dialog.
     DialogChoose(i8),
+    /// Close the open NPC dialog (the `close`/`close2` button).
+    DialogClose,
     EnchantSelectItem(u16),
     EnchantSetAction(u8),
     EnchantPickChoice {
@@ -342,6 +344,9 @@ pub fn scripted_event(spec: &str) -> Result<InputEvent, String> {
         ScriptedEvent::TradeAddZeny(amount) => InputEvent::TradeAddZeny { amount },
         ScriptedEvent::SetShowEquipment(enabled) => InputEvent::SetShowEquipment { enabled },
         ScriptedEvent::DialogNext => InputEvent::NextDialog {
+            npc_id: ragnarok_packets::EntityId(0),
+        },
+        ScriptedEvent::DialogClose => InputEvent::CloseDialog {
             npc_id: ragnarok_packets::EntityId(0),
         },
         ScriptedEvent::DialogChoose(option) => InputEvent::ChooseDialogOption {
