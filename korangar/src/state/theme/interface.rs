@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::graphics::{Color, CornerDiameter, ScreenSize, ShadowPadding};
 use crate::loaders::{FontSize, OverflowBehavior};
-use crate::settings::{IN_GAME_THEMES_PATH, MENU_THEMES_PATH, TURORAN_DARK_THEME_NAME};
+use crate::settings::{IN_GAME_THEMES_PATH, MENU_THEMES_PATH, TURORAN_DARK_THEME_NAME, VERDANT_RUNE_THEME_NAME};
 use crate::state::ClientState;
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -138,6 +138,7 @@ impl InterfaceTheme {
 
                 match (theme_type, name) {
                     (InterfaceThemeType::InGame, TURORAN_DARK_THEME_NAME) => Self::turoran_dark(),
+                    (InterfaceThemeType::InGame, VERDANT_RUNE_THEME_NAME) => Self::verdant_rune(),
                     (InterfaceThemeType::Menu, _) => Self::default_menu(),
                     (InterfaceThemeType::InGame, _) => Self::default_in_game(),
                 }
@@ -386,6 +387,230 @@ impl InterfaceTheme {
             global: GlobalTheme {
                 drop_area_color: Color::rgba_u8(255, 152, 48, 110),
                 hovered_drop_area_color: Color::rgba_u8(80, 220, 200, 130),
+                fill_alpha: 0.12,
+                drop_area_outline: ShadowPadding::uniform(3.0),
+            },
+        }
+    }
+
+    /// Built-in HUD theme for first-run defaults and headless screenshots.
+    pub fn verdant_rune() -> Self {
+        let background = Color::rgb_hex("0F1714");
+        let panel = Color::rgb_hex("17221E");
+        let raised = Color::rgb_hex("203029");
+        let border = Color::rgb_hex("34483F");
+        let text = Color::rgb_hex("E3EDE6");
+        let muted = Color::rgb_hex("93A69C");
+        let accent = Color::rgb_hex("4CC3A0");
+        let accent2 = Color::rgb_hex("E0708A");
+        let gold = Color::rgb_hex("CFAE5A");
+        let spell = Color::rgb_hex("4A86D8");
+
+        Self {
+            window: WindowTheme {
+                title_color: text,
+                hovered_title_color: accent,
+                background_color: panel.with_alpha_u8(215),
+                highlight_color: accent,
+                shadow_color: Color::rgba_u8(0, 0, 0, 120),
+                shadow_padding: ShadowPadding::diagonal(4.0, 8.0),
+                gaps: 6.0,
+                border: 8.0,
+                corner_diameter: CornerDiameter::uniform(10.0),
+                close_button_size: ScreenSize { width: 36.0, height: 18.0 },
+                close_button_corner_diameter: CornerDiameter::uniform(10.0),
+                minimum_width: 280.0,
+                maximum_width: 620.0,
+                minimum_height: 36.0,
+                maximum_height: 720.0,
+                title_height: 22.0,
+                title_gap: 2.0,
+                font_size: FontSize(14.0),
+                horizontal_alignment: HorizontalAlignment::Center { offset: 0.0, border: 4.0 },
+                vertical_alignment: VerticalAlignment::Center { offset: 0.0 },
+                overflow_behavior: OverflowBehavior::Shrink,
+                anchor_color: border,
+                closest_anchor_color: gold,
+            },
+            text: TextTheme {
+                color: text,
+                highlight_color: accent,
+                height: 14.0,
+                font_size: FontSize(13.0),
+                horizontal_alignment: HorizontalAlignment::Left { offset: 3.0, border: 3.0 },
+                vertical_alignment: VerticalAlignment::Center { offset: 0.0 },
+                overflow_behavior: OverflowBehavior::LineBreak,
+            },
+            button: ButtonTheme {
+                background_color: raised.with_alpha_u8(230),
+                foreground_color: text,
+                highlight_color: accent,
+                hovered_background_color: border.with_alpha_u8(240),
+                hovered_foreground_color: Color::rgb_u8(255, 255, 255),
+                disabled_background_color: background.with_alpha_u8(200),
+                disabled_foreground_color: muted,
+                shadow_color: Color::rgba_u8(0, 0, 0, 110),
+                shadow_padding: ShadowPadding::diagonal(2.0, 4.0),
+                height: 20.0,
+                corner_diameter: CornerDiameter::uniform(8.0),
+                font_size: FontSize(13.0),
+                horizontal_alignment: HorizontalAlignment::Center { offset: 0.0, border: 4.0 },
+                vertical_alignment: VerticalAlignment::Center { offset: -1.0 },
+                overflow_behavior: OverflowBehavior::Shrink,
+            },
+            state_button: StateButtonTheme {
+                background_color: raised.with_alpha_u8(230),
+                foreground_color: text,
+                highlight_color: accent,
+                hovered_background_color: border.with_alpha_u8(240),
+                hovered_foreground_color: Color::rgb_u8(255, 255, 255),
+                disabled_background_color: background.with_alpha_u8(200),
+                disabled_foreground_color: muted,
+                checkbox_color: accent,
+                hovered_checkbox_color: Color::rgb_u8(140, 224, 196),
+                disabled_checkbox_color: muted,
+                shadow_color: Color::rgba_u8(0, 0, 0, 110),
+                shadow_padding: ShadowPadding::diagonal(2.0, 4.0),
+                height: 20.0,
+                corner_diameter: CornerDiameter::uniform(8.0),
+                font_size: FontSize(13.0),
+                horizontal_alignment: HorizontalAlignment::Left { offset: 28.0, border: 3.0 },
+                vertical_alignment: VerticalAlignment::Center { offset: 0.0 },
+                overflow_behavior: OverflowBehavior::Shrink,
+            },
+            text_box: TextBoxTheme {
+                background_color: background.with_alpha_u8(230),
+                foreground_color: text,
+                highlight_color: accent,
+                hovered_background_color: panel.with_alpha_u8(240),
+                hovered_foreground_color: Color::rgb_u8(255, 255, 255),
+                focused_background_color: raised.with_alpha_u8(245),
+                focused_foreground_color: Color::rgb_u8(255, 255, 255),
+                ghost_foreground_color: muted,
+                hide_icon_color: muted,
+                hovered_hide_icon_color: accent2,
+                shadow_color: Color::rgba_u8(0, 0, 0, 110),
+                shadow_padding: ShadowPadding::diagonal(2.0, 4.0),
+                height: 20.0,
+                corner_diameter: CornerDiameter::uniform(8.0),
+                font_size: FontSize(13.0),
+                horizontal_alignment: HorizontalAlignment::Left { offset: 12.0, border: 3.0 },
+                vertical_alignment: VerticalAlignment::Center { offset: -1.0 },
+                overflow_behavior: OverflowBehavior::LineBreak,
+            },
+            collapsible: CollapsibleTheme {
+                background_color: raised.with_alpha_u8(230),
+                secondary_background_color: panel.with_alpha_u8(230),
+                foreground_color: text,
+                highlight_color: accent,
+                hovered_foreground_color: accent,
+                corner_diameter: CornerDiameter::uniform(8.0),
+                icon_color: muted,
+                icon_size: 10.0,
+                shadow_color: Color::rgba_u8(0, 0, 0, 110),
+                shadow_padding: ShadowPadding::diagonal(2.0, 4.0),
+                gaps: 4.0,
+                border: 5.0,
+                title_height: 20.0,
+                font_size: FontSize(13.0),
+                horizontal_alignment: HorizontalAlignment::Left { offset: 0.0, border: 3.0 },
+                vertical_alignment: VerticalAlignment::Center { offset: -1.0 },
+                overflow_behavior: OverflowBehavior::Shrink,
+            },
+            drop_down: DropDownTheme {
+                item_background_color: raised.with_alpha_u8(235),
+                item_foreground_color: text,
+                item_highlight_color: accent,
+                item_hovered_background_color: border.with_alpha_u8(245),
+                item_hovered_foreground_color: Color::rgb_u8(255, 255, 255),
+                item_shadow_color: Color::rgba_u8(0, 0, 0, 110),
+                item_shadow_padding: ShadowPadding::diagonal(2.0, 4.0),
+                item_height: 20.0,
+                item_corner_diameter: CornerDiameter::uniform(8.0),
+                item_font_size: FontSize(13.0),
+                item_horizontal_alignment: HorizontalAlignment::Center { offset: 0.0, border: 4.0 },
+                item_vertical_alignment: VerticalAlignment::Center { offset: -1.0 },
+                item_overflow_behavior: OverflowBehavior::Shrink,
+                list_corner_diameter: CornerDiameter::uniform(8.0),
+                list_background_color: background.with_alpha_u8(235),
+                list_shadow_color: Color::rgba_u8(0, 0, 0, 120),
+                list_shadow_padding: ShadowPadding::diagonal(4.0, 8.0),
+                list_gaps: 3.0,
+                list_border: 4.0,
+                list_maximum_height: 500.0,
+                button_background_color: raised.with_alpha_u8(230),
+                button_foreground_color: text,
+                button_highlight_color: accent,
+                button_hovered_background_color: border.with_alpha_u8(240),
+                button_hovered_foreground_color: Color::rgb_u8(255, 255, 255),
+                button_shadow_color: Color::rgba_u8(0, 0, 0, 110),
+                button_shadow_padding: ShadowPadding::diagonal(2.0, 4.0),
+                button_height: 20.0,
+                button_corner_diameter: CornerDiameter::uniform(8.0),
+                button_font_size: FontSize(13.0),
+                button_horizontal_alignment: HorizontalAlignment::Center { offset: 0.0, border: 4.0 },
+                button_vertical_alignment: VerticalAlignment::Center { offset: -1.0 },
+                button_overflow_behavior: OverflowBehavior::Shrink,
+            },
+            field: FieldTheme {
+                background_color: raised.with_alpha_u8(230),
+                foreground_color: text,
+                highlight_color: accent,
+                shadow_color: Color::rgba_u8(0, 0, 0, 110),
+                shadow_padding: ShadowPadding::diagonal(2.0, 4.0),
+                height: 20.0,
+                corner_diameter: CornerDiameter::uniform(8.0),
+                font_size: FontSize(13.0),
+                horizontal_alignment: HorizontalAlignment::Left { offset: 5.0, border: 3.0 },
+                vertical_alignment: VerticalAlignment::Center { offset: -1.0 },
+                overflow_behavior: OverflowBehavior::Shrink,
+            },
+            tooltip: TooltipTheme {
+                background_color: background.with_alpha_u8(230),
+                foreground_color: text,
+                highlight_color: accent,
+                shadow_color: Color::rgba_u8(0, 0, 0, 120),
+                shadow_padding: ShadowPadding::diagonal(3.0, 6.0),
+                font_size: FontSize(12.0),
+                corner_diameter: CornerDiameter::uniform(8.0),
+                border: 4.0,
+                gap: 3.0,
+                mouse_offset: 14.0,
+                overflow_behavior: OverflowBehavior::LineBreak,
+            },
+            debug_button: DebugButtonTheme {
+                foreground_color: accent2,
+                hovered_background_color: gold,
+            },
+            chat: ChatTheme {
+                window_color: panel.with_alpha_u8(205),
+                text_box_background_color: background.with_alpha_u8(190),
+                broadcast_color: gold,
+                server_color: spell,
+                error_color: accent2,
+                information_color: accent,
+            },
+            skill_tree: SkillTreeTheme {
+                slot_background_color: raised.with_alpha_u8(230),
+                slot_outline: ShadowPadding::uniform(2.0),
+                requirement_color: accent2,
+                hover_color: Color::WHITE,
+                slot_corner_diameter: CornerDiameter::uniform(12.0),
+                unoccupied_slot_color: background.with_alpha_u8(170),
+                unoccupied_slot_outline: ShadowPadding::uniform(2.0),
+                unlearned_skill_color: muted,
+                name_font_size: FontSize(12.0),
+                name_text_color: text,
+                highlight_color: gold,
+                points_color: text,
+                pending_points_color: accent,
+                points_font_size: FontSize(12.0),
+                arrow_color: muted,
+                lower_level_color: accent2,
+            },
+            global: GlobalTheme {
+                drop_area_color: gold.with_alpha_u8(110),
+                hovered_drop_area_color: accent.with_alpha_u8(130),
                 fill_alpha: 0.12,
                 drop_area_outline: ShadowPadding::uniform(3.0),
             },
@@ -900,5 +1125,91 @@ mod turoran_dark_theme_tests {
             turoran.window.highlight_color.green_as_u8(),
             stock.window.highlight_color.green_as_u8()
         );
+    }
+}
+
+#[cfg(test)]
+mod verdant_rune_theme_tests {
+    use super::{InterfaceTheme, InterfaceThemeType};
+    use crate::settings::{TURORAN_DARK_THEME_NAME, VERDANT_RUNE_THEME_NAME};
+
+    #[test]
+    fn verdant_rune_roundtrips_through_ron() {
+        let theme = InterfaceTheme::verdant_rune();
+        let encoded = ron::ser::to_string_pretty(&theme, ron::ser::PrettyConfig::new()).expect("serialize theme");
+        let decoded: InterfaceTheme = ron::from_str(&encoded).expect("deserialize theme");
+
+        assert_eq!(decoded.window.highlight_color.red_as_u8(), 76);
+        assert_eq!(decoded.window.highlight_color.green_as_u8(), 195);
+        assert_eq!(decoded.window.highlight_color.blue_as_u8(), 160);
+        assert_eq!(decoded.text.color.red_as_u8(), 227);
+        assert_eq!(decoded.text.color.green_as_u8(), 237);
+        assert_eq!(decoded.text.color.blue_as_u8(), 230);
+        assert_eq!(decoded.chat.error_color.red_as_u8(), 224);
+        assert_eq!(decoded.chat.error_color.green_as_u8(), 112);
+        assert_eq!(decoded.chat.error_color.blue_as_u8(), 138);
+        assert_eq!(decoded.skill_tree.highlight_color.red_as_u8(), 207);
+        assert_eq!(decoded.skill_tree.highlight_color.green_as_u8(), 174);
+        assert_eq!(decoded.skill_tree.highlight_color.blue_as_u8(), 90);
+        assert_eq!(
+            decoded.window.background_color.alpha_as_u8(),
+            theme.window.background_color.alpha_as_u8()
+        );
+        assert!(decoded.window.background_color.alpha_as_u8() < 255);
+        assert!(decoded.chat.window_color.alpha_as_u8() < 255);
+        assert_ne!(decoded.chat.error_color, decoded.chat.server_color);
+    }
+
+    #[test]
+    fn load_falls_back_to_built_in_verdant_rune() {
+        let loaded = InterfaceTheme::load(InterfaceThemeType::InGame, VERDANT_RUNE_THEME_NAME);
+        let expected = InterfaceTheme::verdant_rune();
+
+        assert_eq!(
+            loaded.window.highlight_color.red_as_u8(),
+            expected.window.highlight_color.red_as_u8()
+        );
+        assert_eq!(
+            loaded.window.highlight_color.green_as_u8(),
+            expected.window.highlight_color.green_as_u8()
+        );
+        assert_eq!(
+            loaded.window.highlight_color.blue_as_u8(),
+            expected.window.highlight_color.blue_as_u8()
+        );
+        assert_eq!(
+            loaded.window.background_color.red_as_u8(),
+            expected.window.background_color.red_as_u8()
+        );
+        assert_eq!(loaded.chat.error_color.red_as_u8(), expected.chat.error_color.red_as_u8());
+        assert_eq!(
+            loaded.button.highlight_color.green_as_u8(),
+            expected.button.highlight_color.green_as_u8()
+        );
+    }
+
+    #[test]
+    fn verdant_rune_differs_from_turoran_dark_and_stock() {
+        let verdant = InterfaceTheme::verdant_rune();
+        let turoran = InterfaceTheme::load(InterfaceThemeType::InGame, TURORAN_DARK_THEME_NAME);
+        let stock = InterfaceTheme::load(InterfaceThemeType::InGame, "^missing-stock-fallback^");
+
+        assert_ne!(
+            verdant.window.highlight_color.green_as_u8(),
+            turoran.window.highlight_color.green_as_u8()
+        );
+        assert_ne!(
+            verdant.window.background_color.red_as_u8(),
+            turoran.window.background_color.red_as_u8()
+        );
+        assert_ne!(
+            verdant.window.background_color.red_as_u8(),
+            stock.window.background_color.red_as_u8()
+        );
+        assert_ne!(
+            verdant.window.highlight_color.green_as_u8(),
+            stock.window.highlight_color.green_as_u8()
+        );
+        assert_ne!(verdant.text.color.green_as_u8(), stock.text.color.green_as_u8());
     }
 }

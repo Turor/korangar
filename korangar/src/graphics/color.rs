@@ -101,6 +101,11 @@ impl Color {
         (self.alpha * 255.0) as u8
     }
 
+    pub fn with_alpha_u8(mut self, alpha: u8) -> Self {
+        self.alpha = (alpha as f32) / 255.0;
+        self
+    }
+
     pub const fn multiply_alpha(mut self, alpha: f32) -> Self {
         self.alpha *= alpha;
         self

@@ -226,7 +226,7 @@ where
                 layout.add_rectangle(
                     layout_info.area,
                     CornerDiameter::uniform(8.0),
-                    Color::rgba_u8(8, 10, 16, 170),
+                    (*state.get(&client_theme().window().background_color())).with_alpha_u8(170),
                     Color::rgba_u8(0, 0, 0, 0),
                     ShadowPadding::uniform(0.0),
                 );
@@ -244,8 +244,8 @@ where
                     layout_info.area,
                     label,
                     FontSize(14.0),
-                    Color::rgb_u8(255, 220, 120),
-                    Color::rgb_u8(255, 160, 60),
+                    *state.get(&client_theme().text().color()),
+                    *state.get(&client_theme().skill_tree().highlight_color()),
                     HorizontalAlignment::Center { offset: 0.0, border: 0.0 },
                     VerticalAlignment::Center { offset: 0.0 },
                     OverflowBehavior::Shrink,
@@ -265,9 +265,8 @@ where
                 // TODO: Put this in the theme
                 FontSize(12.0),
                 // TODO: Put this in the theme
-                Color::WHITE,
-                // TODO: Put this in the theme
-                Color::rgb_u8(255, 160, 60),
+                *state.get(&client_theme().skill_tree().name_text_color()),
+                *state.get(&client_theme().skill_tree().highlight_color()),
                 // TODO: Put this in the theme
                 HorizontalAlignment::Right { offset: 3.0, border: 3.0 },
                 // TODO: Put this in the theme

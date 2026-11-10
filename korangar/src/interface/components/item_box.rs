@@ -5,7 +5,7 @@ use korangar_interface::event::{ClickHandler, DropHandler, Event, EventQueue};
 use korangar_interface::layout::area::Area;
 use korangar_interface::layout::tooltip::TooltipExt;
 use korangar_interface::layout::{MouseButton, Resolvers, WindowLayout, with_single_resolver};
-use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
+use korangar_interface::prelude::{ButtonThemePathExt, HorizontalAlignment, TextThemePathExt, VerticalAlignment, WindowThemePathExt};
 use korangar_networking::{InventoryItem, InventoryItemDetails};
 use rust_state::{Path, State};
 
@@ -14,7 +14,7 @@ use crate::input::{InputEvent, MouseInputMode};
 use crate::interface::resource::ItemSource;
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::renderer::LayoutExt;
-use crate::state::ClientState;
+use crate::state::{ClientState, client_theme};
 use crate::world::ResourceMetadata;
 
 #[derive(Default)]
@@ -153,6 +153,7 @@ where
         layout_info: &'a Self::LayoutInfo,
         layout: &mut WindowLayout<'a, ClientState>,
     ) {
+        use crate::state::theme::{InterfaceThemePathExt, SkillTreeThemePathExt};
         let (is_hovered, background_color) = match layout.get_mouse_mode() {
             MouseMode::Custom {
                 mode: MouseInputMode::MoveItem { .. },
@@ -162,13 +163,13 @@ where
                     // hovered.
                     layout.set_hovered();
 
-                    (true, Color::rgb_u8(80, 180, 180))
+                    (true, *state.get(&client_theme().button().highlight_color()))
                 }
-                false => (false, Color::rgb_u8(180, 180, 80)),
+                false => (false, *state.get(&client_theme().skill_tree().highlight_color())),
             },
             _ => match layout_info.area.check().run(layout) {
-                true => (true, Color::rgb_u8(60, 60, 60)),
-                false => (false, Color::rgb_u8(40, 40, 40)),
+                true => (true, *state.get(&client_theme().button().hovered_background_color())),
+                false => (false, *state.get(&client_theme().skill_tree().slot_background_color())),
             },
         };
 
@@ -180,7 +181,7 @@ where
             layout.add_rectangle(
                 layout_info.area,
                 CornerDiameter::uniform(corner),
-                Color::rgb_u8(90, 96, 110),
+                *state.get(&client_theme().window().closest_anchor_color()),
                 Color::rgba_u8(0, 0, 0, 140),
                 ShadowPadding::diagonal(0.0, 0.0),
             );
@@ -243,9 +244,8 @@ where
                     // TODO: Put this in the theme
                     FontSize(12.0),
                     // TODO: Put this in the theme
-                    Color::rgb_u8(255, 200, 255),
-                    // TODO: Put this in the theme
-                    Color::rgb_u8(255, 160, 60),
+                    *state.get(&client_theme().text().color()),
+                    *state.get(&client_theme().text().highlight_color()),
                     // TODO: Put this in the theme
                     HorizontalAlignment::Right { offset: 3.0, border: 3.0 },
                     // TODO: Put this in the theme

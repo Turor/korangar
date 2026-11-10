@@ -79,7 +79,8 @@ use rust_state::{ManuallyAssertExt, State};
 #[cfg(feature = "debug")]
 use rust_state::{VecIndexExt, VecLookupExt};
 use settings::{
-    AudioSettings, AudioSettingsPathExt, GraphicsSettingsCapabilities, GraphicsSettingsPathExt, InterfaceSettings, InterfaceSettingsPathExt,
+    AudioSettings, AudioSettingsPathExt, GraphicsSettingsCapabilities, GraphicsSettingsPathExt, InterfaceSettings,
+    InterfaceSettingsPathExt, session_theme_name,
 };
 use state::equip_switch::{EquipSwitchPathExt, switch_delta};
 use state::hotbar::HotbarPathExt;
@@ -288,6 +289,10 @@ pub struct Client {
     networking_system: NetworkingSystem<NoPacketCallback>,
     audio_engine: Arc<AudioEngine<GameFileLoader>>,
     active_interface_settings: InterfaceSettings,
+    /// Last loaded theme names. Plain strings so a headless override is never
+    /// stored on [`InterfaceSettings`], which saves itself on drop.
+    loaded_in_game_theme: String,
+    loaded_world_theme: String,
     active_graphics_settings: GraphicsSettings,
     graphics_engine: GraphicsEngine,
     queue: Queue,
@@ -752,6 +757,8 @@ impl Client {
         });
 
         let active_interface_settings = client_state.follow(crate::client_state().interface_settings()).clone();
+        let loaded_in_game_theme = session_theme_name(&active_interface_settings.in_game_theme).to_string();
+        let loaded_world_theme = session_theme_name(&active_interface_settings.world_theme).to_string();
 
         interface.open_window(LoginWindow::new(
             crate::client_state().login_window(),
@@ -837,6 +844,8 @@ impl Client {
             networking_system,
             audio_engine,
             active_interface_settings,
+            loaded_in_game_theme,
+            loaded_world_theme,
             active_graphics_settings: graphics_settings,
             graphics_engine,
             queue,
@@ -991,20 +1000,28 @@ impl Client {
 
         let interface_settings = self.client_state.follow(client_state().interface_settings());
 
-        if self.active_interface_settings.in_game_theme != interface_settings.in_game_theme {
-            let in_game_theme = interface_settings.in_game_theme.clone();
+        let saved_in_game_theme = interface_settings.in_game_theme.clone();
+        let in_game_theme = session_theme_name(&saved_in_game_theme).to_string();
+        if self.loaded_in_game_theme != in_game_theme {
             let theme = InterfaceTheme::load(InterfaceThemeType::InGame, &in_game_theme);
             *self.client_state.follow_mut(client_state().in_game_theme()) = theme;
-            self.active_interface_settings.in_game_theme = in_game_theme;
+            self.loaded_in_game_theme = in_game_theme;
+        }
+        if self.active_interface_settings.in_game_theme != saved_in_game_theme {
+            self.active_interface_settings.in_game_theme = saved_in_game_theme;
         }
 
         let interface_settings = self.client_state.follow(client_state().interface_settings());
 
-        if self.active_interface_settings.world_theme != interface_settings.world_theme {
-            let world_theme = interface_settings.world_theme.clone();
+        let saved_world_theme = interface_settings.world_theme.clone();
+        let world_theme = session_theme_name(&saved_world_theme).to_string();
+        if self.loaded_world_theme != world_theme {
             let theme = WorldTheme::load(&world_theme);
             *self.client_state.follow_mut(client_state().world_theme()) = theme;
-            self.active_interface_settings.world_theme = world_theme;
+            self.loaded_world_theme = world_theme;
+        }
+        if self.active_interface_settings.world_theme != saved_world_theme {
+            self.active_interface_settings.world_theme = saved_world_theme;
         }
     }
 
