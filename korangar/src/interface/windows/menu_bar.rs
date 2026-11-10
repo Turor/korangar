@@ -515,6 +515,18 @@ pub fn menu_bar_grid(layout: MenuBarLayout, count: usize, screen_width: f32, scr
     }
 }
 
+/// Layout the layout button switches to: the next mode whose grid differs
+/// from the current one on this screen, so a click always changes the bar.
+pub fn next_distinct_layout(current: MenuBarLayout, screen_width: f32, screen_height: f32) -> MenuBarLayout {
+    let count = menu_bar_cell_count();
+    let shape = menu_bar_grid(current, count, screen_width, screen_height);
+    let mut next = current.next();
+    while next != current && menu_bar_grid(next, count, screen_width, screen_height) == shape {
+        next = next.next();
+    }
+    next
+}
+
 /// Outer window size for a grid.
 fn menu_bar_window_size(columns: usize, rows: usize) -> (f32, f32) {
     let columns = columns.max(1) as f32;
@@ -981,6 +993,21 @@ mod tests {
         assert_eq!(layout, MenuBarLayout::default());
         for mode in LAYOUTS {
             assert!(seen.contains(&mode));
+        }
+    }
+
+    #[test]
+    fn the_layout_button_always_changes_the_shape() {
+        for (screen_width, screen_height) in SCREENS {
+            for layout in LAYOUTS {
+                let next = super::next_distinct_layout(layout, screen_width, screen_height);
+                let count = menu_bar_cell_count();
+                assert_ne!(
+                    menu_bar_grid(layout, count, screen_width, screen_height),
+                    menu_bar_grid(next, count, screen_width, screen_height),
+                    "{layout:?} -> {next:?} at {screen_width}x{screen_height}"
+                );
+            }
         }
     }
 

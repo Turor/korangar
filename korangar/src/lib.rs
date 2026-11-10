@@ -4643,8 +4643,9 @@ impl Client {
                     }
                 }
                 InputEvent::CycleMenuBarLayout => {
+                    let size = *self.client_state.follow(client_state().window_size());
                     let settings = self.client_state.follow_mut(client_state().interface_settings());
-                    settings.menu_bar_layout = settings.menu_bar_layout.next();
+                    settings.menu_bar_layout = next_distinct_layout(settings.menu_bar_layout, size.width, size.height);
                 }
                 InputEvent::ToggleChatWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
