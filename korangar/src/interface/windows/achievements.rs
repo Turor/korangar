@@ -12,6 +12,8 @@ use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
+use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt};
+use crate::state::client_theme;
 use crate::state::ClientState;
 use crate::state::achievements::Achievements;
 use crate::state::theme::InterfaceThemeType;
@@ -66,8 +68,8 @@ where
             header,
             rank,
             FontSize(12.0),
-            Color::rgb_u8(220, 214, 196),
-            Color::rgb_u8(255, 160, 60),
+            *state.get(&client_theme().tokens().text()),
+            *state.get(&client_theme().tokens().accent()),
             HorizontalAlignment::Left { offset: 4.0, border: 2.0 },
             VerticalAlignment::Center { offset: 0.0 },
             OverflowBehavior::Shrink,
@@ -78,7 +80,7 @@ where
             width: (layout_info.area.width - 8.0).max(1.0),
             height: 8.0,
         };
-        paint_bar(layout, bar, fraction_after(rank, "exp "), Color::rgb_u8(90, 170, 110));
+        paint_bar(layout, bar, fraction_after(rank, "exp "), *state.get(&client_theme().tokens().accent()), *state.get(&client_theme().tokens().raised()));
 
         let rows: Vec<&str> = lines.iter().skip(1).map(String::as_str).collect();
         let rows = if rows.is_empty() { vec!["No achievements"] } else { rows };
@@ -92,16 +94,16 @@ where
             };
             let claimable = row.contains("complete") && !row.contains("rewarded");
             let color = if claimable {
-                Color::rgb_u8(255, 210, 90)
+                *state.get(&client_theme().tokens().gold())
             } else {
-                Color::rgb_u8(220, 214, 196)
+                *state.get(&client_theme().tokens().text())
             };
             layout.add_text(
                 text_area,
                 row,
                 FontSize(12.0),
                 color,
-                Color::rgb_u8(255, 160, 60),
+                *state.get(&client_theme().tokens().accent()),
                 HorizontalAlignment::Left { offset: 4.0, border: 2.0 },
                 VerticalAlignment::Center { offset: 0.0 },
                 OverflowBehavior::Shrink,
@@ -112,7 +114,7 @@ where
                 width: (layout_info.area.width - 8.0).max(1.0),
                 height: 6.0,
             };
-            paint_bar(layout, row_bar, fraction_in_parens(row), Color::rgb_u8(80, 140, 200));
+            paint_bar(layout, row_bar, fraction_in_parens(row), *state.get(&client_theme().tokens().accent2()), *state.get(&client_theme().tokens().raised()));
         }
     }
 }
@@ -142,11 +144,11 @@ fn fraction_in_parens(text: &str) -> f32 {
     if total <= 0.0 { 0.0 } else { (done / total).clamp(0.0, 1.0) }
 }
 
-fn paint_bar(layout: &mut WindowLayout<ClientState>, area: Area, fill: f32, color: Color) {
+fn paint_bar(layout: &mut WindowLayout<ClientState>, area: Area, fill: f32, color: Color, track: Color) {
     layout.add_rectangle(
         area,
         CornerDiameter::uniform(2.0),
-        Color::rgb_u8(28, 34, 44),
+        track,
         Color::TRANSPARENT,
         ShadowPadding::uniform(0.0),
     );

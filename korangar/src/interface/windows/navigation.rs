@@ -12,6 +12,8 @@ use rust_state::{Path, State};
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
+use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt};
+use crate::state::client_theme;
 use crate::state::ClientState;
 use crate::state::navigation::{Navigation, NavigationTarget};
 use crate::state::theme::InterfaceThemeType;
@@ -114,7 +116,7 @@ where
         layout.add_rectangle(
             map_area,
             CornerDiameter::uniform(4.0),
-            Color::rgb_u8(28, 34, 44),
+            *state.get(&client_theme().tokens().raised()),
             Color::TRANSPARENT,
             ShadowPadding::uniform(0.0),
         );
@@ -124,7 +126,7 @@ where
         paint_pin(
             layout,
             pin_area(map_area, cells, player_x as u32, player_y as u32),
-            Color::rgb_u8(80, 160, 255),
+            *state.get(&client_theme().tokens().accent()),
         );
 
         if let Some(target) = navigation.target() {
@@ -134,7 +136,7 @@ where
                 paint_pin(
                     layout,
                     pin_area(map_area, cells, target.x as u32, target.y as u32),
-                    Color::rgb_u8(240, 210, 70),
+                    *state.get(&client_theme().tokens().gold()),
                 );
             }
         }
@@ -160,7 +162,7 @@ where
                 text,
                 FontSize(12.0),
                 color,
-                Color::rgb_u8(255, 160, 60),
+                *state.get(&client_theme().tokens().accent()),
                 HorizontalAlignment::Left { offset: 4.0, border: 2.0 },
                 VerticalAlignment::Center { offset: 0.0 },
                 OverflowBehavior::Shrink,
@@ -168,9 +170,9 @@ where
         };
 
         let status_color = if navigation.map_name().is_empty() {
-            Color::rgb_u8(160, 164, 176)
+            *state.get(&client_theme().tokens().muted())
         } else {
-            Color::rgb_u8(180, 190, 210)
+            *state.get(&client_theme().tokens().text())
         };
         let status_line = if navigation.status_line().is_empty() {
             "Map unknown — you 0,0"
@@ -181,15 +183,15 @@ where
         row += 1;
 
         if let Some(NavigationTarget { summary, .. }) = navigation.target() {
-            write(row, summary.as_str(), Color::rgb_u8(240, 210, 70));
+            write(row, summary.as_str(), *state.get(&client_theme().tokens().gold()));
             row += 1;
         } else {
-            write(row, "No navigation target", Color::rgb_u8(160, 164, 176));
+            write(row, "No navigation target", *state.get(&client_theme().tokens().muted()));
             row += 1;
         }
 
         if navigation.marks().is_empty() {
-            write(row, "No minimap marks", Color::rgb_u8(160, 164, 176));
+            write(row, "No minimap marks", *state.get(&client_theme().tokens().muted()));
         } else {
             for mark in navigation.marks() {
                 write(row, mark.summary.as_str(), Color::rgb_u8(mark.red, mark.green, mark.blue));

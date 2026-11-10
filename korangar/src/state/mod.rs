@@ -476,7 +476,8 @@ impl ClientState {
         });
 
         time_phase!("load themes", {
-            let menu_theme = InterfaceTheme::load(InterfaceThemeType::Menu, &interface_settings.menu_theme);
+            // Login/char-select/PIN screens use the same token palette as the HUD.
+            let menu_theme = InterfaceTheme::menu_for_in_game(session_theme_name(&interface_settings.in_game_theme));
             let in_game_theme = InterfaceTheme::load(
                 InterfaceThemeType::InGame,
                 session_theme_name(&interface_settings.in_game_theme),

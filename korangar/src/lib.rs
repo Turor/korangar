@@ -1128,10 +1128,7 @@ impl Client {
         let interface_settings = self.client_state.follow_mut(client_state().interface_settings());
 
         if self.active_interface_settings.menu_theme != interface_settings.menu_theme {
-            let menu_theme = interface_settings.menu_theme.clone();
-            let theme = InterfaceTheme::load(state::theme::InterfaceThemeType::Menu, &menu_theme);
-            *self.client_state.follow_mut(client_state().menu_theme()) = theme;
-            self.active_interface_settings.menu_theme = menu_theme;
+            self.active_interface_settings.menu_theme = interface_settings.menu_theme.clone();
         }
 
         let interface_settings = self.client_state.follow(client_state().interface_settings());
@@ -1142,6 +1139,8 @@ impl Client {
         if self.force_reload_themes || self.loaded_in_game_theme != in_game_theme || self.loaded_in_game_theme_mtime != in_game_mtime {
             let theme = InterfaceTheme::load(InterfaceThemeType::InGame, &in_game_theme);
             *self.client_state.follow_mut(client_state().in_game_theme()) = theme;
+            // Login/char-select/PIN screens follow the same token theme.
+            *self.client_state.follow_mut(client_state().menu_theme()) = InterfaceTheme::menu_for_in_game(&in_game_theme);
             self.loaded_in_game_theme = in_game_theme;
             self.loaded_in_game_theme_mtime = in_game_mtime;
         }

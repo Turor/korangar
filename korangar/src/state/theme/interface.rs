@@ -560,6 +560,62 @@ impl InterfaceTheme {
         Self::from_tokens(&crate::state::theme::ThemeTokens::arcane_violet())
     }
 
+    /// Login, server, character and PIN screens: colors from the active token
+    /// theme, larger chrome from the menu layout.
+    pub fn menu_from_tokens(tokens: &crate::state::theme::ThemeTokens) -> Self {
+        let geometry = Self::default_menu();
+        let mut theme = Self::from_tokens(tokens);
+        macro_rules! keep_geometry {
+            ($($part:ident . $field:ident),* $(,)?) => {
+                $( theme.$part.$field = geometry.$part.$field; )*
+            };
+        }
+        keep_geometry!(
+            window.gaps,
+            window.border,
+            window.corner_diameter,
+            window.close_button_size,
+            window.close_button_corner_diameter,
+            window.minimum_width,
+            window.maximum_width,
+            window.minimum_height,
+            window.maximum_height,
+            window.title_height,
+            window.title_gap,
+            window.font_size,
+            text.height,
+            text.font_size,
+            button.height,
+            button.corner_diameter,
+            button.font_size,
+            state_button.height,
+            state_button.corner_diameter,
+            state_button.font_size,
+            text_box.height,
+            text_box.corner_diameter,
+            text_box.font_size,
+            drop_down.item_height,
+            drop_down.item_corner_diameter,
+            drop_down.item_font_size,
+            drop_down.list_corner_diameter,
+            drop_down.button_height,
+            drop_down.button_corner_diameter,
+            drop_down.button_font_size,
+            field.height,
+            field.corner_diameter,
+            field.font_size,
+            tooltip.font_size,
+        );
+        theme
+    }
+
+    /// Menu theme that follows the in-game token theme (`Verdant Rune`,
+    /// `Ember Forge`, `Arcane Violet`, or a user token file).
+    pub fn menu_for_in_game(in_game_name: &str) -> Self {
+        let tokens = crate::state::theme::load_theme_tokens(in_game_name).unwrap_or_default();
+        Self::menu_from_tokens(&tokens)
+    }
+
     fn default_menu() -> Self {
         Self {
             tokens: crate::state::theme::ThemeTokens::default(),

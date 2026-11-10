@@ -1,5 +1,7 @@
 use korangar_interface::window::{CustomWindow, Window};
 
+use crate::state::client_theme;
+use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt, ChatThemePathExt};
 use crate::graphics::Color;
 use crate::state::localization::LocalizationPathExt;
 use crate::state::theme::InterfaceThemeType;
@@ -26,7 +28,7 @@ impl CustomWindow<ClientState> for ErrorWindow {
             elements: (
                 text! {
                     text: self.message,
-                    color: Color::rgb_u8(220, 100, 100)
+                    color: client_theme().chat().error_color()
                 },
             ),
         }

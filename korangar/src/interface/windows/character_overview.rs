@@ -1,6 +1,8 @@
 use korangar_interface::window::{CustomWindow, Window};
 use rust_state::Path;
 
+use crate::state::client_theme;
+use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt};
 use crate::graphics::Color;
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
@@ -56,7 +58,7 @@ where
                                 },
                                 text! {
                                     text: self.player_name_path,
-                                    color: Color::rgb_u8(255, 144, 13),
+                                    color: client_theme().tokens().gold(),
                                     horizontal_alignment: HorizontalAlignment::Right { offset: 0.0, border: 3.0 },
                                     overflow_behavior: OverflowBehavior::Shrink,
                                 },
@@ -70,7 +72,7 @@ where
                                 },
                                 text! {
                                     text: PartialEqDisplaySelector::new(self.base_level_path),
-                                    color: Color::rgb_u8(13, 231, 255),
+                                    color: client_theme().tokens().accent(),
                                     horizontal_alignment: HorizontalAlignment::Right { offset: 0.0, border: 3.0 },
                                     overflow_behavior: OverflowBehavior::Shrink,
                                 },
@@ -84,7 +86,7 @@ where
                                 },
                                 text! {
                                     text: PartialEqDisplaySelector::new(self.job_level_path),
-                                    color: Color::rgb_u8(13, 231, 255),
+                                    color: client_theme().tokens().accent(),
                                     horizontal_alignment: HorizontalAlignment::Right { offset: 0.0, border: 3.0 },
                                     overflow_behavior: OverflowBehavior::Shrink,
                                 },

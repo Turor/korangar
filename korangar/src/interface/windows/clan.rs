@@ -11,6 +11,8 @@ use rust_state::{Path, State};
 use crate::graphics::Color;
 use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
+use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt};
+use crate::state::client_theme;
 use crate::state::ClientState;
 use crate::state::clan::{ClanState, ClanStatePathExt};
 use crate::state::theme::InterfaceThemeType;
@@ -67,16 +69,16 @@ where
                 height: layout_info.row_height,
             };
             let color = if line == "Alliances" || line == "Antagonists" {
-                Color::rgb_u8(235, 200, 120)
+                *state.get(&client_theme().tokens().gold())
             } else {
-                Color::rgb_u8(220, 224, 232)
+                *state.get(&client_theme().tokens().text())
             };
             layout.add_text(
                 area,
                 line.as_str(),
                 FontSize(12.0),
                 color,
-                Color::rgb_u8(255, 160, 60),
+                *state.get(&client_theme().tokens().accent()),
                 HorizontalAlignment::Left { offset: 4.0, border: 2.0 },
                 VerticalAlignment::Center { offset: 0.0 },
                 OverflowBehavior::Shrink,

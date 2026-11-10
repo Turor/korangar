@@ -15,6 +15,8 @@ use super::WindowClass;
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::renderer::LayoutExt;
+use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt};
+use crate::state::client_theme;
 use crate::state::ClientState;
 use crate::state::theme::InterfaceThemeType;
 use crate::world::ResourceMetadata;
@@ -134,8 +136,8 @@ where
         layout.add_rectangle(
             layout_info.area,
             CornerDiameter::uniform(4.0),
-            Color::rgb_u8(80, 80, 80),
-            Color::rgba_u8(0, 0, 0, 100),
+            *state.get(&client_theme().tokens().raised()),
+            state.get(&client_theme().tokens().bg()).with_alpha_u8(100),
             ShadowPadding::diagonal(2.0, 5.0),
         );
 
@@ -146,8 +148,8 @@ where
                 layout_info.texture_area,
                 self.amount_string.get_str(),
                 FontSize(16.0),
-                Color::monochrome_u8(220),
-                Color::rgb_u8(255, 160, 60),
+                *state.get(&client_theme().tokens().text()),
+                *state.get(&client_theme().tokens().accent()),
                 HorizontalAlignment::Right { offset: 3.0, border: 3.0 },
                 VerticalAlignment::Bottom { offset: 0.0 },
                 OverflowBehavior::Shrink,
@@ -158,8 +160,8 @@ where
             layout_info.text_area,
             &item.metadata.0.name,
             FontSize(16.0),
-            Color::monochrome_u8(220),
-            Color::rgb_u8(255, 160, 60),
+            *state.get(&client_theme().tokens().text()),
+            *state.get(&client_theme().tokens().accent()),
             HorizontalAlignment::Left { offset: 3.0, border: 3.0 },
             VerticalAlignment::Center { offset: 0.0 },
             OverflowBehavior::Shrink,
@@ -169,8 +171,8 @@ where
             layout_info.text_area,
             self.price_string.get_str(),
             FontSize(16.0),
-            Color::rgb_u8(250, 230, 130),
-            Color::rgb_u8(255, 160, 60),
+            *state.get(&client_theme().tokens().gold()),
+            *state.get(&client_theme().tokens().accent()),
             HorizontalAlignment::Right { offset: 3.0, border: 3.0 },
             VerticalAlignment::Center { offset: 0.0 },
             OverflowBehavior::Shrink,

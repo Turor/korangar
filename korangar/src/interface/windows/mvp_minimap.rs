@@ -9,6 +9,7 @@ use ragnarok_packets::{AccountId, MvpMinimapEntry, TilePosition};
 use rust_state::{Path, RustState, State};
 
 use super::WindowClass;
+use crate::state::theme::{ThemeTokensPathExt};
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::state::theme::InterfaceThemePathExt;
@@ -187,7 +188,7 @@ where
             canvas,
             CornerDiameter::uniform(4.0),
             tokens.raised,
-            Color::rgba_u8(0, 0, 0, 80),
+            state.get(&client_theme().tokens().bg()).with_alpha_u8(80),
             ShadowPadding::diagonal(1.0, 2.0),
         );
 
