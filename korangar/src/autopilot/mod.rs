@@ -15,6 +15,7 @@ mod keycode;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, Read};
+#[cfg(unix)]
 use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -29,6 +30,7 @@ use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 
 /// Linux `O_NONBLOCK`. Command files and fifos must not stall the frame loop.
+#[cfg(unix)]
 const O_NONBLOCK: i32 = 0o4000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -575,8 +577,15 @@ fn clean_server_name(name: &str) -> String {
 }
 
 fn open_command_file(path: &Path) -> io::Result<CommandFile> {
-    let fifo = path.metadata().is_ok_and(|metadata| metadata.file_type().is_fifo());
-    let file = std::fs::OpenOptions::new().read(true).custom_flags(O_NONBLOCK).open(path)?;
+    #[cfg(unix)]
+    let (fifo, file) = (
+        path.metadata().is_ok_and(|metadata| metadata.file_type().is_fifo()),
+        std::fs::OpenOptions::new().read(true).custom_flags(O_NONBLOCK).open(path)?,
+    );
+    // Fifos are a Linux autopilot feature; other platforms read a plain command
+    // file.
+    #[cfg(not(unix))]
+    let (fifo, file) = (false, std::fs::File::open(path)?);
     Ok(CommandFile {
         path: path.to_path_buf(),
         file,
