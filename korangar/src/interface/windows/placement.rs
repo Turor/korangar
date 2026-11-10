@@ -66,6 +66,8 @@ pub struct FirstOpenHud {
 
 pub const REFERENCE_SCREEN_WIDTH: f32 = 1280.0;
 pub const REFERENCE_SCREEN_HEIGHT: f32 = 720.0;
+/// Smallest height the chat window accepts (see `ChatWindow`).
+pub const CHAT_WINDOW_MIN_HEIGHT: f32 = 96.0;
 
 /// Which screen edge a saved-less window hangs from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -472,7 +472,7 @@ where
             border: 3.0,
             gaps: 2.0,
             title_gap: 0.0,
-            minimum_height: 96.0,
+            minimum_height: super::placement::CHAT_WINDOW_MIN_HEIGHT,
             maximum_height: 800.0,
             elements: (
                 split! {
