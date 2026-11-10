@@ -4,11 +4,13 @@
 
 mod cache;
 mod list;
+mod resname;
 
 use core::panic;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use blake3::Hash;
 #[cfg(feature = "debug")]
@@ -49,6 +51,8 @@ struct LoaderArchive {
 pub struct GameFileLoader {
     archives: RwLock<Vec<LoaderArchive>>,
     remote: RwLock<Option<Arc<PersistentAssets>>>,
+    /// Map aliases from `data\resnametable.txt`, read on the first map file.
+    map_aliases: OnceLock<HashMap<String, String>>,
 }
 
 fn note_missing_game_file(path: &str) {
@@ -62,6 +66,19 @@ fn note_missing_game_file(path: &str) {
 impl FileLoader for GameFileLoader {
     fn get(&self, path: &str) -> Result<Vec<u8>, FileNotFoundError> {
         let archive_path = normalize_archive_path(path);
+        // Like the official client, an aliased map loads its target's files.
+        if let Some(target) = self.map_alias(&archive_path)
+            && let Ok(bytes) = self.get_exact(&target, &target)
+        {
+            return Ok(bytes);
+        }
+        self.get_exact(path, &archive_path)
+    }
+}
+
+impl GameFileLoader {
+    fn get_exact(&self, path: &str, archive_path: &str) -> Result<Vec<u8>, FileNotFoundError> {
+        let archive_path = archive_path.to_owned();
         if let Some(bytes) = self
             .archives
             .read()
@@ -84,9 +101,25 @@ impl FileLoader for GameFileLoader {
             }
         }
     }
-}
 
-impl GameFileLoader {
+    /// The resnametable target of a map file, if any. The table is read once;
+    /// a failed read (no network yet) is retried on the next map file.
+    fn map_alias(&self, archive_path: &str) -> Option<String> {
+        let name = archive_path.strip_prefix("data\\")?;
+        if !(name.ends_with(".rsw") || name.ends_with(".gnd") || name.ends_with(".gat")) {
+            return None;
+        }
+        let aliases = match self.map_aliases.get() {
+            Some(aliases) => aliases,
+            None => {
+                let bytes = self.get_exact(resname::RESNAMETABLE_PATH, resname::RESNAMETABLE_PATH).ok()?;
+                let aliases = resname::parse_map_aliases(&resname::decode_table(&bytes));
+                self.map_aliases.get_or_init(|| aliases)
+            }
+        };
+        resname::aliased_path(aliases, archive_path)
+    }
+
     /// True only when a mounted GRF, folder, or cache archive contains `path`.
     /// A remote manifest entry is not a local hit.
     pub fn local_file_exists(&self, path: &str) -> bool {
@@ -100,7 +133,16 @@ impl GameFileLoader {
 
     pub fn file_exists(&self, path: &str) -> bool {
         let archive_path = normalize_archive_path(path);
-        self.local_file_exists(&archive_path) || self.remote.read().unwrap().as_ref().is_some_and(|r| r.contains(&archive_path))
+        if let Some(target) = self.map_alias(&archive_path)
+            && self.file_exists_exact(&target)
+        {
+            return true;
+        }
+        self.file_exists_exact(&archive_path)
+    }
+
+    fn file_exists_exact(&self, archive_path: &str) -> bool {
+        self.local_file_exists(archive_path) || self.remote.read().unwrap().as_ref().is_some_and(|r| r.contains(archive_path))
     }
 
     fn add_archive(&self, archive: Box<dyn Archive>, is_game_archive: bool) {
@@ -295,6 +337,35 @@ mod prefetch_tests {
         let line = loader.prefetch_remote_status();
         assert!(line.contains("no remote cache"));
         assert!(!line.contains("http"));
+    }
+
+    #[test]
+    fn aliased_maps_load_their_target_files() {
+        use std::fs;
+
+        let root = std::env::temp_dir().join(format!("korangar-resname-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let data = root.join("data");
+        fs::create_dir_all(&data).unwrap();
+        fs::write(
+            data.join("resnametable.txt"),
+            "06guild_01.rsw#guild_vs2.rsw#\r\n06guild_01.gat#guild_vs2.gat#\r\n",
+        )
+        .unwrap();
+        fs::write(data.join("guild_vs2.rsw"), b"rsw").unwrap();
+        fs::write(data.join("guild_vs2.gat"), b"gat").unwrap();
+        fs::write(data.join("prt_in.rsw"), b"prt_in").unwrap();
+
+        let loader = GameFileLoader::default();
+        loader.add_archive(Box::new(FolderArchive::from_path(&root)), true);
+
+        assert_eq!(loader.get(r"data\06guild_01.rsw").unwrap(), b"rsw");
+        assert_eq!(loader.get("data/06GUILD_01.gat").unwrap(), b"gat");
+        assert!(loader.file_exists(r"data\06guild_01.rsw"));
+        // Maps without an entry and maps whose alias is missing keep their own files.
+        assert_eq!(loader.get(r"data\prt_in.rsw").unwrap(), b"prt_in");
+        assert!(loader.get(r"data\06guild_01.gnd").is_err());
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

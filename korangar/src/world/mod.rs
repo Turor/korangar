@@ -12,6 +12,7 @@ mod library;
 mod light;
 pub mod long_walk;
 mod map;
+pub(crate) mod map_load_failure;
 mod model;
 mod object;
 mod particles;
