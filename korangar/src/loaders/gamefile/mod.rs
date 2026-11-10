@@ -78,14 +78,20 @@ impl FileLoader for GameFileLoader {
 }
 
 impl GameFileLoader {
-    pub fn file_exists(&self, path: &str) -> bool {
+    /// True only when a mounted GRF, folder, or cache archive contains `path`.
+    /// A remote manifest entry is not a local hit.
+    pub fn local_file_exists(&self, path: &str) -> bool {
         let archive_path = normalize_archive_path(path);
         self.archives
             .read()
             .unwrap()
             .iter()
             .any(|archive| archive.archive.file_exists(&archive_path))
-            || self.remote.read().unwrap().as_ref().is_some_and(|r| r.contains(&archive_path))
+    }
+
+    pub fn file_exists(&self, path: &str) -> bool {
+        let archive_path = normalize_archive_path(path);
+        self.local_file_exists(&archive_path) || self.remote.read().unwrap().as_ref().is_some_and(|r| r.contains(&archive_path))
     }
 
     fn add_archive(&self, archive: Box<dyn Archive>, is_game_archive: bool) {
@@ -329,6 +335,79 @@ mod prefetch_tests {
         reloaded.add_archive(Box::new(FolderArchive::from_path(&empty)), true);
         *reloaded.remote.write().unwrap() = loader.remote.read().unwrap().clone();
         assert_eq!(reloaded.get(r"data\model\내부소품\x.rsm").unwrap(), b"remote-bytes");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn manifest_hangul_file_exists_is_not_a_local_hit_and_cp949_is_selected() {
+        use std::fs;
+        use std::io::Cursor;
+
+        use korangar_loaders::remote::{PersistentAssets, RemoteConfig};
+
+        use crate::interface::windows::{InterfaceTextureAttempt, interface_texture_candidates, select_interface_texture};
+        use crate::loaders::color_image_decodes;
+
+        let root = std::env::temp_dir().join(format!("korangar-worldmap-cp949-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let folder = root.join("archive");
+        let cache = root.join("cache");
+        fs::create_dir_all(cache.join("objects")).unwrap();
+
+        let candidates = interface_texture_candidates("worldmap.jpg");
+        let latin_relative = candidates[1].replace('\\', "/");
+        let latin_file = folder.join("data").join("texture").join(&latin_relative);
+        fs::create_dir_all(latin_file.parent().unwrap()).unwrap();
+        let image = image::RgbaImage::from_pixel(2, 2, image::Rgba([12, 40, 20, 255]));
+        let mut jpeg = Vec::new();
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut Cursor::new(&mut jpeg), image::ImageFormat::Jpeg)
+            .unwrap();
+        fs::write(&latin_file, &jpeg).unwrap();
+
+        // Hangul is advertised by the manifest only. The object is absent and offline,
+        // so the Hangul read fails. `revision` is the SHA-256 of the compact `files`
+        // array.
+        let manifest = r#"{"format_version":1,"revision":"94db9853d23c9aa631de84dc94c4f277f6541573954a0d91c7cb88285278c4ef","files":[{"path":"data/texture/유저인터페이스/worldmap.jpg","size":12,"sha256":"0fcb052055ffc840bf26ce7ad980f959da83ca69c8439369053cee468ae93463"}]}"#;
+        fs::write(cache.join("manifest.json"), manifest).unwrap();
+        let assets = PersistentAssets::open(RemoteConfig {
+            base_url: "https://example.invalid/client/".into(),
+            cache_dir: cache,
+            allow_http: false,
+            offline: true,
+        })
+        .unwrap();
+
+        let loader = GameFileLoader::default();
+        loader.add_archive(Box::new(FolderArchive::from_path(&folder)), true);
+        *loader.remote.write().unwrap() = Some(Arc::new(assets));
+
+        let hangul = format!(r"data\texture\{}", candidates[0]);
+        let latin = format!(r"data\texture\{}", candidates[1]);
+        assert!(loader.file_exists(&hangul), "manifest entry counts as file_exists");
+        assert!(!loader.local_file_exists(&hangul), "manifest entry is not a local archive hit");
+        assert!(loader.get(&hangul).is_err(), "hangul read fails when the object is absent");
+        assert!(loader.local_file_exists(&latin));
+
+        let mut hangul_reads = 0;
+        let selected = select_interface_texture(
+            "worldmap.jpg",
+            |path| loader.local_file_exists(path),
+            |path| {
+                if path == hangul {
+                    hangul_reads += 1;
+                }
+                match loader.get(path) {
+                    Ok(bytes) => {
+                        let relative = path.strip_prefix(r"data\texture\").unwrap_or(path);
+                        color_image_decodes(relative, &bytes)
+                    }
+                    Err(_) => false,
+                }
+            },
+        );
+        assert_eq!(selected, InterfaceTextureAttempt::Ready(candidates[1].clone()));
+        assert_eq!(hangul_reads, 0);
         let _ = fs::remove_dir_all(&root);
     }
 }

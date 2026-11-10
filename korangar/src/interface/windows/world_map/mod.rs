@@ -15,14 +15,14 @@ use korangar_interface::layout::area::Area;
 use korangar_interface::layout::{MouseButton, Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::prelude::{ButtonThemePathExt, HorizontalAlignment, TextThemePathExt, VerticalAlignment, WindowThemePathExt};
 use korangar_interface::window::{CustomWindow, Window};
-pub use logic::{choose_interface_texture, should_close_after_result};
+pub use logic::{InterfaceTextureAttempt, interface_texture_candidates, select_interface_texture, should_close_after_result};
 use rust_state::{Path, PathExt, RustState, State};
 
 use self::data::WorldMapSection;
 use self::logic::{
     BASE_HEIGHT, BASE_WIDTH, CAPTION_HEIGHT, ClickDecision, DEFAULT_EPISODE, FloorChoice, MarkerTone, OverlayClass, RAIL_GAP, RAIL_WIDTH,
-    entry_for_map, floor_click, hover_caption, map_thumbnail_path, marker_paint, overlay_class, region_texture_path, regions_for_episode,
-    scale_rect, section_click, section_rect, section_ref, visible_sections,
+    entry_for_map, floor_click, hover_caption, map_thumbnail_path, marker_paint, overlay_class, region_buttons, region_texture_path,
+    regions_for_episode, scale_rect, section_click, section_rect, section_ref, visible_sections,
 };
 use super::WindowClass;
 use super::warpra::WarpraWindowStatePathExt;
@@ -35,8 +35,6 @@ use crate::state::navigation::NavigationPathExt;
 use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType};
 use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme, this_player};
 
-const REGION_BUTTON_HEIGHT: f32 = 28.0;
-
 /// Theme window fills use alpha 215 so other windows stay glassy. The world
 /// map must not show the 3D scene through that glass.
 fn opaque_color(mut color: Color) -> Color {
@@ -48,17 +46,13 @@ fn world_map_fit(state: &ClientState) -> logic::WorldMapFit {
     let screen = client_state().window_size().follow_safe(state);
     let theme = client_theme().window().follow_safe(state);
     let scaling = client_state().interface_settings().scaling().follow_safe(state);
-    logic::fit_world_map(
-        screen.width,
-        screen.height,
-        logic::WorldMapChrome {
-            title_height: theme.title_height,
-            title_gap: theme.title_gap,
-            border: theme.border,
-            margin: logic::VIEWPORT_MARGIN,
-            scaling: scaling.get_factor(),
-        },
-    )
+    logic::fit_world_map(screen.width, screen.height, logic::WorldMapChrome {
+        title_height: theme.title_height,
+        title_gap: theme.title_gap,
+        border: theme.border,
+        margin: logic::VIEWPORT_MARGIN,
+        scaling: scaling.get_factor(),
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -207,13 +201,43 @@ impl WorldMapWindowState {
     }
 
     pub fn install_region_texture(&mut self, path: String, texture: Option<Arc<Texture>>) {
+        // A failed read must not record the path. Recording it skips a later
+        // local CP949 file and keeps the placeholder in place.
+        let Some(texture) = texture else {
+            return;
+        };
         self.loaded_region = path;
-        self.region_texture = texture;
+        self.region_texture = Some(texture);
+    }
+
+    /// Remember a confirmed miss. The frame loop does not fetch this path again
+    /// until the window is opened again.
+    pub fn mark_region_texture_absent(&mut self, path: String) {
+        self.loaded_region = path;
+        self.region_texture = None;
+    }
+
+    /// Drop a stale image without recording the path, so the next frame
+    /// retries.
+    pub fn release_region_texture(&mut self) {
+        self.region_texture = None;
     }
 
     pub fn install_hover_texture(&mut self, path: String, texture: Option<Arc<Texture>>) {
+        let Some(texture) = texture else {
+            return;
+        };
         self.loaded_hover = path;
-        self.hover_texture = texture;
+        self.hover_texture = Some(texture);
+    }
+
+    pub fn mark_hover_texture_absent(&mut self, path: String) {
+        self.loaded_hover = path;
+        self.hover_texture = None;
+    }
+
+    pub fn release_hover_texture(&mut self) {
+        self.hover_texture = None;
     }
 
     pub fn drop_textures(&mut self) {
@@ -567,12 +591,20 @@ where
             state.update_value(self.world_map.hover_map_id(), String::new());
         }
 
+        let buttons = region_buttons(rail.height, regions.len());
         for (index, region) in regions.iter().enumerate() {
+            let Some(placed) = buttons.get(index) else {
+                continue;
+            };
+            // A button that escapes the rail would cover the caption and select a region.
+            if placed.top < 0.0 || placed.height <= 0.0 || placed.top + placed.height > rail.height + 0.01 {
+                continue;
+            }
             let button = Area {
                 left: rail.left,
-                top: rail.top + index as f32 * (REGION_BUTTON_HEIGHT + 4.0),
+                top: rail.top + placed.top,
                 width: rail.width,
-                height: REGION_BUTTON_HEIGHT,
+                height: placed.height,
             };
             let hovered = button.check().run(layout);
             let selected = index == region_index;
@@ -976,6 +1008,23 @@ mod tests {
         assert_eq!(hovered_section_index(&mut layout, map, &alone), None);
         place_pointer(&mut layout, &mouse_mode, 99.0, 10.0);
         assert_eq!(hovered_section_index(&mut layout, map, &alone), Some(0));
+    }
+
+    #[test]
+    fn a_failed_texture_read_does_not_record_the_path() {
+        let mut window = WorldMapWindowState::default();
+        window.install_region_texture("유저인터페이스\\worldmap.jpg".to_owned(), None);
+        window.install_hover_texture("유저인터페이스\\map\\prontera.bmp".to_owned(), None);
+        assert!(window.loaded_region().is_empty());
+        assert!(window.loaded_hover().is_empty());
+        assert!(window.region_texture.is_none());
+        assert!(window.hover_texture.is_none());
+
+        window.mark_region_texture_absent("유저인터페이스\\worldmap.jpg".to_owned());
+        assert_eq!(window.loaded_region(), "유저인터페이스\\worldmap.jpg");
+        assert!(window.region_texture.is_none());
+        window.release_region_texture();
+        assert_eq!(window.loaded_region(), "유저인터페이스\\worldmap.jpg");
     }
 
     #[test]

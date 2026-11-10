@@ -193,11 +193,115 @@ pub fn choose_interface_texture(file: &str, mut available: impl FnMut(&str) -> b
         .find(|candidate| available(&format!("data\\texture\\{candidate}")))
 }
 
+/// How one interface image resolved.
+///
+/// `Retry` means a local file was present but the read failed. The caller must
+/// not record that path and must not install the placeholder, so a later frame
+/// can open the other candidate. `Missing` means both local candidates missed
+/// and the remote read returned nothing; that absence is safe to remember so
+/// the frame loop does not fetch again.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InterfaceTextureAttempt {
+    Ready(String),
+    Retry,
+    Missing,
+}
+
+/// Local archives first (Hangul, then CP949). `read` runs on a local hit to
+/// confirm the bytes, and as the remote `get` only after both local candidates
+/// miss. `local_exists` must not be true for a manifest-only path.
+pub fn select_interface_texture(
+    file: &str,
+    mut local_exists: impl FnMut(&str) -> bool,
+    mut read: impl FnMut(&str) -> bool,
+) -> InterfaceTextureAttempt {
+    let candidates = interface_texture_candidates(file);
+    let mut local_read_failed = false;
+    for candidate in &candidates {
+        let archive = format!("data\\texture\\{candidate}");
+        if !local_exists(&archive) {
+            continue;
+        }
+        if read(&archive) {
+            return InterfaceTextureAttempt::Ready(candidate.clone());
+        }
+        local_read_failed = true;
+    }
+    if local_read_failed {
+        return InterfaceTextureAttempt::Retry;
+    }
+    for candidate in &candidates {
+        let archive = format!("data\\texture\\{candidate}");
+        if read(&archive) {
+            return InterfaceTextureAttempt::Ready(candidate.clone());
+        }
+    }
+    InterfaceTextureAttempt::Missing
+}
+
 /// Left rail, gap, and the caption row under the map. Shared with the window
 /// so hit testing uses the same rectangles the layout draws.
 pub const RAIL_WIDTH: f32 = 168.0;
 pub const RAIL_GAP: f32 = 8.0;
 pub const CAPTION_HEIGHT: f32 = 72.0;
+
+/// Region buttons stack at this stride when the rail is tall enough.
+pub const REGION_BUTTON_HEIGHT: f32 = 28.0;
+pub const REGION_BUTTON_GAP: f32 = 4.0;
+pub const REGION_BUTTON_STRIDE: f32 = REGION_BUTTON_HEIGHT + REGION_BUTTON_GAP;
+
+/// One region button, relative to the top of the rail.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RegionButtonRect {
+    pub top: f32,
+    pub height: f32,
+}
+
+/// Keep every region button inside the rail. The natural 32px stride is used
+/// when `count * stride` fits. A short rail (interface scale 2 on 1024×576)
+/// shrinks the stride so the stack ends at the rail bottom, one gap above the
+/// caption. A point on the caption is not a region.
+pub fn region_buttons(rail_height: f32, region_count: usize) -> Vec<RegionButtonRect> {
+    if region_count == 0 || rail_height <= 0.0 {
+        return Vec::new();
+    }
+    let count = region_count as f32;
+    let natural_bottom = (count - 1.0) * REGION_BUTTON_STRIDE + REGION_BUTTON_HEIGHT;
+    if natural_bottom <= rail_height {
+        return (0..region_count)
+            .map(|index| RegionButtonRect {
+                top: index as f32 * REGION_BUTTON_STRIDE,
+                height: REGION_BUTTON_HEIGHT,
+            })
+            .collect();
+    }
+    let slot = rail_height / count;
+    let gap = REGION_BUTTON_GAP.min(slot * 0.25);
+    let height = (slot - gap).max(0.0);
+    (0..region_count)
+        .map(|index| {
+            let top = index as f32 * slot;
+            RegionButtonRect {
+                top,
+                height: height.min((rail_height - top).max(0.0)),
+            }
+        })
+        .collect()
+}
+
+/// Region under a point in the same space as `rail`. Outside the rail,
+/// including the caption row, this is `None`.
+pub fn region_button_index(rail: BaseRect, region_count: usize, x: f32, y: f32) -> Option<usize> {
+    if !contains(rail, x, y) {
+        return None;
+    }
+    let local_y = y - rail.top;
+    region_buttons(rail.height, region_count)
+        .into_iter()
+        .enumerate()
+        .find(|(_, button)| local_y >= button.top && local_y < button.top + button.height)
+        .map(|(index, _)| index)
+}
 
 /// Gap between the window and the viewport edge.
 pub const VIEWPORT_MARGIN: f32 = 12.0;
@@ -206,7 +310,8 @@ pub const VIEWPORT_MARGIN: f32 = 12.0;
 /// the screen. The fit keeps the caption above the bottom margin from there.
 pub const DEFAULT_ANCHOR_TOP_RATIO: f32 = 0.25;
 
-/// Window chrome from `InterfaceTheme::from_tokens` (title 22, gap 2, border 8).
+/// Window chrome from `InterfaceTheme::from_tokens` (title 22, gap 2, border
+/// 8).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WorldMapChrome {
     pub title_height: f32,
@@ -794,7 +899,10 @@ mod tests {
         assert_eq!(candidates[0], "유저인터페이스\\worldmap_localizing1.bmp");
         assert_eq!(candidates[1], "À¯ÀúÀÎÅÍÆäÀÌ½º\\worldmap_localizing1.bmp");
         // Archive lookup lowercases. The Latin-1 directory still matches itself.
-        assert_eq!(candidates[1].to_lowercase(), interface_dir_latin1().to_lowercase() + "\\worldmap_localizing1.bmp");
+        assert_eq!(
+            candidates[1].to_lowercase(),
+            interface_dir_latin1().to_lowercase() + "\\worldmap_localizing1.bmp"
+        );
 
         let hangul = choose_interface_texture("worldmap.jpg", |path| path.contains(INTERFACE_DIR_HANGUL));
         assert_eq!(hangul.as_deref(), Some("유저인터페이스\\worldmap.jpg"));
@@ -808,14 +916,48 @@ mod tests {
     }
 
     #[test]
-    fn markers_stay_classified_without_a_region_texture() {
-        assert_eq!(
-            marker_paint(OverlayClass::Unlocked, false, false),
-            MarkerPaint {
-                fill: MarkerTone::Accent,
-                stroke: MarkerTone::None,
-            }
+    fn manifest_hangul_hit_still_selects_local_cp949_when_the_hangul_read_fails() {
+        let candidates = interface_texture_candidates("worldmap.jpg");
+        let hangul = format!("data\\texture\\{}", candidates[0]);
+        let latin1 = format!("data\\texture\\{}", candidates[1]);
+        // `file_exists` is local archives OR the remote manifest. Hangul is only
+        // advertised by the manifest; the CP949 directory is the local file.
+        let manifest = [hangul.clone()];
+        let local = [latin1.clone()];
+        let file_exists = |path: &str| local.iter().any(|entry| entry == path) || manifest.iter().any(|entry| entry == path);
+        assert!(file_exists(&hangul));
+        assert!(!local.iter().any(|entry| entry == &hangul));
+
+        let mut hangul_reads = 0;
+        let selected = select_interface_texture(
+            "worldmap.jpg",
+            |path| local.iter().any(|entry| entry == path),
+            |path| {
+                if path == hangul {
+                    hangul_reads += 1;
+                    return false;
+                }
+                local.iter().any(|entry| entry == path)
+            },
         );
+        assert_eq!(selected, InterfaceTextureAttempt::Ready(candidates[1].clone()));
+        assert_eq!(hangul_reads, 0, "remote get runs only after both local candidates miss");
+
+        let manifest_probe = choose_interface_texture("worldmap.jpg", file_exists);
+        assert_eq!(manifest_probe.as_deref(), Some(candidates[0].as_str()));
+
+        let unreadable = select_interface_texture("worldmap.jpg", |path| path == hangul, |_| false);
+        assert_eq!(unreadable, InterfaceTextureAttempt::Retry);
+        let absent = select_interface_texture("worldmap.jpg", |_| false, |_| false);
+        assert_eq!(absent, InterfaceTextureAttempt::Missing);
+    }
+
+    #[test]
+    fn markers_stay_classified_without_a_region_texture() {
+        assert_eq!(marker_paint(OverlayClass::Unlocked, false, false), MarkerPaint {
+            fill: MarkerTone::Accent,
+            stroke: MarkerTone::None,
+        });
         assert_eq!(marker_paint(OverlayClass::Locked, false, false).fill, MarkerTone::Dim);
         assert_eq!(marker_paint(OverlayClass::Unlocked, true, false).stroke, MarkerTone::Accent);
         // Gold is hover only. The current map keeps the accent stroke.
@@ -835,7 +977,11 @@ mod tests {
         let chrome = WorldMapChrome::stock();
         for (width, height) in [(1024.0_f32, 576.0_f32), (1280.0, 720.0)] {
             let fit = fit_world_map(width, height, chrome);
-            assert!(fit.window_left + 0.51 >= chrome.margin, "{width}x{height} left {}", fit.window_left);
+            assert!(
+                fit.window_left + 0.51 >= chrome.margin,
+                "{width}x{height} left {}",
+                fit.window_left
+            );
             assert!(fit.window_top >= 0.0);
             assert!(rendered_right(fit, 1.0) <= width - chrome.margin + 0.51);
             assert!(rendered_bottom(fit, 1.0) <= height - chrome.margin + 0.51);
@@ -854,6 +1000,54 @@ mod tests {
         let wide = fit_world_map(1280.0, 720.0, WorldMapChrome { scaling: 2.0, ..chrome });
         assert!(rendered_right(wide, 2.0) <= 1280.0 - chrome.margin + 0.51);
         assert!(rendered_bottom(wide, 2.0) <= 720.0 - chrome.margin + 0.51);
+    }
+
+    #[test]
+    fn scale_two_region_buttons_stay_inside_the_rail_and_above_the_caption() {
+        let chrome = WorldMapChrome {
+            scaling: 2.0,
+            ..WorldMapChrome::stock()
+        };
+        let fit = fit_world_map(1024.0, 576.0, chrome);
+        assert!(rendered_right(fit, 2.0) <= 1024.0 - chrome.margin + 0.51);
+        assert!(rendered_bottom(fit, 2.0) <= 576.0 - chrome.margin + 0.51);
+
+        let count = regions_for_episode(DEFAULT_EPISODE).len();
+        assert_eq!(count, 4);
+        let natural_fourth_center = 3.0 * REGION_BUTTON_STRIDE + REGION_BUTTON_HEIGHT * 0.5;
+        let caption_top = fit.map.height + RAIL_GAP;
+        assert!(
+            natural_fourth_center >= caption_top,
+            "the fixed 32px stack overlaps the caption at this size (map height {})",
+            fit.map.height
+        );
+
+        let buttons = region_buttons(fit.map.height, count);
+        assert_eq!(buttons.len(), count);
+        let rail = BaseRect {
+            left: fit.window_left + chrome.border,
+            top: fit.map.top,
+            width: RAIL_WIDTH,
+            height: fit.map.height,
+        };
+        for (index, button) in buttons.iter().enumerate() {
+            assert!(button.height > 0.0, "{index}");
+            assert!(button.top >= -0.01, "{index}");
+            let bottom = button.top + button.height;
+            assert!(bottom <= fit.map.height + 0.01, "{index} bottom {bottom}");
+            assert!(bottom <= caption_top + 0.01, "{index} overlaps the caption");
+            let y = rail.top + button.top + button.height * 0.5;
+            assert_eq!(region_button_index(rail, count, rail.left + 4.0, y), Some(index));
+        }
+        assert_eq!(
+            region_button_index(rail, count, rail.left + 4.0, rail.top + natural_fourth_center),
+            None,
+            "a click on the caption must not select a region"
+        );
+        assert_eq!(
+            region_button_index(rail, count, rail.left + 4.0, rail.top + caption_top + 4.0),
+            None
+        );
     }
 
     #[test]
@@ -887,10 +1081,10 @@ mod tests {
 
         let views: Vec<_> = eastern_sections.iter().copied().map(section_ref).collect();
         let entries = [entry(0, 9, 1, 0, "amatsu", "Amatsu", "")];
-        assert!(matches!(
-            section_click(&views, &entries, amatsu),
-            ClickDecision::Warp { location_id: 9, .. }
-        ));
+        assert!(matches!(section_click(&views, &entries, amatsu), ClickDecision::Warp {
+            location_id: 9,
+            ..
+        }));
         // A locked eastern square still does not warp after the switch.
         let entries = [entry(0, 9, 0, 0, "amatsu", "Amatsu", "")];
         assert!(matches!(section_click(&views, &entries, amatsu), ClickDecision::Ignore { .. }));

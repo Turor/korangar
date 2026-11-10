@@ -25,6 +25,7 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
         "Exit" => Some(InputEvent::Exit),
         "ResetCameraRotation" => Some(InputEvent::ResetCameraRotation),
         "ToggleMenuWindow" => Some(InputEvent::ToggleMenuWindow),
+        "ToggleWorldMap" => Some(InputEvent::ToggleWorldMap),
         "ToggleInventoryWindow" => Some(InputEvent::ToggleInventoryWindow),
         "ToggleCartWindow" => Some(InputEvent::ToggleCartWindow),
         "ToggleEquipmentWindow" => Some(InputEvent::ToggleEquipmentWindow),
@@ -283,6 +284,7 @@ pub fn parse_window_class(name: &str) -> Option<WindowClass> {
         "partyinvite" => Some(WindowClass::PartyInvite),
         "login" => Some(WindowClass::Login),
         "menu" => Some(WindowClass::Menu),
+        "worldmap" => Some(WindowClass::WorldMap),
         "mail" => Some(WindowClass::Mail),
         "mvpminimap" => Some(WindowClass::MvpMinimap),
         "respawn" => Some(WindowClass::Respawn),
@@ -341,6 +343,7 @@ pub fn window_command(class: WindowClass, open: bool) -> Result<WindowCommand, S
         WindowClass::Navigation => InputEvent::ToggleNavigationWindow,
         WindowClass::StatusEffects => InputEvent::ToggleStatusEffectsWindow,
         WindowClass::Menu => InputEvent::ToggleMenuWindow,
+        WindowClass::WorldMap => InputEvent::ToggleWorldMap,
         WindowClass::MvpMinimap => InputEvent::ToggleMvpMinimap,
         WindowClass::Bank => {
             if open {

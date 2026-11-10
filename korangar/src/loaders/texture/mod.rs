@@ -552,10 +552,12 @@ impl TextureLoader {
                 return self.load_texture_data(FALLBACK_PNG_FILE);
             }
         };
-        let reader = ImageReader::with_format(Cursor::new(file_data), image_format);
-
-        let mut image_buffer = match reader.decode() {
-            Ok(image) => image.to_rgba8(),
+        match decode_color_image(path, &file_data) {
+            Ok(decoded) => {
+                #[cfg(feature = "debug")]
+                timer.stop();
+                Ok(decoded)
+            }
             Err(_error) => {
                 #[cfg(feature = "debug")]
                 {
@@ -571,33 +573,23 @@ impl TextureLoader {
                     _ => unreachable!(),
                 };
 
-                return self.load_texture_data(fallback_path);
+                self.load_texture_data(fallback_path)
             }
-        };
-
-        match image_format {
-            ImageFormat::Bmp => {
-                // These numbers are taken from https://github.com/Duckwhale/RagnarokFileFormats
-                image_buffer
-                    .pixels_mut()
-                    .filter(|pixel| pixel.0[0] > 0xF0 && pixel.0[1] < 0x10 && pixel.0[2] > 0x0F)
-                    .for_each(|pixel| *pixel = Rgba([0; 4]));
-            }
-            ImageFormat::Png | ImageFormat::Tga => {
-                image_buffer = premultiply_alpha(image_buffer);
-            }
-            _ => {}
         }
+    }
 
-        let transparent = match image_format == ImageFormat::Tga {
-            true => contains_transparent_pixel(image_buffer.as_raw()),
-            false => false,
-        };
-
-        #[cfg(feature = "debug")]
-        timer.stop();
-
-        Ok((image_buffer, transparent))
+    /// Upload one interface image. Missing and undecodable files stay unloaded:
+    /// this does not substitute or cache the placeholder texture.
+    pub fn load_user_color(&self, path: &str) -> Option<Arc<Texture>> {
+        let path = fix_broken_texture_file_endings(path);
+        if let Some(texture) = self.get(&path, ImageType::Color) {
+            return Some(texture);
+        }
+        let bytes = self.game_file_loader.get(&format!("data\\texture\\{path}")).ok()?;
+        let (image, transparent) = decode_color_image(&path, &bytes).ok()?;
+        let texture = self.create_uncompressed_with_mipmaps(&path, transparent, image);
+        let _result = self.cache.lock().unwrap().insert((path, ImageType::Color), texture.clone());
+        Some(texture)
     }
 
     pub fn load_grayscale_texture_data(&self, path: &str) -> Result<GrayImage, LoadError> {
@@ -755,6 +747,42 @@ impl<'a> Dds<'a> {
     }
 }
 
+/// Decode a color texture without substituting the placeholder image.
+pub(crate) fn decode_color_image(path: &str, file_data: &[u8]) -> Result<(RgbaImage, bool), LoadError> {
+    let image_format = match path.get(path.len().saturating_sub(4)..) {
+        Some(".bmp" | ".BMP") => ImageFormat::Bmp,
+        Some(".jpg" | ".JPG") => ImageFormat::Jpeg,
+        Some(".png" | ".PNG") => ImageFormat::Png,
+        Some(".tga" | ".TGA") => ImageFormat::Tga,
+        _ => return Err(LoadError::UnsupportedFormat(path.to_owned())),
+    };
+    let mut image_buffer = ImageReader::with_format(Cursor::new(file_data), image_format)
+        .decode()
+        .map_err(|_| LoadError::UnsupportedFormat(path.to_owned()))?
+        .to_rgba8();
+
+    match image_format {
+        ImageFormat::Bmp => {
+            // These numbers are taken from https://github.com/Duckwhale/RagnarokFileFormats
+            image_buffer
+                .pixels_mut()
+                .filter(|pixel| pixel.0[0] > 0xF0 && pixel.0[1] < 0x10 && pixel.0[2] > 0x0F)
+                .for_each(|pixel| *pixel = Rgba([0; 4]));
+        }
+        ImageFormat::Png | ImageFormat::Tga => {
+            image_buffer = premultiply_alpha(image_buffer);
+        }
+        _ => {}
+    }
+
+    let transparent = image_format == ImageFormat::Tga && contains_transparent_pixel(image_buffer.as_raw());
+    Ok((image_buffer, transparent))
+}
+
+pub(crate) fn color_image_decodes(path: &str, bytes: &[u8]) -> bool {
+    decode_color_image(path, bytes).is_ok()
+}
+
 fn premultiply_alpha(image_buffer: RgbaImage) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
     // Iterating over "pixels_mut()" is considerably slower than iterating over the
     // raw bates, so we have to do this conversion to get raw, mutable access.
@@ -886,4 +914,23 @@ pub fn calculate_valid_mip_level_count(width: u32, height: u32) -> u32 {
     }
 
     mip_level.max(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::color_image_decodes;
+
+    #[test]
+    fn garbage_bytes_are_not_a_color_image() {
+        assert!(!color_image_decodes("worldmap.jpg", b"not-a-jpeg"));
+        assert!(!color_image_decodes("worldmap.jpg", b""));
+        let image = image::RgbaImage::from_pixel(2, 2, image::Rgba([12, 40, 20, 255]));
+        let mut bytes = Vec::new();
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
+            .unwrap();
+        assert!(color_image_decodes("worldmap.jpg", &bytes));
+    }
 }

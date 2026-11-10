@@ -38,8 +38,8 @@ Each line is logged as `AUTOPILOT_CMD ok|err <line>`. Blank lines and `#` commen
 | Command | Effect |
 | --- | --- |
 | `chat <text>` | `SendMessage` (including `@` GM commands). |
-| `open <WindowClass>` / `close <WindowClass>` | Open or close that window. Names match `WindowClass` (`Inventory`, `Equipment`, `Menu`, …). `gear` is `Equipment`. |
-| `toggle <Event>` | Unit `InputEvent` whose name starts with `Toggle` or `Open`, for example `toggle ToggleInventoryWindow`. |
+| `open <WindowClass>` / `close <WindowClass>` | Open or close that window. Names match `WindowClass` (`Inventory`, `Equipment`, `Menu`, `WorldMap`, …). `gear` is `Equipment`. |
+| `toggle <Event>` | Unit `InputEvent` whose name starts with `Toggle` or `Open`, for example `toggle ToggleInventoryWindow` or `toggle ToggleWorldMap`. |
 | `event <spec>` | A unit `InputEvent` name, or one parameterized form below. |
 | `wait <ms>` | Pause the command reader. |
 | `move <x> <y>` | Walk to that tile. |

@@ -205,6 +205,18 @@ mod tests {
             Command::Toggle(InputEvent::ToggleInventoryWindow)
         ));
         assert!(matches!(
+            parse_command("toggle ToggleWorldMap").unwrap(),
+            Command::Toggle(InputEvent::ToggleWorldMap)
+        ));
+        match parse_command("open WorldMap").unwrap() {
+            Command::Window { class, open, event } => {
+                assert_eq!(class, WindowClass::WorldMap);
+                assert!(open);
+                assert!(matches!(event, InputEvent::ToggleWorldMap));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert!(matches!(
             parse_command("event ToggleMenuWindow").unwrap(),
             Command::Event(InputEvent::ToggleMenuWindow)
         ));
