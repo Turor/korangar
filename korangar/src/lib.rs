@@ -2728,7 +2728,8 @@ impl Client {
                     }
                 }
                 NetworkEvent::CartItemAdded { item } => {
-                    self.client_state
+                    let _ = self
+                        .client_state
                         .follow_mut(client_state().cart())
                         .add_item(&self.async_loader, item);
                 }
@@ -2736,9 +2737,16 @@ impl Client {
                     self.client_state.follow_mut(client_state().cart()).remove_item(index, amount);
                 }
                 NetworkEvent::IventoryItemAdded { item } => {
-                    self.client_state
+                    let visual = self
+                        .client_state
                         .follow_mut(client_state().inventory())
                         .add_item(&self.async_loader, item);
+                    // A drag that bound the slot before this icon was cached
+                    // still has an empty texture. The sprite loader fills the
+                    // rest when `visual`'s texture is `None`.
+                    self.client_state
+                        .follow_mut(client_state().hotbar())
+                        .apply_item_visuals(std::slice::from_ref(&visual));
 
                     // TODO: Update the selling items. If you pick up an item
                     // that you already have the sell window
@@ -6551,6 +6559,9 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().barter())
                         .apply_icon(item_id, texture.clone());
+                    self.client_state
+                        .follow_mut(client_state().hotbar())
+                        .apply_item_sprite(item_id, texture.clone());
                     self.client_state
                         .follow_mut(client_state().cart())
                         .update_item_sprite(item_id, texture);

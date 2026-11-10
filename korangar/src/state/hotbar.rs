@@ -331,8 +331,23 @@ impl Hotbar {
                 continue;
             }
             if let Some((_, name, texture)) = visuals.iter().find(|(item_id, _, _)| *item_id == cell.item_id) {
-                cell.item_name.clone_from(name);
-                cell.item_texture.clone_from(texture);
+                if !name.is_empty() {
+                    cell.item_name.clone_from(name);
+                }
+                // A snapshot taken before the sprite load finishes has no icon.
+                // Leave a texture that already arrived.
+                if let Some(texture) = texture {
+                    cell.item_texture = Some(texture.clone());
+                }
+            }
+        }
+    }
+
+    /// Copy a finished item icon onto every item slot with that id.
+    pub fn apply_item_sprite(&mut self, item_id: ItemId, texture: Arc<Texture>) {
+        for cell in &mut self.cells {
+            if cell.kind == CELL_ITEM && cell.item_id == item_id.0 {
+                cell.item_texture = Some(texture.clone());
             }
         }
     }
@@ -362,6 +377,12 @@ impl Hotbar {
 /// Item id carried by a hotbar cell, used when the inventory lookup needs it.
 pub fn cell_item_id(cell: &HotbarCell) -> Option<ItemId> {
     (cell.kind == CELL_ITEM).then_some(ItemId(cell.item_id))
+}
+
+/// Saved hotkey count until the inventory has contained this item. After that,
+/// the live stack is shown, including 0.
+pub fn hotbar_stack_label(saved: u16, known: Option<u16>) -> u16 {
+    known.unwrap_or(saved)
 }
 
 /// Skill level carried by a hotbar cell.
@@ -472,5 +493,28 @@ mod tests {
             hotbar.cell(HotbarTab(1), HotbarSlot(4)).unwrap().to_hotkey(),
             HotkeyData::UNBOUND
         );
+    }
+
+    #[test]
+    fn stack_label_uses_zero_once_the_inventory_has_seen_the_item() {
+        assert_eq!(hotbar_stack_label(10, None), 10);
+        assert_eq!(hotbar_stack_label(10, Some(4)), 4);
+        assert_eq!(hotbar_stack_label(10, Some(0)), 0);
+    }
+
+    #[test]
+    fn item_visuals_name_empty_slots_and_do_not_clear_a_missing_icon() {
+        let mut hotbar = Hotbar::default();
+        hotbar.set_item_local(HotbarTab(0), HotbarSlot(0), 501, 10);
+        hotbar.set_item_local(HotbarTab(1), HotbarSlot(2), 501, 3);
+        hotbar.set_item_local(HotbarTab(0), HotbarSlot(1), 502, 1);
+        hotbar.apply_item_visuals(&[(501, "Red Potion".to_owned(), None)]);
+        assert_eq!(hotbar.cell(HotbarTab(0), HotbarSlot(0)).unwrap().item_name, "Red Potion");
+        assert_eq!(hotbar.cell(HotbarTab(1), HotbarSlot(2)).unwrap().item_name, "Red Potion");
+        assert!(hotbar.cell(HotbarTab(0), HotbarSlot(1)).unwrap().item_name.is_empty());
+        assert!(hotbar.cell(HotbarTab(0), HotbarSlot(0)).unwrap().item_texture.is_none());
+
+        hotbar.apply_item_visuals(&[(501, String::new(), None)]);
+        assert_eq!(hotbar.cell(HotbarTab(0), HotbarSlot(0)).unwrap().item_name, "Red Potion");
     }
 }

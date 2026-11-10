@@ -16,7 +16,9 @@ use crate::input::{InputEvent, MouseInputMode};
 use crate::interface::resource::{ItemSource, SkillSource};
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::renderer::LayoutExt;
-use crate::state::hotbar::{CELL_ITEM, CELL_SKILL, HOTBAR_COLUMNS, HOTBAR_ROWS, HOTBAR_SLOTS, Hotbar, cell_item_id, cell_skill_level};
+use crate::state::hotbar::{
+    CELL_ITEM, CELL_SKILL, HOTBAR_COLUMNS, HOTBAR_ROWS, HOTBAR_SLOTS, Hotbar, cell_item_id, cell_skill_level, hotbar_stack_label,
+};
 use crate::state::inventory::Inventory;
 use crate::state::theme::{GlobalThemePathExt, InterfaceThemePathExt, SkillTreeThemePathExt};
 use crate::state::{ClientState, client_theme};
@@ -225,10 +227,8 @@ where
                         self.labels[visual] = cell_skill_level(cell).0.to_string();
                     }
                     CELL_ITEM => {
-                        let amount = cell_item_id(cell)
-                            .map(|item_id| inventory.stacked_amount(item_id))
-                            .filter(|amount| *amount > 0)
-                            .unwrap_or(cell.amount);
+                        let known = cell_item_id(cell).and_then(|item_id| inventory.known_amount(item_id));
+                        let amount = hotbar_stack_label(cell.amount, known);
                         self.labels[visual] = amount.to_string();
                     }
                     _ => self.labels[visual].clear(),
