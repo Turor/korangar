@@ -10,8 +10,8 @@ use korangar_interface::element::StateElement;
 use korangar_interface::window::{StateWindow, Window};
 use korangar_networking::EntityData;
 use ragnarok_packets::{
-    AccountId, CharacterInformation, ClientTick, Direction, DisappearanceReason, EntityId, JobId, Sex, StatType, TilePosition,
-    WorldPosition,
+    AccountId, CharacterInformation, ClientTick, Direction, DisappearanceReason, EntityId, JobId, Sex, SpriteChangeType, StatType,
+    TilePosition, WorldPosition,
 };
 use rust_state::{Path, RustState, VecItem};
 #[cfg(feature = "debug")]
@@ -900,6 +900,17 @@ impl Common {
 pub struct Player {
     common: Common,
     pub hair_id: usize,
+    /// `LOOK_HAIR_COLOR`. Stored for the stylist; the sprite loader bakes
+    /// palettes.
+    pub hair_color: u16,
+    /// `LOOK_CLOTHES_COLOR`.
+    pub cloth_color: u16,
+    /// `LOOK_HEAD_BOTTOM` view id. Hat sprites are not composed onto the body.
+    pub head_bottom: u16,
+    /// `LOOK_HEAD_TOP` view id.
+    pub head_top: u16,
+    /// `LOOK_HEAD_MID` view id.
+    pub head_mid: u16,
     pub spell_points: usize,
     pub activity_points: usize,
     pub maximum_spell_points: usize,
@@ -959,6 +970,11 @@ impl Player {
     /// the correct position we need to position the player to.
     pub fn new(library: &Library, account_id: AccountId, character_information: &CharacterInformation, client_tick: ClientTick) -> Self {
         let hair_id = character_information.head as usize;
+        let hair_color = u16::from(character_information.hair_color);
+        let cloth_color = u16::try_from(character_information.body_palette).unwrap_or(0);
+        let head_bottom = u16::try_from(character_information.accessory).unwrap_or(0);
+        let head_top = u16::try_from(character_information.accessory2).unwrap_or(0);
+        let head_mid = u16::try_from(character_information.accessory3).unwrap_or(0);
         let spell_points = character_information.spell_points as usize;
         let activity_points = 0;
         let maximum_spell_points = character_information.maximum_spell_points as usize;
@@ -978,6 +994,11 @@ impl Player {
         Self {
             common,
             hair_id,
+            hair_color,
+            cloth_color,
+            head_bottom,
+            head_top,
+            head_mid,
             spell_points,
             activity_points,
             maximum_spell_points,
@@ -1153,6 +1174,12 @@ impl Player {
     pub fn get_entity_part_files(&self, library: &Library) -> Vec<String> {
         let common = self.get_common();
         get_entity_part_files(library, common.entity_type, common.job_id, common.sex, Some(self.hair_id))
+    }
+
+    /// Body plus a hair style that may differ from the one the player wears.
+    pub fn preview_part_files(&self, library: &Library, hair_id: usize) -> Vec<String> {
+        let common = self.get_common();
+        get_entity_part_files(library, common.entity_type, common.job_id, common.sex, Some(hair_id))
     }
 }
 
@@ -1335,9 +1362,40 @@ impl Entity {
         common.scale = scale;
     }
 
-    pub fn set_hair(&mut self, hair_id: usize) {
-        if let Self::Player(player) = self {
-            player.hair_id = hair_id
+    /// Apply one `ZC_SPRITE_CHANGE` look. Hair style returns true when the
+    /// sprite files change. Color and headgear are stored and do not reload.
+    pub fn apply_player_look(&mut self, look: SpriteChangeType, value: u32) -> bool {
+        let Self::Player(player) = self else {
+            return false;
+        };
+        match look {
+            SpriteChangeType::Hair => {
+                let hair_id = value as usize;
+                let changed = player.hair_id != hair_id;
+                player.hair_id = hair_id;
+                changed
+            }
+            SpriteChangeType::HairCollor => {
+                player.hair_color = value as u16;
+                false
+            }
+            SpriteChangeType::ClothesColor => {
+                player.cloth_color = value as u16;
+                false
+            }
+            SpriteChangeType::HeadBottom => {
+                player.head_bottom = value as u16;
+                false
+            }
+            SpriteChangeType::HeadTop => {
+                player.head_top = value as u16;
+                false
+            }
+            SpriteChangeType::HeadMiddle => {
+                player.head_mid = value as u16;
+                false
+            }
+            _ => false,
         }
     }
 

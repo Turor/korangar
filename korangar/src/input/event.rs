@@ -538,6 +538,21 @@ pub enum InputEvent {
     LaphineUpgradeSubmit,
     /// Close the upgrade UI.
     LaphineUpgradeClose,
+    /// Hair tab or headgear tab in the styling shop.
+    StylingShopTab {
+        headgear: bool,
+    },
+    /// Step one catalog row. `delta` is -1 or 1. Index 0 keeps the worn look.
+    StylingShopStep {
+        row: u8,
+        delta: i8,
+    },
+    /// Send the selected catalog indexes.
+    StylingShopBuy,
+    /// Clear the styling shop selection.
+    StylingShopReset,
+    /// Close the styling shop and tell the server.
+    StylingShopClose,
     /// Level up a skill.
     LevelUpSkills {
         /// List of skills to level up by one. This list is allowed to contain

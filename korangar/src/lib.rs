@@ -2585,22 +2585,64 @@ impl Client {
                     }
                 }
                 NetworkEvent::ChangeHair { account_id, hair_id } => {
-                    let entity = self
-                        .client_state
-                        .follow_mut(client_state().entities())
-                        .iter_mut()
-                        .find(|entity| entity.get_entity_id().0 == account_id.0)
-                        .unwrap();
-
-                    entity.set_hair(hair_id as usize);
-
-                    if let Some(animation_data) = self.async_loader.request_animation_data_load(
-                        entity.get_entity_id(),
-                        entity.get_entity_type(),
-                        entity.get_entity_part_files(&self.library),
-                    ) {
-                        entity.set_animation_data(animation_data);
-                    }
+                    Self::apply_account_look(
+                        &mut self.client_state,
+                        &self.async_loader,
+                        &self.library,
+                        account_id,
+                        ragnarok_packets::SpriteChangeType::Hair,
+                        hair_id,
+                    );
+                }
+                NetworkEvent::ChangeHairColor { account_id, color } => {
+                    Self::apply_account_look(
+                        &mut self.client_state,
+                        &self.async_loader,
+                        &self.library,
+                        account_id,
+                        ragnarok_packets::SpriteChangeType::HairCollor,
+                        color,
+                    );
+                }
+                NetworkEvent::ChangeClothColor { account_id, color } => {
+                    Self::apply_account_look(
+                        &mut self.client_state,
+                        &self.async_loader,
+                        &self.library,
+                        account_id,
+                        ragnarok_packets::SpriteChangeType::ClothesColor,
+                        color,
+                    );
+                }
+                NetworkEvent::ChangeHeadTop { account_id, view_id } => {
+                    Self::apply_account_look(
+                        &mut self.client_state,
+                        &self.async_loader,
+                        &self.library,
+                        account_id,
+                        ragnarok_packets::SpriteChangeType::HeadTop,
+                        view_id,
+                    );
+                }
+                NetworkEvent::ChangeHeadMid { account_id, view_id } => {
+                    Self::apply_account_look(
+                        &mut self.client_state,
+                        &self.async_loader,
+                        &self.library,
+                        account_id,
+                        ragnarok_packets::SpriteChangeType::HeadMiddle,
+                        view_id,
+                    );
+                }
+                NetworkEvent::ChangeHeadBottom { account_id, view_id } => {
+                    Self::apply_account_look(
+                        &mut self.client_state,
+                        &self.async_loader,
+                        &self.library,
+                        account_id,
+                        ragnarok_packets::SpriteChangeType::HeadBottom,
+                        view_id,
+                    );
                 }
                 NetworkEvent::LoggedOut => {
                     self.networking_system.disconnect_from_map_server();
@@ -3267,6 +3309,27 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().chat_messages())
                         .push(ChatMessage::new(status, MessageColor::Information));
+                }
+                NetworkEvent::OpenStylingShop => {
+                    let library = Arc::clone(&self.library);
+                    let doram = Self::styling_is_doram(&self.client_state);
+                    self.client_state
+                        .follow_mut(client_state().styling_shop())
+                        .open_shop(doram, Some(library.as_ref()));
+                    self.interface.open_window(StylingShopWindow::new());
+                    Self::request_styling_preview(&mut self.client_state, &self.async_loader, &self.library);
+                }
+                NetworkEvent::StylingShopResult { success } => {
+                    let library = Arc::clone(&self.library);
+                    let doram = Self::styling_is_doram(&self.client_state);
+                    self.client_state
+                        .follow_mut(client_state().styling_shop())
+                        .note_result(success, doram, Some(library.as_ref()));
+                    let status = self.client_state.follow(client_state().styling_shop()).status.clone();
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(status, MessageColor::Information));
+                    Self::request_styling_preview(&mut self.client_state, &self.async_loader, &self.library);
                 }
                 NetworkEvent::TradeRequested { partner_name, level, .. } => {
                     let trade = self.client_state.follow_mut(client_state().trade());
@@ -5218,6 +5281,51 @@ impl Client {
                     let _ = self.networking_system.close_laphine_upgrade();
                     self.interface.close_window_with_class(WindowClass::LaphineUpgrade);
                 }
+                InputEvent::StylingShopTab { headgear } => {
+                    let library = Arc::clone(&self.library);
+                    let doram = Self::styling_is_doram(&self.client_state);
+                    self.client_state
+                        .follow_mut(client_state().styling_shop())
+                        .set_tab(headgear, doram, Some(library.as_ref()));
+                    Self::request_styling_preview(&mut self.client_state, &self.async_loader, &self.library);
+                }
+                InputEvent::StylingShopStep { row, delta } => {
+                    let library = Arc::clone(&self.library);
+                    let doram = Self::styling_is_doram(&self.client_state);
+                    self.client_state
+                        .follow_mut(client_state().styling_shop())
+                        .step(row, delta, doram, Some(library.as_ref()));
+                    Self::request_styling_preview(&mut self.client_state, &self.async_loader, &self.library);
+                }
+                InputEvent::StylingShopReset => {
+                    let library = Arc::clone(&self.library);
+                    let doram = Self::styling_is_doram(&self.client_state);
+                    self.client_state
+                        .follow_mut(client_state().styling_shop())
+                        .reset(doram, Some(library.as_ref()));
+                    Self::request_styling_preview(&mut self.client_state, &self.async_loader, &self.library);
+                }
+                InputEvent::StylingShopBuy => {
+                    let purchase = self.client_state.follow(client_state().styling_shop()).purchase();
+                    if purchase.is_empty() {
+                        self.client_state.follow_mut(client_state().styling_shop()).status = "Choose a style.".to_owned();
+                    } else {
+                        let _ = self.networking_system.buy_styling(
+                            purchase.head_palette,
+                            purchase.head_style,
+                            purchase.body_palette,
+                            purchase.top_accessory,
+                            purchase.mid_accessory,
+                            purchase.bottom_accessory,
+                        );
+                        self.client_state.follow_mut(client_state().styling_shop()).status = "Asking the stylist...".to_owned();
+                    }
+                }
+                InputEvent::StylingShopClose => {
+                    self.client_state.follow_mut(client_state().styling_shop()).mark_button_close();
+                    let _ = self.networking_system.close_styling_shop();
+                    self.interface.close_window_with_class(WindowClass::StylingShop);
+                }
                 InputEvent::LevelUpSkills { skill_ids } => {
                     for skill_id in skill_ids {
                         if self.networking_system.level_up_skill(skill_id).is_err() {
@@ -5383,7 +5491,77 @@ impl Client {
             self.apply_pincode_effect(effect);
         }
 
+        self.sync_styling_shop_close();
+
         interface_has_focus
+    }
+
+    fn styling_is_doram(state: &State<ClientState>) -> bool {
+        state
+            .try_follow(this_player())
+            .is_some_and(|player| crate::state::styling_shop::job_is_doram(player.get_common().job_id.0))
+    }
+
+    fn apply_account_look(
+        state: &mut State<ClientState>,
+        async_loader: &AsyncLoader,
+        library: &Library,
+        account_id: AccountId,
+        look: ragnarok_packets::SpriteChangeType,
+        value: u32,
+    ) {
+        let entity = state
+            .follow_mut(client_state().entities())
+            .iter_mut()
+            .find(|entity| entity.get_entity_id().0 == account_id.0)
+            .unwrap();
+
+        if entity.apply_player_look(look, value)
+            && let Some(animation_data) = async_loader.request_animation_data_load(
+                entity.get_entity_id(),
+                entity.get_entity_type(),
+                entity.get_entity_part_files(library),
+            )
+        {
+            entity.set_animation_data(animation_data);
+        }
+    }
+
+    /// Load a hair-only preview. The sentinel entity id is never assigned to a
+    /// world entity.
+    fn request_styling_preview(state: &mut State<ClientState>, async_loader: &AsyncLoader, library: &Library) {
+        let Some(worn) = state.try_follow(this_player()).map(|player| player.hair_id) else {
+            return;
+        };
+        let wanted = state.follow(client_state().styling_shop()).preview_hair_id(worn);
+        if wanted == worn {
+            state.follow_mut(client_state().styling_shop()).clear_preview();
+            return;
+        }
+        state.follow_mut(client_state().styling_shop()).begin_preview(wanted as u32);
+        let Some(files) = state
+            .try_follow(this_player())
+            .map(|player| player.preview_part_files(library, wanted))
+        else {
+            return;
+        };
+        let entity_id = ragnarok_packets::EntityId(0xF000_0000 | (wanted as u32 & 0x00FF_FFFF));
+        if let Some(animation) = async_loader.request_animation_data_load(entity_id, EntityType::Player, files) {
+            state
+                .follow_mut(client_state().styling_shop())
+                .store_preview(wanted as u32, animation);
+        }
+    }
+
+    fn sync_styling_shop_close(&mut self) {
+        let open = self.interface.is_window_with_class_open(WindowClass::StylingShop);
+        if self
+            .client_state
+            .follow_mut(client_state().styling_shop())
+            .take_unsolicited_close(open)
+        {
+            let _ = self.networking_system.close_styling_shop();
+        }
     }
 
     #[cfg(feature = "debug")]
@@ -5443,6 +5621,11 @@ impl Client {
                         .find(|item| item.get_entity_id() == entity_id)
                     {
                         item.set_animation_data(animation_data);
+                    } else if entity_id.0 & 0xFF00_0000 == 0xF000_0000 {
+                        let hair = entity_id.0 & 0x00FF_FFFF;
+                        self.client_state
+                            .follow_mut(client_state().styling_shop())
+                            .store_preview(hair, animation_data);
                     }
                 }
                 (LoaderId::ItemSprite(item_id), LoadableResource::ItemSprite { texture }) => {

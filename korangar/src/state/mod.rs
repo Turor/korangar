@@ -22,6 +22,8 @@ pub mod skill_cooldowns;
 pub mod skills;
 pub mod status_effects;
 pub mod status_names;
+pub mod styling_catalog;
+pub mod styling_shop;
 pub mod theme;
 pub mod trade;
 
@@ -88,6 +90,7 @@ use crate::state::refine::RefineState;
 use crate::state::skill_cooldowns::SkillCooldowns;
 use crate::state::skills::SkillTree;
 use crate::state::status_effects::StatusEffects;
+use crate::state::styling_shop::StylingShopState;
 use crate::state::theme::WorldTheme;
 use crate::state::trade::TradeState;
 #[cfg(feature = "debug")]
@@ -320,6 +323,9 @@ pub struct ClientState {
     laphine_synthesis: LaphineSynthesisState,
     /// Laphine upgrade UI.
     laphine_upgrade: LaphineUpgradeState,
+    /// kRO styling shop. Catalog indexes are local; the server sends no price
+    /// list.
+    styling_shop: StylingShopState,
     /// Local-player status effects (buffs/debuffs).
     status_effects: StatusEffects,
     /// Skill cooldown deadlines for hotbar overlays.
@@ -524,6 +530,7 @@ impl ClientState {
             let enchant_grade = EnchantGradeState::default();
             let laphine_synthesis = LaphineSynthesisState::default();
             let laphine_upgrade = LaphineUpgradeState::default();
+            let styling_shop = StylingShopState::default();
             let status_effects = StatusEffects::default();
             let skill_cooldowns = SkillCooldowns::default();
             let quest_log = QuestLog::default();
@@ -633,6 +640,7 @@ impl ClientState {
             enchant_grade,
             laphine_synthesis,
             laphine_upgrade,
+            styling_shop,
             status_effects,
             skill_cooldowns,
             quest_log,
