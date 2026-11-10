@@ -3,6 +3,7 @@
 
 pub mod handler;
 mod position;
+mod stats;
 pub mod version_20190530;
 pub mod version_20250716;
 
@@ -1519,7 +1520,7 @@ pub enum StatType {
     Critical(u32),
     MagicAttack1(u32),
     MagicAttack2(u32),
-    Zeny(u32),
+    Zeny(u64),
     BaseExperience(u64),
     JobExperience(u64),
     NextBaseExperience(u64),
@@ -1540,12 +1541,12 @@ pub enum StatType {
     ActivityPoints(u32),
     TraitPoint(u32),
     MaximumActivityPoints(u32),
-    Power(u32, u32),
-    Stamina(u32, u32),
-    Wisdom(u32, u32),
-    Spell(u32, u32),
-    Concentration(u32, u32),
-    Creativity(u32, u32),
+    Power(i32, i32),
+    Stamina(i32, i32),
+    Wisdom(i32, i32),
+    Spell(i32, i32),
+    Concentration(i32, i32),
+    Creativity(i32, i32),
     PowerStatPointCost(u8),
     StaminaStatPointCost(u8),
     WisdomStatPointCost(u8),
@@ -1576,8 +1577,8 @@ impl FromBytes for StatType {
 
         let stat = match u16::from_bytes(byte_reader).trace::<Self>()? {
             0 => u32::from_bytes(byte_reader).map(Self::MovementSpeed),
-            1 => u64::from_bytes(byte_reader).map(Self::BaseExperience),
-            2 => u64::from_bytes(byte_reader).map(Self::JobExperience),
+            1 => stats::read_wide_value(byte_reader).map(Self::BaseExperience),
+            2 => stats::read_wide_value(byte_reader).map(Self::JobExperience),
             3 => u32::from_bytes(byte_reader).map(Self::Karma),
             4 => u32::from_bytes(byte_reader).map(Self::Manner),
             5 => u32::from_bytes(byte_reader).map(Self::HealthPoints),
@@ -1593,9 +1594,9 @@ impl FromBytes for StatType {
             16 => weirdly_packed_stat(byte_reader).map(|(base, bonus)| Self::Intelligence(base, bonus)),
             17 => weirdly_packed_stat(byte_reader).map(|(base, bonus)| Self::Dexterity(base, bonus)),
             18 => weirdly_packed_stat(byte_reader).map(|(base, bonus)| Self::Luck(base, bonus)),
-            20 => u32::from_bytes(byte_reader).map(Self::Zeny),
-            22 => u64::from_bytes(byte_reader).map(Self::NextBaseExperience),
-            23 => u64::from_bytes(byte_reader).map(Self::NextJobExperience),
+            20 => stats::read_wide_value(byte_reader).map(Self::Zeny),
+            22 => stats::read_wide_value(byte_reader).map(Self::NextBaseExperience),
+            23 => stats::read_wide_value(byte_reader).map(Self::NextJobExperience),
             24 => u32::from_bytes(byte_reader).map(Self::Weight),
             25 => u32::from_bytes(byte_reader).map(Self::MaximumWeight),
             32 => u8::from_bytes(byte_reader).map(Self::StrengthStatPointCost),
@@ -1620,12 +1621,12 @@ impl FromBytes for StatType {
             55 => u32::from_bytes(byte_reader).map(Self::JobLevel),
             99 => u16::from_bytes(byte_reader)
                 .and_then(|a| Ok(Self::CartInfo(a, u32::from_bytes(byte_reader)?, u32::from_bytes(byte_reader)?))),
-            219 => u32::from_bytes(byte_reader).and_then(|a| Ok(Self::Power(a, u32::from_bytes(byte_reader)?))),
-            220 => u32::from_bytes(byte_reader).and_then(|a| Ok(Self::Stamina(a, u32::from_bytes(byte_reader)?))),
-            221 => u32::from_bytes(byte_reader).and_then(|a| Ok(Self::Wisdom(a, u32::from_bytes(byte_reader)?))),
-            222 => u32::from_bytes(byte_reader).and_then(|a| Ok(Self::Spell(a, u32::from_bytes(byte_reader)?))),
-            223 => u32::from_bytes(byte_reader).and_then(|a| Ok(Self::Concentration(a, u32::from_bytes(byte_reader)?))),
-            224 => u32::from_bytes(byte_reader).and_then(|a| Ok(Self::Creativity(a, u32::from_bytes(byte_reader)?))),
+            219 => stats::read_couple_status(byte_reader).map(|(base, bonus)| Self::Power(base, bonus)),
+            220 => stats::read_couple_status(byte_reader).map(|(base, bonus)| Self::Stamina(base, bonus)),
+            221 => stats::read_couple_status(byte_reader).map(|(base, bonus)| Self::Wisdom(base, bonus)),
+            222 => stats::read_couple_status(byte_reader).map(|(base, bonus)| Self::Spell(base, bonus)),
+            223 => stats::read_couple_status(byte_reader).map(|(base, bonus)| Self::Concentration(base, bonus)),
+            224 => stats::read_couple_status(byte_reader).map(|(base, bonus)| Self::Creativity(base, bonus)),
             225 => u32::from_bytes(byte_reader).map(Self::PhysicalAttack),
             226 => u32::from_bytes(byte_reader).map(Self::SpellMagicAttack),
             227 => u32::from_bytes(byte_reader).map(Self::Resistance),
@@ -1819,6 +1820,67 @@ pub enum StatUpType {
     Intelligence { amount: u8 },
     Dexterity { amount: u8 },
     Luck { amount: u8 },
+    /// `SP_POW`. Sent with [`RequestTraitStatUpPacket`] on packetver 20250716.
+    Power { amount: u8 },
+    /// `SP_STA`.
+    Stamina { amount: u8 },
+    /// `SP_WIS`.
+    Wisdom { amount: u8 },
+    /// `SP_SPL`.
+    Spell { amount: u8 },
+    /// `SP_CON`.
+    Concentration { amount: u8 },
+    /// `SP_CRT`.
+    Creativity { amount: u8 },
+}
+
+impl StatUpType {
+    /// Hercules `enum status_point_types` value (`SP_STR` … `SP_LUK`, `SP_POW` … `SP_CRT`).
+    pub fn status_id(&self) -> u16 {
+        match self {
+            Self::Strength { .. } => 13,
+            Self::Agility { .. } => 14,
+            Self::Vitality { .. } => 15,
+            Self::Intelligence { .. } => 16,
+            Self::Dexterity { .. } => 17,
+            Self::Luck { .. } => 18,
+            Self::Power { .. } => 219,
+            Self::Stamina { .. } => 220,
+            Self::Wisdom { .. } => 221,
+            Self::Spell { .. } => 222,
+            Self::Concentration { .. } => 223,
+            Self::Creativity { .. } => 224,
+        }
+    }
+
+    pub fn amount(&self) -> u16 {
+        match self {
+            Self::Strength { amount }
+            | Self::Agility { amount }
+            | Self::Vitality { amount }
+            | Self::Intelligence { amount }
+            | Self::Dexterity { amount }
+            | Self::Luck { amount }
+            | Self::Power { amount }
+            | Self::Stamina { amount }
+            | Self::Wisdom { amount }
+            | Self::Spell { amount }
+            | Self::Concentration { amount }
+            | Self::Creativity { amount } => u16::from(*amount),
+        }
+    }
+
+    pub fn is_trait(&self) -> bool {
+        matches!(
+            self,
+            Self::Power { .. }
+                | Self::Stamina { .. }
+                | Self::Wisdom { .. }
+                | Self::Spell { .. }
+                | Self::Concentration { .. }
+                | Self::Creativity { .. }
+        )
+    }
 }
 
 impl FromBytes for StatUpType {
@@ -1854,6 +1916,30 @@ impl ToBytes for StatUpType {
                 18u16.to_bytes(byte_writer)?;
                 amount.to_bytes(byte_writer)
             }
+            Self::Power { amount } => {
+                219u16.to_bytes(byte_writer)?;
+                amount.to_bytes(byte_writer)
+            }
+            Self::Stamina { amount } => {
+                220u16.to_bytes(byte_writer)?;
+                amount.to_bytes(byte_writer)
+            }
+            Self::Wisdom { amount } => {
+                221u16.to_bytes(byte_writer)?;
+                amount.to_bytes(byte_writer)
+            }
+            Self::Spell { amount } => {
+                222u16.to_bytes(byte_writer)?;
+                amount.to_bytes(byte_writer)
+            }
+            Self::Concentration { amount } => {
+                223u16.to_bytes(byte_writer)?;
+                amount.to_bytes(byte_writer)
+            }
+            Self::Creativity { amount } => {
+                224u16.to_bytes(byte_writer)?;
+                amount.to_bytes(byte_writer)
+            }
         }
     }
 }
@@ -1863,6 +1949,26 @@ impl ToBytes for StatUpType {
 #[header(0x00BB)]
 pub struct RequestStatUpPacket {
     pub stat_type: StatUpType,
+}
+
+/// Raise a trait stat (`CZ_ADVANCED_STATUS_CHANGE` / Hercules `clif_parse_TraitStatusUp`).
+///
+/// `0x0B24 <status id>.W <amount>.W` — six bytes including the header.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B24)]
+pub struct RequestTraitStatUpPacket {
+    pub status_id: u16,
+    pub amount: u16,
+}
+
+impl RequestTraitStatUpPacket {
+    pub fn from_stat(stat: &StatUpType) -> Option<Self> {
+        stat.is_trait().then(|| Self {
+            status_id: stat.status_id(),
+            amount: stat.amount(),
+        })
+    }
 }
 
 /// rAthena seems to always return [`Success`](RequestStatUpResult::Success),
