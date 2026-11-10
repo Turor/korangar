@@ -91,6 +91,22 @@ fn chat_screen_margin(scale: f32) -> f32 {
     (8.0 * scale).max(CHAT_SCREEN_MARGIN)
 }
 
+/// HUD scale relative to the 1280x720 reference screen.
+pub fn hud_scale(screen_width: f32, screen_height: f32) -> f32 {
+    (screen_width / REFERENCE_SCREEN_WIDTH).min(screen_height / REFERENCE_SCREEN_HEIGHT)
+}
+
+/// Right edge of the first-open chat column (bottom left).
+pub fn chat_column_right(screen_width: f32, screen_height: f32) -> f32 {
+    let scale = hud_scale(screen_width, screen_height);
+    8.0 * scale + (340.0 * scale).min(GEAR_WINDOW_WIDTH)
+}
+
+/// Gap kept under windows docked on the bottom edge (same as chat).
+pub fn hud_bottom_margin(screen_width: f32, screen_height: f32) -> f32 {
+    chat_screen_margin(hud_scale(screen_width, screen_height))
+}
+
 /// Keep a chat window's top-left and height inside the screen.
 ///
 /// Saved caches used a 220px minimum on a ~160px anchor, so the message list
@@ -160,13 +176,16 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
         width: (340.0 * scale).min(gear.width),
         height: chat_bottom - chat_top,
     };
+    // The menu bar owns the bottom edge right of chat; the hotbar sits on it.
+    let hotbar_height = 96.0 * scale;
+    let menu_bar_top = super::menu_bar::menu_bar_dock_top(screen_width, screen_height);
     let mut hotbar = HudFrame {
         left: 0.0,
-        top: screen_height - 96.0 * scale - margin,
+        top: (menu_bar_top - hotbar_height - margin).max(0.0),
         width: 420.0 * scale,
-        height: 96.0 * scale,
+        height: hotbar_height,
     };
-    hotbar.left = (screen_width - hotbar.width) / 2.0;
+    hotbar.left = ((screen_width - hotbar.width) / 2.0).max(chat.right() + margin);
 
     let minimap = HudFrame {
         left: minimap_left,

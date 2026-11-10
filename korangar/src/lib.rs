@@ -4464,6 +4464,18 @@ impl Client {
     /// underneath.
     /// Load up to two `menu_icon` images per frame while the menu bar is
     /// open. A miss keeps the caption.
+    /// Keep a menu bar the user has not moved on the bottom edge after a resize
+    /// or a layout change.
+    fn redock_menu_bar(&mut self) {
+        if !self.interface.is_window_with_class_open(WindowClass::MenuBar) || self.interface.is_window_class_placed(WindowClass::MenuBar) {
+            return;
+        }
+        let size = *self.client_state.follow(client_state().window_size());
+        let layout = self.client_state.follow(client_state().interface_settings()).menu_bar_layout;
+        let (anchor, frame_size) = crate::interface::windows::docked_menu_bar_window(layout, size.width, size.height);
+        self.interface.redock_window_class(WindowClass::MenuBar, anchor, frame_size);
+    }
+
     fn sync_menu_bar_icons(&mut self) {
         if !self.interface.is_window_with_class_open(WindowClass::MenuBar) {
             return;
@@ -4777,6 +4789,7 @@ impl Client {
                     let size = *self.client_state.follow(client_state().window_size());
                     let settings = self.client_state.follow_mut(client_state().interface_settings());
                     settings.menu_bar_layout = next_distinct_layout(settings.menu_bar_layout, size.width, size.height);
+                    self.redock_menu_bar();
                 }
                 InputEvent::ToggleChatWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
@@ -8252,6 +8265,7 @@ impl ApplicationHandler for Client {
                 *self.client_state.follow_mut(client_state().window_size()) = screen_size;
                 self.graphics_engine.on_resize(screen_size);
                 self.interface.update_window_size(screen_size);
+                self.redock_menu_bar();
                 self.interface_renderer.update_window_size(screen_size);
                 self.bottom_interface_renderer.update_window_size(screen_size);
                 self.middle_interface_renderer.update_window_size(screen_size);
