@@ -30,7 +30,7 @@ use korangar_interface::layout::area::Area;
 use korangar_interface::layout::tooltip::TooltipExt;
 use korangar_interface::layout::{Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::window::{Anchor, AnchorPoint, CustomWindow, Window};
-use rust_state::{PathExt, State};
+use rust_state::{Path, PathExt, State};
 use serde::{Deserialize, Serialize};
 
 use super::WindowClass;
