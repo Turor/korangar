@@ -8,7 +8,7 @@ use ragnarok_packets::handler::{DuplicateHandlerError, PacketCallback, PacketHan
 use ragnarok_packets::{
     ENCHANT_GRADE_UI_TYPE, GradeEnchantBroadcastPacket, GradeEnchantMaterialListPacket, GradeEnchantResultPacket, ItemReformOpenPacket,
     ItemReformResultPacket, LaphineSynthesisOpenPacket, LaphineSynthesisResultPacket, LaphineUpgradeOpenPacket, LaphineUpgradeResultPacket,
-    UiOpenPacket,
+    STYLIST_UI_TYPE, UiOpenPacket,
 };
 
 use crate::event::NetworkEventList;
@@ -23,6 +23,8 @@ where
     packet_handler.register(|packet: UiOpenPacket| {
         if packet.ui_type == ENCHANT_GRADE_UI_TYPE {
             Some(NetworkEvent::EnchantGradeOpened { data: packet.data })
+        } else if packet.ui_type == STYLIST_UI_TYPE {
+            Some(NetworkEvent::OpenStylingShop)
         } else {
             None
         }

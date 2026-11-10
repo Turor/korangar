@@ -1264,7 +1264,7 @@ where
     ))
 }
 
-fn part_is_drawable(part: &AnimationFramePart, animation: &AnimationData) -> bool {
+pub(crate) fn part_is_drawable(part: &AnimationFramePart, animation: &AnimationData) -> bool {
     part.size.x > 0
         && part.size.y > 0
         && part.animation_index < animation.animation_pair.len()

@@ -405,17 +405,7 @@ where
     packet_handler.register_noop::<UpdateAttackRangePacket>()?;
     crate::packet_versions::rodex::register_rodex_packets(packet_handler)?;
     packet_handler.register_noop::<CriticalWeightUpdatePacket>()?;
-    packet_handler.register(|packet: SpriteChangePacket| match packet.sprite_type {
-        SpriteChangeType::Base => Some(NetworkEvent::ChangeJob {
-            account_id: packet.account_id,
-            job_id: JobId(packet.value as u16),
-        }),
-        SpriteChangeType::Hair => Some(NetworkEvent::ChangeHair {
-            account_id: packet.account_id,
-            hair_id: packet.value,
-        }),
-        _ => None,
-    })?;
+    packet_handler.register(crate::packet_versions::styling_shop::sprite_change_event)?;
     packet_handler.register({
         let inventory_items = inventory_items.clone();
 
@@ -1120,6 +1110,7 @@ where
     crate::packet_versions::bank_cash_roulette::register_bank_cash_roulette(packet_handler)?;
     crate::packet_versions::item_workshop::register_reform_and_grade(packet_handler)?;
     crate::packet_versions::item_workshop::register_laphine(packet_handler)?;
+    crate::packet_versions::styling_shop::register_style_packets(packet_handler, false)?;
     packet_handler.register(|packet: BuyOrSellPacket| NetworkEvent::AskBuyOrSell { shop_id: packet.shop_id })?;
     packet_handler.register(|packet: ShopItemListPacket| {
         let items = packet

@@ -63,6 +63,7 @@ mod stable;
 mod stats;
 mod status_effects;
 mod storage;
+mod styling_shop;
 mod switch_equip;
 #[cfg(feature = "debug")]
 mod theme_inspector;
@@ -139,6 +140,7 @@ pub use self::stable::{StableWindow, StableWindowState};
 pub use self::stats::StatsWindow;
 pub use self::status_effects::StatusEffectsWindow;
 pub use self::storage::StorageWindow;
+pub use self::styling_shop::StylingShopWindow;
 pub use self::switch_equip::SwitchEquipWindow;
 #[cfg(feature = "debug")]
 pub use self::theme_inspector::{ThemeInspectorWindow, ThemeInspectorWindowState};
@@ -207,6 +209,7 @@ pub enum WindowClass {
     EnchantGrade,
     LaphineSynthesis,
     LaphineUpgrade,
+    StylingShop,
     #[cfg(feature = "debug")]
     Maps,
     #[cfg(feature = "debug")]
