@@ -61,11 +61,22 @@ pub struct TradeState {
     /// In-flight item adds. One entry per inventory index, so a silent
     /// over-stack reject on one stack does not block the rest of the window.
     pub pending_adds: Vec<PendingTradeAdd>,
+    /// Own stacks the server accepted, as (stored inventory index, amount).
+    /// Hercules `trade_tradecommit` removes them with `pc->delitem(..., 1,
+    /// ...)`, which sends no delete packet, so the client removes them on
+    /// success.
+    #[hidden_element]
+    pub committed_items: Vec<(u16, u16)>,
 }
 
 impl TradeState {
     pub fn clear(&mut self) {
         *self = Self::default();
+    }
+
+    /// Stacks to remove from the bag after `ZC_EXEC_EXCHANGE_ITEM` result 0.
+    pub fn take_committed_items(&mut self) -> Vec<(u16, u16)> {
+        std::mem::take(&mut self.committed_items)
     }
 
     pub fn refresh_summaries(&mut self) {
@@ -201,6 +212,8 @@ impl TradeState {
             });
         }
         let stored = index.saturating_sub(2);
+        self.committed_items
+            .push((stored, u16::try_from(pending.amount).unwrap_or(u16::MAX)));
         if let Some(offer_at) = self.inventory_offers.iter().position(|offer| offer.index == stored) {
             let offer_amount = u32::from(self.inventory_offers[offer_at].amount);
             if pending.amount >= offer_amount {
@@ -239,6 +252,37 @@ mod tests {
         trade.offer_own_zeny(500);
         assert_eq!(trade.own_zeny, 500);
         assert!(trade.pending_adds.is_empty());
+    }
+
+    #[test]
+    fn accepted_own_stacks_are_kept_for_removal_on_trade_complete() {
+        let mut trade = TradeState::default();
+        trade.inventory_offers.push(TradeInventoryOffer {
+            index: 5,
+            item_id: 501,
+            label: "Red Potion x3".to_owned(),
+            amount: 3,
+            texture: None,
+        });
+        assert!(trade.note_item_add(5, "Red Potion x3".to_owned(), 3));
+        assert!(trade.apply_add_result(7, 0).is_none());
+        assert_eq!(trade.take_committed_items(), vec![(5, 3)]);
+        assert!(trade.committed_items.is_empty());
+    }
+
+    #[test]
+    fn rejected_own_stack_is_not_removed_on_trade_complete() {
+        let mut trade = TradeState::default();
+        trade.inventory_offers.push(TradeInventoryOffer {
+            index: 2,
+            item_id: 7060,
+            label: "Novice Potion x20".to_owned(),
+            amount: 20,
+            texture: None,
+        });
+        assert!(trade.note_item_add(2, "Novice Potion x5".to_owned(), 5));
+        assert!(trade.apply_add_result(4, 4).is_some());
+        assert!(trade.take_committed_items().is_empty());
     }
 
     #[test]

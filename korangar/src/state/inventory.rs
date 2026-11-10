@@ -107,6 +107,13 @@ impl Inventory {
         });
     }
 
+    /// Like [`Self::remove_item`], but a missing stack is ignored.
+    pub fn remove_item_if_present(&mut self, index: InventoryIndex, remove_amount: u16) {
+        if self.items.iter().any(|item| item.index == index) {
+            self.remove_item(index, remove_amount);
+        }
+    }
+
     pub fn remove_item(&mut self, index: InventoryIndex, remove_amount: u16) {
         let position = self
             .items

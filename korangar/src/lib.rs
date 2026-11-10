@@ -4087,6 +4087,13 @@ impl Client {
                         .push(ChatMessage::new("Trade cancelled.".to_owned(), MessageColor::Information));
                 }
                 NetworkEvent::TradeCompleted { result } => {
+                    let committed = self.client_state.follow_mut(client_state().trade()).take_committed_items();
+                    if result == 0 {
+                        let inventory = self.client_state.follow_mut(client_state().inventory());
+                        for (stored_index, amount) in committed {
+                            inventory.remove_item_if_present(InventoryIndex(stored_index), amount);
+                        }
+                    }
                     self.client_state.follow_mut(client_state().trade()).clear();
                     self.interface.close_window_with_class(WindowClass::Trade);
                     self.interface.close_window_with_class(WindowClass::TradeRequest);

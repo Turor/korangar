@@ -29,7 +29,7 @@ pub struct ViewEquipState {
 impl ViewEquipState {
     pub fn replace(&mut self, name: String, job: i16, sex: u8, items: Vec<ViewedEquipItem>) {
         self.character_name = if name.is_empty() { "Equipment".to_owned() } else { name };
-        self.summary = format!("Job {job} · {}", sex_label(sex));
+        self.summary = format!("{} · {}", super::party::job_label(job), sex_label(sex));
         self.items = items;
     }
 
