@@ -485,8 +485,12 @@ pub enum NetworkEvent {
         available: bool,
     },
     /// One page of `ZC_ACK_MAIL_LIST3` (`0x0AC2`).
+    ///
+    /// `next_mail_id` is the last row on this page. The next `0x0AC1` uses it
+    /// as the cursor. It is 0 when the page is empty.
     RodexMailList {
         is_end: bool,
+        next_mail_id: i64,
         summary: String,
     },
     /// `ZC_ACK_WRITE_MAIL` (`0x09ED`).
@@ -501,6 +505,12 @@ pub enum NetworkEvent {
     },
     /// `ZC_ACK_ZENY_FROM_MAIL` (`0x09F2`).
     RodexZeny {
+        mail_id: i64,
+        result: u8,
+        summary: String,
+    },
+    /// `ZC_ACK_ITEM_FROM_MAIL` (`0x09F4`).
+    RodexItems {
         mail_id: i64,
         result: u8,
         summary: String,

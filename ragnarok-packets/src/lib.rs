@@ -916,6 +916,36 @@ pub struct DeleteRodexPacket {
     pub mail_id: i64,
 }
 
+/// `CZ_REQ_ZENY_FROM_MAIL` (`0x09F1`, 11 bytes). Mail id comes before the
+/// open type, unlike `CZ_REQ_READ_MAIL`.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09F1)]
+pub struct RequestRodexZenyPacket {
+    pub mail_id: i64,
+    pub open_type: u8,
+}
+
+/// `CZ_REQ_ITEM_FROM_MAIL` (`0x09F3`, 11 bytes). Same field order as the zeny
+/// request.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09F3)]
+pub struct RequestRodexItemsPacket {
+    pub mail_id: i64,
+    pub open_type: u8,
+}
+
+/// `ZC_ACK_ITEM_FROM_MAIL` (`0x09F4`, 12 bytes).
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09F4)]
+pub struct RodexItemAckPacket {
+    pub mail_id: i64,
+    pub open_type: u8,
+    pub result: u8,
+}
+
 /// `ZC_ACK_DELETE_MAIL` (`0x09F6`, 11 bytes).
 #[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]

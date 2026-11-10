@@ -133,6 +133,9 @@ pub enum InputEvent {
     RequestAttendance,
     /// Ask the map server to grant the first completed achievement reward.
     ClaimAchievementReward,
+    /// Cycle the achievement list: all, complete, incomplete, rewarded.
+    CycleAchievementFilter,
+    CycleAchievementCategory,
     /// Open or close the navigation and minimap-mark window.
     ToggleNavigationWindow,
     /// Open or close the status effects strip. Only works while playing.
@@ -254,8 +257,14 @@ pub enum InputEvent {
     OpenMail,
     /// Reload the inbox (`0x0AC1`).
     RefreshMail,
+    /// Ask for the next inbox page (`0x0AC1` with the last mail id).
+    NextMailPage,
     /// Read the mail id typed in the mail window (`0x09EA`).
     ReadMail,
+    /// Take attached zeny (`0x09F1`).
+    TakeMailZeny,
+    /// Take attached items (`0x09F3`).
+    TakeMailItems,
     /// Delete the mail id typed in the mail window (`0x09F5`).
     DeleteMail,
     /// Tell the map server the mailbox closed (`0x09E9`).
@@ -268,6 +277,14 @@ pub enum InputEvent {
     DepositBank,
     /// Withdraw the typed zeny (`0x09A9`).
     WithdrawBank,
+    /// Add 100,000 to the bank amount box.
+    BankAdd100k,
+    /// Add 1,000,000 to the bank amount box.
+    BankAdd1m,
+    /// Add 10,000,000 to the bank amount box.
+    BankAdd10m,
+    /// Fill the bank amount box with the last known pocket zeny.
+    BankSetMax,
     /// Close the bank (`0x09B8`).
     CloseBank,
     /// Open the cash shop. Ignored while the game setting is off.

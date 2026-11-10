@@ -37,7 +37,19 @@ impl CustomWindow<ClientState> for BankWindow {
             closable: false,
             elements: (
                 text! {
+                    text: state_path.vault_text(),
+                    overflow_behavior: OverflowBehavior::Shrink,
+                },
+                text! {
+                    text: state_path.pocket_text(),
+                    overflow_behavior: OverflowBehavior::Shrink,
+                },
+                text! {
                     text: state_path.status(),
+                    overflow_behavior: OverflowBehavior::Shrink,
+                },
+                text! {
+                    text: state_path.history(),
                     overflow_behavior: OverflowBehavior::Shrink,
                 },
                 text_box! {
@@ -48,6 +60,10 @@ impl CustomWindow<ClientState> for BankWindow {
                     overflow_behavior: OverflowBehavior::Shrink,
                 },
                 button! { text: "Refresh", event: InputEvent::RefreshBank },
+                button! { text: "+100,000", event: InputEvent::BankAdd100k },
+                button! { text: "+1,000,000", event: InputEvent::BankAdd1m },
+                button! { text: "+10,000,000", event: InputEvent::BankAdd10m },
+                button! { text: "Max", event: InputEvent::BankSetMax },
                 button! { text: "Deposit", event: InputEvent::DepositBank },
                 button! { text: "Withdraw", event: InputEvent::WithdrawBank },
                 button! { text: "Close bank", event: InputEvent::CloseBank },
