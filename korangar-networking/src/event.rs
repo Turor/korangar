@@ -616,6 +616,8 @@ pub enum NetworkEvent {
     ClanLeft,
     SetHotkeyData {
         tab: HotbarTab,
+        /// Hercules `rotate` / `hotkey_rowshift` for this tab.
+        rotate: u8,
         hotkeys: Vec<HotkeyState>,
     },
     OpenShop {

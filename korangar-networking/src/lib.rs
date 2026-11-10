@@ -910,9 +910,24 @@ where
     }
 
     pub fn player_attack(&mut self, entity_id: EntityId) -> Result<(), NotConnectedError> {
+        self.player_action(entity_id, Action::Attack)
+    }
+
+    /// Sit, stand, or another `CZ_REQUEST_ACT` action. Sit is Hercules action 2
+    /// and stand is action 3.
+    pub fn player_action(&mut self, entity_id: EntityId, action: Action) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
-                self.send_map_server_packet(RequestActionPacket::new(entity_id, Action::Attack))
+                self.send_map_server_packet(RequestActionPacket::new(entity_id, action))
+            }
+        }
+    }
+
+    /// `CZ_USE_ITEM2` (`0x0439`).
+    pub fn use_inventory_item(&mut self, index: InventoryIndex, account_id: AccountId) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(UseItemPacket::new(index, account_id))
             }
         }
     }
@@ -1457,6 +1472,15 @@ where
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(SetHotkeyData2Packet::new(tab, index, hotkey_data))
+            }
+        }
+    }
+
+    /// `CZ_SHORTCUTKEYBAR_ROTATE2` (`0x0B22`).
+    pub fn set_hotkey_row_shift(&mut self, tab: HotbarTab, row_shift: u8) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(SetHotkeyRowShiftPacket::new(tab, row_shift))
             }
         }
     }

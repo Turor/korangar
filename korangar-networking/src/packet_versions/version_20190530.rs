@@ -479,6 +479,7 @@ where
     })?;
     packet_handler.register(|packet: UpdateHotkeysPacket| NetworkEvent::SetHotkeyData {
         tab: packet.tab,
+        rotate: packet.rotate,
         hotkeys: packet
             .hotkeys
             .into_iter()
