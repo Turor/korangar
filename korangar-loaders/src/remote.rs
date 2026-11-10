@@ -253,6 +253,48 @@ fn persist_loose_index(cache: &Path, entries: &BTreeMap<String, AssetEntry>) -> 
     atomic_write(cache, &cache.join("loose-index.json"), &bytes)
 }
 
+/// Reload the on-disk loose index, insert `entry`, and write it back.
+/// The file lock keeps two TEST sessions from dropping each other's rows.
+fn remember_loose(cache: &Path, loose_entries: &Mutex<BTreeMap<String, AssetEntry>>, entry: AssetEntry) -> io::Result<()> {
+    with_loose_lock(cache, || {
+        let mut entries = load_loose_index(cache);
+        entries.insert(entry.path.clone(), entry);
+        persist_loose_index(cache, &entries)?;
+        if let Ok(mut guard) = loose_entries.lock() {
+            *guard = entries;
+        }
+        Ok(())
+    })
+}
+
+fn with_loose_lock<T>(cache: &Path, body: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+    #[cfg(unix)]
+    {
+        let lock_path = cache.join("loose-index.lock");
+        let file = fs::OpenOptions::new().create(true).write(true).truncate(false).open(&lock_path)?;
+        let fd = std::os::unix::io::AsRawFd::as_raw_fd(&file);
+        // SAFETY: `fd` belongs to `file`, which lives until this function returns.
+        // LOCK_EX (2) waits; LOCK_UN (8) releases that same descriptor.
+        let locked = unsafe { flock(fd, 2) };
+        if locked != 0 {
+            return Err(error("asset lock poisoned"));
+        }
+        let result = body();
+        unsafe { flock(fd, 8) };
+        result
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = cache;
+        body()
+    }
+}
+
+#[cfg(unix)]
+unsafe extern "C" {
+    fn flock(fd: i32, operation: i32) -> i32;
+}
+
 impl PersistentAssets {
     /// Open the pinned local manifest, or fetch and atomically persist it once.
     /// A corrupt existing manifest is an error, never silently replaced by a
@@ -285,6 +327,7 @@ impl PersistentAssets {
             .build()
             .map_err(|_| error("asset HTTP initialization failed"))?;
         let manifest_path = config.cache_dir.join("manifest.json");
+        let loose_ready = config.cache_dir.join("loose-index.json").is_file();
         let manifest = match read_bounded(&manifest_path, MAX_MANIFEST) {
             Ok(bytes) => Manifest::parse(&bytes)?,
             Err(e) if e.kind() == io::ErrorKind::NotFound && !config.offline => {
@@ -311,9 +354,13 @@ impl PersistentAssets {
                         Err(_) => loose_manifest(),
                     },
                     Err(e) if e.kind() == io::ErrorKind::NotFound => loose_manifest(),
+                    // A staged loose index still serves files when the snapshot route is down.
+                    Err(_) if loose_ready => loose_manifest(),
                     Err(e) => return Err(e),
                 }
             }
+            // Offline with no snapshot still serves objects already listed in loose-index.json.
+            Err(e) if e.kind() == io::ErrorKind::NotFound && loose_ready => loose_manifest(),
             Err(e) => return Err(e),
         };
         let entries = manifest.files.iter().map(|e| (e.path.clone(), e.clone())).collect();
@@ -409,9 +456,7 @@ impl PersistentAssets {
         };
         let objects = self.config.cache_dir.join("objects");
         atomic_write(&objects, &objects.join(&entry.sha256), &bytes)?;
-        let mut loose = self.loose_entries.lock().map_err(|_| error("asset lock poisoned"))?;
-        loose.insert(path.to_owned(), entry);
-        persist_loose_index(&self.config.cache_dir, &loose)?;
+        remember_loose(&self.config.cache_dir, &self.loose_entries, entry)?;
         Ok(bytes)
     }
 
@@ -636,6 +681,32 @@ mod tests {
         let assets = PersistentAssets::open(c).unwrap();
         assert!(assets.get("data/test.spr").is_err());
         assert!(!assets.is_complete());
+    }
+    #[test]
+    fn offline_loose_index_serves_hangul_paths_without_network() {
+        let dir = tempfile::tempdir().unwrap();
+        let body = b"novice-body";
+        let path = "data/sprite/인간족/몸통/남/초보자_남.spr";
+        let hash = digest(body);
+        fs::create_dir(dir.path().join("objects")).unwrap();
+        fs::write(dir.path().join("objects").join(&hash), body).unwrap();
+        let index = LooseIndex {
+            files: vec![AssetEntry {
+                path: path.into(),
+                size: body.len() as u64,
+                sha256: hash,
+            }],
+        };
+        fs::write(dir.path().join("loose-index.json"), serde_json::to_vec(&index).unwrap()).unwrap();
+        let mut c = config("http://127.0.0.1:1/".into(), dir.path());
+        c.offline = true;
+        let assets = PersistentAssets::open(c).unwrap();
+        assert_eq!(assets.get(r"DATA\sprite\인간족\몸통\남\초보자_남.spr").unwrap(), body);
+        assert_eq!(
+            assets.get(r"data\texture\유저인터페이스\item\빨간포션.bmp").unwrap_err().kind(),
+            io::ErrorKind::Other
+        );
+        assert!(!dir.path().join("manifest.json").exists());
     }
     #[test]
     fn loose_fetch_caches_hangul_path_and_second_get_is_local() {
