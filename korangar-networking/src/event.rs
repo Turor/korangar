@@ -318,12 +318,14 @@ pub enum NetworkEvent {
     NpcTextInput {
         npc_id: EntityId,
     },
-    /// `ZC_SHOW_IMAGE2` (`0x01B3`). [`ImageLocation::ClearAll`] removes the cutin.
+    /// `ZC_SHOW_IMAGE2` (`0x01B3`). [`ImageLocation::ClearAll`] removes the
+    /// cutin.
     NpcCutin {
         image_name: String,
         location: ImageLocation,
     },
-    /// `ZC_PROGRESS` (`0x02F0`). `color` is `0xRRGGBB`. `seconds` is the duration.
+    /// `ZC_PROGRESS` (`0x02F0`). `color` is `0xRRGGBB`. `seconds` is the
+    /// duration.
     NpcProgress {
         color: u32,
         seconds: u32,
@@ -770,7 +772,8 @@ pub enum NetworkEvent {
     ItemIdentifyList {
         indexes: Vec<InventoryIndex>,
     },
-    /// `ZC_ACK_ITEMIDENTIFY`. `index` is the raw wire value (`0xFFFF` on cancel).
+    /// `ZC_ACK_ITEMIDENTIFY`. `index` is the raw wire value (`0xFFFF` on
+    /// cancel).
     ItemIdentifyResult {
         index: u16,
         result: u8,

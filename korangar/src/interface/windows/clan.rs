@@ -1,7 +1,7 @@
 //! Clan window: name, master, map, online count, alliances, and antagonists.
 
-use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::Element;
+use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::layout::area::Area;
 use korangar_interface::layout::{Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};

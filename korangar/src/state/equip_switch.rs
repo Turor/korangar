@@ -115,8 +115,9 @@ impl EquipSwitch {
 
     /// Store the live switch set under the draft name.
     ///
-    /// A blank draft takes the smallest unused `Set N` and never replaces a set.
-    /// A name the user typed replaces a set that already has that name.
+    /// A blank draft takes the smallest unused `Set N` and never replaces a
+    /// set. A name the user typed replaces a set that already has that
+    /// name.
     pub fn save_loadout(&mut self) {
         let trimmed = self.draft_name.trim().to_string();
         let name = if trimmed.is_empty() { self.next_automatic_name() } else { trimmed };
@@ -177,13 +178,17 @@ pub fn switch_delta(current: &[EquipSwitchSlot], desired: &[EquipSwitchSlot]) ->
     let mut remove = Vec::new();
     let mut add = Vec::new();
     for slot in current {
-        let unchanged = desired.iter().any(|other| other.index == slot.index && other.position == slot.position);
+        let unchanged = desired
+            .iter()
+            .any(|other| other.index == slot.index && other.position == slot.position);
         if !unchanged {
             remove.push(slot.index);
         }
     }
     for slot in desired {
-        let unchanged = current.iter().any(|other| other.index == slot.index && other.position == slot.position);
+        let unchanged = current
+            .iter()
+            .any(|other| other.index == slot.index && other.position == slot.position);
         if !unchanged {
             add.push((slot.index, slot.position));
         }
@@ -197,9 +202,8 @@ fn item_name(items: &[InventoryItem<ResourceMetadata>], index: InventoryIndex) -
 
 #[cfg(test)]
 mod tests {
-    use ragnarok_packets::{EquipPosition, InventoryIndex};
-
     use korangar_networking::EquipSwitchSlot;
+    use ragnarok_packets::{EquipPosition, InventoryIndex};
 
     use super::{EquipSwitch, switch_delta};
 
@@ -279,14 +283,9 @@ mod tests {
         let desired = vec![slot(2, EquipPosition::LEFT_HAND), slot(4, EquipPosition::SHOES)];
         let delta = switch_delta(&current, &desired);
         assert_eq!(delta.remove, vec![InventoryIndex(1), InventoryIndex(2)]);
-        assert_eq!(
-            delta.add,
-            vec![
-                (InventoryIndex(2), EquipPosition::LEFT_HAND),
-                (InventoryIndex(4), EquipPosition::SHOES),
-            ]
-        );
+        assert_eq!(delta.add, vec![
+            (InventoryIndex(2), EquipPosition::LEFT_HAND),
+            (InventoryIndex(4), EquipPosition::SHOES),
+        ]);
     }
 }
-
-

@@ -137,8 +137,9 @@ pub fn format_eden_result(result: i16, quest_id: i32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_eden_result, format_shop, parse_eden_id, quest_state_label};
     use ragnarok_packets::EdenShopEntry;
+
+    use super::{format_eden_result, format_shop, parse_eden_id, quest_state_label};
 
     #[test]
     fn parsers_and_result_text() {
@@ -158,7 +159,10 @@ mod tests {
             price_merit: 4,
             price_zeny: 100,
         };
-        let merit_only = EdenShopEntry { price_zeny: 0, ..both.clone() };
+        let merit_only = EdenShopEntry {
+            price_zeny: 0,
+            ..both.clone()
+        };
         let zeny_only = EdenShopEntry {
             price_merit: 0,
             price_zeny: 100,

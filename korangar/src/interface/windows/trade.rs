@@ -10,9 +10,9 @@ use rust_state::{ManuallyAssertExt, Path, State, VecIndexExt};
 use super::WindowClass;
 use crate::input::InputEvent;
 use crate::loaders::OverflowBehavior;
+use crate::state::ClientState;
 use crate::state::theme::InterfaceThemeType;
 use crate::state::trade::{TradeInventoryOffer, TradeInventoryOfferPathExt, TradeState, TradeStatePathExt};
-use crate::state::ClientState;
 
 pub struct TradeRequestWindow {
     partner_name: String,

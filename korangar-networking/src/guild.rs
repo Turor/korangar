@@ -4,8 +4,8 @@
 use ragnarok_packets::handler::PacketCallback;
 use ragnarok_packets::{
     AccountId, BreakGuildRelationPacket, ChangeGuildMemberPositionsPacket, ChangeGuildPositionsPacket, CharacterId, CreateGuildPacket,
-    ExpelGuildPacket, GuildChatPacket, GuildInviteByAccountPacket, GuildInviteByNamePacket, GuildInviteReplyPacket, GuildMemberPositionEdit,
-    GuildPositionEdit, LeaveGuildPacket, RequestGuildEmblemPacket, UploadGuildEmblemPacket,
+    ExpelGuildPacket, GuildChatPacket, GuildInviteByAccountPacket, GuildInviteByNamePacket, GuildInviteReplyPacket,
+    GuildMemberPositionEdit, GuildPositionEdit, LeaveGuildPacket, RequestGuildEmblemPacket, UploadGuildEmblemPacket,
 };
 
 use crate::server::NotConnectedError;
@@ -36,8 +36,8 @@ where
         }
     }
 
-    /// `CZ_REQ_JOIN_GUILD` (`0x0168`). Used when the target account id is already
-    /// known. The guild window invites by name.
+    /// `CZ_REQ_JOIN_GUILD` (`0x0168`). Used when the target account id is
+    /// already known. The guild window invites by name.
     pub fn invite_guild_by_account(
         &mut self,
         target_account_id: AccountId,
@@ -139,7 +139,8 @@ where
         }
     }
 
-    /// `CZ_REGISTER_GUILD_EMBLEM_IMG` (`0x0153`). `emblem` is zlib-compressed BMP.
+    /// `CZ_REGISTER_GUILD_EMBLEM_IMG` (`0x0153`). `emblem` is zlib-compressed
+    /// BMP.
     pub fn upload_guild_emblem(&mut self, emblem: Vec<u8>) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {

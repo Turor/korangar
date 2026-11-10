@@ -176,9 +176,15 @@ pub fn toggle_event(name: &str) -> Result<InputEvent, String> {
 #[derive(Deserialize)]
 enum ScriptedEvent {
     SendMessage(String),
-    PlayerMove { x: u16, y: u16 },
+    PlayerMove {
+        x: u16,
+        y: u16,
+    },
     SelectCharacter(usize),
-    CreateCharacter { slot: usize, name: String },
+    CreateCharacter {
+        slot: usize,
+        name: String,
+    },
     OpenCharacterCreationWindow(usize),
     CastSkill(u8),
     StopSkill(u8),
@@ -193,9 +199,18 @@ enum ScriptedEvent {
     StatUpIntelligence(u8),
     StatUpDexterity(u8),
     StatUpLuck(u8),
-    RequestStableHomunculus { homunculus_id: i32 },
-    RequestStablePet { action: i16, id: i32 },
-    CreateParty { name: String, item_pickup: bool, item_division: bool },
+    RequestStableHomunculus {
+        homunculus_id: i32,
+    },
+    RequestStablePet {
+        action: i16,
+        id: i32,
+    },
+    CreateParty {
+        name: String,
+        item_pickup: bool,
+        item_division: bool,
+    },
     InviteToParty(String),
 }
 

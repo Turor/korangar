@@ -8,14 +8,13 @@
 //! (chunked) and the overhead id is `ZC_CHANGE_GUILD` `0x0B47`. Legacy
 //! `0x0152` and `0x01B4` are still parsed.
 
-#[cfg(feature = "derive")]
-use crate::{ClientPacket, MapServer, Packet, ServerPacket};
+use ragnarok_bytes::{ByteConvertable, FixedByteSize, FromBytes, ToBytes};
 #[cfg(not(feature = "derive"))]
 use ragnarok_macros::{ClientPacket, MapServer, Packet, ServerPacket};
 
-use ragnarok_bytes::{ByteConvertable, FixedByteSize, FromBytes, ToBytes};
-
 use crate::{AccountId, CharacterId, SkillId};
+#[cfg(feature = "derive")]
+use crate::{ClientPacket, MapServer, Packet, ServerPacket};
 
 pub const GUILD_MENU_SKILLS: u32 = 3;
 pub const GUILD_NAME_LENGTH: usize = 24;
@@ -101,7 +100,8 @@ pub struct UploadGuildEmblemPacket {
     pub emblem: Vec<u8>,
 }
 
-/// One `CZ_REG_CHANGE_GUILD_POSITIONINFO` / `ZC_ACK_CHANGE_GUILD_POSITIONINFO` row (40 bytes).
+/// One `CZ_REG_CHANGE_GUILD_POSITIONINFO` / `ZC_ACK_CHANGE_GUILD_POSITIONINFO`
+/// row (40 bytes).
 #[derive(Debug, Clone, ByteConvertable, FixedByteSize)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct GuildPositionEdit {
@@ -152,7 +152,8 @@ pub struct GuildChatPacket {
     pub message: String,
 }
 
-/// `CZ_REQ_DELETE_RELATED_GUILD` (`0x0183`). 10 bytes. Relation 0 ally, 1 enemy.
+/// `CZ_REQ_DELETE_RELATED_GUILD` (`0x0183`). 10 bytes. Relation 0 ally, 1
+/// enemy.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0183)]
@@ -187,7 +188,8 @@ pub struct GuildInviteRequestPacket {
     pub guild_name: String,
 }
 
-/// One `ZC_MYGUILD_BASIC_INFO` row (32 bytes). `relation` 0 is ally, 1 is enemy.
+/// One `ZC_MYGUILD_BASIC_INFO` row (32 bytes). `relation` 0 is ally, 1 is
+/// enemy.
 #[derive(Debug, Clone, ByteConvertable, FixedByteSize)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct GuildRelationRow {
@@ -216,8 +218,8 @@ pub struct GuildRelationRemovedPacket {
     pub relation: i32,
 }
 
-/// `ZC_ADD_RELATED_GUILD` (`0x0185`). 34 bytes. Hercules compiles the sender out;
-/// the layout is still accepted.
+/// `ZC_ADD_RELATED_GUILD` (`0x0185`). 34 bytes. Hercules compiles the sender
+/// out; the layout is still accepted.
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0185)]
@@ -399,12 +401,7 @@ mod tests {
         assert_eq!(&created[6..12], b"Wolves");
 
         assert_eq!(
-            round_trip_len(
-                &GuildInviteByNamePacket {
-                    name: "Beta".to_owned(),
-                },
-                26,
-            )[0..2],
+            round_trip_len(&GuildInviteByNamePacket { name: "Beta".to_owned() }, 26,)[0..2],
             [0x16, 0x09]
         );
         assert_eq!(
@@ -419,13 +416,7 @@ mod tests {
             .len(),
             14
         );
-        let reply = round_trip_len(
-            &GuildInviteReplyPacket {
-                guild_id: 9,
-                answer: 1,
-            },
-            10,
-        );
+        let reply = round_trip_len(&GuildInviteReplyPacket { guild_id: 9, answer: 1 }, 10);
         assert_eq!(reply[0], 0x6B);
         assert_eq!(i32::from_le_bytes(reply[6..10].try_into().unwrap()), 1);
 
@@ -453,10 +444,7 @@ mod tests {
             )[0],
             0x5B
         );
-        assert_eq!(
-            round_trip_len(&RequestGuildEmblemPacket { guild_id: 9 }, 6)[0..2],
-            [0x51, 0x01]
-        );
+        assert_eq!(round_trip_len(&RequestGuildEmblemPacket { guild_id: 9 }, 6)[0..2], [0x51, 0x01]);
         assert_eq!(round_trip_len(&GuildMakeResultPacket { result: 3 }, 3), vec![0x67, 0x01, 3]);
         assert_eq!(round_trip_len(&GuildInviteResultPacket { result: 2 }, 3), vec![0x69, 0x01, 2]);
 
@@ -481,13 +469,7 @@ mod tests {
             0x83
         );
         assert_eq!(
-            round_trip_len(
-                &GuildRelationRemovedPacket {
-                    guild_id: 4,
-                    relation: 0,
-                },
-                10,
-            )[0],
+            round_trip_len(&GuildRelationRemovedPacket { guild_id: 4, relation: 0 }, 10,)[0],
             0x84
         );
         assert_eq!(
@@ -661,12 +643,7 @@ mod tests {
         assert_eq!(parsed.emblem_id, 4);
         assert_eq!(parsed.emblem_data, vec![0x78, 0x9C]);
 
-        let upload = round_trip_len(
-            &UploadGuildEmblemPacket {
-                emblem: vec![1, 2, 3, 4],
-            },
-            8,
-        );
+        let upload = round_trip_len(&UploadGuildEmblemPacket { emblem: vec![1, 2, 3, 4] }, 8);
         assert_eq!(&upload[0..2], &[0x53, 0x01]);
         assert_eq!(&upload[4..], &[1, 2, 3, 4]);
     }

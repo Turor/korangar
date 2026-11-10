@@ -70,6 +70,13 @@ winit = "0.30"
 [profile.release]
 lto = "thin"
 
+# `cargo build --features debug` links full debug info into one binary. Past
+# 4 GiB, rust-lld rejects R_X86_64_32 relocations in ring 0.17's `-g3`
+# `.debug_macro` (curve25519.o). Unpacked split DWARF keeps Rust debug info
+# out of that link. No runtime effect.
+[profile.dev]
+split-debuginfo = "unpacked"
+
 [profile.dev.build-override]
 opt-level = 3
 

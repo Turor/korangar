@@ -65,8 +65,8 @@ use korangar_interface::Interface;
 use korangar_interface::layout::MouseButton;
 use korangar_networking::{
     DialogHotkey, DisconnectReason, HotkeyState, InventoryItemDetails, ItemQuantity, LoginServerLoginData, MessageColor, NetworkEvent,
-    NetworkEventBuffer, NetworkingSystem, PartyUpdate, SellItem, StatusChangeState, SupportedPacketVersion, cutin_anchor,
-    dialog_hotkey, existing_cutin_texture,
+    NetworkEventBuffer, NetworkingSystem, PartyUpdate, SellItem, StatusChangeState, SupportedPacketVersion, cutin_anchor, dialog_hotkey,
+    existing_cutin_texture,
 };
 #[cfg(feature = "debug")]
 use networking::{PacketHistory, PacketHistoryCallback};
@@ -1146,7 +1146,14 @@ impl Client {
         }
     }
 
-    fn play_skill_field(&mut self, skill_id: SkillId, field: SkillField, entity_id: EntityId, position: Option<Point3<f32>>, repeating: bool) {
+    fn play_skill_field(
+        &mut self,
+        skill_id: SkillId,
+        field: SkillField,
+        entity_id: EntityId,
+        position: Option<Point3<f32>>,
+        repeating: bool,
+    ) {
         let paths = effects::collect_str_paths(effects::skill_effect_refs(skill_id.0, field));
         self.spawn_str_effects(&paths, entity_id, position, repeating);
     }
@@ -2288,9 +2295,7 @@ impl Client {
                     self.interface.open_window(StableWindow::new());
                 }
                 NetworkEvent::StableResult { result, id, .. } => {
-                    self.client_state
-                        .follow_mut(client_state().stable_window())
-                        .show_result(result, id);
+                    self.client_state.follow_mut(client_state().stable_window()).show_result(result, id);
                     self.interface.open_window(StableWindow::new());
                 }
                 NetworkEvent::EdenQuestList { summary, .. } => {
@@ -2582,26 +2587,13 @@ impl Client {
                         .start_progress(color, seconds, client_tick.0);
                 }
                 NetworkEvent::NpcProgressCancel => {
-                    if self
-                        .client_state
-                        .follow_mut(client_state().npc_presentation())
-                        .cancel_from_server()
-                    {
+                    if self.client_state.follow_mut(client_state().npc_presentation()).cancel_from_server() {
                         let _ = self.networking_system.npc_progress_complete();
                     }
                 }
                 NetworkEvent::NpcSound {
-                    file_name,
-                    action,
-                    npc_id,
-                    ..
-                } => crate::interface::npc_flow::play_npc_sound(
-                    &self.audio_engine,
-                    &self.client_state,
-                    &file_name,
-                    action,
-                    npc_id,
-                ),
+                    file_name, action, npc_id, ..
+                } => crate::interface::npc_flow::play_npc_sound(&self.audio_engine, &self.client_state, &file_name, action, npc_id),
                 NetworkEvent::NpcBgm { track, play_type } => {
                     crate::interface::npc_flow::play_npc_bgm(
                         &self.audio_engine,
@@ -2844,9 +2836,7 @@ impl Client {
                     }
                 }
                 NetworkEvent::PartyInvite { party_id, party_name } => {
-                    self.client_state
-                        .follow_mut(client_state().party())
-                        .set_pending_invite(party_id);
+                    self.client_state.follow_mut(client_state().party()).set_pending_invite(party_id);
                     self.interface.open_window(PartyInviteWindow::new(party_id, party_name));
                 }
                 NetworkEvent::PartyInvitationState { invitations_allowed } => {
@@ -3049,9 +3039,7 @@ impl Client {
                         .add_relation(opposition, guild_id, name);
                 }
                 NetworkEvent::GuildPositionRights { positions } => {
-                    self.client_state
-                        .follow_mut(client_state().guild())
-                        .set_position_rights(positions);
+                    self.client_state.follow_mut(client_state().guild()).set_position_rights(positions);
                 }
                 NetworkEvent::GuildPositionsUpdated { positions } => {
                     let guild = self.client_state.follow_mut(client_state().guild());
@@ -3083,12 +3071,9 @@ impl Client {
                     emblem_version,
                     bytes,
                 } => {
-                    self.client_state.follow_mut(client_state().guild()).push_emblem_chunk(
-                        result,
-                        guild_id,
-                        emblem_version,
-                        &bytes,
-                    );
+                    self.client_state
+                        .follow_mut(client_state().guild())
+                        .push_emblem_chunk(result, guild_id, emblem_version, &bytes);
                 }
                 NetworkEvent::GuildEmblemOnEntity {
                     account_id,
@@ -3147,7 +3132,7 @@ impl Client {
                         print_debug!("[{}] entity with id {:?} is out of map bounds", "error".red(), entity_id);
                         continue;
                     };
-                    let Some(effect_ref) = effects::unit_effect(effects::unit_id_value(unit_id)) else {
+                    let Some(effect_ref) = effects::unit_effect(effects::unit_id_value(&unit_id)) else {
                         #[cfg(feature = "debug")]
                         print_debug!("[{}] unmapped skill unit {:?}", "effect".red(), unit_id);
                         continue;
@@ -3452,7 +3437,11 @@ impl Client {
                         .push(ChatMessage::new(status, MessageColor::Information));
                 }
                 NetworkEvent::ItemIdentifyList { indexes } => {
-                    crate::interface::windows::item_skill_selection::open_identify_list(&mut self.client_state, &mut self.interface, indexes);
+                    crate::interface::windows::item_skill_selection::open_identify_list(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        indexes,
+                    );
                 }
                 NetworkEvent::ItemIdentifyResult { index, result } => {
                     crate::interface::windows::item_skill_selection::on_identify_result(
@@ -3471,9 +3460,7 @@ impl Client {
                         indexes,
                     );
                 }
-                NetworkEvent::ItemCompositionResult {
-                    equip_index, result, ..
-                } => {
+                NetworkEvent::ItemCompositionResult { equip_index, result, .. } => {
                     crate::interface::windows::item_skill_selection::on_composition_result(
                         &mut self.client_state,
                         &mut self.interface,
@@ -3916,8 +3903,7 @@ impl Client {
                     delay_time,
                     ..
                 } => {
-                    self.cast_bars
-                        .begin(source_entity_id.0, skill_id.0, delay_time, client_tick.0);
+                    self.cast_bars.begin(source_entity_id.0, skill_id.0, delay_time, client_tick.0);
                     self.play_skill_field(skill_id, SkillField::BeginCast, source_entity_id, None, false);
                 }
                 NetworkEvent::ToUseSkillSuccess { flag, .. } => {
@@ -3926,11 +3912,7 @@ impl Client {
                     if flag != 0 {
                         continue;
                     }
-                    let Some(entity_id) = self
-                        .client_state
-                        .try_follow(this_entity())
-                        .map(|player| player.get_entity_id())
-                    else {
+                    let Some(entity_id) = self.client_state.try_follow(this_entity()).map(|player| player.get_entity_id()) else {
                         continue;
                     };
                     self.cast_bars.cancel(entity_id.0);
@@ -4803,11 +4785,7 @@ impl Client {
                 }
                 InputEvent::LevelUpGuildSkill { skill_id } => {
                     let guild = self.client_state.follow(client_state().guild());
-                    let ready = guild.skill_points > 0
-                        && guild
-                            .skills
-                            .iter()
-                            .any(|skill| skill.skill_id == skill_id && skill.upgradable);
+                    let ready = guild.skill_points > 0 && guild.skills.iter().any(|skill| skill.skill_id == skill_id && skill.upgradable);
                     if ready {
                         let _ = self.networking_system.level_up_skill(SkillId(skill_id));
                     }
@@ -4816,22 +4794,20 @@ impl Client {
                     let player_name = self.client_state.follow(client_state().player_name()).clone();
                     let _ = self.networking_system.send_guild_chat(&player_name, &text);
                 }
-                InputEvent::UploadGuildEmblem => {
-                    match crate::state::guild_emblem::load_upload_file() {
-                        Ok(bytes) => {
-                            let _ = self.networking_system.upload_guild_emblem(bytes);
-                            self.client_state
-                                .follow_mut(client_state().guild())
-                                .set_status("Emblem sent.".to_owned());
-                        }
-                        Err(message) => {
-                            self.client_state.follow_mut(client_state().guild()).set_status(message.clone());
-                            self.client_state
-                                .follow_mut(client_state().chat_messages())
-                                .push(ChatMessage::new(message, MessageColor::Information));
-                        }
+                InputEvent::UploadGuildEmblem => match crate::state::guild_emblem::load_upload_file() {
+                    Ok(bytes) => {
+                        let _ = self.networking_system.upload_guild_emblem(bytes);
+                        self.client_state
+                            .follow_mut(client_state().guild())
+                            .set_status("Emblem sent.".to_owned());
                     }
-                }
+                    Err(message) => {
+                        self.client_state.follow_mut(client_state().guild()).set_status(message.clone());
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(message, MessageColor::Information));
+                    }
+                },
                 InputEvent::BreakGuildRelation { guild_id, opposition } => {
                     let is_master = self.client_state.follow(client_state().guild()).is_master;
                     if is_master {
@@ -5555,7 +5531,13 @@ impl Client {
                                     learned_skill.skill_id == learnable_skill.skill_id
                                         && learned_skill.skill_level.0 >= learnable_skill.maximum_level.0
                                 })
-                                .map(|learned_skill| (learnable_skill.skill_id, learnable_skill.maximum_level, learned_skill.skill_type))
+                                .map(|learned_skill| {
+                                    (
+                                        learnable_skill.skill_id,
+                                        learnable_skill.maximum_level,
+                                        learned_skill.skill_type,
+                                    )
+                                })
                         });
                     if let Some((skill_id, skill_level, skill_type)) = cast {
                         if skill_id == SkillId(crate::state::item_skill_selection::CHANGE_CART_SKILL) {
@@ -5610,7 +5592,8 @@ impl Client {
                         && skill.skill_id == ROLLING_CUTTER_ID
                     {
                         let _ = self.networking_system.stop_channeling_skill(skill.skill_id);
-                        // `0x0B11` is outbound. The server cancel is `0x01B9`; this clears the local bar.
+                        // `0x0B11` is outbound. The server cancel is `0x01B9`; this clears the local
+                        // bar.
                         let player_id = self.client_state.try_follow(this_entity()).map(|player| player.get_entity_id().0);
                         if let Some(player_id) = player_id {
                             self.cast_bars.cancel(player_id);
@@ -6929,11 +6912,7 @@ impl Client {
             #[cfg(feature = "debug")]
             (delta_time as f32),
         );
-        crate::interface::npc_flow::recover_dismissed_npc_windows(
-            &mut self.client_state,
-            &mut self.interface,
-            &mut self.networking_system,
-        );
+        crate::interface::npc_flow::recover_dismissed_npc_windows(&mut self.client_state, &mut self.interface, &mut self.networking_system);
 
         // Some debug windows, such as the packet history or cache statistics, require
         // special update logic.
@@ -7084,10 +7063,7 @@ impl Client {
             _ => None,
         };
 
-        let focus_npc_input = self
-            .client_state
-            .follow_mut(client_state().dialog_window())
-            .take_input_focus();
+        let focus_npc_input = self.client_state.follow_mut(client_state().dialog_window()).take_input_focus();
         let dialog_npc_id = self.client_state.follow(client_state().dialog_window()).npc_id();
         let dialog_key = if !interface_has_focus {
             let dialog = self.client_state.follow(client_state().dialog_window());
@@ -7330,10 +7306,7 @@ impl Client {
             render_context.render_world_overlays();
         }
 
-        let player_position = self
-            .client_state
-            .try_follow(this_entity())
-            .map(|player| player.get_position());
+        let player_position = self.client_state.try_follow(this_entity()).map(|player| player.get_position());
         crate::interface::npc_overlay::render_npc_cutin(
             self.client_state.follow(client_state().npc_presentation()),
             self.game_file_loader.as_ref(),
@@ -7445,7 +7418,6 @@ impl Client {
             self.graphics_engine.render_next_frame(frame, render_instruction);
         }
     }
-
 }
 
 /// Loads each guild skill's sprite from `SkillListInformation.file_name`.
@@ -7925,12 +7897,8 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
         let _ = crate::interface::windows::draw_player_in_world(true);
 
         #[cfg_attr(feature = "debug", korangar_debug::debug_condition(self.render_options.show_entities))]
-        self.map.render_entities(
-            self.entity_instructions,
-            entities,
-            entity_camera,
-            self.client_tick,
-        );
+        self.map
+            .render_entities(self.entity_instructions, entities, entity_camera, self.client_tick);
 
         #[cfg_attr(feature = "debug", korangar_debug::debug_condition(self.render_options.show_entities))]
         self.map

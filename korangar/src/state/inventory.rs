@@ -78,14 +78,9 @@ impl Inventory {
         Some(item.item_id)
     }
 
-    /// Replace the unidentified name, description, and icon after a successful identify.
-    pub fn set_identified_presentation(
-        &mut self,
-        index: InventoryIndex,
-        name: String,
-        description: String,
-        texture: Option<Arc<Texture>>,
-    ) {
+    /// Replace the unidentified name, description, and icon after a successful
+    /// identify.
+    pub fn set_identified_presentation(&mut self, index: InventoryIndex, name: String, description: String, texture: Option<Arc<Texture>>) {
         let Some(item) = self.items.iter_mut().find(|item| item.index == index) else {
             return;
         };
@@ -216,8 +211,11 @@ impl Inventory {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemActivation {
     Use,
-    Equip { position: EquipPosition },
-    /// Item type 6. Sends `CZ_REQ_ITEMCOMPOSITION_LIST` instead of `CZ_USE_ITEM`.
+    Equip {
+        position: EquipPosition,
+    },
+    /// Item type 6. Sends `CZ_REQ_ITEMCOMPOSITION_LIST` instead of
+    /// `CZ_USE_ITEM`.
     InsertCard,
     Ignore,
 }

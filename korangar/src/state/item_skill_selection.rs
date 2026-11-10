@@ -100,7 +100,8 @@ pub enum SelectionCommand {
     Produce { item_id: u32, material: [u32; 3] },
     /// `CZ_REQ_MAKINGITEM`.
     Making { make_type: u16, item_id: u32 },
-    /// `CZ_REQ_WEAPONREFINE`. Zero cancels. A choice is the inventory index plus 2.
+    /// `CZ_REQ_WEAPONREFINE`. Zero cancels. A choice is the inventory index
+    /// plus 2.
     WeaponRefine { wire_index: i32 },
     /// `CZ_REQ_CHANGECART`.
     ChangeCart { cart_type: u16 },
@@ -256,8 +257,9 @@ impl ItemSkillSelectionState {
         }
     }
 
-    /// First frame of a skill sprite, once `아이템\{file_name}.spr` finishes loading.
-    /// Cart rows share `value` for the cart type, so only spell lists take the icon.
+    /// First frame of a skill sprite, once `아이템\{file_name}.spr` finishes
+    /// loading. Cart rows share `value` for the cart type, so only spell
+    /// lists take the icon.
     pub fn note_skill_icon(&mut self, skill_id: u16, texture: Arc<Texture>) {
         if !matches!(self.kind, SelectionKind::AutoSpell | SelectionKind::ShadowSpell) {
             return;
@@ -362,7 +364,8 @@ pub fn weapon_refine_applies_refine(result: i32) -> bool {
     result == 0 || result == 1
 }
 
-/// Same sprite path `request_learnable_skill_load` uses (`아이템\{file_name}.spr`).
+/// Same sprite path `request_learnable_skill_load` uses
+/// (`아이템\{file_name}.spr`).
 pub fn skill_icon_sprite_path(file_name: &str) -> Option<String> {
     if file_name.is_empty() || file_name == "notfound" {
         None
@@ -422,11 +425,12 @@ mod tests {
 
     fn identify_state() -> ItemSkillSelectionState {
         let mut state = ItemSkillSelectionState::default();
-        state.show(
-            SelectionKind::Identify,
-            "Identify",
-            vec![SelectionRow::inventory("Unidentified Sword", 3, 1101, None)],
-        );
+        state.show(SelectionKind::Identify, "Identify", vec![SelectionRow::inventory(
+            "Unidentified Sword",
+            3,
+            1101,
+            None,
+        )]);
         state
     }
 
@@ -441,15 +445,16 @@ mod tests {
     fn card_cancel_is_silent_and_confirm_keeps_the_card_index() {
         let mut state = ItemSkillSelectionState::default();
         state.remember_card(4, 4001);
-        state.show(
-            SelectionKind::CardInsert,
-            "Insert Card",
-            vec![SelectionRow::inventory("Sword", 1, 1101, None)],
+        state.show(SelectionKind::CardInsert, "Insert Card", vec![SelectionRow::inventory(
+            "Sword", 1, 1101, None,
+        )]);
+        assert_eq!(
+            state.confirm(),
+            Some(SelectionCommand::InsertCard {
+                card_index: 4,
+                equip_index: 1,
+            })
         );
-        assert_eq!(state.confirm(), Some(SelectionCommand::InsertCard {
-            card_index: 4,
-            equip_index: 1,
-        }));
         assert_eq!(state.cancel(), SelectionCommand::Silent);
         assert_eq!(state.card_item_id, 4001);
     }
@@ -484,7 +489,9 @@ mod tests {
 
     #[test]
     fn warp_keeps_random_drops_blanks_and_cancel_sends_cancel() {
-        let rows = warp_destinations(["prontera".to_owned(), String::new(), "Random".to_owned()], |map| map.to_owned());
+        let rows = warp_destinations(["prontera".to_owned(), String::new(), "Random".to_owned()], |map| {
+            map.to_owned()
+        });
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[1].map_name, "Random");
 
@@ -494,10 +501,13 @@ mod tests {
         };
         state.show(SelectionKind::Warp, "Warp Portal", rows);
         state.select(1);
-        assert_eq!(state.confirm(), Some(SelectionCommand::Warp {
-            skill_id: 27,
-            map_name: "Random".to_owned(),
-        }));
+        assert_eq!(
+            state.confirm(),
+            Some(SelectionCommand::Warp {
+                skill_id: 27,
+                map_name: "Random".to_owned(),
+            })
+        );
         assert_eq!(state.cancel(), SelectionCommand::Warp {
             skill_id: 27,
             map_name: "cancel".to_owned(),
@@ -510,23 +520,27 @@ mod tests {
         let mut row = SelectionRow::catalog("Red Potion", 501, None);
         row.material0 = 713;
         state.show(SelectionKind::Produce, "Create item", vec![row]);
-        assert_eq!(state.confirm(), Some(SelectionCommand::Produce {
-            item_id: 501,
-            material: [713, 0, 0],
-        }));
+        assert_eq!(
+            state.confirm(),
+            Some(SelectionCommand::Produce {
+                item_id: 501,
+                material: [713, 0, 0],
+            })
+        );
         assert_eq!(state.cancel(), SelectionCommand::Produce {
             item_id: 0,
             material: [0, 0, 0],
         });
 
         state.make_type = 6;
-        state.show(SelectionKind::Making, "Pharmacy", vec![SelectionRow::catalog("Potion", 501, None)]);
-        assert_eq!(state.cancel(), SelectionCommand::Making {
-            make_type: 6,
-            item_id: 0,
-        });
+        state.show(SelectionKind::Making, "Pharmacy", vec![SelectionRow::catalog(
+            "Potion", 501, None,
+        )]);
+        assert_eq!(state.cancel(), SelectionCommand::Making { make_type: 6, item_id: 0 });
 
-        state.show(SelectionKind::Arrow, "Arrow Crafting", vec![SelectionRow::catalog("Arrow", 1750, None)]);
+        state.show(SelectionKind::Arrow, "Arrow Crafting", vec![SelectionRow::catalog(
+            "Arrow", 1750, None,
+        )]);
         assert_eq!(state.cancel(), SelectionCommand::Arrow { item_id: 0 });
     }
 
