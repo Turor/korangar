@@ -100,7 +100,7 @@ pub use self::dialog::{DialogWindow, DialogWindowState};
 pub use self::eden::{EdenWindow, EdenWindowState};
 pub use self::enchant::{EnchantWindow, EnchantWindowState};
 pub use self::equipment::EquipmentWindow;
-pub(crate) use self::equipment::draw_world_entity;
+pub(crate) use self::equipment::draw_player_in_world;
 pub use self::error::ErrorWindow;
 #[cfg(feature = "debug")]
 pub use self::frame_inspector::FrameInspectorWindow;
