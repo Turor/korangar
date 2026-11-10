@@ -14,7 +14,7 @@ pub enum MessageColor {
     Public,
     /// Private message (`0x0097` / `0x09DE`).
     Whisper,
-    /// Party chat. G04 pushes this when it handles `0x0109`.
+    /// Party chat (`ZC_NOTIFY_CHAT_PARTY`).
     Party,
     /// Guild chat. The guild task pushes this when guild messages arrive.
     Guild,

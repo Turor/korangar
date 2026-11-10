@@ -15,6 +15,7 @@ pub mod item_finder;
 pub mod item_workshop;
 pub mod localization;
 pub mod navigation;
+pub mod party;
 pub mod pincode;
 pub mod player_shops;
 pub mod quest_log;
@@ -61,6 +62,7 @@ use self::clan::ClanState;
 use self::friends::FriendListEntry;
 use self::guild::GuildState;
 use self::item_finder::ItemFinderState;
+use self::party::PartyState;
 use self::player_shops::{ShopReportState, ShopSearchState, ShopSetupState};
 #[cfg(feature = "debug")]
 use crate::PacketHistory;
@@ -263,6 +265,8 @@ pub struct ClientState {
     guild_window: GuildWindowState,
     /// Clan info and online counts for the local character.
     clan: ClanState,
+    /// Party roster, options, and member positions for the minimap.
+    party: PartyState,
     /// Local Item Finder catalog, query, and result rows.
     item_finder: ItemFinderState,
     /// List of items offered in the shop.
@@ -498,6 +502,7 @@ impl ClientState {
             let guild = GuildState::default();
             let guild_window = GuildWindowState::default();
             let clan = ClanState::default();
+            let party = PartyState::default();
             let item_finder = ItemFinderState::default();
         });
 
@@ -627,6 +632,7 @@ impl ClientState {
             guild,
             guild_window,
             clan,
+            party,
             item_finder,
             shop_items,
             buy_cart,

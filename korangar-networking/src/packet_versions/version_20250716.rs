@@ -1096,6 +1096,7 @@ where
     })?;
     packet_handler.register_noop::<ReputationPacket>()?;
     crate::packet_versions::clan::register_clan_packets(packet_handler)?;
+    crate::packet_versions::party::register_party_packets(packet_handler)?;
     packet_handler.register_noop::<ChangeMapCellPacket>()?;
     packet_handler.register(open_market_event)?;
     crate::packet_versions::enchant::register_enchant_packets(packet_handler)?;

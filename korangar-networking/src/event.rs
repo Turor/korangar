@@ -421,6 +421,8 @@ pub enum NetworkEvent {
     PartyInvitationState {
         invitations_allowed: bool,
     },
+    /// Party roster, options, HP, position, or an invite result.
+    Party(crate::party::PartyUpdate),
     /// `ZC_UPDATE_GDID`. `guild_id == 0` means this character is not in a
     /// guild.
     GuildAffiliation {
