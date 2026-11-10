@@ -1356,16 +1356,18 @@ impl Client {
                             client_state().character_slots(),
                             client_state().switch_request(),
                         ));
-                        if self.autopilot.is_some() {
-                            let slot = self.autopilot.as_ref().map(|auto| auto.slot()).unwrap_or(0);
-                            autopilot_slot_occupied = Some(
-                                self.client_state
-                                    .try_follow(client_state().character_slots().in_slot(slot))
-                                    .is_some(),
-                            );
-                        } else if headless_auto() {
-                            defer_headless_character = true;
-                        }
+                    }
+                    // The menu map opens this window before the list arrives. Selecting only
+                    // when the window was closed skips the character on a slow first frame.
+                    if self.autopilot.is_some() {
+                        let slot = self.autopilot.as_ref().map(|auto| auto.slot()).unwrap_or(0);
+                        autopilot_slot_occupied = Some(
+                            self.client_state
+                                .try_follow(client_state().character_slots().in_slot(slot))
+                                .is_some(),
+                        );
+                    } else if headless_auto() && self.interface.is_window_with_class_open(WindowClass::CharacterSelection) {
+                        defer_headless_character = true;
                     }
                 }
                 NetworkEvent::Pincode { notice } => {
