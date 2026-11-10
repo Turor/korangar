@@ -70,6 +70,8 @@ mod switch_equip;
 #[cfg(feature = "debug")]
 mod theme_inspector;
 mod trade;
+mod vending_report;
+mod vending_setup;
 mod vendor;
 mod warpra;
 mod world_map;
@@ -148,6 +150,8 @@ pub use self::switch_equip::SwitchEquipWindow;
 #[cfg(feature = "debug")]
 pub use self::theme_inspector::{ThemeInspectorWindow, ThemeInspectorWindowState};
 pub use self::trade::{TradeRequestWindow, TradeWindow};
+pub use self::vending_report::VendingReportWindow;
+pub use self::vending_setup::VendingSetupWindow;
 pub use self::vendor::VendorWindow;
 pub use self::warpra::{WarpraWindow, WarpraWindowState};
 pub use self::world_map::{WorldMapWindow, WorldMapWindowState, should_close_after_result};
@@ -207,6 +211,8 @@ pub enum WindowClass {
     TradeRequest,
     Vendor,
     SearchStore,
+    VendingSetup,
+    VendingReport,
     Refine,
     ItemFinder,
     ItemReform,

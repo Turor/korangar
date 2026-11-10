@@ -16,6 +16,7 @@ pub mod item_workshop;
 pub mod localization;
 pub mod navigation;
 pub mod pincode;
+pub mod player_shops;
 pub mod quest_log;
 pub mod refine;
 pub mod skill_cooldowns;
@@ -60,6 +61,7 @@ use self::clan::ClanState;
 use self::friends::FriendListEntry;
 use self::guild::GuildState;
 use self::item_finder::ItemFinderState;
+use self::player_shops::{ShopReportState, ShopSearchState, ShopSetupState};
 #[cfg(feature = "debug")]
 use crate::PacketHistory;
 #[cfg(feature = "debug")]
@@ -108,6 +110,7 @@ use crate::{AudioSettings, GraphicsSettings};
 #[derive(Clone, Debug, RustState, StateElement)]
 pub struct ShopSign {
     pub account_id: AccountId,
+    pub shop_name: String,
     pub buying_store: bool,
 }
 
@@ -296,6 +299,12 @@ pub struct ClientState {
     vendor_rows: Vec<VendorRow>,
     /// Rows shown in the shop-search window.
     search_store_hits: Vec<SearchStoreRow>,
+    /// Cart or bag rows for the shop this client is opening.
+    shop_setup: ShopSetupState,
+    /// Search-store query, price range, and picked item ids.
+    shop_search: ShopSearchState,
+    /// This client's open shop and the sales log.
+    shop_report: ShopReportState,
     /// The name of the active character. This information is not available
     /// while playing if we don't save it here.
     player_name: String,
@@ -518,6 +527,9 @@ impl ClientState {
             let vendor_item_ids = Vec::default();
             let vendor_rows = Vec::default();
             let search_store_hits = Vec::default();
+            let shop_setup = ShopSetupState::default();
+            let shop_search = ShopSearchState::default();
+            let shop_report = ShopReportState::default();
             let player_name = String::new();
             let hotbar = Hotbar::default();
             let inventory = Inventory::default();
@@ -628,6 +640,9 @@ impl ClientState {
             vendor_item_ids,
             vendor_rows,
             search_store_hits,
+            shop_setup,
+            shop_search,
+            shop_report,
             player_name,
             hotbar,
             inventory,

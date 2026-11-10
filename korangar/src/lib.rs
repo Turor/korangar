@@ -65,7 +65,7 @@ use korangar_interface::Interface;
 use korangar_interface::layout::MouseButton;
 use korangar_networking::{
     DisconnectReason, HotkeyState, InventoryItemDetails, ItemQuantity, LoginServerLoginData, MessageColor, NetworkEvent,
-    NetworkEventBuffer, NetworkingSystem, NoMetadata, SellItem, ShopItem, StatusChangeState, SupportedPacketVersion,
+    NetworkEventBuffer, NetworkingSystem, SellItem, StatusChangeState, SupportedPacketVersion,
 };
 #[cfg(feature = "debug")]
 use networking::{PacketHistory, PacketHistoryCallback};
@@ -1105,7 +1105,10 @@ impl Client {
         let mut autopilot_slot_occupied: Option<bool> = None;
         let mut pincode_effects = Vec::new();
         let mut autopilot_effects = Vec::new();
-        for event in self.network_event_buffer.drain() {
+        // Own the events before matching. Shop handlers borrow `self`, which cannot
+        // overlap the buffer drain.
+        let network_events: Vec<_> = self.network_event_buffer.drain().collect();
+        for event in network_events {
             match event {
                 NetworkEvent::LoginServerConnected {
                     character_servers,
@@ -2940,15 +2943,8 @@ impl Client {
                 NetworkEvent::PlayerShopSign {
                     account_id,
                     buying_store,
-                    shop_name: _,
-                } => {
-                    let shops = self.client_state.follow_mut(client_state().player_shops());
-                    if let Some(existing) = shops.iter_mut().find(|shop| shop.account_id == account_id) {
-                        existing.buying_store = buying_store;
-                    } else {
-                        shops.push(crate::state::ShopSign { account_id, buying_store });
-                    }
-                }
+                    shop_name,
+                } => self.on_player_shop_sign(account_id, shop_name, buying_store),
                 NetworkEvent::PlayerShopClosed { account_id, buying_store } => {
                     self.client_state
                         .follow_mut(client_state().player_shops())
@@ -2990,19 +2986,11 @@ impl Client {
                     *self.client_state.follow_mut(client_state().vendor_rows()) = rows;
                     self.interface.open_window(VendorWindow::new(client_state().vendor_rows()));
                 }
-                NetworkEvent::VendingPrepare { item_count } => {
-                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
-                        format!("You can list {item_count} items in a vending shop."),
-                        MessageColor::Information,
-                    ));
-                }
-                NetworkEvent::OwnPlayerShopOpened { item_count, buying_store } => {
-                    let kind = if buying_store { "buying store" } else { "vending shop" };
-                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
-                        format!("Opened {kind} with {item_count} items."),
-                        MessageColor::Information,
-                    ));
-                }
+                NetworkEvent::VendingPrepare { item_count } => self.on_vending_prepare(item_count),
+                NetworkEvent::BuyingStorePrepare { item_count } => self.on_buying_prepare(item_count),
+                NetworkEvent::VendingOpenResult { result } => self.on_vending_open_result(result),
+                NetworkEvent::OwnPlayerShopOpened { buying_store, lines } => self.on_own_shop_opened(buying_store, lines),
+                NetworkEvent::VendingSold { index, amount, zeny, date } => self.on_vending_sold(index, amount, zeny, date),
                 NetworkEvent::VendingPurchaseResult { index, amount, result } => {
                     if result == 0 {
                         let position = self
@@ -3036,12 +3024,7 @@ impl Client {
                         MessageColor::Error,
                     ));
                 }
-                NetworkEvent::SearchStoreOpen { remaining_uses, .. } => {
-                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
-                        format!("Shop search is available ({remaining_uses} uses left)."),
-                        MessageColor::Information,
-                    ));
-                }
+                NetworkEvent::SearchStoreOpen { remaining_uses, .. } => self.on_search_store_open(remaining_uses),
                 NetworkEvent::SearchStoreFailed { reason } => {
                     self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
                         format!("Shop search failed (code {reason})."),
@@ -3050,39 +3033,10 @@ impl Client {
                 }
                 NetworkEvent::SearchStoreResults {
                     first_page,
+                    next_page,
                     uses_remaining,
                     hits,
-                    ..
-                } => {
-                    if first_page {
-                        self.client_state.follow_mut(client_state().search_store_hits()).clear();
-                    }
-                    let mut rows = Vec::with_capacity(hits.len());
-                    for hit in hits {
-                        let named = self.async_loader.request_shop_item_metadata_load(ShopItem {
-                            metadata: NoMetadata,
-                            item_id: hit.item_id,
-                            item_type: 0,
-                            price: hit.price,
-                            quantity: ItemQuantity::Fixed(u32::from(hit.amount)),
-                            weight: 0,
-                            location: 0,
-                        });
-                        rows.push(crate::state::SearchStoreRow {
-                            label: format!("{} — {}  x{}  {}z", hit.shop_name, named.metadata.name, hit.amount, hit.price.0),
-                            account_id: hit.account_id,
-                            store_id: hit.store_id,
-                            item_id: hit.item_id,
-                        });
-                    }
-                    self.client_state.follow_mut(client_state().search_store_hits()).extend(rows);
-                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
-                        format!("Shop search results ({uses_remaining} uses left)."),
-                        MessageColor::Information,
-                    ));
-                    self.interface
-                        .open_window(SearchStoreWindow::new(client_state().search_store_hits()));
-                }
+                } => self.on_search_store_results(first_page, next_page, uses_remaining, hits),
                 NetworkEvent::SearchStorePosition { x, y } => {
                     self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
                         format!("Searched shop is at {x}, {y}."),
@@ -3864,7 +3818,10 @@ impl Client {
         }
 
         let mut pincode_effects = Vec::new();
-        for event in self.input_event_buffer.drain(..) {
+        // Own the events before matching. Shop handlers borrow `self`, which cannot
+        // overlap the buffer drain.
+        let input_events: Vec<_> = self.input_event_buffer.drain(..).collect();
+        for event in input_events {
             match event {
                 InputEvent::LogIn {
                     service_id,
@@ -4224,7 +4181,7 @@ impl Client {
                         let _ = self.networking_system.update_guild_notice(guild_id, subject, notice);
                     }
                 }
-                InputEvent::CloseTopWindow => self.interface.close_top_window(&self.client_state),
+                InputEvent::CloseTopWindow => self.on_close_top_window(),
                 InputEvent::Escape => {
                     if self.interface.is_window_with_class_open(WindowClass::WorldMap) {
                         self.interface.close_window_with_class(WindowClass::WorldMap);
@@ -4235,7 +4192,7 @@ impl Client {
                             self.interface.has_closable_window(&self.client_state),
                         ) {
                             crate::input::EscapeAction::Unfocus => self.interface.unfocus(),
-                            crate::input::EscapeAction::CloseTop => self.interface.close_top_window(&self.client_state),
+                            crate::input::EscapeAction::CloseTop => self.on_close_top_window(),
                             crate::input::EscapeAction::ToggleMenu => {
                                 if self.client_state.try_follow(this_entity()).is_some() {
                                     match self.interface.is_window_with_class_open(WindowClass::Menu) {
@@ -5347,6 +5304,19 @@ impl Client {
                     let _ = self.networking_system.close_styling_shop();
                     self.interface.close_window_with_class(WindowClass::StylingShop);
                 }
+                InputEvent::SelectShopDraft { index } => self.select_shop_draft(index),
+                InputEvent::CommitShopDraft => self.commit_shop_draft(),
+                InputEvent::UnlistShopDraft => self.unlist_shop_draft(),
+                InputEvent::SubmitShopSetup => self.submit_shop_setup(),
+                InputEvent::CancelShopSetup => self.cancel_shop_setup(),
+                InputEvent::CloseOwnShop => self.close_own_shop(),
+                InputEvent::SuggestShopSearch => self.suggest_shop_search(),
+                InputEvent::AddShopSearchItem { index } => self.add_shop_search_item(index),
+                InputEvent::RemoveShopSearchItem { index } => self.remove_shop_search_item(index),
+                InputEvent::SubmitShopSearch => self.submit_shop_search(),
+                InputEvent::ShopSearchNextPage => self.shop_search_next_page(),
+                InputEvent::CloseShopSearch => self.close_shop_search(),
+                InputEvent::SetShopSearchBuying { buying } => self.set_shop_search_buying(buying),
                 InputEvent::LevelUpSkills { skill_ids } => {
                     for skill_id in skill_ids {
                         if self.networking_system.level_up_skill(skill_id).is_err() {
@@ -6349,10 +6319,16 @@ impl Client {
             // is hovering a window, so we buffer any actions for the next frame.
 
             let is_interface_hovered = interface_frame.is_interface_hovered();
+            let shop_hit = if is_interface_hovered {
+                None
+            } else {
+                crate::interface::shop_boards::shop_board_hit(current_camera, &self.client_state, screen_size, input_report.mouse_position)
+            };
 
             let cursor_state = match input_report.mouse_target {
                 _ if is_rotating_camera => MouseCursorState::RotateCamera,
                 _ if is_grabbing => MouseCursorState::GrabResource,
+                _ if shop_hit.is_some() => MouseCursorState::Dialog,
                 PickerTarget::Entity(entity_id) if !is_interface_hovered => {
                     if self
                         .client_state
@@ -6386,31 +6362,38 @@ impl Client {
                     interface_frame.unfocus();
 
                     if mouse_button == MouseButton::Left {
-                        match input_report.mouse_target {
-                            PickerTarget::Nothing => {}
-                            PickerTarget::Entity(entity_id) => {
-                                let is_ground_item = self
-                                    .client_state
-                                    .follow(client_state().ground_items())
-                                    .iter()
-                                    .any(|item| item.get_entity_id() == entity_id);
+                        if let Some(hit) = shop_hit {
+                            self.input_event_buffer.push(InputEvent::OpenPlayerShop {
+                                account_id: hit.account_id,
+                                buying_store: hit.buying_store,
+                            });
+                        } else {
+                            match input_report.mouse_target {
+                                PickerTarget::Nothing => {}
+                                PickerTarget::Entity(entity_id) => {
+                                    let is_ground_item = self
+                                        .client_state
+                                        .follow(client_state().ground_items())
+                                        .iter()
+                                        .any(|item| item.get_entity_id() == entity_id);
 
-                                if is_ground_item {
-                                    self.input_event_buffer.push(InputEvent::PickUpItem { entity_id })
-                                } else {
-                                    self.input_event_buffer.push(InputEvent::PlayerInteract { entity_id })
+                                    if is_ground_item {
+                                        self.input_event_buffer.push(InputEvent::PickUpItem { entity_id })
+                                    } else {
+                                        self.input_event_buffer.push(InputEvent::PlayerInteract { entity_id })
+                                    }
                                 }
-                            }
-                            PickerTarget::Tile { x, y } => {
-                                let destination = TilePosition { x, y };
+                                PickerTarget::Tile { x, y } => {
+                                    let destination = TilePosition { x, y };
 
-                                interface_frame.set_mouse_mode(MouseInputMode::Walk { destination });
+                                    interface_frame.set_mouse_mode(MouseInputMode::Walk { destination });
 
-                                self.input_event_buffer.push(InputEvent::PlayerMove { destination });
-                            }
-                            #[cfg(feature = "debug")]
-                            PickerTarget::Marker(marker_identifier) => {
-                                self.input_event_buffer.push(InputEvent::OpenMarkerDetails { marker_identifier })
+                                    self.input_event_buffer.push(InputEvent::PlayerMove { destination });
+                                }
+                                #[cfg(feature = "debug")]
+                                PickerTarget::Marker(marker_identifier) => {
+                                    self.input_event_buffer.push(InputEvent::OpenMarkerDetails { marker_identifier })
+                                }
                             }
                         }
                     } else if mouse_button == MouseButton::Right && currently_playing {
@@ -7227,5 +7210,13 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
             }
             _ => {}
         }
+
+        crate::interface::shop_boards::render_shop_boards(
+            self.middle_interface_renderer,
+            self.current_camera,
+            self.client_state,
+            self.screen_size,
+            self.mouse_position,
+        );
     }
 }
