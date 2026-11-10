@@ -1549,6 +1549,49 @@ impl Entity {
             Self::Npc(npc) => npc.render_status(renderer, camera, theme, window_size),
         }
     }
+
+    /// One HP bar over a party member. Uses the player health token on the
+    /// enemy bar size.
+    pub fn render_party_health(
+        &self,
+        renderer: &GameInterfaceRenderer,
+        camera: &dyn Camera,
+        theme: &WorldTheme,
+        window_size: ScreenSize,
+        health: f32,
+        maximum: f32,
+    ) {
+        if maximum <= 0.0 {
+            return;
+        }
+
+        let clip_space_position = camera.view_projection_matrix() * self.get_common().world_position.to_homogeneous();
+        let screen_position = camera.clip_to_screen_space(clip_space_position);
+        let final_position = ScreenPosition {
+            left: screen_position.x * window_size.width,
+            top: screen_position.y * window_size.height + 5.0,
+        };
+        let bar_width = theme.status_bar.enemy_bar_width;
+
+        renderer.render_rectangle(
+            final_position - theme.status_bar.border_size - ScreenSize::only_width(bar_width / 2.0),
+            ScreenSize {
+                width: bar_width,
+                height: theme.status_bar.enemy_health_height,
+            } + (theme.status_bar.border_size * 2.0),
+            theme.status_bar.background_color,
+        );
+        renderer.render_bar(
+            final_position,
+            ScreenSize {
+                width: bar_width,
+                height: theme.status_bar.enemy_health_height,
+            },
+            theme.status_bar.player_health_color,
+            maximum,
+            health.max(0.0),
+        );
+    }
 }
 
 impl VecItem for Entity {

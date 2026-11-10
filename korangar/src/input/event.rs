@@ -441,6 +441,37 @@ pub enum InputEvent {
     AcceptPartyInvite {
         party_id: PartyId,
     },
+    /// `CZ_MAKE_GROUP2`.
+    CreateParty {
+        name: String,
+        item_pickup: bool,
+        item_division: bool,
+    },
+    /// `CZ_REQ_LEAVE_GROUP`.
+    LeaveParty,
+    /// `CZ_PARTY_JOIN_REQ`.
+    InviteToParty {
+        character_name: String,
+    },
+    /// `CZ_REQ_EXPEL_GROUP_MEMBER`.
+    KickPartyMember {
+        account_id: AccountId,
+        name: String,
+    },
+    /// `CZ_CHANGE_GROUP_MASTER`.
+    ChangePartyLeader {
+        account_id: AccountId,
+    },
+    /// `CZ_GROUPINFO_CHANGE_V2`.
+    SetPartyOptions {
+        experience_share: u32,
+        item_pickup: bool,
+        item_division: bool,
+    },
+    /// `CZ_PARTY_CONFIG`. `refuse` true blocks incoming party invites.
+    SetPartyInviteBlock {
+        refuse: bool,
+    },
     /// Buy one vend slot, or sell one matching inventory item into a buying
     /// store.
     VendorTrade {

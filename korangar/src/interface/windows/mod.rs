@@ -44,6 +44,7 @@ mod mvp_minimap;
 mod navigation;
 #[cfg(feature = "debug")]
 mod packet_inspector;
+mod party;
 mod party_invite;
 mod pincode;
 mod placement;

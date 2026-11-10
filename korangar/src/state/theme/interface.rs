@@ -59,7 +59,8 @@ pub struct ChatTheme {
     public_color: Color,
     /// Whisper lines.
     whisper_color: Color,
-    /// Party chat. G04 pushes `MessageColor::Party`.
+    /// Party chat. roBrowser uses rgb(230, 215, 200) for other members.
+    #[serde(default = "default_party_chat_color")]
     party_color: Color,
     /// Guild chat.
     guild_color: Color,
@@ -101,6 +102,10 @@ impl ChatTheme {
     pub(crate) fn announce_background_color(&self) -> Color {
         self.announce_background_color
     }
+}
+
+fn default_party_chat_color() -> Color {
+    Color::rgb_u8(230, 215, 200)
 }
 
 #[derive(Serialize, Deserialize, RustState, StateElement)]
@@ -436,7 +441,7 @@ impl InterfaceTheme {
                 information_color: accent,
                 public_color: text,
                 whisper_color: sp,
-                party_color: gold,
+                party_color: Color::rgb_u8(230, 215, 200),
                 guild_color: accent,
                 bubble_color: text,
                 bubble_background_color: panel.with_alpha_u8(180),
@@ -742,7 +747,7 @@ impl InterfaceTheme {
                 information_color: Color::rgb_u8(200, 230, 180),
                 public_color: Color::rgb_u8(235, 236, 240),
                 whisper_color: Color::rgb_u8(181, 222, 239),
-                party_color: Color::rgb_u8(255, 180, 96),
+                party_color: Color::rgb_u8(230, 215, 200),
                 guild_color: Color::rgb_u8(170, 220, 140),
                 bubble_color: Color::rgb_u8(235, 236, 240),
                 bubble_background_color: Color::rgba_u8(0, 0, 0, 150),
@@ -966,7 +971,7 @@ impl InterfaceTheme {
                 information_color: Color::rgb_u8(200, 230, 180),
                 public_color: Color::rgb_u8(235, 236, 240),
                 whisper_color: Color::rgb_u8(181, 222, 239),
-                party_color: Color::rgb_u8(255, 180, 96),
+                party_color: Color::rgb_u8(230, 215, 200),
                 guild_color: Color::rgb_u8(170, 220, 140),
                 bubble_color: Color::rgb_u8(235, 236, 240),
                 bubble_background_color: Color::rgba_u8(0, 0, 0, 160),
@@ -1030,6 +1035,9 @@ mod turoran_dark_theme_tests {
         assert!(decoded.chat.window_color.alpha_as_u8() < 255, "chat should stay translucent");
         assert_ne!(decoded.chat.error_color, decoded.chat.server_color);
         assert_ne!(decoded.chat.broadcast_color, decoded.chat.information_color);
+        assert_eq!(decoded.chat.party_color.red_as_u8(), 230);
+        assert_eq!(decoded.chat.party_color.green_as_u8(), 215);
+        assert_eq!(decoded.chat.party_color.blue_as_u8(), 200);
     }
 
     #[test]

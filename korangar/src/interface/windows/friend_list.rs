@@ -105,26 +105,35 @@ where
 #[derive(Default, RustState, StateElement)]
 pub struct FriendListWindowState {
     currently_adding: String,
+    /// Friends tab. The window opens on the party tab.
+    pub show_friends: bool,
+    pub create_name: String,
+    pub invite_name: String,
+    pub create_share_pickup: bool,
+    pub create_share_loot: bool,
 }
 
-pub struct FriendListWindow<A, B> {
+pub struct FriendListWindow<A, B, P> {
     window_state_path: A,
     friend_list_path: B,
+    party_path: P,
 }
 
-impl<A, B> FriendListWindow<A, B> {
-    pub fn new(window_state_path: A, friend_list_path: B) -> Self {
+impl<A, B, P> FriendListWindow<A, B, P> {
+    pub fn new(window_state_path: A, friend_list_path: B, party_path: P) -> Self {
         Self {
             window_state_path,
             friend_list_path,
+            party_path,
         }
     }
 }
 
-impl<A, B> CustomWindow<ClientState> for FriendListWindow<A, B>
+impl<A, B, P> CustomWindow<ClientState> for FriendListWindow<A, B, P>
 where
-    A: Path<ClientState, FriendListWindowState>,
+    A: Path<ClientState, FriendListWindowState> + Clone + 'static,
     B: Path<ClientState, Vec<FriendListEntry>>,
+    P: Path<ClientState, crate::state::party::PartyState> + Clone + 'static,
 {
     fn window_class() -> Option<WindowClass> {
         Some(WindowClass::FriendList)
@@ -147,18 +156,40 @@ where
         };
 
         window! {
-            title: client_state().localization().friend_list_window_title(),
+            title: "Party / Friends",
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
             closable: true,
             elements: (
-                text_box! {
-                    ghost_text: client_state().localization().friend_list_text_box_message(),
-                    state: self.window_state_path.currently_adding(),
-                    input_handler: DefaultHandler::<_, _, MAXIMUM_NAME_LENGTH>::new(self.window_state_path.currently_adding(), add_action),
-                    focus_id: AddFriendTextBox,
+                split! {
+                    gaps: theme().window().gaps(),
+                    children: (
+                        button! {
+                            text: "Party",
+                            event: SetToFalse(self.window_state_path.show_friends()),
+                        },
+                        button! {
+                            text: "Friends",
+                            event: SetToTrue(self.window_state_path.show_friends()),
+                        },
+                    ),
                 },
-                FriendList::new(self.friend_list_path),
+                either! {
+                    selector: self.window_state_path.show_friends(),
+                    on_true: split! {
+                        gaps: theme().window().gaps(),
+                        children: (
+                            text_box! {
+                                ghost_text: client_state().localization().friend_list_text_box_message(),
+                                state: self.window_state_path.currently_adding(),
+                                input_handler: DefaultHandler::<_, _, MAXIMUM_NAME_LENGTH>::new(self.window_state_path.currently_adding(), add_action),
+                                focus_id: AddFriendTextBox,
+                            },
+                            FriendList::new(self.friend_list_path),
+                        ),
+                    },
+                    on_false: super::party::PartyTab::new(self.window_state_path, self.party_path),
+                },
             )
         }
     }

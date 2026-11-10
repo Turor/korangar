@@ -65,14 +65,14 @@ use korangar_interface::Interface;
 use korangar_interface::layout::MouseButton;
 use korangar_networking::{
     DisconnectReason, HotkeyState, InventoryItemDetails, ItemQuantity, LoginServerLoginData, MessageColor, NetworkEvent,
-    NetworkEventBuffer, NetworkingSystem, SellItem, StatusChangeState, SupportedPacketVersion,
+    NetworkEventBuffer, NetworkingSystem, PartyUpdate, SellItem, StatusChangeState, SupportedPacketVersion,
 };
 #[cfg(feature = "debug")]
 use networking::{PacketHistory, PacketHistoryCallback};
 #[cfg(not(feature = "debug"))]
 use ragnarok_packets::handler::NoPacketCallback;
 use ragnarok_packets::{
-    AccountId, AttackRange, BuyShopItemsResult, CharacterServerInformation, ClientTick, Direction, DisappearanceReason, EffectId,
+    AccountId, AttackRange, BuyShopItemsResult, CharacterServerInformation, ClientTick, Direction, DisappearanceReason, EffectId, EntityId,
     EquipPosition, EquippableItemFlags, ExperienceSource, ExperienceType, HealType, HotbarSlot, InventoryIndex, SellItemsResult, SkillId,
     SkillLevel, SkillType, TilePosition, UnitId, WorldPosition,
 };
@@ -1249,6 +1249,7 @@ impl Client {
                     self.client_state.follow_mut(client_state().navigation()).clear();
                     self.client_state.follow_mut(client_state().guild()).clear();
                     self.client_state.follow_mut(client_state().guild_window()).clear();
+                    self.client_state.follow_mut(client_state().party()).clear();
                     self.client_state.follow_mut(client_state().clan()).clear();
                     self.client_state.follow_mut(client_state().warpra_window()).clear_catalog();
                     self.client_state.follow_mut(client_state().world_map_window()).on_catalog_cleared();
@@ -2671,6 +2672,7 @@ impl Client {
                     );
                 }
                 NetworkEvent::LoggedOut => {
+                    self.client_state.follow_mut(client_state().party()).clear();
                     self.networking_system.disconnect_from_map_server();
                 }
                 NetworkEvent::FriendRequest { requestee } => {
@@ -2698,7 +2700,42 @@ impl Client {
                 NetworkEvent::PartyInvite { party_id, party_name } => {
                     self.interface.open_window(PartyInviteWindow::new(party_id, party_name));
                 }
-                NetworkEvent::PartyInvitationState { .. } => {}
+                NetworkEvent::PartyInvitationState { invitations_allowed } => {
+                    self.client_state
+                        .follow_mut(client_state().party())
+                        .set_invitations_allowed(invitations_allowed);
+                }
+                NetworkEvent::Party(update) => {
+                    if let PartyUpdate::Health {
+                        account_id,
+                        health,
+                        maximum,
+                    } = &update
+                        && *maximum > 0
+                    {
+                        let entity_id = EntityId(account_id.0);
+                        let health = (*health).max(0) as usize;
+                        let maximum = *maximum as usize;
+                        if let Some(entity) = self
+                            .client_state
+                            .follow_mut(client_state().entities())
+                            .iter_mut()
+                            .find(|entity| entity.get_entity_id() == entity_id)
+                        {
+                            entity.update_health(health, maximum);
+                        }
+                    }
+                    let account_id = self.saved_login_data.as_ref().map(|login| login.account_id).unwrap_or(AccountId(0));
+                    if let Some(notice) = self.client_state.follow_mut(client_state().party()).apply(update, account_id) {
+                        let color = match notice.error {
+                            true => MessageColor::Error,
+                            false => MessageColor::Information,
+                        };
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(notice.text, color));
+                    }
+                }
                 NetworkEvent::GuildAffiliation {
                     guild_id,
                     name,
@@ -4134,6 +4171,7 @@ impl Client {
                             false => self.interface.open_window(FriendListWindow::new(
                                 client_state().friend_list_window(),
                                 client_state().friend_list(),
+                                client_state().party(),
                             )),
                         }
                     }
@@ -4365,6 +4403,15 @@ impl Client {
                             if !self.interface.is_window_with_class_open(WindowClass::ItemFinder) {
                                 self.interface.open_window(ItemFinderWindow::new(client_state().item_finder()));
                             }
+                        }
+                        continue;
+                    }
+
+                    if let Some(message) = text.strip_prefix('%') {
+                        let message = message.trim();
+                        if !message.is_empty() {
+                            let player_name = self.client_state.follow(client_state().player_name()).clone();
+                            let _ = self.networking_system.send_party_message(&player_name, message);
                         }
                         continue;
                     }
@@ -4965,6 +5012,37 @@ impl Client {
                 InputEvent::AcceptPartyInvite { party_id } => {
                     let _ = self.networking_system.accept_party_invite(party_id);
                     self.interface.close_window_with_class(WindowClass::PartyInvite);
+                }
+                InputEvent::CreateParty {
+                    name,
+                    item_pickup,
+                    item_division,
+                } => {
+                    let _ = self.networking_system.create_party(name, item_pickup, item_division);
+                }
+                InputEvent::LeaveParty => {
+                    let _ = self.networking_system.leave_party();
+                }
+                InputEvent::InviteToParty { character_name } => {
+                    let _ = self.networking_system.invite_to_party(character_name);
+                }
+                InputEvent::KickPartyMember { account_id, name } => {
+                    let _ = self.networking_system.expel_party_member(account_id, name);
+                }
+                InputEvent::ChangePartyLeader { account_id } => {
+                    let _ = self.networking_system.change_party_leader(account_id);
+                }
+                InputEvent::SetPartyOptions {
+                    experience_share,
+                    item_pickup,
+                    item_division,
+                } => {
+                    let _ = self
+                        .networking_system
+                        .set_party_options(experience_share, item_pickup, item_division);
+                }
+                InputEvent::SetPartyInviteBlock { refuse } => {
+                    let _ = self.networking_system.set_party_invite_block(refuse);
                 }
                 InputEvent::VendorTrade { list_index } => {
                     let buying = *self.client_state.follow(client_state().vendor_buying());
@@ -7121,6 +7199,26 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
                 self.current_camera,
                 self.client_state.follow(client_state().world_theme()),
                 self.screen_size,
+            );
+        }
+
+        let party_bars = self.client_state.follow(client_state().party()).world_health_bars();
+        for (entity_id, health, maximum) in party_bars {
+            let Some(entity) = self
+                .client_state
+                .follow(client_state().entities())
+                .iter()
+                .find(|entity| entity.get_entity_id() == entity_id)
+            else {
+                continue;
+            };
+            entity.render_party_health(
+                self.middle_interface_renderer,
+                self.current_camera,
+                self.client_state.follow(client_state().world_theme()),
+                self.screen_size,
+                health as f32,
+                maximum as f32,
             );
         }
 
