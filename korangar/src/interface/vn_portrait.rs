@@ -310,7 +310,8 @@ fn paint_frame(renderer: &GameInterfaceRenderer, frame: PortraitFrame, tokens: &
             width: frame.size - FRAME_BORDER * 2.0,
             height: frame.size - FRAME_BORDER * 2.0,
         },
-        tokens.panel.with_alpha_u8(235),
+        // Opaque, like the dialog band behind the text.
+        tokens.panel.with_alpha_u8(255),
     );
 }
 
