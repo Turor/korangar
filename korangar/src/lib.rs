@@ -2029,6 +2029,10 @@ impl Client {
                     self.interface.close_window_with_class(WindowClass::Eden);
                     self.interface.close_window_with_class(WindowClass::Warpra);
                     self.interface.close_window_with_class(WindowClass::WorldMap);
+                    // Battleground rosters and Sense results belong to the old map.
+                    self.client_state.follow_mut(client_state().misc_info()).clear_battleground();
+                    self.interface.close_window_with_class(WindowClass::Battleground);
+                    self.interface.close_window_with_class(WindowClass::Sense);
                     self.client_state.follow_mut(client_state().warpra_window()).clear_catalog();
                     self.client_state.follow_mut(client_state().world_map_window()).on_catalog_cleared();
                     self.interface.close_window_with_class(WindowClass::Companions);
@@ -2690,6 +2694,80 @@ impl Client {
                         .apply_elemental_parameter(variable, value);
                     self.interface.open_window(CompanionWindow::new());
                 }
+                NetworkEvent::MonsterInfo { info } => {
+                    let name = self
+                        .library
+                        .monster_name(u32::from(info.job))
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| format!("Monster {}", info.job));
+                    let text = korangar_networking::format_sense(&info, &name);
+                    self.client_state.follow_mut(client_state().misc_info()).set_sense(text);
+                    self.interface.open_window(SenseWindow);
+                }
+                NetworkEvent::ReadBook { book_item_id, page } => {
+                    let name = self
+                        .library
+                        .get::<ItemName>(ItemNameKey {
+                            item_id: ItemId(book_item_id),
+                            is_identified: true,
+                        })
+                        .to_string();
+                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
+                        format!("{name}: page {page}. Book text is not in the client data yet."),
+                        MessageColor::Information,
+                    ));
+                }
+                NetworkEvent::MemorialDungeon(update) => {
+                    if let korangar_networking::MemorialDungeonUpdate::Notify { notify_type } = &update {
+                        if let Some(notice) = korangar_networking::memorial_dungeon_notice(*notify_type) {
+                            self.client_state
+                                .follow_mut(client_state().chat_messages())
+                                .push(ChatMessage::new(notice.to_owned(), MessageColor::Information));
+                        }
+                        if korangar_networking::memorial_dungeon_notice_closes(*notify_type) {
+                            self.client_state.follow_mut(client_state().misc_info()).clear_memorial();
+                            self.interface.close_window_with_class(WindowClass::MemorialDungeon);
+                        }
+                    } else {
+                        self.client_state
+                            .follow_mut(client_state().misc_info())
+                            .apply_memorial(&update, now_unix());
+                        if !self.interface.is_window_with_class_open(WindowClass::MemorialDungeon) {
+                            self.interface.open_window(MemorialDungeonWindow);
+                        }
+                    }
+                }
+                NetworkEvent::Battlefield(update) => {
+                    if let korangar_networking::BattlefieldUpdate::Chat { message, .. } = &update {
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(message.clone(), MessageColor::Party));
+                    } else if self.client_state.follow_mut(client_state().misc_info()).apply_battleground(&update)
+                        && !self.interface.is_window_with_class_open(WindowClass::Battleground)
+                    {
+                        self.interface.open_window(BattlegroundWindow);
+                    }
+                }
+                NetworkEvent::Reputation { success, entries } => {
+                    let text = korangar_networking::format_reputation(success, &entries);
+                    self.client_state.follow_mut(client_state().misc_info()).set_reputation(text);
+                }
+                NetworkEvent::AmmunitionEquipped { index } => {
+                    self.client_state
+                        .follow_mut(client_state().inventory())
+                        .update_equipped_position(index, EquipPosition::AMMO);
+                }
+                NetworkEvent::AmmunitionAction { action } => {
+                    let color = if korangar_networking::ammunition_is_error(&action) {
+                        MessageColor::Error
+                    } else {
+                        MessageColor::Information
+                    };
+                    self.client_state.follow_mut(client_state().chat_messages()).push(ChatMessage::new(
+                        korangar_networking::ammunition_message(&action).to_owned(),
+                        color,
+                    ));
+                }
                 NetworkEvent::MvpMinimap { flags, markers } => {
                     self.client_state.follow_mut(client_state().mvp_minimap()).replace(flags, markers);
                 }
@@ -2940,6 +3018,12 @@ impl Client {
                 } => {
                     let name = self.library.get::<ItemName>(ItemNameKey { item_id, is_identified }).to_string();
                     let message = format!("You got {name} ({quantity}).");
+                    self.client_state
+                        .follow_mut(client_state().misc_info())
+                        .show_item_obtain(message.clone(), Instant::now());
+                    if !self.interface.is_window_with_class_open(WindowClass::ItemObtain) {
+                        self.interface.open_window(ItemObtainWindow);
+                    }
                     self.client_state
                         .follow_mut(client_state().chat_messages())
                         .push(ChatMessage::new(message, MessageColor::Information));
@@ -5114,6 +5198,24 @@ impl Client {
                             false => self.interface.open_window(ClanWindow::new(client_state().clan())),
                         }
                     }
+                }
+                InputEvent::ToggleReputationWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Reputation) {
+                            true => self.interface.close_window_with_class(WindowClass::Reputation),
+                            false => {
+                                if self.client_state.follow(client_state().misc_info()).reputation().is_empty() {
+                                    self.client_state
+                                        .follow_mut(client_state().misc_info())
+                                        .set_reputation("No reputation yet.".to_owned());
+                                }
+                                self.interface.open_window(ReputationWindow);
+                            }
+                        }
+                    }
+                }
+                InputEvent::DestroyMemorialDungeon => {
+                    let _ = self.networking_system.destroy_memorial_dungeon();
                 }
                 InputEvent::ToggleItemFinderWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
@@ -7341,6 +7443,16 @@ impl Client {
         headless_auto() && self.autopilot.is_none()
     }
 
+    /// Close the pickup popup when its time is up and keep the memorial
+    /// dungeon countdown current.
+    fn tick_misc_windows(&mut self) {
+        let now = Instant::now();
+        if self.client_state.follow_mut(client_state().misc_info()).item_obtain_expired(now) {
+            self.interface.close_window_with_class(WindowClass::ItemObtain);
+        }
+        self.client_state.follow_mut(client_state().misc_info()).refresh_timers(now_unix());
+    }
+
     fn drive_autopilot(&mut self) {
         let effects = self.autopilot.as_mut().map(|auto| auto.poll(Instant::now())).unwrap_or_default();
         self.apply_autopilot(effects);
@@ -7531,6 +7643,7 @@ impl Client {
         self.input_system.expire_synthesized();
         self.input_system.advance_synthetic_drag();
         self.drive_autopilot();
+        self.tick_misc_windows();
 
         if SHUTDOWN_SIGNAL.load(Ordering::SeqCst) {
             event_loop.exit();

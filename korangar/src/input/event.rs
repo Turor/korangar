@@ -124,6 +124,11 @@ pub enum InputEvent {
     ToggleGuildWindow,
     /// Open or close the clan window. Only works while playing.
     ToggleClanWindow,
+    /// Open or close the reputation window (`0x0B8D` groups).
+    ToggleReputationWindow,
+    /// Ask the server to destroy the current memorial dungeon
+    /// (`CZ_MEMORIALDUNGEON_COMMAND` 3).
+    DestroyMemorialDungeon,
     /// Open or close the local Item Finder. Only works while playing.
     ToggleItemFinderWindow,
     /// Re-run the Item Finder query already stored in client state.

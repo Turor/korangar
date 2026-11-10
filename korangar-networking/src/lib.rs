@@ -1624,6 +1624,17 @@ where
         }
     }
 
+    /// `CZ_MEMORIALDUNGEON_COMMAND` destroy (the only command Hercules
+    /// handles).
+    pub fn destroy_memorial_dungeon(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(ragnarok_packets::MemorialDungeonCommandPacket {
+                    command: ragnarok_packets::MEMORIAL_DUNGEON_COMMAND_DESTROY,
+                }),
+        }
+    }
+
     pub fn request_stat_up(&mut self, stat_type: StatUpType) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
