@@ -14,6 +14,7 @@ pub mod hotbar;
 pub mod inventory;
 pub mod item_drop;
 pub mod item_finder;
+pub mod item_skill_selection;
 pub mod item_workshop;
 pub mod localization;
 pub mod navigation;
@@ -91,6 +92,7 @@ use crate::state::equip_switch::EquipSwitch;
 use crate::state::hotbar::Hotbar;
 use crate::state::inventory::Inventory;
 use crate::state::item_drop::ItemDropPrompt;
+use crate::state::item_skill_selection::ItemSkillSelectionState;
 use crate::state::item_workshop::{EnchantGradeState, ItemReformState, LaphineSynthesisState, LaphineUpgradeState};
 use crate::state::navigation::Navigation;
 use crate::state::npc_dialog::NpcPresentation;
@@ -341,6 +343,8 @@ pub struct ClientState {
     trade: TradeState,
     /// NPC refine UI.
     refine: RefineState,
+    /// Identify, cards, warp memo, crafting, and skill target lists.
+    item_skill_selection: ItemSkillSelectionState,
     /// Item reform UI.
     item_reform: ItemReformState,
     /// Enchant grade UI.
@@ -559,6 +563,7 @@ impl ClientState {
             let skill_tree_window = SkillTreeWindowState::default();
             let trade = TradeState::default();
             let refine = RefineState::default();
+            let item_skill_selection = ItemSkillSelectionState::default();
             let item_reform = ItemReformState::default();
             let enchant_grade = EnchantGradeState::default();
             let laphine_synthesis = LaphineSynthesisState::default();
@@ -676,6 +681,7 @@ impl ClientState {
             skill_tree,
             trade,
             refine,
+            item_skill_selection,
             item_reform,
             enchant_grade,
             laphine_synthesis,

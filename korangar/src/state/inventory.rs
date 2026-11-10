@@ -65,6 +65,45 @@ impl Inventory {
         self.items.remove(position);
     }
 
+    pub fn mark_identified(&mut self, index: InventoryIndex) -> Option<ItemId> {
+        let item = self.items.iter_mut().find(|item| item.index == index)?;
+        match &mut item.details {
+            InventoryItemDetails::Regular { flags, .. } => {
+                flags.insert(RegularItemFlags::IDENTIFIED);
+            }
+            InventoryItemDetails::Equippable { flags, .. } => {
+                flags.insert(EquippableItemFlags::IDENTIFIED);
+            }
+        }
+        Some(item.item_id)
+    }
+
+    /// Replace the unidentified name, description, and icon after a successful identify.
+    pub fn set_identified_presentation(
+        &mut self,
+        index: InventoryIndex,
+        name: String,
+        description: String,
+        texture: Option<Arc<Texture>>,
+    ) {
+        let Some(item) = self.items.iter_mut().find(|item| item.index == index) else {
+            return;
+        };
+        item.metadata.name = name;
+        item.metadata.description = description;
+        if texture.is_some() {
+            item.metadata.texture = texture;
+        }
+    }
+
+    pub fn refinement_level(&self, index: InventoryIndex) -> Option<u8> {
+        let item = self.items.iter().find(|item| item.index == index)?;
+        match &item.details {
+            InventoryItemDetails::Equippable { refinement_level, .. } => Some(*refinement_level),
+            InventoryItemDetails::Regular { .. } => None,
+        }
+    }
+
     pub fn set_refinement(&mut self, index: InventoryIndex, refine_level: u8) {
         let Some(item) = self.items.iter_mut().find(|item| item.index == index) else {
             return;
@@ -162,6 +201,8 @@ impl Inventory {
 pub enum ItemActivation {
     Use,
     Equip { position: EquipPosition },
+    /// Item type 6. Sends `CZ_REQ_ITEMCOMPOSITION_LIST` instead of `CZ_USE_ITEM`.
+    InsertCard,
     Ignore,
 }
 
@@ -192,6 +233,7 @@ pub fn use_ack_targets_self(our_account: Option<AccountId>, packet_account: Opti
 pub fn item_activation<Meta>(item: &InventoryItem<Meta>) -> ItemActivation {
     match item.item_type {
         0 | 2 | 11 | 18 => ItemActivation::Use,
+        6 => ItemActivation::InsertCard,
         4 | 5 | 8 | 12 => equip_position(item),
         10 => match equip_position(item) {
             ItemActivation::Ignore => {
@@ -388,7 +430,7 @@ mod tests {
         assert_eq!(item_activation(&regular(1, 11, 1, true)), ItemActivation::Use);
         assert_eq!(item_activation(&regular(1, 18, 1, true)), ItemActivation::Use);
         assert_eq!(item_activation(&regular(1, 3, 1, true)), ItemActivation::Ignore);
-        assert_eq!(item_activation(&regular(1, 6, 1, true)), ItemActivation::Ignore);
+        assert_eq!(item_activation(&regular(1, 6, 1, true)), ItemActivation::InsertCard);
 
         let mut weapon = equip(1, 0, 0);
         if let InventoryItemDetails::Equippable { equip_position, flags, .. } = &mut weapon.details {

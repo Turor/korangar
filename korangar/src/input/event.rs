@@ -448,6 +448,15 @@ pub enum InputEvent {
     ConfirmItemDrop,
     /// Close the drop window without sending a packet.
     CancelItemDrop,
+    /// Highlight a row in the item or skill selection list.
+    SelectItemSkillRow {
+        /// Row index in the open list.
+        index: u32,
+    },
+    /// Send the selection. Weapon refine stays open.
+    ConfirmItemSkillSelection,
+    /// Send the protocol cancel, then close the list.
+    CancelItemSkillSelection,
     /// Move an item in the user interface.
     MoveItem {
         /// Source of the move.
