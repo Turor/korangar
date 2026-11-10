@@ -1,6 +1,7 @@
 #![cfg_attr(feature = "interface", feature(negative_impls))]
 #![cfg_attr(feature = "interface", feature(impl_trait_in_assoc_type))]
 
+mod barter;
 pub mod handler;
 mod item_use;
 mod party;
@@ -23,6 +24,11 @@ pub use ragnarok_macros::{CharacterServer, ClientPacket, LoginServer, MapServer,
 #[cfg(not(feature = "derive"))]
 use ragnarok_macros::{CharacterServer, ClientPacket, LoginServer, MapServer, Packet, ServerPacket};
 
+pub use self::barter::{
+    BarterPurchaseEntry, BarterPurchasePacket, BarterShop2021Packet, BarterShopItem, BarterShopPacket, CloseBarterPacket,
+    CloseExpandedBarterPacket, ExpandedBarterCurrency, ExpandedBarterItem, ExpandedBarterPurchaseEntry, ExpandedBarterPurchasePacket,
+    ExpandedBarterShop2025Packet, ExpandedBarterShopPacket, NpcBuyResultPacket,
+};
 pub use self::item_use::{DropItemAckPacket, DropItemPacket, UseItemAck2Packet, UseItemAckPacket, UseItemPacket};
 pub use self::party::*;
 pub use self::pincode::{
