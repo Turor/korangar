@@ -32,7 +32,8 @@
 //! ```
 //!
 //! The public key is [`EMBEDDED_UPDATE_PUBLIC_KEY`]. The private seed stays on
-//! the signing controller, outside the git tree. See `docs/signed-auto-update.md`.
+//! the signing controller, outside the git tree. See
+//! `docs/signed-auto-update.md`.
 
 pub mod cli;
 pub mod manifest;
@@ -49,9 +50,9 @@ use manifest::ReleaseManifest;
 
 /// Public main-channel manifest. Requires HTTPS DNS+HAProxy for
 /// `korangar-releases.turoran.com` to the Garage website endpoint (port 3902).
-/// Until that vhost exists, a fetch failure is skipped and the current binary runs.
-pub const DEFAULT_UPDATE_MANIFEST_URL: &str =
-    "https://korangar-releases.turoran.com/main/manifest.jsonup";
+/// Until that vhost exists, a fetch failure is skipped and the current binary
+/// runs.
+pub const DEFAULT_UPDATE_MANIFEST_URL: &str = "https://korangar-releases.turoran.com/main/manifest.jsonup";
 
 const MANIFEST_LIMIT: usize = 256 * 1024;
 const FILE_LIMIT: u64 = 512 * 1024 * 1024;
@@ -167,7 +168,7 @@ fn apply_manifest(manifest: &ReleaseManifest, manifest_url: &str, request: &Star
     ) {
         rollback(&swapped);
         let _ = fs::remove_file(request.install_root.join("updates").join("applied.version"));
-                let _ = fs::remove_file(request.install_root.join("updates").join("applied.build"));
+        let _ = fs::remove_file(request.install_root.join("updates").join("applied.build"));
         return Err(error);
     }
     let _ = fs::remove_dir_all(&staging);
@@ -405,7 +406,7 @@ fn is_allowed_https(url: &str) -> bool {
     let Some(rest) = url.strip_prefix("https://") else {
         return false;
     };
-    split_http(rest, 443).is_ok_and(|(host, _, _)| is_release_host(&host))
+    split_http(rest, 443).is_ok_and(|(host, ..)| is_release_host(&host))
 }
 
 fn file_url_path(rest: &str) -> Result<PathBuf, String> {
@@ -507,9 +508,7 @@ fn https_get(host: &str, port: u16, path: &str, max_bytes: u64) -> Result<Vec<u8
 
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let config = rustls::ClientConfig::builder()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
+    let config = rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth();
     let name = rustls::pki_types::ServerName::try_from(host.to_string()).map_err(|_| "bad https server name")?;
     let mut connection = rustls::ClientConnection::new(Arc::new(config), name).map_err(|error| error.to_string())?;
     let mut tcp = connect_tcp(host, port)?;

@@ -10,8 +10,8 @@ struct Arguments {
     /// Check asset source and native clientinfo setup without a window/login.
     #[arg(long)]
     check_bootstrap: bool,
-    /// Print a fixed token and exit. The signed updater runs this after swapping
-    /// the executable and rolls back if it fails.
+    /// Print a fixed token and exit. The signed updater runs this after
+    /// swapping the executable and rolls back if it fails.
     #[arg(long)]
     update_self_check: bool,
 }
@@ -66,8 +66,8 @@ fn main() {
     }
 }
 
-/// Checks the main-channel manifest unless `KORANGAR_SKIP_UPDATE=1`. The default
-/// URL is `https://korangar-releases.turoran.com/main/manifest.jsonup` and may
+/// Checks the main-channel manifest unless `KORANGAR_SKIP_UPDATE=1`. The
+/// default URL is `https://korangar-releases.turoran.com/main/manifest.jsonup` and may
 /// be overridden with `KORANGAR_UPDATE_MANIFEST_URL`. An unreachable channel is
 /// skipped so gameplay can start. A bad signature or an older build is fatal.
 fn startup_update() -> Result<(), String> {
@@ -75,7 +75,9 @@ fn startup_update() -> Result<(), String> {
     let install_root = current_exe.parent().ok_or("executable has no directory")?.to_path_buf();
     let relaunch_args: Vec<String> = std::env::args().skip(1).collect();
     let skip = std::env::var("KORANGAR_SKIP_UPDATE").ok();
-    let manifest = std::env::var("KORANGAR_UPDATE_MANIFEST_URL").ok().filter(|value| !value.trim().is_empty());
+    let manifest = std::env::var("KORANGAR_UPDATE_MANIFEST_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
     let default = korangar_update::DEFAULT_UPDATE_MANIFEST_URL;
     let manifest_url = manifest.as_deref().unwrap_or(default);
     let outcome = korangar_update::run_startup_update(&korangar_update::StartupRequest {

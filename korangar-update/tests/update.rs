@@ -134,8 +134,8 @@ fn unsafe_paths_and_remote_urls_are_rejected() {
 #[test]
 fn embedded_release_key_rejects_ephemeral_signatures() {
     const EXPECTED: [u8; 32] = [
-        251, 61, 211, 214, 185, 225, 149, 94, 224, 58, 71, 134, 89, 111, 125, 85, 98, 183, 217, 109, 123, 108, 23, 126, 109, 56, 207, 122, 188,
-        167, 222, 24,
+        251, 61, 211, 214, 185, 225, 149, 94, 224, 58, 71, 134, 89, 111, 125, 85, 98, 183, 217, 109, 123, 108, 23, 126, 109, 56, 207, 122,
+        188, 167, 222, 24,
     ];
     assert_eq!(manifest::EMBEDDED_UPDATE_PUBLIC_KEY, EXPECTED);
     assert_ne!(manifest::EMBEDDED_UPDATE_PUBLIC_KEY, [0u8; 32]);
@@ -373,17 +373,13 @@ fn loopback_http_apply_uses_no_external_host() {
     assert!(remote.contains("disabled") || remote.contains("only http"), "{remote}");
     let foreign = korangar_update::run_startup_update(&request(&install, &exe, "https://cdn.example/manifest.krup", "0.1.1")).unwrap_err();
     assert!(
-        foreign.contains("limited to ro.turoran.com")
-            || foreign.contains("allowlisted")
-            || foreign.contains("only http"),
+        foreign.contains("limited to ro.turoran.com") || foreign.contains("allowlisted") || foreign.contains("only http"),
         "{foreign}"
     );
     let lookalike =
         korangar_update::run_startup_update(&request(&install, &exe, "https://ro.turoran.com.evil/manifest.krup", "0.1.1")).unwrap_err();
     assert!(
-        lookalike.contains("limited to ro.turoran.com")
-            || lookalike.contains("allowlisted")
-            || lookalike.contains("only http"),
+        lookalike.contains("limited to ro.turoran.com") || lookalike.contains("allowlisted") || lookalike.contains("only http"),
         "{lookalike}"
     );
     let _ = fs::remove_dir_all(&root);
@@ -426,7 +422,6 @@ fn signing_cli_roundtrip_and_keygen_stays_outside_the_repo() {
     assert_eq!(fs::metadata(&outside).unwrap().len(), 32);
     let _ = fs::remove_dir_all(&root);
 }
-
 
 #[test]
 fn older_or_equal_build_is_rejected_or_skipped() {

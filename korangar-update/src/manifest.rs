@@ -7,8 +7,8 @@ use sha2::{Digest, Sha256};
 /// seed stays on the signing controller and is never stored in this repository.
 /// An all-zero key still fails closed.
 pub const EMBEDDED_UPDATE_PUBLIC_KEY: [u8; 32] = [
-    251, 61, 211, 214, 185, 225, 149, 94, 224, 58, 71, 134, 89, 111, 125, 85, 98, 183, 217, 109, 123, 108, 23, 126, 109, 56, 207, 122, 188, 167,
-    222, 24,
+    251, 61, 211, 214, 185, 225, 149, 94, 224, 58, 71, 134, 89, 111, 125, 85, 98, 183, 217, 109, 123, 108, 23, 126, 109, 56, 207, 122, 188,
+    167, 222, 24,
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
