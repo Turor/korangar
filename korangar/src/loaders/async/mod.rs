@@ -345,11 +345,14 @@ impl AsyncLoader {
         let sprite = self.request_skill_sprite_load(skill_id, &path);
         let actions = self.request_skill_actions_load(skill_id, &path);
 
+        let description = self.library.skill_description_body(skill_id, job_id);
         LearnableSkill {
             skill_id,
             maximum_level: skill_information.maximum_level,
             file_name: skill_information.file_name.clone(),
             skill_name: skill_information.name.clone(),
+            description,
+            spell_point_costs: skill_information.sp_amounts.clone(),
             can_select_level: skill_information.can_select_level,
             acquisition: skill_information.acquisition,
             required_skills: skill_requirements.required_skills.clone(),

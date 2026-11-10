@@ -17,6 +17,7 @@ use crate::renderer::LayoutExt;
 use crate::state::skills::{LearnableSkill, LearnedSkill, SkillAcquisition};
 use crate::state::theme::{InterfaceThemePathExt, SkillTreeThemePathExt};
 use crate::state::{ClientState, client_theme};
+use crate::world::compose_skill_description;
 
 struct LevelDisplay {
     level: Option<SkillLevel>,
@@ -117,6 +118,43 @@ where
     }
 }
 
+/// Right-click opens or closes the description and does not start a drag.
+struct SkillDescribeHandler<A, B> {
+    learnable_skill_path: A,
+    learned_skill_path: B,
+}
+
+impl<A, B> SkillDescribeHandler<A, B> {
+    fn new(learnable_skill_path: A, learned_skill_path: B) -> Self {
+        Self {
+            learnable_skill_path,
+            learned_skill_path,
+        }
+    }
+}
+
+impl<A, B> ClickHandler<ClientState> for SkillDescribeHandler<A, B>
+where
+    A: Path<ClientState, LearnableSkill, false>,
+    B: Path<ClientState, LearnedSkill, false>,
+{
+    fn handle_click(&self, state: &State<ClientState>, queue: &mut EventQueue<ClientState>) {
+        let Some(skill) = state.try_get(&self.learnable_skill_path) else {
+            return;
+        };
+        let level = state
+            .try_get(&self.learned_skill_path)
+            .map(|learned| learned.skill_level.0)
+            .unwrap_or(0);
+        let body = compose_skill_description(&skill.description, level, skill.maximum_level.0, &skill.spell_point_costs);
+        queue.queue(InputEvent::ToggleSkillDescription {
+            skill_id: skill.skill_id,
+            title: skill.skill_name.clone(),
+            body,
+        });
+    }
+}
+
 struct ChooseLowerClickHandler<A, B> {
     learned_skill_path: A,
     window_state_path: B,
@@ -201,9 +239,12 @@ pub struct SkillSlot<A, B, C> {
     learned_skill_path: B,
     window_state_path: C,
     click_handler: SkillSlotClickHandler<A, B, C>,
+    describe_handler: SkillDescribeHandler<A, B>,
     choose_lower_handler: ChooseLowerClickHandler<B, C>,
     choose_higher_handler: ChooseHigherClickHandler<B, C>,
     level_display: LevelDisplay,
+    hover_text: String,
+    description_text: String,
 }
 
 impl<A, B, C> SkillSlot<A, B, C>
@@ -218,9 +259,12 @@ where
             learned_skill_path,
             window_state_path,
             click_handler: SkillSlotClickHandler::new(learnable_skill_path, learned_skill_path, window_state_path, source),
+            describe_handler: SkillDescribeHandler::new(learnable_skill_path, learned_skill_path),
             choose_lower_handler: ChooseLowerClickHandler::new(learned_skill_path, window_state_path),
             choose_higher_handler: ChooseHigherClickHandler::new(learned_skill_path, window_state_path),
             level_display: LevelDisplay::default(),
+            hover_text: String::new(),
+            description_text: String::new(),
         }
     }
 }
@@ -270,6 +314,17 @@ where
                     Some(required_skill_level) => self.level_display.update(skill_level, *required_skill_level),
                     None => self.level_display.update(skill_level, learnable_skill.maximum_level),
                 }
+                let shown_level = skill_level.map(|level| level.0).unwrap_or(0);
+                self.description_text = compose_skill_description(
+                    &learnable_skill.description,
+                    shown_level,
+                    learnable_skill.maximum_level.0,
+                    &learnable_skill.spell_point_costs,
+                );
+                self.hover_text = format!("{}\n{}", learnable_skill.skill_name, self.description_text);
+            } else {
+                self.hover_text.clear();
+                self.description_text.clear();
             }
 
             Self::LayoutInfo { area }
@@ -450,11 +505,19 @@ where
 
             if is_hovered {
                 layout.register_click_handler(MouseButton::Left, &self.click_handler);
+                layout.register_click_handler(MouseButton::Right, &self.describe_handler);
 
                 struct SkillSlotTooltip;
-                layout.add_tooltip(&skill.skill_name, SkillSlotTooltip.tooltip_id());
+                layout.add_tooltip(self.hover_text.as_str(), SkillSlotTooltip.tooltip_id());
 
                 state.update_value(self.window_state_path.highlighted_skill(), Some(skill.skill_id));
+                let showing = *state.get(&self.window_state_path.description_skill());
+                if showing != Some(skill.skill_id) {
+                    state.update_value(self.window_state_path.description_title(), skill.skill_name.clone());
+                    state.update_value(self.window_state_path.description_body(), self.description_text.clone());
+                    state.update_value(self.window_state_path.description_skill(), Some(skill.skill_id));
+                    state.update_value(self.window_state_path.description_open(), true);
+                }
             }
         } else {
             layout.add_rectangle(

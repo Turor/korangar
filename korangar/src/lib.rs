@@ -3666,7 +3666,10 @@ impl Client {
                     }
                 }
                 NetworkEvent::QuestList { quests } => {
-                    self.client_state.follow_mut(client_state().quest_log()).replace_all(quests);
+                    let library = std::sync::Arc::clone(&self.library);
+                    self.client_state
+                        .follow_mut(client_state().quest_log())
+                        .replace_all(quests, library.as_ref());
                 }
                 NetworkEvent::QuestNotification {
                     quest_id,
@@ -3675,18 +3678,21 @@ impl Client {
                     expire_time,
                     objectives,
                 } => {
+                    let library = std::sync::Arc::clone(&self.library);
                     self.client_state.follow_mut(client_state().quest_log()).upsert_notification(
                         quest_id,
                         active,
                         start_time,
                         expire_time,
                         objectives,
+                        library.as_ref(),
                     );
                 }
                 NetworkEvent::HuntingQuestNotification { objectives } | NetworkEvent::HuntingQuestObjectiveUpdate { objectives } => {
+                    let library = std::sync::Arc::clone(&self.library);
                     self.client_state
                         .follow_mut(client_state().quest_log())
-                        .apply_hunting_objectives(&objectives);
+                        .apply_hunting_objectives(&objectives, library.as_ref());
                 }
                 NetworkEvent::QuestRemoved { quest_id } => {
                     self.client_state.follow_mut(client_state().quest_log()).remove(quest_id);
@@ -3889,6 +3895,21 @@ impl Client {
         }
     }
 
+    /// Hover sets `description_open` on the previous frame. Open once, then
+    /// clear the flag.
+    fn open_pending_skill_description(&mut self) {
+        let pending = *self.client_state.follow(client_state().skill_tree_window().description_open());
+        if !pending {
+            return;
+        }
+        *self.client_state.follow_mut(client_state().skill_tree_window().description_open()) = false;
+        if self.client_state.try_follow(this_entity()).is_some() && !self.interface.is_window_with_class_open(WindowClass::SkillDescription)
+        {
+            self.interface
+                .open_window(SkillDescriptionWindow::new(client_state().skill_tree_window()));
+        }
+    }
+
     /// Returns whether or not the interface is focused.
     #[inline(always)]
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
@@ -3901,6 +3922,7 @@ impl Client {
         let shop_setup_open = self.interface.is_window_with_class_open(WindowClass::VendingSetup);
         let shop_search_open = self.interface.is_window_with_class_open(WindowClass::SearchStore);
         let shop_report_open = self.interface.is_window_with_class_open(WindowClass::VendingReport);
+        self.open_pending_skill_description();
         self.interface.process_events(&mut self.input_event_buffer);
         self.on_shop_windows_dismissed(shop_setup_open, shop_search_open, shop_report_open);
 
@@ -4166,6 +4188,30 @@ impl Client {
                         .interface
                         .open_window(AudioSettingsWindow::new(client_state().audio_settings())),
                 },
+                InputEvent::SetQuestActive { quest_id, active } => {
+                    self.client_state
+                        .follow_mut(client_state().quest_log())
+                        .set_active_local(quest_id, active);
+                    let _ = self.networking_system.set_quest_active(quest_id, active);
+                }
+                InputEvent::ToggleSkillDescription { skill_id, title, body } => {
+                    if self.client_state.try_follow(this_entity()).is_none() {
+                        continue;
+                    }
+                    let same_skill = *self.client_state.follow(client_state().skill_tree_window().description_skill()) == Some(skill_id);
+                    let window_open = self.interface.is_window_with_class_open(WindowClass::SkillDescription);
+                    if same_skill && window_open {
+                        self.interface.close_window_with_class(WindowClass::SkillDescription);
+                    } else {
+                        self.client_state
+                            .follow_mut(client_state().skill_tree_window())
+                            .set_description(skill_id, title, body);
+                        if !window_open {
+                            self.interface
+                                .open_window(SkillDescriptionWindow::new(client_state().skill_tree_window()));
+                        }
+                    }
+                }
                 InputEvent::ToggleQuestJournalWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::QuestJournal) {

@@ -32,6 +32,20 @@ pub struct SkillTreeWindowState {
     /// contains skills that have this property.
     #[hidden_element]
     chosen_skill_level: HashMap<SkillId, SkillLevel>,
+    description_title: String,
+    description_body: String,
+    description_skill: Option<SkillId>,
+    /// Set while a slot is hovered so the next frame can open the window.
+    description_open: bool,
+}
+
+impl SkillTreeWindowState {
+    pub fn set_description(&mut self, skill_id: SkillId, title: String, body: String) {
+        self.description_skill = Some(skill_id);
+        self.description_title = title;
+        self.description_body = body;
+        self.description_open = false;
+    }
 }
 
 pub struct SkillTreeWindow<A, B, C, D> {

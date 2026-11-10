@@ -90,6 +90,11 @@ pub struct LearnableSkill {
     pub maximum_level: SkillLevel,
     pub file_name: String,
     pub skill_name: String,
+    /// Job-filtered description body. Level and SP lines are composed in the
+    /// UI.
+    pub description: String,
+    /// Per-level SP costs. Index 0 is level 1.
+    pub spell_point_costs: Vec<u32>,
     pub can_select_level: bool,
     pub acquisition: SkillAcquisition,
     // TODO: Unhide this

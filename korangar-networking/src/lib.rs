@@ -1050,6 +1050,17 @@ where
         }
     }
 
+    /// `CZ_ACTIVE_QUEST` (`0x02B6`): mark a quest active or inactive.
+    pub fn set_quest_active(&mut self, quest_id: u32, active: bool) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(SetQuestActivePacket {
+                    quest_id,
+                    active: u8::from(active),
+                }),
+        }
+    }
+
     pub fn move_item_to_storage(&mut self, inventory_index: InventoryIndex, amount: u32) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {

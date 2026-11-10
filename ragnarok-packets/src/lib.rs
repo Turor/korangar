@@ -3685,6 +3685,16 @@ pub struct QuestRemovedPacket {
     pub quest_id: u32,
 }
 
+/// `CZ_ACTIVE_QUEST` (`0x02B6`). Hercules `clif_parse_questStateAck`: quest id
+/// then one active byte. Framing length is 7.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x02B6)]
+pub struct SetQuestActivePacket {
+    pub quest_id: u32,
+    pub active: u8,
+}
+
 #[derive(Debug, Clone, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct QuestDetails {
