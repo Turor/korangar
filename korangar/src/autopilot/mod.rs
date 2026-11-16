@@ -63,6 +63,11 @@ pub enum Effect {
     Input(InputEvent),
     /// Show this member of its tabbed group in place of the open one.
     Tab(WindowClass),
+    /// Talk to the NPC standing on or next to this tile.
+    TalkAt {
+        x: u16,
+        y: u16,
+    },
     Window {
         class: WindowClass,
         open: bool,
@@ -420,6 +425,11 @@ impl Autopilot {
                 effects.push(Effect::Input(InputEvent::PlayerMove {
                     destination: TilePosition { x, y },
                 }));
+                false
+            }
+            Command::Talk { x, y } => {
+                effects.push(log_ok(line));
+                effects.push(Effect::TalkAt { x, y });
                 false
             }
             Command::Click { x, y, kind } => {

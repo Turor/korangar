@@ -193,12 +193,10 @@ impl Inventory {
 
     /// Apply `ZC_GRADE_ENCHANT_ACK` to the local equip.
     ///
-    /// rAthena writes the new grade in the ack and does not send a follow-up
-    /// item packet. Result 0 also forces refine to 0. Result 3 is removed by
-    /// the existing delete-item packet, so this leaves the stack alone.
-    /// Result 2 lowers refine by a server-side `downgrade_amount` that is not
-    /// on the wire; refine stays stale until the next full inventory list.
-    /// The grade field is still written.
+    /// Hercules sends the new grade on success and then the client forces
+    /// refine to 0. A downgrade ack carries the grade from before `grade -= 1`
+    /// and does not change refine. Result 3 is removed by the delete-item
+    /// packet, so this leaves the stack alone.
     pub fn apply_enchant_grade(&mut self, index: InventoryIndex, grade: i16, result: i32) {
         if result == 3 {
             return;
@@ -214,10 +212,45 @@ impl Inventory {
         else {
             return;
         };
-        *enchantment_level = u8::try_from(grade).unwrap_or(0);
+        let stored = if result == 2 {
+            grade.saturating_sub(1).max(0)
+        } else {
+            grade.max(0)
+        };
+        *enchantment_level = u8::try_from(stored).unwrap_or(0);
         if result == 0 {
             *refinement_level = 0;
         }
+    }
+
+    #[cfg(test)]
+    pub fn from_items(items: Vec<InventoryItem<ResourceMetadata>>) -> Self {
+        Self { items, ..Self::default() }
+    }
+
+    #[cfg(test)]
+    pub fn equip_levels(&self, index: InventoryIndex) -> Option<(u8, u8)> {
+        let item = self.items.iter().find(|item| item.index == index)?;
+        let InventoryItemDetails::Equippable {
+            refinement_level,
+            enchantment_level,
+            ..
+        } = item.details
+        else {
+            return None;
+        };
+        Some((refinement_level, enchantment_level))
+    }
+
+    /// Copy the four card words after a successful enchant (message 3857).
+    ///
+    /// The server updates the item in place and does not send a new inventory
+    /// list.
+    pub fn apply_enchant_cards(&mut self, index: InventoryIndex, slots: [u32; 4]) {
+        let Some(item) = self.items.iter_mut().find(|item| item.index == index) else {
+            return;
+        };
+        item.slot = slots;
     }
 
     pub fn update_equipped_position(&mut self, index: InventoryIndex, new_equipped_position: EquipPosition) {
@@ -417,11 +450,28 @@ mod tests {
         assert_eq!(levels(&inventory, 4), (0, 2));
 
         inventory.items[0] = equip(4, 9, 2);
+        // The ack grade is the grade before Hercules subtracts one. Refine stays.
         inventory.apply_enchant_grade(InventoryIndex(4), 2, 2);
-        assert_eq!(levels(&inventory, 4), (9, 2));
+        assert_eq!(levels(&inventory, 4), (9, 1));
+        inventory.apply_enchant_grade(InventoryIndex(4), 1, 2);
+        assert_eq!(levels(&inventory, 4), (9, 0));
 
         inventory.apply_enchant_grade(InventoryIndex(4), 0, 3);
-        assert_eq!(levels(&inventory, 4), (9, 2));
+        assert_eq!(levels(&inventory, 4), (9, 0));
+    }
+
+    #[test]
+    fn enchant_cards_overwrite_the_inventory_item() {
+        let mut inventory = Inventory::default();
+        let mut item = equip(4, 9, 1);
+        item.slot = [99, 0, 0, 0];
+        inventory.items.push(item);
+
+        inventory.apply_enchant_cards(InventoryIndex(4), [99, 4001, 0, 0]);
+        assert_eq!(inventory.items[0].slot, [99, 4001, 0, 0]);
+
+        inventory.apply_enchant_cards(InventoryIndex(99), [1, 1, 1, 1]);
+        assert_eq!(inventory.items[0].slot, [99, 4001, 0, 0]);
     }
 
     fn regular(index: u16, item_type: u8, amount: u16, identified: bool) -> InventoryItem<ResourceMetadata> {

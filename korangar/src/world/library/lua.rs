@@ -24,7 +24,7 @@ fn chunk_bytes(data: &[u8]) -> mlua::Result<Cow<'_, [u8]>> {
     }
 }
 
-pub(super) fn execute_chunk(state: &Lua, name: &str, data: &[u8]) -> mlua::Result<()> {
+pub(crate) fn execute_chunk(state: &Lua, name: &str, data: &[u8]) -> mlua::Result<()> {
     let bytes = chunk_bytes(data).context(format!("preparing Lua asset {name}"))?;
     state
         .load(bytes.as_ref())
