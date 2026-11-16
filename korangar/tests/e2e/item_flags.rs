@@ -2,7 +2,7 @@
 //! display. The live case marks one real TEST inventory row and refuses the
 //! ground drop without sending it.
 
-use korangar::e2e::{LiveConnect, LogicSession, offline_item_flags};
+use korangar::e2e::{LiveConnect, LogicSession, offline_item_flag_menu, offline_item_flags};
 
 #[test]
 fn item_flags_glow_junk_and_lock_offline() {
@@ -27,6 +27,26 @@ fn item_flags_glow_junk_and_lock_offline() {
     assert!(report.reloaded_locked);
     assert!(report.reloaded_new);
     assert!(report.other_character_kept);
+}
+
+#[test]
+fn item_flags_junk_and_lock_from_the_item_menu() {
+    let report = offline_item_flag_menu();
+    assert!(
+        report.before.ends_with(&["Mark junk".to_owned(), "Lock".to_owned()]),
+        "{:?}",
+        report.before
+    );
+    assert!(report.before.iter().any(|label| label == "Move to trade"));
+    assert!(report.junk && report.locked);
+    // Locked: Not junk / Unlock, and no trade row.
+    assert!(
+        report.after.ends_with(&["Not junk".to_owned(), "Unlock".to_owned()]),
+        "{:?}",
+        report.after
+    );
+    assert!(!report.after.iter().any(|label| label == "Move to trade"));
+    assert_eq!(report.locked_quick_move, "hint: That item is locked.");
 }
 
 #[test]

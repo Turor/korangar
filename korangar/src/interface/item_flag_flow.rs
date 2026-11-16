@@ -8,10 +8,36 @@ use crate::Client;
 use crate::interface::windows::{ItemDropAmountBox, ItemDropWindow, WindowClass};
 use crate::state::inventory::{GroundDrop, InventoryPathExt, ground_drop};
 use crate::state::item_flags::{self, FlagSend, ItemKey, JunkAdd, StackRef};
+use crate::state::item_menu::{FlagToggle, ItemSlotFlags};
 use crate::state::{ChatMessage, ClientStatePathExt, client_state};
 use crate::world::ResourceMetadata;
 
 impl Client {
+    /// Junk / lock flags of a stack, for the right-click menu.
+    pub(crate) fn slot_flags<Meta>(&self, item: &InventoryItem<Meta>) -> ItemSlotFlags {
+        let flags = self.client_state.follow(client_state().item_flags());
+        let key = ItemKey::from_inventory(item);
+        ItemSlotFlags {
+            junk: flags.is_junk(key),
+            locked: flags.is_locked(key),
+        }
+    }
+
+    /// A Junk / Lock row picked from the item menu. The row is re-read by
+    /// index; a stack that is gone is left alone.
+    pub(crate) fn apply_menu_flag(&mut self, index: InventoryIndex, toggle: FlagToggle) {
+        let Some(key) = self
+            .client_state
+            .follow(client_state().inventory().items())
+            .iter()
+            .find(|item| item.index == index)
+            .map(ItemKey::from_inventory)
+        else {
+            return;
+        };
+        item_flags::apply_toggle(self.client_state.follow_mut(client_state().item_flags()), key, toggle);
+    }
+
     pub(crate) fn bind_item_flags(&mut self, character_id: u32) {
         self.client_state
             .follow_mut(client_state().item_flags())

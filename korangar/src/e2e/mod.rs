@@ -46,7 +46,7 @@ pub use self::inventory_grid::{GridView, OfflineInventoryGridReport, TURORAN_CAP
 pub use self::inventory_view::{
     DrawnIndexes, FAVORITE_ACK_BYTES, InventorySort, InventoryTab, OfflineInventoryViewReport, offline_inventory_view,
 };
-pub use self::item_flags::{OfflineItemFlagsReport, offline_item_flags};
+pub use self::item_flags::{OfflineFlagMenuReport, OfflineItemFlagsReport, offline_item_flag_menu, offline_item_flags};
 pub use self::item_link::{OfflineItemLinkReport, offline_item_link};
 pub use self::item_menu::{OfflineItemMenuReport, offline_item_menu};
 pub use self::item_move::{ItemMoveCase, OfflineItemMoveReport, item_move_request, offline_item_moves};

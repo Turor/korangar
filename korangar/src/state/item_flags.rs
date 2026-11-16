@@ -483,6 +483,14 @@ impl ItemFlags {
     }
 }
 
+/// Applies a Junk / Lock pick from the item menu.
+pub fn apply_toggle(flags: &mut ItemFlags, key: ItemKey, toggle: crate::state::item_menu::FlagToggle) {
+    match toggle {
+        crate::state::item_menu::FlagToggle::Junk(junk) => flags.set_junk(key, junk),
+        crate::state::item_menu::FlagToggle::Lock(locked) => flags.set_locked(key, locked),
+    }
+}
+
 /// Junk stacks the NPC will buy, minus locked and equipped rows.
 /// Locked junk is named in the returned messages and is not added.
 pub fn plan_sell_junk(flags: &ItemFlags, stacks: &[StackRef], sellable: &[(u16, u16)]) -> (Vec<JunkAdd>, Vec<String>) {

@@ -278,3 +278,61 @@ pub fn offline_item_flags() -> Result<OfflineItemFlagsReport, String> {
         other_character_kept: other.is_junk(ItemKey::new(700, 0, [0; 4])) && !other.is_locked(ItemKey::new(1201, 0, [0; 4])),
     })
 }
+
+/// The right-click menu with item flags: a knife's rows, then the rows
+/// after picking Mark junk and Lock through the same toggle the client
+/// applies, with trade open.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OfflineFlagMenuReport {
+    pub before: Vec<String>,
+    pub after: Vec<String>,
+    pub junk: bool,
+    pub locked: bool,
+    /// Alt+right-click on the locked knife with only trade open.
+    pub locked_quick_move: String,
+}
+
+pub fn offline_item_flag_menu() -> OfflineFlagMenuReport {
+    use crate::e2e::inventory_view::gear;
+    use crate::interface::item_menu_flow::{SlotReaction, react_to_secondary};
+    use crate::interface::resource::ItemSource;
+    use crate::state::item_menu::{ItemSlotFlags, extension_toggle};
+    use crate::state::quick_move::QuickMoveWindows;
+
+    let knife = gear(4, 1201, "Knife", false, [0; 4]);
+    let key = ItemKey::from_inventory(&knife);
+    let windows = QuickMoveWindows {
+        trade: true,
+        ..QuickMoveWindows::default()
+    };
+    let mut flags = ItemFlags::default();
+    let slot_flags = |flags: &ItemFlags| ItemSlotFlags {
+        junk: flags.is_junk(key),
+        locked: flags.is_locked(key),
+    };
+    let rows =
+        |flags: &ItemFlags| match react_to_secondary(ItemSource::Inventory, &knife, "Knife", false, windows, false, slot_flags(flags)) {
+            SlotReaction::OpenMenu { rows, .. } => rows,
+            _ => Vec::new(),
+        };
+
+    let before = rows(&flags);
+    for row in &before {
+        if let Some(toggle) = extension_toggle(row.entry) {
+            item_flags::apply_toggle(&mut flags, key, toggle);
+        }
+    }
+    let after = rows(&flags);
+    let locked_quick_move = match react_to_secondary(ItemSource::Inventory, &knife, "Knife", true, windows, false, slot_flags(&flags)) {
+        SlotReaction::Hint(text) => format!("hint: {text}"),
+        SlotReaction::Move(_) => "move".to_owned(),
+        _ => "other".to_owned(),
+    };
+    OfflineFlagMenuReport {
+        before: before.into_iter().map(|row| row.label).collect(),
+        after: after.into_iter().map(|row| row.label).collect(),
+        junk: flags.is_junk(key),
+        locked: flags.is_locked(key),
+        locked_quick_move,
+    }
+}

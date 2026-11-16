@@ -16,13 +16,12 @@ use crate::interface::windows::{ItemMenuWindow, WindowClass, item_details_key};
 use crate::state::inventory::{InventoryPathExt, item_activation};
 use crate::state::inventory_view::{is_favorite, is_worn};
 use crate::state::item_menu::{
-    ItemMenuEffect, ItemMenuFacts, ItemMenuRow, MenuOrigin, build_item_menu, effect_of, handle_extension, menu_target_current,
-    pending_link_event,
+    ItemMenuEffect, ItemMenuFacts, ItemMenuRow, ItemSlotFlags, MenuOrigin, build_item_menu, effect_of, extension_toggle,
+    menu_target_current, pending_link_event,
 };
 use crate::state::item_move::ItemMoveTarget;
 use crate::state::quick_move::{
     QUICK_MOVE_NO_TARGET, QUICK_MOVE_WORN, QuickMoveDecision, QuickMoveWindows, SlotSecondary, classify_secondary, decide_quick_move,
-    item_is_locked,
 };
 use crate::state::{ChatMessage, ClientStatePathExt, client_state};
 use crate::world::ResourceMetadata;
@@ -63,6 +62,7 @@ pub(crate) fn react_to_secondary<Meta>(
     alt: bool,
     windows: QuickMoveWindows,
     equipped_ammo: bool,
+    flags: ItemSlotFlags,
 ) -> SlotReaction {
     let origin = menu_origin(source);
     // The equipped arrow stack counts as worn, like Deposit matching does.
@@ -74,7 +74,7 @@ pub(crate) fn react_to_secondary<Meta>(
                 let hint = if worn_row { QUICK_MOVE_WORN } else { QUICK_MOVE_NO_TARGET };
                 return SlotReaction::Hint(hint);
             };
-            match decide_quick_move(quick_source, windows, item_is_locked(item), worn_row) {
+            match decide_quick_move(quick_source, windows, flags.locked, worn_row) {
                 QuickMoveDecision::Move(target) => SlotReaction::Move(target),
                 QuickMoveDecision::Mail => SlotReaction::Mail { index: item.index.0 },
                 QuickMoveDecision::Hint(text) => SlotReaction::Hint(text),
@@ -87,7 +87,8 @@ pub(crate) fn react_to_secondary<Meta>(
                 activation: item_activation(item),
                 worn,
                 favorite: is_favorite(item),
-                locked: item_is_locked(item),
+                locked: flags.locked,
+                junk: flags.junk,
                 windows,
                 link_to_chat: pending_link_event(item.index.0).is_some(),
             };
@@ -154,7 +155,16 @@ impl Client {
         };
         let equipped_ammo = !matches!(source, ItemSource::Storage | ItemSource::Cart)
             && self.client_state.follow(client_state().inventory()).equipped_ammo() == Some(item.index);
-        let reaction = react_to_secondary(source, &item, &item.metadata.name, alt, self.transfer_windows(), equipped_ammo);
+        let flags = self.slot_flags(&item);
+        let reaction = react_to_secondary(
+            source,
+            &item,
+            &item.metadata.name,
+            alt,
+            self.transfer_windows(),
+            equipped_ammo,
+            flags,
+        );
         match reaction {
             SlotReaction::Ignored => {}
             SlotReaction::Hint(text) => self.item_menu_hint(text),
@@ -209,8 +219,9 @@ impl Client {
             self.dismiss_item_menu();
             return;
         }
-        if handle_extension(entry, item_index) {
+        if let Some(toggle) = extension_toggle(entry) {
             self.dismiss_item_menu();
+            self.apply_menu_flag(InventoryIndex(item_index), toggle);
             return;
         }
         let effect = effect_of(entry, origin);

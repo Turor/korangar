@@ -27,8 +27,16 @@ fn item_menu_and_quick_move_offline() {
     assert_eq!(report.no_target_hint, QUICK_MOVE_NO_TARGET);
     assert!(report.no_target_request.is_empty());
 
-    assert_eq!(report.menu_labels, ["Use", "Details", "Link to chat", "Favorite", "Drop"]);
-    assert!(!report.menu_labels.iter().any(|label| label == "Junk" || label == "Lock"));
+    // Junk and Lock come last (item flags, G58).
+    assert_eq!(report.menu_labels, [
+        "Use",
+        "Details",
+        "Link to chat",
+        "Favorite",
+        "Drop",
+        "Mark junk",
+        "Lock"
+    ]);
     assert_eq!(report.use_request, [0x39, 0x04, 4, 0, 0, 0, 0, 0]);
     assert!(report.details_opened);
     assert!(report.details_body.contains("Red Potion"));

@@ -15,6 +15,7 @@ use super::super::LogicSession;
 use crate::interface::item_menu_flow::{SlotReaction, react_to_secondary};
 use crate::interface::item_move_flow::{offer_amount, stack_amount};
 use crate::interface::resource::ItemSource;
+use crate::state::item_menu::ItemSlotFlags;
 use crate::state::item_move::{ItemMovePrompt, ItemMoveStep, ItemMoveTarget};
 use crate::state::quick_move::{QUICK_MOVE_NO_TARGET, QuickMoveWindows, SlotSecondary, classify_secondary};
 
@@ -75,7 +76,15 @@ impl LogicSession {
         if classify_secondary(right, alt_down) != SlotSecondary::OpenMenu {
             return Err("right-click did not open the menu".to_owned());
         }
-        let reaction = react_to_secondary(ItemSource::Inventory, &item, "Item", false, QuickMoveWindows::default(), false);
+        let reaction = react_to_secondary(
+            ItemSource::Inventory,
+            &item,
+            "Item",
+            false,
+            QuickMoveWindows::default(),
+            false,
+            ItemSlotFlags::default(),
+        );
         let SlotReaction::OpenMenu { rows, .. } = reaction else {
             return Err("right-click did not build a menu".to_owned());
         };
@@ -98,6 +107,7 @@ impl LogicSession {
             true,
             QuickMoveWindows::default(),
             false,
+            ItemSlotFlags::default(),
         );
         let quick_move_hint = match reaction {
             SlotReaction::Hint(text) => text.to_owned(),
