@@ -481,7 +481,7 @@ fn paint_shop_row<'a>(
             height: tokens.slot_size.min(40.0),
         };
         let (slot_border, slot_fill) = slot_border_and_fill(state, hovered, false);
-        paint_item_slot(layout, icon, slot_border, slot_fill, tokens.corner_radius, true);
+        paint_item_slot(state, layout, icon, slot_border, slot_fill, tokens.corner_radius, true);
         if let Some(texture) = offer.texture.clone() {
             paint_icon(layout, inset(icon, 4.0), texture);
         }

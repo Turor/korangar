@@ -14,11 +14,12 @@ use rust_state::{Path, State};
 
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::input::{InputEvent, MouseInputMode};
+use crate::interface::font_scale::from_theme_body;
 use crate::interface::resource::SkillSource;
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::renderer::LayoutExt;
 use crate::state::skills::{LearnableSkill, LearnedSkill};
-use crate::state::theme::{GlobalThemePathExt, InterfaceThemePathExt, SkillTreeThemePathExt};
+use crate::state::theme::{GlobalThemePathExt, InterfaceThemePathExt, SkillTreeThemePathExt, ThemeTokensPathExt};
 use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 
 const COOLDOWN_LABELS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
@@ -168,7 +169,7 @@ where
         };
 
         let (border, fill) = crate::interface::components::item_box::slot_border_and_fill(state, is_hovered, is_drop_target);
-        crate::interface::components::item_box::paint_item_slot(layout, layout_info.area, border, fill, 4.0, true);
+        crate::interface::components::item_box::paint_item_slot(state, layout, layout_info.area, border, fill, 4.0, true);
 
         if is_drop_target {
             let color = match is_hovered {
@@ -232,7 +233,7 @@ where
                 layout.add_text(
                     layout_info.area,
                     label,
-                    FontSize(14.0),
+                    FontSize(from_theme_body(*state.get(&client_theme().tokens().font_size()), 14.0)),
                     *state.get(&client_theme().text().color()),
                     *state.get(&client_theme().skill_tree().highlight_color()),
                     HorizontalAlignment::Center { offset: 0.0, border: 0.0 },
@@ -252,7 +253,7 @@ where
                 layout_info.area,
                 self.level_display.string.as_ref().unwrap(),
                 // TODO: Put this in the theme
-                FontSize(12.0),
+                FontSize(from_theme_body(*state.get(&client_theme().tokens().font_size()), 12.0)),
                 // TODO: Put this in the theme
                 *state.get(&client_theme().skill_tree().name_text_color()),
                 *state.get(&client_theme().skill_tree().highlight_color()),

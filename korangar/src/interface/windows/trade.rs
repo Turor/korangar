@@ -15,6 +15,7 @@ use super::WindowClass;
 use crate::graphics::Color;
 use crate::input::{InputEvent, MouseInputMode};
 use crate::interface::components::item_box::{paint_item_slot, slot_border_and_fill};
+use crate::interface::font_scale::from_theme_body;
 use crate::interface::resource::ItemSource;
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::renderer::LayoutExt;
@@ -114,7 +115,7 @@ where
             layout.add_text(
                 *layout_info,
                 "(nothing)",
-                FontSize(12.0),
+                FontSize(from_theme_body(*state.get(&client_theme().tokens().font_size()), 12.0)),
                 *state.get(&client_theme().tokens().muted()),
                 *state.get(&client_theme().tokens().gold()),
                 HorizontalAlignment::Left { offset: 0.0, border: 0.0 },
@@ -139,7 +140,7 @@ where
             };
             let hovered = icon.check().run(layout);
             let (border, fill) = slot_border_and_fill(state, hovered, false);
-            paint_item_slot(layout, icon, border, fill, 4.0, true);
+            paint_item_slot(state, layout, icon, border, fill, 4.0, true);
             if let Some(texture) = line.texture.as_ref() {
                 layout.add_texture(icon, texture.clone(), Color::WHITE, false);
             }
@@ -151,7 +152,7 @@ where
                     height: row.height,
                 },
                 &line.label,
-                FontSize(12.0),
+                FontSize(from_theme_body(*state.get(&client_theme().tokens().font_size()), 12.0)),
                 *state.get(&client_theme().text().color()),
                 *state.get(&client_theme().tokens().gold()),
                 HorizontalAlignment::Left { offset: 0.0, border: 0.0 },
@@ -203,11 +204,11 @@ impl Element<ClientState> for TradeDropZone {
             layout_info.check().run(layout)
         };
         let (border, fill) = slot_border_and_fill(state, hovered, moving);
-        paint_item_slot(layout, *layout_info, border, fill, 6.0, true);
+        paint_item_slot(state, layout, *layout_info, border, fill, 6.0, true);
         layout.add_text(
             *layout_info,
             "Drop an inventory item",
-            FontSize(12.0),
+            FontSize(from_theme_body(*state.get(&client_theme().tokens().font_size()), 12.0)),
             *state.get(&client_theme().text().color()),
             *state.get(&client_theme().tokens().gold()),
             HorizontalAlignment::Center { offset: 0.0, border: 0.0 },

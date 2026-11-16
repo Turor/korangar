@@ -22,6 +22,7 @@ use super::equipment::{
 };
 use crate::graphics::Color;
 use crate::interface::components::item_box::{paint_item_slot, slot_border_and_fill};
+use crate::interface::font_scale::from_theme_body;
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::renderer::LayoutExt;
 use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
@@ -140,7 +141,7 @@ fn paint_view_slot(
     };
     let hovered = area.check().run(layout);
     let (border, fill) = slot_border_and_fill(state, hovered, false);
-    paint_item_slot(layout, area, border, fill, 4.0, true);
+    paint_item_slot(state, layout, area, border, fill, 4.0, true);
 
     if let Some(item) = viewed.items.iter().find(|item| occupies_slot(item.location, slot)) {
         paint_item_icon(layout, area, item);
@@ -159,7 +160,7 @@ fn paint_view_slot(
             height: 12.0,
         },
         equip_slot_label(slot),
-        FontSize(9.0),
+        FontSize(from_theme_body(*state.get(&client_theme().tokens().font_size()), 9.0)),
         *state.get(&client_theme().tokens().muted()),
         *state.get(&client_theme().tokens().gold()),
         HorizontalAlignment::Center { offset: 0.0, border: 0.0 },
