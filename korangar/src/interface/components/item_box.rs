@@ -11,9 +11,10 @@ use rust_state::{Path, State};
 
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::input::{InputEvent, MouseInputMode};
+use crate::interface::components::item_tooltip::inventory_tooltips;
 use crate::interface::font_scale::from_theme_body;
 use crate::interface::resource::ItemSource;
-use crate::interface::windows::{format_item_details, item_details_key};
+use crate::interface::windows::item_details_key;
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::renderer::LayoutExt;
 use crate::state::theme::{InterfaceThemePathExt, SkillTreeThemePathExt, ThemeTokensPathExt};
@@ -112,11 +113,16 @@ where
         let Some(item) = state.try_get(&self.item_path) else {
             return;
         };
-        let gold = *state.get(&client_theme().tokens().gold());
+        let text = inventory_tooltips(state, item, self.source);
+        let body = if text.compare.is_empty() {
+            text.body
+        } else {
+            format!("{}\n{}", text.body, text.compare)
+        };
         queue.queue(InputEvent::OpenItemDetails {
             key: item_details_key(self.source, item),
             title: item.metadata.name.clone(),
-            body: format_item_details(item, gold),
+            body,
         });
     }
 }
@@ -134,6 +140,7 @@ pub struct ItemBox<A> {
     icon_side: f32,
     tooltip: &'static str,
     tooltip_text: String,
+    compare_text: String,
     /// Search miss: the icon is drawn faded (inventory search).
     dim: Option<ItemBoxDim>,
 }
@@ -166,6 +173,7 @@ where
             icon_side,
             tooltip,
             tooltip_text: String::new(),
+            compare_text: String::new(),
             dim,
         }
     }
@@ -261,10 +269,12 @@ where
                 {
                     self.amount_display.update(*amount);
                 }
-                let gold = *state.get(&client_theme().tokens().gold());
-                self.tooltip_text = format_item_details(item, gold);
+                let text = inventory_tooltips(state, item, self.handler.source);
+                self.tooltip_text = text.body;
+                self.compare_text = text.compare;
             } else {
                 self.tooltip_text.clear();
+                self.compare_text.clear();
             }
 
             Self::LayoutInfo { area }
@@ -332,6 +342,10 @@ where
             if is_hovered && !self.tooltip_text.is_empty() {
                 struct ItemDetailsTooltip;
                 layout.add_immediate_tooltip(&self.tooltip_text, ItemDetailsTooltip.tooltip_id());
+            }
+            if is_hovered && !self.compare_text.is_empty() {
+                struct ItemCompareTooltip;
+                layout.add_immediate_tooltip(&self.compare_text, ItemCompareTooltip.tooltip_id());
             }
 
             if matches!(item.details, InventoryItemDetails::Regular { .. }) {

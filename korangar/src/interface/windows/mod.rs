@@ -144,7 +144,9 @@ pub use self::hotbar::HotbarWindow;
 pub use self::interface_settings::InterfaceSettingsWindow;
 #[allow(unused_imports)]
 pub use self::inventory::InventoryWindow;
-pub use self::item_details::{ItemDetailsWindow, format_item_details, item_details_key};
+#[allow(unused_imports)]
+pub use self::item_details::format_item_details;
+pub use self::item_details::{ItemDetailsWindow, item_details_key};
 pub use self::item_drop::{ItemDropAmountBox, ItemDropWindow};
 pub use self::item_finder::ItemFinderWindow;
 pub use self::item_move::{ItemMoveAmountBox, ItemMoveAmountWindow};
@@ -285,6 +287,7 @@ pub enum WindowClass {
     Refine,
     ItemSkillSelection,
     ItemFinder,
+    ItemDetails,
     ItemReform,
     EnchantGrade,
     LaphineSynthesis,
