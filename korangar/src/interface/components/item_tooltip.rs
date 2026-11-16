@@ -24,21 +24,44 @@ pub struct ItemTooltipText {
 pub fn inventory_tooltips(state: &State<ClientState>, item: &InventoryItem<ResourceMetadata>, source: ItemSource) -> ItemTooltipText {
     let tokens_path = client_theme().tokens();
     let tokens = state.get(&tokens_path);
-    let gold = tokens.gold;
-    let accent = tokens.accent;
     let finder_path = client_state().item_finder();
     let catalog = state.get(&finder_path).tooltip_catalog();
     let compare_path = client_state().item_compare();
     let shift = state.get(&compare_path).shift_held;
-    let comparable = matches!(source, ItemSource::Inventory | ItemSource::Storage | ItemSource::Cart);
     let items_path = client_state().inventory().items();
+    let worn = state.get(&items_path);
+    tooltip_text(item, source, catalog, worn, shift, tokens.gold, tokens.accent)
+}
+
+/// The lines [`inventory_tooltips`] paints, with the catalog and Shift compare
+/// passed in. The client reads those from [`ClientState`]; the offline fixture
+/// passes its own catalog.
+pub(crate) fn tooltip_text(
+    item: &InventoryItem<ResourceMetadata>,
+    source: ItemSource,
+    catalog: &crate::state::item_compare::ItemTooltipCatalog,
+    worn: &[InventoryItem<ResourceMetadata>],
+    shift: bool,
+    gold: Color,
+    accent: Color,
+) -> ItemTooltipText {
+    let comparable = matches!(source, ItemSource::Inventory | ItemSource::Storage | ItemSource::Cart);
     let lines = if shift && comparable {
-        let worn = state.get(&items_path);
         item_tooltip_lines(item, catalog, worn)
     } else {
         item_tooltip_lines(item, catalog, &[])
     };
     paint_tooltip(&lines, gold, accent)
+}
+
+/// Pinned details body: the hover text, then the Shift compare block when it
+/// is non-empty. This is the text the old right-click put in the window.
+pub(crate) fn pinned_details_body(text: &ItemTooltipText) -> String {
+    if text.compare.is_empty() {
+        text.body.clone()
+    } else {
+        format!("{}\n{}", text.body, text.compare)
+    }
 }
 
 pub fn paint_tooltip(lines: &[TooltipLine], gold: Color, accent: Color) -> ItemTooltipText {

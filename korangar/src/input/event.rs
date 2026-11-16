@@ -601,6 +601,23 @@ pub enum InputEvent {
     ConfirmItemMove,
     /// Close the storage / cart / trade amount window without moving.
     CancelItemMove,
+    /// Right-click an item slot. `alt` quick-moves into the open transfer
+    /// window.
+    ItemSlotSecondary {
+        /// Slot the click landed on.
+        source: ItemSource,
+        /// Stored index of the item in that list.
+        index: ragnarok_packets::InventoryIndex,
+        /// Alt was held, so this is a quick-move rather than the menu.
+        alt: bool,
+    },
+    /// Run one row of the open item menu.
+    ItemMenuPick {
+        /// Row index.
+        index: usize,
+    },
+    /// Close the item menu without running a row.
+    DismissItemMenu,
     /// Open the chat room create form. Only works while playing.
     OpenChatRoomCreate,
     /// Open the settings form of the room this client owns.

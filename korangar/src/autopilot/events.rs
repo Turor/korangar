@@ -66,6 +66,7 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
         "CancelMailAttachAmount" => Some(InputEvent::CancelMailAttachAmount),
         "ConfirmItemMove" => Some(InputEvent::ConfirmItemMove),
         "CancelItemMove" => Some(InputEvent::CancelItemMove),
+        "DismissItemMenu" => Some(InputEvent::DismissItemMenu),
         "ToggleItemFinderWindow" => Some(InputEvent::ToggleItemFinderWindow),
         "SearchItemFinder" => Some(InputEvent::SearchItemFinder),
         "RequestGuildWindow" => Some(InputEvent::RequestGuildWindow),
@@ -255,6 +256,7 @@ enum ScriptedEvent {
     InviteToParty(String),
     OpenPlayerContextMenu(u32),
     ContextMenuPick(usize),
+    ItemMenuPick(usize),
     ComposeMailTo(String),
     ReadMailId(i64),
     /// Inventory index and amount; amount 0 asks like a drag and drop.
@@ -367,6 +369,7 @@ pub fn scripted_event(spec: &str) -> Result<InputEvent, String> {
             entity_id: ragnarok_packets::EntityId(entity_id),
         },
         ScriptedEvent::ContextMenuPick(index) => InputEvent::ContextMenuPick { index },
+        ScriptedEvent::ItemMenuPick(index) => InputEvent::ItemMenuPick { index },
         ScriptedEvent::ComposeMailTo(receiver) => InputEvent::ComposeMailTo { receiver },
         ScriptedEvent::ReadMailId(mail_id) => InputEvent::ReadMailId { mail_id },
         ScriptedEvent::MailAttachItem(index, amount) => InputEvent::MailAttachItem {
@@ -425,6 +428,7 @@ pub fn parse_window_class(name: &str) -> Option<WindowClass> {
         "keybinds" | "hotkeys" => Some(WindowClass::Keybinds),
         "menubar" => Some(WindowClass::MenuBar),
         "inventory" => Some(WindowClass::Inventory),
+        "itemmenu" => Some(WindowClass::ItemMenu),
         "storage" => Some(WindowClass::Storage),
         "equipment" | "gear" => Some(WindowClass::Equipment),
         "dressingroom" | "itempreview" | "preview" => Some(WindowClass::DressingRoom),

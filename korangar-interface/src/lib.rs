@@ -813,6 +813,15 @@ impl<App: Application> InterfaceFrame<'_, App> {
         self.hovered_window.is_some()
     }
 
+    /// Class of the window under the pointer, when one is hovered.
+    pub fn hovered_class(&self) -> Option<App::WindowClass> {
+        let id = self.hovered_window?;
+        self.windows
+            .iter()
+            .find(|wrapper| wrapper.data.id == id)
+            .and_then(|wrapper| wrapper.window.get_class())
+    }
+
     #[cfg_attr(feature = "debug", korangar_debug::profile("render user interface"))]
     pub fn render(
         &mut self,

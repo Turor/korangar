@@ -45,6 +45,7 @@ mod inventory;
 mod item_details;
 mod item_drop;
 mod item_finder;
+mod item_menu;
 mod item_move;
 pub(crate) mod item_skill_selection;
 mod item_workshop;
@@ -153,6 +154,7 @@ pub use self::item_details::format_item_details;
 pub use self::item_details::{ItemDetailsWindow, item_details_key};
 pub use self::item_drop::{ItemDropAmountBox, ItemDropWindow};
 pub use self::item_finder::ItemFinderWindow;
+pub use self::item_menu::ItemMenuWindow;
 pub use self::item_move::{ItemMoveAmountBox, ItemMoveAmountWindow};
 pub use self::item_workshop::{open_item_reform, open_laphine_synthesis, open_laphine_upgrade, reform_request};
 pub use self::keybinds::KeybindsWindow;
@@ -274,6 +276,7 @@ pub enum WindowClass {
     MailCompose,
     MailAttachAmount,
     ItemMoveAmount,
+    ItemMenu,
     MvpMinimap,
     Respawn,
     Roulette,

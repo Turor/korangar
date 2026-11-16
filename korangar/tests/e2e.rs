@@ -13,6 +13,8 @@ mod inventory_grid;
 mod inventory_view;
 #[path = "e2e/item_link.rs"]
 mod item_link;
+#[path = "e2e/item_menu.rs"]
+mod item_menu;
 #[path = "e2e/item_move.rs"]
 mod item_move;
 #[path = "e2e/item_tooltip.rs"]

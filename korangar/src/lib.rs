@@ -5164,6 +5164,7 @@ impl Client {
         self.note_dismissed_workshops(enchant_open, grade_open, reform_open, synthesis_open, upgrade_open);
         self.sync_mail_compose();
         self.sync_item_move();
+        self.sync_item_menu();
 
         let interface_has_focus = self.interface.has_focus();
 
@@ -7174,6 +7175,9 @@ impl Client {
                     self.client_state.follow_mut(client_state().barter()).mark_button_close();
                     self.interface.close_window_with_class(WindowClass::Barter);
                 }
+                InputEvent::ItemSlotSecondary { source, index, alt } => self.on_item_slot_secondary(source, index, alt),
+                InputEvent::ItemMenuPick { index } => self.pick_item_menu(index),
+                InputEvent::DismissItemMenu => self.dismiss_item_menu(),
                 #[cfg(feature = "debug")]
                 InputEvent::ReloadLanguage => {
                     let language = *self.client_state.follow(client_state().interface_settings().language());
@@ -8477,7 +8481,19 @@ impl Client {
                     option,
                 });
             }
-            if ate || picked.is_some() {
+            let menu_picked = if !ate && picked.is_none() && !self.client_state.follow(client_state().dialog_window()).is_awaiting_choice()
+            {
+                let picked = self.client_state.follow_mut(client_state().item_menu()).apply_keys(choice_keys);
+                if let Some(index) = picked {
+                    self.input_event_buffer.push(InputEvent::ItemMenuPick { index });
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if ate || picked.is_some() || menu_picked {
                 (None, true)
             } else {
                 let dialog = self.client_state.follow(client_state().dialog_window());
@@ -8552,6 +8568,13 @@ impl Client {
             let ctrl = self.input_system.key_down(KeyCode::ControlLeft) || self.input_system.key_down(KeyCode::ControlRight);
             self.client_state.follow_mut(client_state().dressing_room()).set_ctrl(ctrl);
 
+            let alt_held = self.input_system.key_down(KeyCode::AltLeft) || self.input_system.key_down(KeyCode::AltRight);
+            self.client_state.follow_mut(client_state().item_menu()).note_pointer(
+                input_report.mouse_position.left,
+                input_report.mouse_position.top,
+                alt_held,
+            );
+
             let mut interface_frame = self
                 .interface
                 .lay_out_windows(&self.client_state, scaling.get_factor(), input_report.mouse_position);
@@ -8616,6 +8639,11 @@ impl Client {
                 self.input_system.key_down(KeyCode::ShiftLeft) || self.input_system.key_down(KeyCode::ShiftRight),
             );
             if let Some(mouse_button) = input_report.mouse_click {
+                if interface_frame.hovered_class() != Some(WindowClass::ItemMenu)
+                    && self.client_state.follow(client_state().item_menu()).is_open()
+                {
+                    self.input_event_buffer.push(InputEvent::DismissItemMenu);
+                }
                 match vn_click {
                     crate::interface::npc_flow::VnPrimaryClick::Consume => {}
                     crate::interface::npc_flow::VnPrimaryClick::InterfaceOnly => {
