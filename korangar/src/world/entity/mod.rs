@@ -149,6 +149,48 @@ impl SoundState {
     }
 }
 
+/// Hair style and worn headgear of a player-type entity, from the appear
+/// packet and later `ZC_SPRITE_CHANGE` looks. Zero view ids are empty slots.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PlayerLook {
+    pub hair: u16,
+    pub head_bottom: u16,
+    pub head_top: u16,
+    pub head_mid: u16,
+}
+
+impl PlayerLook {
+    pub fn from_entity_data(entity_data: &EntityData) -> Self {
+        Self {
+            hair: entity_data.head,
+            head_bottom: entity_data.head_bottom,
+            head_top: entity_data.head_top,
+            head_mid: entity_data.head_mid,
+        }
+    }
+
+    /// `[bottom, top, mid]`, the order the part file builder takes.
+    pub fn headgear(&self) -> [u16; 3] {
+        [self.head_bottom, self.head_top, self.head_mid]
+    }
+
+    /// Apply one look. True when the sprite parts change (hair style or a
+    /// headgear slot); colors are drawn from palettes and never reload.
+    pub fn apply(&mut self, look: &SpriteChangeType, value: u32) -> bool {
+        let value = u16::try_from(value).unwrap_or(0);
+        let slot = match look {
+            SpriteChangeType::Hair => &mut self.hair,
+            SpriteChangeType::HeadBottom => &mut self.head_bottom,
+            SpriteChangeType::HeadTop => &mut self.head_top,
+            SpriteChangeType::HeadMiddle => &mut self.head_mid,
+            _ => return false,
+        };
+        let changed = *slot != value;
+        *slot = value;
+        changed
+    }
+}
+
 #[derive(Clone, RustState, StateElement)]
 pub struct Common {
     pub entity_id: EntityId,
@@ -184,6 +226,9 @@ pub struct Common {
     /// Player with PK mode on. Monsters are enemies from [`EntityType`].
     #[hidden_element]
     pub attackable: bool,
+    /// Hair and headgear for player-type entities. Unused otherwise.
+    #[hidden_element]
+    pub look: PlayerLook,
 }
 
 /// Hercules `HIDDEN_WARP_CLASS` and the other `JT_HIDDEN_*` rows have no body
@@ -212,13 +257,28 @@ fn npc_sprite_file(library: &Library, job_id: JobId) -> Vec<String> {
     }
 }
 
-fn get_entity_part_files(library: &Library, entity_type: EntityType, job_id: JobId, sex: Sex, head: Option<usize>) -> Vec<String> {
+fn get_entity_part_files(
+    library: &Library,
+    entity_type: EntityType,
+    job_id: JobId,
+    sex: Sex,
+    head: Option<usize>,
+    headgear: [u16; 3],
+) -> Vec<String> {
     match entity_type {
-        EntityType::Player => super::sprite_paths::player_part_files(job_id, sex, head),
+        EntityType::Player => super::sprite_paths::player_part_files_with_headgear(job_id, sex, head, headgear, |view_id| {
+            library.accessory_sprite_suffix(view_id).map(str::to_owned)
+        }),
         EntityType::Npc => npc_sprite_file(library, job_id),
         EntityType::Monster => vec![format!("몬스터\\{}", library.get::<JobIdentity>(job_id).to_string())],
         EntityType::Warp | EntityType::Hidden => npc_sprite_file(library, job_id),
     }
+}
+
+/// Part files for another player: body, the hair style it wears, then its
+/// headgear as optional parts. `suffix` is the `AccNameTable` lookup.
+pub fn player_look_part_files(job_id: JobId, sex: Sex, look: &PlayerLook, suffix: impl Fn(u16) -> Option<String>) -> Vec<String> {
+    super::sprite_paths::player_part_files_with_headgear(job_id, sex, Some(usize::from(look.hair)), look.headgear(), suffix)
 }
 
 impl Common {
@@ -272,11 +332,18 @@ impl Common {
             guild_id: entity_data.guild_id,
             emblem_version: entity_data.emblem_version,
             attackable: entity_data.attackable,
+            look: PlayerLook::from_entity_data(entity_data),
         }
     }
 
+    /// Other players draw their own hair style and headgear.
     pub fn get_entity_part_files(&self, library: &Library) -> Vec<String> {
-        get_entity_part_files(library, self.entity_type, self.job_id, self.sex, None)
+        match self.entity_type {
+            EntityType::Player => player_look_part_files(self.job_id, self.sex, &self.look, |view_id| {
+                library.accessory_sprite_suffix(view_id).map(str::to_owned)
+            }),
+            _ => get_entity_part_files(library, self.entity_type, self.job_id, self.sex, None, [0; 3]),
+        }
     }
 
     pub fn is_dead(&self) -> bool {
@@ -770,7 +837,7 @@ pub struct Player {
     pub hair_color: u16,
     /// `LOOK_CLOTHES_COLOR`.
     pub cloth_color: u16,
-    /// `LOOK_HEAD_BOTTOM` view id. Hat sprites are not composed onto the body.
+    /// `LOOK_HEAD_BOTTOM` view id. Worn headgear is composed after the head.
     pub head_bottom: u16,
     /// `LOOK_HEAD_TOP` view id.
     pub head_top: u16,
@@ -1050,14 +1117,15 @@ impl Player {
     }
 
     pub fn get_entity_part_files(&self, library: &Library) -> Vec<String> {
-        let common = self.get_common();
-        get_entity_part_files(library, common.entity_type, common.job_id, common.sex, Some(self.hair_id))
+        self.preview_part_files(library, self.hair_id)
     }
 
-    /// Body plus a hair style that may differ from the one the player wears.
+    /// Body, worn headgear and a hair style that may differ from the one the
+    /// player wears.
     pub fn preview_part_files(&self, library: &Library, hair_id: usize) -> Vec<String> {
         let common = self.get_common();
-        get_entity_part_files(library, common.entity_type, common.job_id, common.sex, Some(hair_id))
+        let headgear = [self.head_bottom, self.head_top, self.head_mid];
+        get_entity_part_files(library, common.entity_type, common.job_id, common.sex, Some(hair_id), headgear)
     }
 }
 
@@ -1247,12 +1315,16 @@ impl Entity {
         common.scale = scale;
     }
 
-    /// Apply one `ZC_SPRITE_CHANGE` look. Hair style returns true when the
-    /// sprite files change. Color and headgear are stored and do not reload.
+    /// Apply one `ZC_SPRITE_CHANGE` look to the local player or another
+    /// player. Returns true when the sprite files change (hair style or a
+    /// headgear slot). Colors are stored and do not reload.
     pub fn apply_player_look(&mut self, look: SpriteChangeType, value: u32) -> bool {
-        let Self::Player(player) = self else {
-            return false;
+        let player = match self {
+            Self::Player(player) => player,
+            Self::Npc(npc) if npc.common.entity_type == EntityType::Player => return npc.common.look.apply(&look, value),
+            Self::Npc(_) => return false,
         };
+        player.common.look.apply(&look, value);
         match look {
             SpriteChangeType::Hair => {
                 let hair_id = value as usize;
@@ -1269,16 +1341,22 @@ impl Entity {
                 false
             }
             SpriteChangeType::HeadBottom => {
-                player.head_bottom = value as u16;
-                false
+                let view_id = u16::try_from(value).unwrap_or(0);
+                let changed = player.head_bottom != view_id;
+                player.head_bottom = view_id;
+                changed
             }
             SpriteChangeType::HeadTop => {
-                player.head_top = value as u16;
-                false
+                let view_id = u16::try_from(value).unwrap_or(0);
+                let changed = player.head_top != view_id;
+                player.head_top = view_id;
+                changed
             }
             SpriteChangeType::HeadMiddle => {
-                player.head_mid = value as u16;
-                false
+                let view_id = u16::try_from(value).unwrap_or(0);
+                let changed = player.head_mid != view_id;
+                player.head_mid = view_id;
+                changed
             }
             _ => false,
         }
@@ -1564,7 +1642,43 @@ impl StateWindow<ClientState> for Entity {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_unseen_actor, npc_sprite_name};
+    use ragnarok_packets::{JobId, Sex, SpriteChangeType};
+
+    use super::{PlayerLook, is_unseen_actor, npc_sprite_name, player_look_part_files};
+
+    #[test]
+    fn headgear_looks_reload_only_when_a_slot_changes() {
+        let mut look = PlayerLook {
+            hair: 3,
+            ..PlayerLook::default()
+        };
+        assert!(look.apply(&SpriteChangeType::HeadTop, 5));
+        assert!(!look.apply(&SpriteChangeType::HeadTop, 5));
+        assert!(look.apply(&SpriteChangeType::HeadMiddle, 12));
+        assert!(look.apply(&SpriteChangeType::HeadBottom, 7));
+        assert!(look.apply(&SpriteChangeType::Hair, 9));
+        assert!(!look.apply(&SpriteChangeType::HairCollor, 4));
+        assert!(!look.apply(&SpriteChangeType::ClothesColor, 2));
+        // Taking the hat off is a change too.
+        assert!(look.apply(&SpriteChangeType::HeadTop, 0));
+        assert_eq!(look.headgear(), [7, 0, 12]);
+        assert_eq!(look.hair, 9);
+    }
+
+    #[test]
+    fn other_players_draw_their_own_hair_and_headgear() {
+        let look = PlayerLook {
+            hair: 4,
+            head_bottom: 0,
+            head_top: 5,
+            head_mid: 0,
+        };
+        let files = player_look_part_files(JobId(0), Sex::Male, &look, |_| None);
+        assert_eq!(files.len(), 3);
+        assert_eq!(files[1], "인간족\\머리통\\남\\4_남");
+        assert!(files[2].starts_with('?'));
+        assert!(files[2].contains("악세사리\\남\\남_5"));
+    }
 
     #[test]
     fn hidden_warp_is_not_a_visible_sprite() {

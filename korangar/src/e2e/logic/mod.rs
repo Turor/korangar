@@ -132,6 +132,8 @@ pub struct LogicSession {
     lock: Option<std::fs::File>,
     /// HUD status icons fed from live `StatusChange` packets.
     pub(super) status_strip: crate::e2e::StatusStrip,
+    /// Player looks from the character list and live appear packets.
+    pub(super) headgear: crate::e2e::HeadgearScene,
 }
 
 impl LogicSession {
@@ -171,6 +173,7 @@ impl LogicSession {
             trace: Vec::new(),
             lock: None,
             status_strip: crate::e2e::StatusStrip::default(),
+            headgear: crate::e2e::HeadgearScene::default(),
         }
     }
 
@@ -200,6 +203,10 @@ impl LogicSession {
 
     pub fn status_strip(&self) -> &crate::e2e::StatusStrip {
         &self.status_strip
+    }
+
+    pub fn headgear(&self) -> &crate::e2e::HeadgearScene {
+        &self.headgear
     }
 
     pub fn outbound(&self) -> &[Outbound] {

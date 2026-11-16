@@ -47,7 +47,13 @@ impl AnimationLoader {
         entity_type: EntityType,
         entity_part_files: &[String],
     ) -> Result<Arc<AnimationData>, LoadError> {
-        let animation_pairs: Vec<AnimationPair> = entity_part_files
+        // Headgear parts are optional: use the first candidate file that
+        // exists and leave the slot out otherwise, so a hat with no sprite
+        // never draws the fallback sprite on the head.
+        let resolved_part_files = crate::world::resolve_part_files(entity_part_files, |path| {
+            sprite_loader.sprite_file_exists(&format!("{path}.spr")) && sprite_loader.sprite_file_exists(&format!("{path}.act"))
+        });
+        let animation_pairs: Vec<AnimationPair> = resolved_part_files
             .iter()
             .map(|file_path| AnimationPair {
                 sprites: sprite_loader.get_or_load(&format!("{file_path}.spr")).unwrap(),
@@ -90,7 +96,12 @@ impl AnimationLoader {
                             sprite_number += animation_pair.sprites.palette_size;
                         }
 
-                        let texture_size = animation_pair.sprites.textures[sprite_number].get_size();
+                        // A headgear act can point past its own sprite sheet. Skip
+                        // that clip rather than panic.
+                        let Some(texture) = animation_pair.sprites.textures.get(sprite_number) else {
+                            continue;
+                        };
+                        let texture_size = texture.get_size();
                         let mut height = texture_size.height;
                         let mut width = texture_size.width;
 
@@ -130,28 +141,32 @@ impl AnimationLoader {
                         let mut offset = sprite_clip.position.map(|component| component);
                         let mirror = sprite_clip.mirror_on != 0;
 
-                        // Attach points have a different offset calculation.
-                        // Currently, this is hardcoded for the player heads. An `animation_index` of
-                        // `0` corresponds to the head, and `1` for the body.
+                        // Attach points have a different offset calculation. For players,
+                        // `animation_index` `0` is the body and every later part (the head,
+                        // then worn headgear) is pinned to the body's attach point, like
+                        // roBrowser `EntityRender` does for the head and each hat.
                         let has_attach_point = match motion.attach_point_count {
                             Some(value) => value == 1,
                             None => false,
                         };
 
-                        if entity_type == EntityType::Player && has_attach_point && animation_index == 1 {
-                            let parent_animation_pair = &animation_pairs[0];
-                            let parent_action = &parent_animation_pair.actions.actions[action_index];
-                            // TODO: Precompute the size of each motion from the animation pair.
+                        if entity_type == EntityType::Player && has_attach_point && animation_index >= 1 {
                             // Determine the minimum motion size to iterate without going out of bound.
                             // This check resolves the game crash when using the Assassin class.
-                            if parent_action.motions.len() <= motion_index {
+                            let Some(parent_motion) = animation_pairs[0]
+                                .actions
+                                .actions
+                                .get(action_index)
+                                .and_then(|parent_action| parent_action.motions.get(motion_index))
+                            else {
                                 continue;
-                            }
-                            let parent_motion = &parent_action.motions[motion_index];
-                            let parent_attach_point = parent_motion.attach_points[0].position;
-                            let attach_point = motion.attach_points[0].position;
-                            let new_offset = -attach_point + parent_attach_point;
-                            offset += new_offset;
+                            };
+                            let (Some(parent_attach_point), Some(attach_point)) =
+                                (parent_motion.attach_points.first(), motion.attach_points.first())
+                            else {
+                                continue;
+                            };
+                            offset += attach_point_shift(parent_attach_point.position, attach_point.position);
                         }
 
                         let size = Vector2::new(width as i32, height as i32);
@@ -336,6 +351,11 @@ impl AnimationLoader {
     }
 }
 
+/// Offset that moves a part's attach point onto its parent's.
+fn attach_point_shift(parent: Vector2<i32>, part: Vector2<i32>) -> Vector2<i32> {
+    parent - part
+}
+
 fn vector2_i32_to_f32(vector: Vector2<i32>) -> Vector2<f32> {
     vector.map(|value| value as f32)
 }
@@ -506,5 +526,22 @@ fn merge_frame(frames: &mut [AnimationFrame]) -> AnimationFrame {
         horizontal_matrix: Matrix4::identity(),
         #[cfg(feature = "debug")]
         vertical_matrix: Matrix4::identity(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use cgmath::Vector2;
+
+    use super::attach_point_shift;
+
+    #[test]
+    fn a_hat_attach_point_lands_on_the_body_attach_point() {
+        // Body attach point at (0, -70), hat attach point at (2, -5): the hat
+        // clip moves by (-2, -65) so both points meet, the same shift the
+        // head gets.
+        let shift = attach_point_shift(Vector2::new(0, -70), Vector2::new(2, -5));
+        assert_eq!(shift, Vector2::new(-2, -65));
+        assert_eq!(Vector2::new(2, -5) + shift, Vector2::new(0, -70));
     }
 }

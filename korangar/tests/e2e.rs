@@ -5,6 +5,8 @@
 
 #[path = "e2e/archives.rs"]
 mod archives;
+#[path = "e2e/headgear.rs"]
+mod headgear;
 #[path = "e2e/mail.rs"]
 mod mail;
 #[path = "e2e/minimap.rs"]

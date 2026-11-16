@@ -27,6 +27,19 @@ pub(super) fn load_accessory_names(game_file_loader: &GameFileLoader) -> HashMap
         return HashMap::new();
     };
 
+    accessory_names_from(&state)
+}
+
+/// The same table from in-memory `accessoryid` and `accname` chunks, in that
+/// order. Used by the e2e harness with fixture tables.
+pub fn parse_accessory_names(accessory_id: &[u8], accname: &[u8]) -> mlua::Result<HashMap<u16, String>> {
+    let state = Lua::new();
+    super::lua::execute_chunk(&state, "accessoryid.lub", accessory_id)?;
+    super::lua::execute_chunk(&state, "accname.lub", accname)?;
+    Ok(accessory_names_from(&state))
+}
+
+fn accessory_names_from(state: &Lua) -> HashMap<u16, String> {
     let Ok(table) = state.globals().get::<mlua::Table>("AccNameTable") else {
         return HashMap::new();
     };
@@ -50,4 +63,25 @@ pub(super) fn load_accessory_names(game_file_loader: &GameFileLoader) -> HashMap
         }
     }
     names
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_accessory_names;
+
+    #[test]
+    fn accname_rows_key_by_view_id_and_skip_bad_rows() {
+        let ids = b"ACCESSORY_IDs = { ACCESSORY_GOGGLE = 1, ACCESSORY_RIBBON = 17 }";
+        let names = br#"AccNameTable = {
+            [ACCESSORY_IDs.ACCESSORY_GOGGLE] = "_\176\237\177\219",
+            [ACCESSORY_IDs.ACCESSORY_RIBBON] = "_ribbon",
+            [0] = "_zero",
+            [-3] = "_negative",
+            [5] = "",
+        }"#;
+        let table = parse_accessory_names(ids, names).unwrap();
+        assert_eq!(table.get(&1).map(String::as_str), Some("_고글"));
+        assert_eq!(table.get(&17).map(String::as_str), Some("_ribbon"));
+        assert_eq!(table.len(), 2);
+    }
 }

@@ -18,6 +18,12 @@ pub struct EntityData {
     /// `is_pk_mode_on` from the appear packet. Monsters are enemies from
     /// their job; this marks hostile players.
     pub attackable: bool,
+    /// `LOOK_HEAD_BOTTOM` view id from the appear packet (`accessory`).
+    pub head_bottom: u16,
+    /// `LOOK_HEAD_TOP` view id (`accessory2`).
+    pub head_top: u16,
+    /// `LOOK_HEAD_MID` view id (`accessory3`).
+    pub head_mid: u16,
 }
 
 impl EntityData {
@@ -36,6 +42,9 @@ impl EntityData {
             guild_id: 0,
             emblem_version: 0,
             attackable: false,
+            head_bottom: u16::try_from(character_information.accessory).unwrap_or(0),
+            head_top: u16::try_from(character_information.accessory2).unwrap_or(0),
+            head_mid: u16::try_from(character_information.accessory3).unwrap_or(0),
         }
     }
 }
@@ -56,6 +65,9 @@ impl From<EntityAppearPacket> for EntityData {
             guild_id: packet.guild_id,
             emblem_version: u32::from(packet.emblem_version),
             attackable: packet.is_pk_mode_on != 0,
+            head_bottom: packet.accessory,
+            head_top: packet.accessory2,
+            head_mid: packet.accessory3,
         }
     }
 }
@@ -76,6 +88,9 @@ impl From<EntityAppear2Packet> for EntityData {
             guild_id: packet.guild_id,
             emblem_version: u32::from(packet.emblem_version),
             attackable: packet.is_pk_mode_on != 0,
+            head_bottom: packet.accessory,
+            head_top: packet.accessory2,
+            head_mid: packet.accessory3,
         }
     }
 }
@@ -98,6 +113,9 @@ impl From<MovingEntityAppearPacket> for EntityData {
             guild_id: packet.guild_id,
             emblem_version: u32::from(packet.emblem_version),
             attackable: packet.is_pk_mode_on != 0,
+            head_bottom: packet.accessory,
+            head_top: packet.accessory2,
+            head_mid: packet.accessory3,
         }
     }
 }
@@ -120,5 +138,20 @@ mod parity_tests {
         });
         assert_eq!(entity.health_points, character.health_points);
         assert_eq!(entity.maximum_health_points, character.maximum_health_points);
+    }
+
+    #[test]
+    fn character_headgear_view_ids_carry_over_and_negative_ids_are_empty() {
+        let bytes = vec![0; 512];
+        let mut character = CharacterInformation::from_bytes(&mut ByteReader::without_metadata(&bytes)).unwrap();
+        character.accessory = 12;
+        character.accessory2 = 5;
+        character.accessory3 = -1;
+        let entity = EntityData::from_character(AccountId(1), &character, WorldPosition {
+            x: 1,
+            y: 1,
+            direction: Direction::North,
+        });
+        assert_eq!((entity.head_bottom, entity.head_top, entity.head_mid), (12, 5, 0));
     }
 }

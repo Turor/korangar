@@ -211,11 +211,79 @@ pub(crate) fn player_part_files(job_id: JobId, sex: Sex, head: Option<usize>) ->
 
 /// roBrowser `getHatPath`: `악세사리/{sex}/{sex}{HatTable name}`.
 /// Hat names already include their leading underscore (`_고글`).
-/// The client has no HatTable loader yet, so nothing calls this outside tests.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn headgear_sprite_path(sex: Sex, accessory_name: &str) -> String {
     let sex_name = sex_folder(sex);
     format!("악세사리\\{sex_name}\\{sex_name}{accessory_name}")
+}
+
+/// Starts a part that may be missing: the rest is a `|` list of candidate
+/// paths, and the first one with both `.spr` and `.act` wins. A part with no
+/// existing candidate is dropped instead of drawing the fallback sprite.
+pub(crate) const OPTIONAL_PART_PREFIX: char = '?';
+const PART_CANDIDATE_SEPARATOR: char = '|';
+
+/// roBrowser `EntityRender` hat order after the head: middle, top, bottom.
+/// An item that covers several slots reports the same view id in each of
+/// them and is drawn once, in its lowest slot.
+pub(crate) fn headgear_draw_order(head_bottom: u16, head_top: u16, head_mid: u16) -> Vec<u16> {
+    let mut order = Vec::with_capacity(3);
+    if head_mid > 0 && head_mid != head_bottom {
+        order.push(head_mid);
+    }
+    if head_top > 0 && head_top != head_bottom && head_top != head_mid {
+        order.push(head_top);
+    }
+    if head_bottom > 0 {
+        order.push(head_bottom);
+    }
+    order
+}
+
+/// Optional part for one headgear view id. `suffix` is the `AccNameTable`
+/// row (`_고글`); numeric file names are the fallback the portrait uses too.
+pub(crate) fn headgear_part(view_id: u16, sex: Sex, suffix: Option<&str>) -> Option<String> {
+    let candidates = crate::state::vn_dialog::headgear_sprite_candidates(view_id, sex_folder(sex), suffix);
+    if candidates.is_empty() {
+        return None;
+    }
+    let separator = PART_CANDIDATE_SEPARATOR.to_string();
+    Some(format!("{OPTIONAL_PART_PREFIX}{}", candidates.join(&separator)))
+}
+
+/// Body, head, then each worn headgear (`[bottom, top, mid]` view ids) in
+/// draw order.
+pub(crate) fn player_part_files_with_headgear(
+    job_id: JobId,
+    sex: Sex,
+    head: Option<usize>,
+    headgear: [u16; 3],
+    suffix: impl Fn(u16) -> Option<String>,
+) -> Vec<String> {
+    let [head_bottom, head_top, head_mid] = headgear;
+    let mut files = player_part_files(job_id, sex, head);
+    files.extend(
+        headgear_draw_order(head_bottom, head_top, head_mid)
+            .into_iter()
+            .filter_map(|view_id| headgear_part(view_id, sex, suffix(view_id).as_deref())),
+    );
+    files
+}
+
+/// Turns optional parts into the first candidate `exists` accepts and drops
+/// the rest. Plain parts pass through unchanged and keep their order, so the
+/// body stays at index 0 and the head at index 1.
+pub(crate) fn resolve_part_files(files: &[String], exists: impl Fn(&str) -> bool) -> Vec<String> {
+    files
+        .iter()
+        .filter_map(|file| match file.strip_prefix(OPTIONAL_PART_PREFIX) {
+            None => Some(file.clone()),
+            Some(candidates) => candidates
+                .split(PART_CANDIDATE_SEPARATOR)
+                .find(|candidate| !candidate.is_empty() && exists(candidate))
+                .map(str::to_owned),
+        })
+        .collect()
 }
 
 /// Hercules `JOB_NOVICE`.
@@ -317,6 +385,47 @@ mod tests {
         let tribe = player_part_files(JobId(4217), Sex::Female, None);
         assert!(tribe[0].starts_with("도람족\\몸통\\"));
         assert!(!tribe[0].contains("묘족"));
+    }
+
+    #[test]
+    fn headgear_draws_middle_top_bottom_and_skips_repeated_slots() {
+        assert_eq!(headgear_draw_order(0, 0, 0), Vec::<u16>::new());
+        assert_eq!(headgear_draw_order(3, 1, 2), vec![2, 1, 3]);
+        // A top+mid+bottom item reports one id three times.
+        assert_eq!(headgear_draw_order(7, 7, 7), vec![7]);
+        // A top+mid item.
+        assert_eq!(headgear_draw_order(0, 9, 9), vec![9]);
+        assert_eq!(headgear_draw_order(0, 5, 0), vec![5]);
+    }
+
+    #[test]
+    fn worn_headgear_follows_the_head_as_optional_parts() {
+        let suffix = |view_id: u16| (view_id == 5).then(|| "_리본".to_owned());
+        let files = player_part_files_with_headgear(JobId(0), Sex::Female, Some(2), [0, 5, 17], suffix);
+        assert_eq!(files.len(), 4);
+        assert_eq!(files[0], "인간족\\몸통\\여\\초보자_여");
+        assert_eq!(files[1], "인간족\\머리통\\여\\2_여");
+        assert_eq!(files[2], "?악세사리\\여\\여_17|악세사리\\여\\여17");
+        assert_eq!(files[3], "?악세사리\\여\\여_리본|악세사리\\여\\여_5|악세사리\\여\\여5");
+        assert_eq!(
+            player_part_files_with_headgear(JobId(0), Sex::Male, None, [0, 0, 0], |_| None),
+            player_part_files(JobId(0), Sex::Male, None)
+        );
+    }
+
+    #[test]
+    fn optional_parts_resolve_to_the_first_existing_file_or_drop() {
+        let files = vec![
+            "body".to_owned(),
+            "head".to_owned(),
+            "?hat_named|hat_5|hat5".to_owned(),
+            "?gone_a|gone_b".to_owned(),
+            "?|hat_numeric".to_owned(),
+        ];
+        let exists = |path: &str| matches!(path, "hat_5" | "hat_numeric");
+        assert_eq!(resolve_part_files(&files, exists), vec!["body", "head", "hat_5", "hat_numeric"]);
+        // Plain parts are never dropped, even when missing.
+        assert_eq!(resolve_part_files(&files[..2], |_| false), vec!["body", "head"]);
     }
 
     #[test]
