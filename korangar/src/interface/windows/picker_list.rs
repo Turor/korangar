@@ -1,4 +1,4 @@
-//! Icon rows shared by the enchant and grade windows.
+//! Icon rows shared by the enchant, grade, reform, and laphine windows.
 //!
 //! Borders come from the theme. Gold and the hover token are only used when a
 //! row is selected or under the pointer.
@@ -30,7 +30,11 @@ pub enum PickerKind {
     EnchantChoice,
     GradeItem,
     GradeMaterial,
-    /// Slots and cost lines. They show an icon and do not send a packet.
+    ReformItem,
+    LaphineSource,
+    LaphineUpgradeItem,
+    /// Slots, the reform tool, and material lines. They show an icon and do not
+    /// send a packet.
     Display,
 }
 
@@ -55,6 +59,9 @@ where
             PickerKind::GradeMaterial => queue.queue(InputEvent::GradeEnchantPick {
                 material_index: i32::from(row.index),
             }),
+            PickerKind::ReformItem => queue.queue(InputEvent::ItemReformSelect { index: row.index }),
+            PickerKind::LaphineSource => queue.queue(InputEvent::LaphineSynthesisToggle { index: row.index }),
+            PickerKind::LaphineUpgradeItem => queue.queue(InputEvent::LaphineUpgradeSelect { index: row.index }),
             PickerKind::Display => {}
         }
     }
@@ -151,7 +158,14 @@ where
             ShadowPadding::diagonal(0.0, 0.0),
         );
 
-        let by_index = matches!(self.kind, PickerKind::EnchantItem | PickerKind::GradeItem);
+        let by_index = matches!(
+            self.kind,
+            PickerKind::EnchantItem
+                | PickerKind::GradeItem
+                | PickerKind::ReformItem
+                | PickerKind::LaphineSource
+                | PickerKind::LaphineUpgradeItem
+        );
         if let Some(texture) = row_texture(state, index, item_id, by_index) {
             let icon = 24.0;
             layout.add_texture(

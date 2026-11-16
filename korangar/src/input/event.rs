@@ -795,8 +795,12 @@ pub enum InputEvent {
     },
     /// Close the refine UI.
     RefineClose,
-    /// Reform the typed inventory index with the open catalyst.
+    /// Reform the selected inventory item with the open catalyst.
     ItemReformSubmit,
+    /// Choose one eligible inventory item in the reform window.
+    ItemReformSelect {
+        index: u16,
+    },
     /// Close the item reform UI.
     ItemReformClose,
     /// Ask the grade UI for materials on this inventory item.
@@ -815,7 +819,11 @@ pub enum InputEvent {
     GradeEnchantSubmit,
     /// Close the grade UI.
     GradeEnchantClose,
-    /// Queue one synthesis stack.
+    /// Add or remove one synthesis material. The count comes from the recipe.
+    LaphineSynthesisToggle {
+        index: u16,
+    },
+    /// Legacy unit event. The window picks rows instead of a typed index.
     LaphineSynthesisAdd,
     /// Clear the synthesis queue.
     LaphineSynthesisClear,
@@ -823,6 +831,10 @@ pub enum InputEvent {
     LaphineSynthesisSubmit,
     /// Close the synthesis UI.
     LaphineSynthesisClose,
+    /// Choose the upgrade target. The same index again clears it.
+    LaphineUpgradeSelect {
+        index: u16,
+    },
     /// Submit Laphine upgrade.
     LaphineUpgradeSubmit,
     /// Close the upgrade UI.

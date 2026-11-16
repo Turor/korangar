@@ -4097,8 +4097,12 @@ impl Client {
                     ));
                 }
                 NetworkEvent::ItemReformOpened { item_id } => {
-                    self.client_state.follow_mut(client_state().item_reform()).open(item_id.0);
-                    self.interface.open_window(ItemReformWindow::new());
+                    open_item_reform(
+                        &mut self.interface,
+                        self.game_file_loader.as_ref(),
+                        &mut self.client_state,
+                        item_id.0,
+                    );
                 }
                 NetworkEvent::ItemReformResult { index, result } => {
                     let close = self
@@ -4115,26 +4119,42 @@ impl Client {
                     }
                 }
                 NetworkEvent::LaphineSynthesisOpened { item_id } => {
-                    self.client_state.follow_mut(client_state().laphine_synthesis()).open(item_id.0);
-                    self.interface.open_window(LaphineSynthesisWindow::new());
+                    open_laphine_synthesis(
+                        &mut self.interface,
+                        self.game_file_loader.as_ref(),
+                        &mut self.client_state,
+                        item_id.0,
+                    );
                 }
                 NetworkEvent::LaphineSynthesisResult { result } => {
-                    self.client_state.follow_mut(client_state().laphine_synthesis()).note_result(result);
+                    let close = self.client_state.follow_mut(client_state().laphine_synthesis()).note_result(result);
                     let status = self.client_state.follow(client_state().laphine_synthesis()).status.clone();
                     self.client_state
                         .follow_mut(client_state().chat_messages())
                         .push(ChatMessage::new(status, MessageColor::Information));
+                    if close {
+                        let _ = self.networking_system.close_laphine_synthesis();
+                        self.interface.close_window_with_class(WindowClass::LaphineSynthesis);
+                    }
                 }
                 NetworkEvent::LaphineUpgradeOpened { item_id } => {
-                    self.client_state.follow_mut(client_state().laphine_upgrade()).open(item_id.0);
-                    self.interface.open_window(LaphineUpgradeWindow::new());
+                    open_laphine_upgrade(
+                        &mut self.interface,
+                        self.game_file_loader.as_ref(),
+                        &mut self.client_state,
+                        item_id.0,
+                    );
                 }
                 NetworkEvent::LaphineUpgradeResult { result } => {
-                    self.client_state.follow_mut(client_state().laphine_upgrade()).note_result(result);
+                    let close = self.client_state.follow_mut(client_state().laphine_upgrade()).note_result(result);
                     let status = self.client_state.follow(client_state().laphine_upgrade()).status.clone();
                     self.client_state
                         .follow_mut(client_state().chat_messages())
                         .push(ChatMessage::new(status, MessageColor::Information));
+                    if close {
+                        let _ = self.networking_system.close_laphine_upgrade();
+                        self.interface.close_window_with_class(WindowClass::LaphineUpgrade);
+                    }
                 }
                 NetworkEvent::OpenStylingShop => {
                     let library = Arc::clone(&self.library);
@@ -4876,12 +4896,28 @@ impl Client {
 
     /// Title-bar close removes the window inside `process_events` and does not
     /// emit an input event. Send the matching close packet when that happens.
-    fn note_dismissed_workshops(&mut self, enchant_open: bool, grade_open: bool) {
+    fn note_dismissed_workshops(
+        &mut self,
+        enchant_open: bool,
+        grade_open: bool,
+        reform_open: bool,
+        synthesis_open: bool,
+        upgrade_open: bool,
+    ) {
         if enchant_open && !self.interface.is_window_with_class_open(WindowClass::Enchant) {
             let _ = self.networking_system.close_ui_enchant();
         }
         if grade_open && !self.interface.is_window_with_class_open(WindowClass::EnchantGrade) {
             let _ = self.networking_system.close_grade_enchant();
+        }
+        if reform_open && !self.interface.is_window_with_class_open(WindowClass::ItemReform) {
+            let _ = self.networking_system.close_item_reform();
+        }
+        if synthesis_open && !self.interface.is_window_with_class_open(WindowClass::LaphineSynthesis) {
+            let _ = self.networking_system.close_laphine_synthesis();
+        }
+        if upgrade_open && !self.interface.is_window_with_class_open(WindowClass::LaphineUpgrade) {
+            let _ = self.networking_system.close_laphine_upgrade();
         }
     }
 
@@ -5000,6 +5036,9 @@ impl Client {
         let selection_open = self.interface.is_window_with_class_open(WindowClass::ItemSkillSelection);
         let enchant_open = self.interface.is_window_with_class_open(WindowClass::Enchant);
         let grade_open = self.interface.is_window_with_class_open(WindowClass::EnchantGrade);
+        let reform_open = self.interface.is_window_with_class_open(WindowClass::ItemReform);
+        let synthesis_open = self.interface.is_window_with_class_open(WindowClass::LaphineSynthesis);
+        let upgrade_open = self.interface.is_window_with_class_open(WindowClass::LaphineUpgrade);
         self.interface.process_events(&mut self.input_event_buffer);
         self.on_shop_windows_dismissed(shop_setup_open, shop_search_open, shop_report_open);
         crate::interface::windows::item_skill_selection::on_window_dismissed(
@@ -5008,7 +5047,7 @@ impl Client {
             &mut self.networking_system,
             &mut self.interface,
         );
-        self.note_dismissed_workshops(enchant_open, grade_open);
+        self.note_dismissed_workshops(enchant_open, grade_open, reform_open, synthesis_open, upgrade_open);
         self.sync_mail_compose();
 
         let interface_has_focus = self.interface.has_focus();
@@ -6809,25 +6848,17 @@ impl Client {
                     self.client_state.follow_mut(client_state().refine()).close();
                     self.interface.close_window_with_class(WindowClass::Refine);
                 }
-                InputEvent::ItemReformSubmit => {
-                    let (catalyst, index) = {
-                        let reform = self.client_state.follow(client_state().item_reform());
-                        (reform.catalyst_item_id, reform.index())
-                    };
-                    match index {
-                        Ok(index) if catalyst != 0 => {
-                            let _ = self
-                                .networking_system
-                                .item_reform(ragnarok_packets::ItemId(catalyst), InventoryIndex(index));
-                        }
-                        Ok(_) => {
-                            self.client_state.follow_mut(client_state().item_reform()).status = "Reform is not open.".to_owned();
-                        }
-                        Err(message) => {
-                            self.client_state.follow_mut(client_state().item_reform()).status = message.to_owned();
-                        }
-                    }
+                InputEvent::ItemReformSelect { index } => {
+                    self.client_state.follow_mut(client_state().item_reform()).select(index);
                 }
+                InputEvent::ItemReformSubmit => match reform_request(&mut self.client_state) {
+                    Ok((catalyst, index)) => {
+                        let _ = self.networking_system.item_reform(ItemId(catalyst), InventoryIndex(index));
+                    }
+                    Err(message) => {
+                        self.client_state.follow_mut(client_state().item_reform()).status = message.to_owned();
+                    }
+                },
                 InputEvent::ItemReformClose => {
                     let _ = self.networking_system.close_item_reform();
                     self.interface.close_window_with_class(WindowClass::ItemReform);
@@ -6867,50 +6898,38 @@ impl Client {
                     let _ = self.networking_system.close_grade_enchant();
                     self.interface.close_window_with_class(WindowClass::EnchantGrade);
                 }
+                InputEvent::LaphineSynthesisToggle { index } => {
+                    self.client_state.follow_mut(client_state().laphine_synthesis()).toggle(index);
+                }
                 InputEvent::LaphineSynthesisAdd => {
-                    if let Err(crate::state::item_workshop::SynthesisAddError::Message(message)) =
-                        self.client_state.follow_mut(client_state().laphine_synthesis()).add_row()
-                    {
-                        self.client_state.follow_mut(client_state().laphine_synthesis()).status = message.to_owned();
-                    }
+                    self.client_state.follow_mut(client_state().laphine_synthesis()).status = "Choose an item from the list.".to_owned();
                 }
                 InputEvent::LaphineSynthesisClear => {
                     self.client_state.follow_mut(client_state().laphine_synthesis()).clear_rows();
                 }
-                InputEvent::LaphineSynthesisSubmit => {
-                    let (item_id, stacks) = {
-                        let synthesis = self.client_state.follow(client_state().laphine_synthesis());
-                        (synthesis.item_id, synthesis.stacks())
-                    };
-                    if item_id == 0 || stacks.is_empty() {
-                        self.client_state.follow_mut(client_state().laphine_synthesis()).status = "Add at least one stack.".to_owned();
-                    } else {
-                        let _ = self.networking_system.laphine_synthesis(ragnarok_packets::ItemId(item_id), &stacks);
+                InputEvent::LaphineSynthesisSubmit => match self.client_state.follow(client_state().laphine_synthesis()).request() {
+                    Ok((item_id, stacks)) => {
+                        let _ = self.networking_system.laphine_synthesis(ItemId(item_id), &stacks);
                     }
-                }
+                    Err(message) => {
+                        self.client_state.follow_mut(client_state().laphine_synthesis()).status = message.to_owned();
+                    }
+                },
                 InputEvent::LaphineSynthesisClose => {
                     let _ = self.networking_system.close_laphine_synthesis();
                     self.interface.close_window_with_class(WindowClass::LaphineSynthesis);
                 }
-                InputEvent::LaphineUpgradeSubmit => {
-                    let (item_id, index) = {
-                        let upgrade = self.client_state.follow(client_state().laphine_upgrade());
-                        (upgrade.item_id, upgrade.index())
-                    };
-                    match index {
-                        Ok(index) if item_id != 0 => {
-                            let _ = self
-                                .networking_system
-                                .laphine_upgrade(ragnarok_packets::ItemId(item_id), InventoryIndex(index));
-                        }
-                        Ok(_) => {
-                            self.client_state.follow_mut(client_state().laphine_upgrade()).status = "Upgrade is not open.".to_owned();
-                        }
-                        Err(message) => {
-                            self.client_state.follow_mut(client_state().laphine_upgrade()).status = message.to_owned();
-                        }
-                    }
+                InputEvent::LaphineUpgradeSelect { index } => {
+                    self.client_state.follow_mut(client_state().laphine_upgrade()).select(index);
                 }
+                InputEvent::LaphineUpgradeSubmit => match self.client_state.follow(client_state().laphine_upgrade()).request() {
+                    Ok((item_id, index)) => {
+                        let _ = self.networking_system.laphine_upgrade(ItemId(item_id), InventoryIndex(index));
+                    }
+                    Err(message) => {
+                        self.client_state.follow_mut(client_state().laphine_upgrade()).status = message.to_owned();
+                    }
+                },
                 InputEvent::LaphineUpgradeClose => {
                     let _ = self.networking_system.close_laphine_upgrade();
                     self.interface.close_window_with_class(WindowClass::LaphineUpgrade);

@@ -272,6 +272,9 @@ enum ScriptedEvent {
     },
     GradeEnchantSelect(u16),
     GradeEnchantPick(i32),
+    ItemReformSelect(u16),
+    LaphineSynthesisToggle(u16),
+    LaphineUpgradeSelect(u16),
 }
 
 pub fn scripted_event(spec: &str) -> Result<InputEvent, String> {
@@ -381,6 +384,9 @@ pub fn scripted_event(spec: &str) -> Result<InputEvent, String> {
         ScriptedEvent::EnchantPickChoice { index, item_id } => InputEvent::EnchantPickChoice { index, item_id },
         ScriptedEvent::GradeEnchantSelect(index) => InputEvent::GradeEnchantSelect { index },
         ScriptedEvent::GradeEnchantPick(material_index) => InputEvent::GradeEnchantPick { material_index },
+        ScriptedEvent::ItemReformSelect(index) => InputEvent::ItemReformSelect { index },
+        ScriptedEvent::LaphineSynthesisToggle(index) => InputEvent::LaphineSynthesisToggle { index },
+        ScriptedEvent::LaphineUpgradeSelect(index) => InputEvent::LaphineUpgradeSelect { index },
     })
 }
 

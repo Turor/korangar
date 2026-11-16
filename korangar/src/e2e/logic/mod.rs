@@ -134,6 +134,8 @@ pub struct LogicSession {
     pub(super) status_strip: crate::e2e::StatusStrip,
     /// Player looks from the character list and live appear packets.
     pub(super) headgear: crate::e2e::HeadgearScene,
+    /// Item reform and laphine windows driven by injected packets and events.
+    pub(super) workshop: crate::e2e::item_workshop::ItemWorkshopSession,
 }
 
 impl LogicSession {
@@ -174,6 +176,7 @@ impl LogicSession {
             lock: None,
             status_strip: crate::e2e::StatusStrip::default(),
             headgear: crate::e2e::HeadgearScene::default(),
+            workshop: crate::e2e::item_workshop::ItemWorkshopSession::default(),
         }
     }
 
@@ -318,6 +321,7 @@ impl LogicSession {
             Command::Tab(class) => self.switch_tab(class),
             Command::Window { class, open, event } => {
                 self.note_event(&event);
+                self.apply_workshop_event(&event);
                 if self.windows.contains(&class) != open {
                     self.apply_window_event(event);
                 }
@@ -325,6 +329,7 @@ impl LogicSession {
             }
             Command::Toggle(event) | Command::Event(event) => {
                 self.note_event(&event);
+                self.apply_workshop_event(&event);
                 self.apply_window_event(event);
                 Ok(())
             }
@@ -454,7 +459,7 @@ impl LogicSession {
         }
     }
 
-    fn close_window(&mut self, class: WindowClass) {
+    pub(super) fn close_window(&mut self, class: WindowClass) {
         self.windows.retain(|open| *open != class);
     }
 

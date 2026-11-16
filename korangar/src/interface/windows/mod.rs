@@ -143,7 +143,7 @@ pub use self::inventory::InventoryWindow;
 pub use self::item_details::{ItemDetailsWindow, format_item_details, item_details_key};
 pub use self::item_drop::{ItemDropAmountBox, ItemDropWindow};
 pub use self::item_finder::ItemFinderWindow;
-pub use self::item_workshop::{ItemReformWindow, LaphineSynthesisWindow, LaphineUpgradeWindow};
+pub use self::item_workshop::{open_item_reform, open_laphine_synthesis, open_laphine_upgrade, reform_request};
 pub use self::keybinds::KeybindsWindow;
 pub use self::login::{LoginWindow, LoginWindowState, LoginWindowStatePathExt};
 pub use self::mail::{MailWindow, MailWindowState};
