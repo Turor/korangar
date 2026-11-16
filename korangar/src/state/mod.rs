@@ -166,18 +166,40 @@ pub struct ChatMessage {
     /// Tab this line belongs to. Derived from [`MessageColor`] unless a caller
     /// sets it with [`ChatMessage::with_channel`].
     pub channel: chat::ChatChannel,
+    /// Partner whisper tab this line belongs on. Set for incoming whispers,
+    /// the `[To name]` echo, and `ZC_ACK_WHISPER` failures.
+    pub partner: Option<String>,
 }
 
 impl ChatMessage {
     pub fn new(text: String, color: MessageColor) -> Self {
         let channel = chat::ChatChannel::from_message_color(color);
-        Self { text, color, channel }
+        Self {
+            text,
+            color,
+            channel,
+            partner: None,
+        }
     }
 
     /// Party and guild tasks should pass [`chat::ChatChannel::Party`] or
     /// [`chat::ChatChannel::Guild`] when the color alone is not enough.
     pub fn with_channel(text: String, color: MessageColor, channel: chat::ChatChannel) -> Self {
-        Self { text, color, channel }
+        Self {
+            text,
+            color,
+            channel,
+            partner: None,
+        }
+    }
+
+    pub fn with_partner(text: String, color: MessageColor, channel: chat::ChatChannel, partner: Option<String>) -> Self {
+        Self {
+            text,
+            color,
+            channel,
+            partner,
+        }
     }
 }
 
@@ -799,7 +821,8 @@ impl ClientState {
     }
 
     pub(crate) fn begin_whisper(&mut self, target: String, text: String) -> (String, String) {
-        self.chat_window.begin_whisper(target, text)
+        let message_len = self.chat_messages.len();
+        self.chat_window.begin_whisper(target, text, message_len)
     }
 
     pub(crate) fn note_local_speech(&mut self, entity_id: EntityId, text: String, now: u32) {
@@ -820,7 +843,7 @@ impl ClientState {
             chat_window,
             ..
         } = self;
-        chat::record_whisper(chat_messages, chat_window.recent_whisper_targets_mut(), &sender, &text);
+        chat_window.record_incoming_whisper(chat_messages, &sender, &text);
     }
 
     pub(crate) fn record_whisper_ack(&mut self, result: u8) {
@@ -829,8 +852,7 @@ impl ClientState {
             chat_window,
             ..
         } = self;
-        let (recent, pending_name, pending_text) = chat_window.pending_whisper_mut();
-        chat::record_whisper_ack(chat_messages, recent, pending_name, pending_text, result);
+        chat_window.record_whisper_ack(chat_messages, result);
     }
 }
 

@@ -15,6 +15,9 @@ use korangar::e2e::{
     lavapipe_icd_present, logic_mode_skips_image_assertions,
 };
 
+#[path = "e2e/chat.rs"]
+mod chat;
+
 fn live_session() -> Option<LogicSession> {
     match LogicSession::start_live() {
         LiveConnect::Skip(reason) => {

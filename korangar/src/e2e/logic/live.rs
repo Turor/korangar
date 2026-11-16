@@ -181,7 +181,7 @@ impl LogicSession {
         Err(self.timeout("character select"))
     }
 
-    fn enter_world(&mut self) -> Result<(), String> {
+    pub(crate) fn enter_world(&mut self) -> Result<(), String> {
         if self.characters.is_empty() {
             self.dispatch_create()?;
             self.pump_while(Duration::from_secs(20), |session| session.creating)?;
