@@ -1323,6 +1323,21 @@ pub enum NetworkEvent {
         entity_id: EntityId,
         effect_id: EffectId,
     },
+    /// Map property and flags (`ZC_MAPPROPERTY_R2`, `0x099B`).
+    MapProperty {
+        property_type: u16,
+        flags: u32,
+    },
+    /// Map type (`ZC_NOTIFY_MAPPROPERTY2`, `0x01D6`).
+    MapType {
+        map_type: u16,
+    },
+    /// One cell's gat type (`ZC_UPDATE_MAPINFO`, `0x0192`).
+    ChangeMapCell {
+        position: TilePosition,
+        cell_type: u16,
+        map_name: String,
+    },
     /// Skill hit that also carries damage (`DisplaySkillEffectAndDamagePacket`,
     /// 0x01DE).
     SkillEffectAndDamage {

@@ -26,6 +26,7 @@ pub mod item_workshop;
 pub mod localization;
 pub mod mail_attach;
 pub mod mail_compose;
+pub mod map_properties;
 pub mod navigation;
 pub mod npc_dialog;
 pub mod npc_dismiss;
@@ -415,6 +416,8 @@ pub struct ClientState {
     styling_shop: StylingShopState,
     /// Local-player status effects (buffs/debuffs).
     status_effects: StatusEffects,
+    /// PvP, GvG, and battleground state for the status badge.
+    map_properties: map_properties::MapProperties,
     /// Skill cooldown deadlines for hotbar overlays.
     skill_cooldowns: SkillCooldowns,
     /// Quest journal entries.
@@ -645,6 +648,7 @@ impl ClientState {
             let laphine_upgrade = LaphineUpgradeState::default();
             let styling_shop = StylingShopState::default();
             let status_effects = StatusEffects::default();
+            let map_properties = map_properties::MapProperties::default();
             let skill_cooldowns = SkillCooldowns::default();
             let quest_log = QuestLog::default();
             let achievements = Achievements::default();
@@ -770,6 +774,7 @@ impl ClientState {
             laphine_upgrade,
             styling_shop,
             status_effects,
+            map_properties,
             skill_cooldowns,
             quest_log,
             achievements,

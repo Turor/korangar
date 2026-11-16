@@ -53,6 +53,11 @@ where
                     state: show_equipment,
                     event: toggle_show_equipment,
                 },
+                state_button! {
+                    text: "Show weather",
+                    state: self.game_settings_path.show_weather(),
+                    event: Toggle(self.game_settings_path.show_weather()),
+                },
             ),
         }
     }

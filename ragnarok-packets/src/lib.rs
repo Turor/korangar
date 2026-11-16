@@ -9,6 +9,7 @@ pub mod guild_actions;
 pub mod handler;
 mod item_skill_selection;
 mod item_use;
+mod map_properties;
 mod misc_info;
 mod party;
 pub mod pincode;
@@ -60,6 +61,7 @@ pub use self::item_skill_selection::{
     WeaponRefineAckPacket, WeaponRefineEntry, WeaponRefineListPacket,
 };
 pub use self::item_use::{DropItemAckPacket, DropItemPacket, UseItemAck2Packet, UseItemAckPacket, UseItemPacket};
+pub use self::map_properties::NotifyMapProperty2Packet;
 pub use self::misc_info::*;
 pub use self::party::*;
 pub use self::pincode::{

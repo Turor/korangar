@@ -1,3 +1,4 @@
+mod cells;
 mod lighting;
 
 #[cfg(feature = "debug")]
@@ -24,6 +25,7 @@ use ragnarok_packets::{ClientTick, TilePosition};
 use rust_state::RustState;
 use wgpu::Queue;
 
+pub use self::cells::{WalkGrid, flags_for_gat};
 pub use self::lighting::Lighting;
 use super::{Camera, Entity, GroundItem, Object, PointLightId, PointLightManager, ResourceSet, ResourceSetBuffer, SubMesh, Video};
 #[cfg(feature = "debug")]
@@ -106,6 +108,10 @@ pub struct Map {
     lighting: Lighting,
     water_plane: Option<WaterPlane>,
     tiles: Vec<Tile>,
+    /// Gat types applied by `0x0192` after the file was loaded. The map is
+    /// shared through `Arc`, so this stays behind a lock. Tuple fields are
+    /// x, y, and the replacement flags.
+    cell_overrides: Mutex<Vec<(u16, u16, TileFlags)>>,
     sub_meshes: Vec<SubMesh>,
     vertex_buffer: Arc<Buffer<ModelVertex>>,
     index_buffer: Arc<Buffer<u32>>,
@@ -166,6 +172,7 @@ impl Map {
             lighting,
             water_plane,
             tiles,
+            cell_overrides: Mutex::new(Vec::new()),
             sub_meshes,
             vertex_buffer,
             index_buffer,
@@ -228,7 +235,44 @@ impl Map {
     }
 
     pub fn get_tile(&self, position: TilePosition) -> Option<&Tile> {
+        if position.x >= self.width || position.y >= self.height {
+            return None;
+        }
         self.tiles.get(position.x as usize + position.y as usize * self.width as usize)
+    }
+
+    /// Flags after a `0x0192` cell change, or the file flags when none arrived.
+    fn flags_at(&self, position: TilePosition) -> Option<TileFlags> {
+        if let Some(flags) = self
+            .cell_overrides
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|cell| cell.0 == position.x && cell.1 == position.y)
+            .map(|cell| cell.2)
+        {
+            return Some(flags);
+        }
+        self.get_tile(position).map(|tile| tile.flags)
+    }
+
+    /// Updates one cell from a gat type. Unknown types and tiles outside the
+    /// map leave the cell unchanged and return false.
+    pub fn set_gat_cell(&self, position: TilePosition, cell_type: u16) -> bool {
+        let Some(flags) = flags_for_gat(cell_type) else {
+            return false;
+        };
+        if self.get_tile(position).is_none() {
+            return false;
+        }
+        self.cell_overrides.lock().unwrap().push((position.x, position.y, flags));
+        true
+    }
+
+    /// Drops cell packets so a cached map starts from its file again.
+    pub fn clear_cell_overrides(&self) {
+        self.cell_overrides.lock().unwrap().clear();
     }
 
     pub fn background_music_track_name(&self) -> Option<&str> {
@@ -473,13 +517,14 @@ impl Map {
             return;
         }
 
+        let walkable = self.flags_at(position).is_some_and(|flags| flags.contains(TileFlags::WALKABLE));
         let Some(tile) = self.get_tile(position) else {
             #[cfg(feature = "debug")]
             korangar_debug::logging::print_debug!("[{}] walk indicator out of map bounds", "error".red());
             return;
         };
 
-        if tile.flags.contains(TileFlags::WALKABLE) {
+        if walkable {
             let base_x = position.x as f32 * GAT_TILE_SIZE;
             let base_y = position.y as f32 * GAT_TILE_SIZE;
 
@@ -831,14 +876,10 @@ impl Map {
 
 impl Traversable for Map {
     fn is_walkable(&self, position: TilePosition) -> bool {
-        self.get_tile(position)
-            .map(|tile| tile.flags.contains(TileFlags::WALKABLE))
-            .unwrap_or(false)
+        self.flags_at(position).is_some_and(|flags| flags.contains(TileFlags::WALKABLE))
     }
 
     fn is_snipeable(&self, position: TilePosition) -> bool {
-        self.get_tile(position)
-            .map(|tile| tile.flags.contains(TileFlags::SNIPABLE))
-            .unwrap_or(false)
+        self.flags_at(position).is_some_and(|flags| flags.contains(TileFlags::SNIPABLE))
     }
 }

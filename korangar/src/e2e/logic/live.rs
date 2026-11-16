@@ -214,6 +214,15 @@ impl LogicSession {
         Ok(())
     }
 
+    /// Logs in, enters the map, then waits so property and weather packets
+    /// arrive.
+    pub fn enter_world_for_weather(&mut self) -> Result<(), String> {
+        self.login_to_character_select()?;
+        self.enter_world()?;
+        self.pump_for(Duration::from_secs(2))?;
+        Ok(())
+    }
+
     fn dispatch_create(&mut self) -> Result<(), String> {
         let name = crate::autopilot::default_character_name(&self.username);
         let Some(net) = self.net.as_mut() else {
@@ -493,6 +502,7 @@ impl LogicSession {
                 self.fail(format!("character select failed: {message}"));
             }
             NetworkEvent::ChangeMap { map_name, position } => {
+                self.map_world.on_map_change(&map_name);
                 if self.map_name != map_name {
                     self.npcs.clear();
                     self.map_name = map_name;
@@ -561,6 +571,16 @@ impl LogicSession {
                 }
             }
             NetworkEvent::LoginServerDisconnected { .. } | NetworkEvent::CharacterServerDisconnected { .. } => {}
+            NetworkEvent::SpecialEffect { effect_id, .. } => {
+                let _ = self.map_world.note_effect(crate::world::effects::effect_id_value(effect_id));
+            }
+            NetworkEvent::MapProperty { property_type, flags } => self.map_world.apply_property(property_type, flags),
+            NetworkEvent::MapType { map_type } => self.map_world.apply_map_type(map_type),
+            NetworkEvent::ChangeMapCell {
+                position,
+                cell_type,
+                map_name,
+            } => self.map_world.apply_cell(position, cell_type, &map_name),
             _ => {}
         }
         Ok(())

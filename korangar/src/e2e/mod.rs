@@ -18,6 +18,7 @@ mod release;
 mod screenshot;
 mod social;
 mod status_icons;
+mod weather;
 
 pub(crate) use self::actions::{apply_choose_dialog_option, apply_switch_window_tab, begin_npc_dialog, send_public_chat, send_walk};
 pub use self::chat::{ChatSession, ChatView};
@@ -38,3 +39,4 @@ pub use self::social::{
     navigation_scenario,
 };
 pub use self::status_icons::{StatusIconView, StatusStrip};
+pub use self::weather::{MapWorld, WeatherKind};

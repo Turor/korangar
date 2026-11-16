@@ -510,7 +510,7 @@ where
         }
     })?;
     crate::equip_switch::register_packets(packet_handler)?;
-    packet_handler.register_noop::<MapTypePacket>()?;
+    crate::packet_versions::map_properties::register_map_property_packets(packet_handler)?;
     packet_handler.register(|packet: UpdateSkillTreePacket| {
         let UpdateSkillTreePacket { skill_information } = packet;
         NetworkEvent::SkillTree { skill_information }
@@ -1116,7 +1116,6 @@ where
     crate::packet_versions::chat_room::register_chat_room_packets(packet_handler)?;
     crate::packet_versions::party::register_party_packets(packet_handler)?;
     crate::packet_versions::guild::register_guild_action_packets(packet_handler)?;
-    packet_handler.register_noop::<ChangeMapCellPacket>()?;
     packet_handler.register(open_market_event)?;
     crate::packet_versions::enchant::register_enchant_packets(packet_handler)?;
     crate::packet_versions::stable::register_stable_packets(packet_handler)?;
