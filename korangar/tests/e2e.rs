@@ -5,6 +5,8 @@
 
 #[path = "e2e/release.rs"]
 mod release;
+#[path = "e2e/social.rs"]
+mod social;
 
 use std::path::PathBuf;
 

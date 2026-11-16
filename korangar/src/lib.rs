@@ -892,6 +892,9 @@ impl Client {
             ));
         });
 
+        let mut client_state = client_state;
+        crate::state::achievements::attach_library_tables(&mut client_state, &library);
+
         let active_interface_settings = client_state.follow(crate::client_state().interface_settings()).clone();
         let loaded_in_game_theme = session_theme_name(&active_interface_settings.in_game_theme).to_string();
         let loaded_world_theme = session_theme_name(&active_interface_settings.world_theme).to_string();
@@ -3498,6 +3501,7 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().achievements())
                         .open_attendance(days_attended, claimed_today, &item_name);
+                    interface::windows::request_attendance_icons(&mut self.client_state, &self.library, &self.async_loader);
                     if !self.interface.is_window_with_class_open(WindowClass::Attendance) {
                         self.interface.open_window(AttendanceWindow);
                     }
@@ -5363,6 +5367,23 @@ impl Client {
                 InputEvent::CycleAchievementCategory => {
                     self.client_state.follow_mut(client_state().achievements()).cycle_category();
                 }
+                InputEvent::SearchNavigation => self.client_state.follow_mut(client_state().navigation()).search_route_targets(),
+                InputEvent::CycleNavigationSearchKind => {
+                    self.client_state.follow_mut(client_state().navigation()).cycle_route_search_kind()
+                }
+                InputEvent::ToggleNavigationServices => self.client_state.follow_mut(client_state().navigation()).toggle_route_services(),
+                InputEvent::ChooseNavigationResult { index } => {
+                    self.client_state.follow_mut(client_state().navigation()).choose_route_target(index)
+                }
+                InputEvent::ClearNavigationRoute => self.client_state.follow_mut(client_state().navigation()).clear_route(),
+                InputEvent::SelectAchievementCategory { major, minor } => self
+                    .client_state
+                    .follow_mut(client_state().achievements())
+                    .select_category(major, minor),
+                InputEvent::SelectAchievement { achievement_id } => self
+                    .client_state
+                    .follow_mut(client_state().achievements())
+                    .select_achievement(achievement_id),
                 InputEvent::ToggleNavigationWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::Navigation) {
@@ -7193,6 +7214,9 @@ impl Client {
                     }
                 }
                 (LoaderId::ItemSprite(item_id), LoadableResource::ItemSprite { texture }) => {
+                    self.client_state
+                        .follow_mut(client_state().achievements())
+                        .note_item_texture(item_id.0, texture.clone());
                     self.client_state
                         .follow_mut(client_state().item_skill_selection())
                         .note_item_texture(item_id.0, texture.clone());

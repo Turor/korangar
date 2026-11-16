@@ -4,6 +4,7 @@
 //! Live login, map entry, and NPC menus are in [`live`].
 
 mod live;
+mod social;
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;

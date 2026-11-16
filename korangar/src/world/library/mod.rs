@@ -1,4 +1,5 @@
 mod accessory_name;
+mod achievement_table;
 mod baby_job;
 mod item_info;
 mod item_name;
@@ -8,6 +9,7 @@ mod lua;
 mod map_display_name;
 mod map_sky_data;
 mod monster_name;
+mod navigation_table;
 mod quest_display;
 mod signboard;
 mod skill_description;
@@ -16,12 +18,16 @@ mod skill_requirements;
 mod skill_tree;
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use hashbrown::HashMap;
 use korangar_loaders::FileLoader;
 use mlua::{ErrorContext, Lua};
 use ragnarok_packets::{ItemId, JobId, SkillId};
 
+pub use self::achievement_table::{AchievementCatalog, AchievementInfo, AttendanceTable, merge_achievement_table, parse_attendance_chunk};
+#[cfg(test)]
+pub use self::achievement_table::{AchievementReward, AttendanceTableReward};
 pub use self::baby_job::IsBabyJob;
 pub use self::item_info::ItemInfo;
 pub use self::item_name::{ItemName, ItemNameKey};
@@ -32,6 +38,9 @@ use self::lua::{decode_game_bytes, execute_chunk, game_string};
 pub use self::map_display_name::{display_name_from_table, load_map_display_names};
 pub use self::map_sky_data::MapSkyData;
 use self::monster_name::load_monster_names;
+pub use self::navigation_table::{NaviLink, NavigationTables, navigation_tables_from_source};
+#[cfg(test)]
+pub use self::navigation_table::{NaviMob, NaviNpc};
 #[allow(unused_imports)]
 pub use self::quest_display::QuestRewardItem;
 use self::quest_display::load_quest_displays;
@@ -59,6 +68,9 @@ pub struct Library {
     skill_descriptions: HashMap<u16, String>,
     job_parents: JobParents,
     accessory_names: HashMap<u16, String>,
+    achievement_catalog: Arc<AchievementCatalog>,
+    attendance_table: Arc<AttendanceTable>,
+    navigation_tables: Arc<NavigationTables>,
 }
 
 impl Library {
@@ -78,6 +90,12 @@ impl Library {
         let monster_names = load_monster_names(game_file_loader);
         let (skill_descriptions, job_parents) = load_skill_text(game_file_loader);
         let accessory_names = accessory_name::load_accessory_names(game_file_loader);
+        // Achievement, attendance and navigation tables are optional client files.
+        let achievement_catalog = Arc::new(achievement_table::load_achievement_catalog(game_file_loader));
+        let attendance_table = Arc::new(achievement_table::load_attendance_table(game_file_loader));
+        let mut navigation_tables = navigation_table::load_navigation_tables(game_file_loader);
+        navigation_table::apply_monster_names(&mut navigation_tables, &monster_names);
+        let navigation_tables = Arc::new(navigation_tables);
 
         Ok(Self {
             job_identity_table,
@@ -94,6 +112,9 @@ impl Library {
             skill_descriptions,
             job_parents,
             accessory_names,
+            achievement_catalog,
+            attendance_table,
+            navigation_tables,
         })
     }
 
@@ -107,6 +128,18 @@ impl Library {
     /// `AccNameTable` suffix for a headgear view id, such as `_고글`.
     pub fn accessory_sprite_suffix(&self, view_id: u16) -> Option<&str> {
         self.accessory_names.get(&view_id).map(String::as_str)
+    }
+
+    pub fn achievement_catalog(&self) -> Arc<AchievementCatalog> {
+        Arc::clone(&self.achievement_catalog)
+    }
+
+    pub fn attendance_table(&self) -> Arc<AttendanceTable> {
+        Arc::clone(&self.attendance_table)
+    }
+
+    pub fn navigation_tables(&self) -> Arc<NavigationTables> {
+        Arc::clone(&self.navigation_tables)
     }
 
     pub fn map_display_name(&self, internal: &str) -> String {

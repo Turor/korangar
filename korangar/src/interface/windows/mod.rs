@@ -98,7 +98,7 @@ mod world_map;
 use serde::{Deserialize, Serialize};
 
 pub use self::achievements::AchievementsWindow;
-pub use self::attendance::AttendanceWindow;
+pub use self::attendance::{AttendanceWindow, request_attendance_icons};
 pub use self::audio_settings::AudioSettingsWindow;
 pub use self::bank::BankWindow;
 pub use self::barter::BarterWindow;
