@@ -216,7 +216,7 @@ impl ChatSession {
                 self.logic.dispatch_whisper(&target, &text)?;
                 Ok(Some(intent))
             }
-            OutgoingChat::Public(_) | OutgoingChat::Guild(_) => Ok(None),
+            OutgoingChat::Public(_) | OutgoingChat::Guild(_) | OutgoingChat::Clan(_) => Ok(None),
         }
     }
 
