@@ -400,6 +400,12 @@ mod tab_tests {
             parse_command("tab companions").unwrap(),
             Command::Tab(WindowClass::Companions)
         ));
+        assert!(matches!(parse_command("tab mail").unwrap(), Command::Tab(WindowClass::Mail)));
+        assert!(matches!(parse_command("tab bank").unwrap(), Command::Tab(WindowClass::Bank)));
+        assert!(matches!(
+            parse_command("tab roulette").unwrap(),
+            Command::Tab(WindowClass::Roulette)
+        ));
         assert!(parse_command("tab inventory").is_err());
         assert!(parse_command("tab nothing").is_err());
     }

@@ -183,6 +183,7 @@ impl CustomWindow<ClientState> for MailWindow {
             // state on `CZ_CLOSE_MAILBOX`, so close goes through the button.
             closable: false,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::Mail),
                 text! {
                     text: state_path.status(),
                     overflow_behavior: OverflowBehavior::Shrink,

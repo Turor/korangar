@@ -190,7 +190,7 @@ pub use self::vending_setup::VendingSetupWindow;
 pub use self::vendor::VendorWindow;
 pub use self::view_equip::ViewEquipWindow;
 pub use self::warpra::{WarpraWindow, WarpraWindowState};
-pub use self::window_groups::{WindowGroup, WindowGroupMemory, WindowGroupTabs, group_member_open_event};
+pub use self::window_groups::{WindowGroup, WindowGroupMemory, WindowGroupTabs, group_member_close_event, group_member_open_event};
 #[cfg(test)]
 pub use self::world_map::interface_texture_candidates;
 pub use self::world_map::{

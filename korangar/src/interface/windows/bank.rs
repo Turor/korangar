@@ -36,6 +36,7 @@ impl CustomWindow<ClientState> for BankWindow {
             theme: InterfaceThemeType::InGame,
             closable: false,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::Bank),
                 text! {
                     text: state_path.vault_text(),
                     overflow_behavior: OverflowBehavior::Shrink,

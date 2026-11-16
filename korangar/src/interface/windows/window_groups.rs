@@ -30,6 +30,7 @@ pub enum WindowGroup {
     Social,
     Journal,
     PetStable,
+    Services,
 }
 
 /// One tab: its label and the window it shows.
@@ -81,9 +82,21 @@ const JOURNAL_TABS: [GroupTab; 2] = [
     tab("Achievements", WindowClass::Achievements),
 ];
 const PET_STABLE_TABS: [GroupTab; 2] = [tab("Stable", WindowClass::Stable), tab("Pets", WindowClass::Companions)];
+const SERVICES_TABS: [GroupTab; 3] = [
+    tab("Mail", WindowClass::Mail),
+    tab("Bank", WindowClass::Bank),
+    tab("Roulette", WindowClass::Roulette),
+];
 
 impl WindowGroup {
-    pub const ALL: [WindowGroup; 5] = [Self::Settings, Self::Character, Self::Social, Self::Journal, Self::PetStable];
+    pub const ALL: [WindowGroup; 6] = [
+        Self::Settings,
+        Self::Character,
+        Self::Social,
+        Self::Journal,
+        Self::PetStable,
+        Self::Services,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -92,6 +105,7 @@ impl WindowGroup {
             Self::Social => "Social",
             Self::Journal => "Journal",
             Self::PetStable => "Pet Stable",
+            Self::Services => "Services",
         }
     }
 
@@ -102,6 +116,18 @@ impl WindowGroup {
             Self::Social => &SOCIAL_TABS,
             Self::Journal => &JOURNAL_TABS,
             Self::PetStable => &PET_STABLE_TABS,
+            Self::Services => &SERVICES_TABS,
+        }
+    }
+
+    /// Member shown the first time a group is opened.
+    ///
+    /// Every group except Services opens its first tab. Services opens Bank
+    /// until the player has used another tab.
+    pub fn default_member(self) -> WindowClass {
+        match self {
+            Self::Services => WindowClass::Bank,
+            _ => self.tabs()[0].class,
         }
     }
 
@@ -147,6 +173,21 @@ pub fn group_member_open_event(class: WindowClass) -> Option<InputEvent> {
         WindowClass::Achievements => InputEvent::ToggleAchievementsWindow,
         WindowClass::Stable => InputEvent::OpenStable,
         WindowClass::Companions => InputEvent::OpenCompanions,
+        WindowClass::Mail => InputEvent::OpenMail,
+        WindowClass::Bank => InputEvent::OpenBank,
+        WindowClass::Roulette => InputEvent::OpenRoulette,
+        _ => return None,
+    })
+}
+
+/// Server close for a group member, when closing the window is not enough.
+/// Mail, Bank, and Roulette each tell the server. Other members return `None`
+/// and the caller only removes the window.
+pub fn group_member_close_event(class: WindowClass) -> Option<InputEvent> {
+    Some(match class {
+        WindowClass::Mail => InputEvent::CloseMail,
+        WindowClass::Bank => InputEvent::CloseBank,
+        WindowClass::Roulette => InputEvent::CloseRoulette,
         _ => return None,
     })
 }
@@ -173,9 +214,10 @@ impl WindowGroupMemory {
         }
     }
 
-    /// Member the group button opens: the last one shown, else the first tab.
+    /// Member the group button opens: the last one shown, else
+    /// [`WindowGroup::default_member`].
     pub fn member_to_open(&self, group: WindowGroup) -> WindowClass {
-        self.last[group.index()].unwrap_or(group.tabs()[0].class)
+        self.last[group.index()].unwrap_or(group.default_member())
     }
 }
 
@@ -302,7 +344,8 @@ impl Element<ClientState> for WindowGroupTabs {
 mod tests {
     use korangar_interface::layout::area::Area;
 
-    use super::{WindowGroup, WindowGroupMemory, group_member_open_event, group_tab_area};
+    use super::{WindowGroup, WindowGroupMemory, group_member_close_event, group_member_open_event, group_tab_area};
+    use crate::input::InputEvent;
     use crate::interface::windows::WindowClass;
 
     #[test]
@@ -333,6 +376,44 @@ mod tests {
         }
         assert!(WindowGroup::PetStable.contains(WindowClass::Stable));
         assert!(WindowGroup::PetStable.contains(WindowClass::Companions));
+    }
+
+    #[test]
+    fn services_is_mail_bank_and_roulette_and_defaults_to_bank() {
+        let classes: Vec<_> = WindowGroup::Services.tabs().iter().map(|tab| tab.class).collect();
+        assert_eq!(classes, vec![WindowClass::Mail, WindowClass::Bank, WindowClass::Roulette]);
+        assert_eq!(WindowGroup::Services.default_member(), WindowClass::Bank);
+
+        let memory = WindowGroupMemory::default();
+        assert_eq!(memory.member_to_open(WindowGroup::Services), WindowClass::Bank);
+
+        let mut memory = WindowGroupMemory::default();
+        memory.remember(WindowClass::Mail);
+        assert_eq!(memory.member_to_open(WindowGroup::Services), WindowClass::Mail);
+        memory.observe(|class| class == WindowClass::Roulette);
+        assert_eq!(memory.member_to_open(WindowGroup::Services), WindowClass::Roulette);
+        memory.observe(|_| false);
+        assert_eq!(memory.member_to_open(WindowGroup::Services), WindowClass::Roulette);
+
+        assert!(matches!(group_member_open_event(WindowClass::Mail), Some(InputEvent::OpenMail)));
+        assert!(matches!(group_member_open_event(WindowClass::Bank), Some(InputEvent::OpenBank)));
+        assert!(matches!(
+            group_member_open_event(WindowClass::Roulette),
+            Some(InputEvent::OpenRoulette)
+        ));
+        assert!(matches!(
+            group_member_close_event(WindowClass::Mail),
+            Some(InputEvent::CloseMail)
+        ));
+        assert!(matches!(
+            group_member_close_event(WindowClass::Bank),
+            Some(InputEvent::CloseBank)
+        ));
+        assert!(matches!(
+            group_member_close_event(WindowClass::Roulette),
+            Some(InputEvent::CloseRoulette)
+        ));
+        assert!(group_member_close_event(WindowClass::Stats).is_none());
     }
 
     #[test]
