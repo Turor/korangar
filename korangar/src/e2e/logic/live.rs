@@ -3,6 +3,7 @@
 //!
 //! No swapchain. Passwords stay out of errors.
 
+pub(super) mod inventory_grid;
 pub(super) mod item_move;
 pub(super) mod job_names;
 pub(super) mod mail;
@@ -417,6 +418,9 @@ impl LogicSession {
     pub(super) fn on_event(&mut self, event: korangar_networking::NetworkEvent) -> Result<(), String> {
         use korangar_networking::NetworkEvent;
         self.headgear.observe(&event);
+        if let NetworkEvent::ItemCapacity(capacity) = &event {
+            self.item_capacities.push(*capacity);
+        }
         match event {
             NetworkEvent::LoginServerConnected {
                 character_servers,

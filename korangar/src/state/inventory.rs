@@ -18,9 +18,26 @@ pub struct Inventory {
     /// keeps the id so the hotbar can show a live stack of 0.
     #[hidden_element]
     seen_item_ids: Vec<u32>,
+    /// Slot cap from the map server (`0x0B18`, `0x00F2` or `0x0121`).
+    #[hidden_element]
+    capacity: Option<u32>,
 }
 
 impl Inventory {
+    /// Stacks in this list, worn gear included.
+    pub fn item_count(&self) -> usize {
+        self.items.len()
+    }
+
+    /// The server's slot cap, once it has sent one.
+    pub fn capacity(&self) -> Option<u32> {
+        self.capacity
+    }
+
+    pub fn set_capacity(&mut self, maximum: u32) {
+        self.capacity = Some(maximum);
+    }
+
     pub fn stacked_amount(&self, item_id: ItemId) -> u16 {
         self.items
             .iter()

@@ -3126,11 +3126,25 @@ impl Client {
                     let visuals = self.client_state.follow(client_state().inventory()).item_visuals();
                     self.client_state.follow_mut(client_state().hotbar()).apply_item_visuals(&visuals);
                 }
+                NetworkEvent::ItemCapacity(capacity) => {
+                    let maximum = capacity.maximum;
+                    match capacity.list {
+                        korangar_networking::ItemCapacityList::Inventory => {
+                            self.client_state.follow_mut(client_state().inventory()).set_capacity(maximum)
+                        }
+                        korangar_networking::ItemCapacityList::Storage => {
+                            self.client_state.follow_mut(client_state().storage()).set_capacity(maximum)
+                        }
+                        korangar_networking::ItemCapacityList::Cart => {
+                            self.client_state.follow_mut(client_state().cart()).set_capacity(maximum)
+                        }
+                    }
+                }
                 NetworkEvent::SetStorage { items } => {
                     self.client_state
                         .follow_mut(client_state().storage())
                         .fill(&self.async_loader, items);
-                    self.interface.open_window(StorageWindow::new(client_state().storage().items()));
+                    self.interface.open_window(StorageWindow::new(client_state().storage()));
                 }
                 NetworkEvent::SetCart { items } => {
                     let open_cart = !items.is_empty();
@@ -3140,7 +3154,7 @@ impl Client {
                         && self.client_state.try_follow(this_entity()).is_some()
                         && !self.interface.is_window_with_class_open(WindowClass::Cart)
                     {
-                        self.interface.open_window(CartWindow::new(client_state().cart().items()));
+                        self.interface.open_window(CartWindow::new(client_state().cart()));
                     }
                 }
                 NetworkEvent::CartItemAdded { item } => {
@@ -5398,7 +5412,7 @@ impl Client {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::Inventory) {
                             true => self.interface.close_window_with_class(WindowClass::Inventory),
-                            false => self.interface.open_window(InventoryWindow::new(client_state().inventory().items())),
+                            false => self.interface.open_window(InventoryWindow::new(client_state().inventory())),
                         }
                     }
                 }
@@ -5414,7 +5428,7 @@ impl Client {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::Cart) {
                             true => self.interface.close_window_with_class(WindowClass::Cart),
-                            false => self.interface.open_window(CartWindow::new(client_state().cart().items())),
+                            false => self.interface.open_window(CartWindow::new(client_state().cart())),
                         }
                     }
                 }

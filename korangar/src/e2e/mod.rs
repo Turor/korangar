@@ -10,6 +10,7 @@ mod companions;
 mod credentials;
 mod headgear;
 mod inject;
+mod inventory_grid;
 mod item_move;
 mod item_workshop;
 mod job_names;
@@ -23,18 +24,21 @@ mod social;
 mod status_icons;
 mod weather;
 
+pub use korangar_networking::{ItemCapacity, ItemCapacityList};
+
 pub(crate) use self::actions::{apply_choose_dialog_option, apply_switch_window_tab, begin_npc_dialog, send_public_chat, send_walk};
 pub use self::chat::{ChatSession, ChatView};
 pub use self::companions::{CompanionNote, CompanionSession};
 pub use self::credentials::{Credentials, LiveConnect, TEST_HOST, TEST_PORT};
 pub use self::headgear::{HeadgearScene, LookedPlayer};
 pub use self::inject::input_path_parity;
+pub use self::inventory_grid::{GridView, OfflineInventoryGridReport, TURORAN_CAP_BYTES, grid_view, offline_inventory_grid};
 pub use self::item_move::{ItemMoveCase, OfflineItemMoveReport, item_move_request, offline_item_moves};
 pub use self::item_workshop::WorkshopView;
 pub use self::job_names::{JobNamesReport, job_names_scenario};
 pub use self::logic::{
-    DialogView, LiveItemMoveReport, LivePartyJobReport, LogicSession, MailRoundTrip, Outbound, Phase, SelectedOption, SentChoice,
-    SettingsView,
+    DialogView, LiveInventoryGridReport, LiveItemMoveReport, LivePartyJobReport, LogicSession, MailRoundTrip, Outbound, Phase,
+    SelectedOption, SentChoice, SettingsView,
 };
 pub use self::mail::{OfflineMailReport, offline_mail_exchange};
 pub use self::minimap::{MinimapHarness, MinimapMarkView, MinimapView};
