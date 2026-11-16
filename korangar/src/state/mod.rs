@@ -19,6 +19,7 @@ pub mod guild;
 pub mod guild_emblem;
 pub mod hotbar;
 pub mod inventory;
+pub mod inventory_view;
 pub mod item_drop;
 pub mod item_finder;
 pub mod item_move;

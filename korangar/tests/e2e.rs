@@ -9,6 +9,8 @@ mod archives;
 mod headgear;
 #[path = "e2e/inventory_grid.rs"]
 mod inventory_grid;
+#[path = "e2e/inventory_view.rs"]
+mod inventory_view;
 #[path = "e2e/item_move.rs"]
 mod item_move;
 #[path = "e2e/item_workshop.rs"]

@@ -773,6 +773,7 @@ where
     })?;
     packet_handler.register_noop::<Packet8302>()?;
     crate::packet_versions::item_capacity::register_item_capacity_packets(packet_handler)?;
+    crate::packet_versions::inventory_tab::register_inventory_tab_packets(packet_handler)?;
     packet_handler.register_noop::<ConnectionRefusedPacket>()?;
     packet_handler.register(|packet: MapServerLoginSuccessPacket| NetworkEvent::UpdateClientTick {
         client_tick: packet.client_tick,

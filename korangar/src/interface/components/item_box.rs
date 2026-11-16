@@ -134,7 +134,12 @@ pub struct ItemBox<A> {
     icon_side: f32,
     tooltip: &'static str,
     tooltip_text: String,
+    /// Search miss: the icon is drawn faded (inventory search).
+    dim: Option<ItemBoxDim>,
 }
+
+/// Returns `true` when the item in this cell should be drawn faded.
+pub type ItemBoxDim = Box<dyn Fn(&State<ClientState>) -> bool>;
 
 impl<A> ItemBox<A>
 where
@@ -143,7 +148,14 @@ where
     /// This function is supposed to be called from a component macro
     /// and not intended to be called manually.
     #[inline(always)]
-    pub fn component_new(item_path: A, source: ItemSource, side: f32, icon_side: f32, tooltip: &'static str) -> Self {
+    pub fn component_new(
+        item_path: A,
+        source: ItemSource,
+        side: f32,
+        icon_side: f32,
+        tooltip: &'static str,
+        dim: Option<ItemBoxDim>,
+    ) -> Self {
         Self {
             item_path,
             handler: ItemBoxHandler::new(item_path, source),
@@ -154,6 +166,7 @@ where
             icon_side,
             tooltip,
             tooltip_text: String::new(),
+            dim,
         }
     }
 }
@@ -304,7 +317,9 @@ where
                 height: texture_size,
             };
 
-            layout.add_texture(texture_area, texture.clone(), Color::WHITE, false);
+            let faded = self.dim.as_ref().is_some_and(|dim| dim(state));
+            let tint = if faded { Color::WHITE.with_alpha_u8(64) } else { Color::WHITE };
+            layout.add_texture(texture_area, texture.clone(), tint, false);
 
             if is_hovered && !is_move_mode {
                 layout.register_click_handler(MouseButton::Left, &self.handler);

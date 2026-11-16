@@ -1261,6 +1261,7 @@ where
         GEAR_SLOT_SIDE,
         GEAR_ICON_SIDE,
         equip_slot_tooltip(equip_position),
+        None,
     ))
 }
 

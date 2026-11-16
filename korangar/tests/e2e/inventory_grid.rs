@@ -2,7 +2,7 @@
 //! offline case decodes Turoran's cap packets from wire bytes and sizes every
 //! grid; the live case reads the TEST character's real cap and item list.
 
-use korangar::e2e::{GridView, ItemCapacity, ItemCapacityList, LiveConnect, LogicSession, offline_inventory_grid};
+use korangar::e2e::{GRID_FULL_CAP_LIMIT, GridView, ItemCapacity, ItemCapacityList, LiveConnect, LogicSession, offline_inventory_grid};
 
 #[test]
 fn inventory_grid_scrolls_to_server_caps_offline() {
@@ -68,6 +68,7 @@ fn inventory_grid_on_test_character() {
     let capacity = report.inventory_capacity.expect("TEST never sent ZC_EXTEND_BODYITEM_SIZE");
     assert!(capacity >= 100);
     assert!(report.grid.cells >= report.inventory_rows);
-    assert!(report.grid.cells >= capacity as usize);
+    // Caps above GRID_FULL_CAP_LIMIT draw used stacks plus a spare row.
+    assert!(report.grid.cells >= (capacity as usize).min(GRID_FULL_CAP_LIMIT));
     assert!(report.grid.last_item_visible);
 }

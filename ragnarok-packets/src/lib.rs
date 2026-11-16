@@ -8,6 +8,7 @@ mod companion_actions;
 mod equip_window;
 pub mod guild_actions;
 pub mod handler;
+mod inventory_tab;
 mod item_capacity;
 mod item_skill_selection;
 mod item_use;
@@ -55,6 +56,7 @@ pub use self::guild_actions::{
     GuildRelationsPacket, GuildSkillListPacket, GuildSkillRow, LeaveGuildPacket, LegacyChangeGuildPacket, LegacyGuildEmblemImagePacket,
     RequestGuildEmblemPacket, UploadGuildEmblemPacket,
 };
+pub use self::inventory_tab::{INVENTORY_TAB_FAVORITE, INVENTORY_TAB_NORMAL, InventoryTabPacket, InventoryTabRequestPacket};
 pub use self::item_capacity::{CartItemCountPacket, StorageItemCountPacket};
 pub use self::item_skill_selection::{
     AutoSpellListFixedPacket, AutoSpellListPacket, ItemCompositionAckPacket, ItemCompositionListPacket, ItemIdentifyAckPacket,
@@ -1323,7 +1325,8 @@ bitflags::bitflags! {
     pub struct EquippableItemFlags: u8 {
         const IDENTIFIED = 0b001;
         const IS_BROKEN = 0b010;
-        const IN_ETC_TAB = 0b110;
+        /// `PlaceETCTab`: the item is in the favorites tab.
+        const IN_ETC_TAB = 0b100;
     }
 }
 

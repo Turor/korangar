@@ -418,6 +418,12 @@ pub enum NetworkEvent {
     SetStorage {
         items: Vec<InventoryItem<NoMetadata>>,
     },
+    /// `ZC_INVENTORY_TAB`: the item moved into (`true`) or out of the
+    /// favorites tab.
+    ItemFavorite {
+        index: InventoryIndex,
+        favorite: bool,
+    },
     /// Slot cap for the inventory, storage or cart.
     ItemCapacity(crate::packet_versions::item_capacity::ItemCapacity),
     /// Full cart snapshot. Distinct from [`Self::SetInventory`].

@@ -13,6 +13,7 @@ pub mod equip_window;
 pub mod framing_20190530;
 pub mod framing_20250716;
 pub mod guild;
+pub mod inventory_tab;
 pub mod item_capacity;
 pub mod item_skill_selection;
 pub mod item_use;
