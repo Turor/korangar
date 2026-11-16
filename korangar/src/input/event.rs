@@ -222,6 +222,29 @@ pub enum InputEvent {
     },
     /// Open or close the achievement and attendance list.
     ToggleAchievementsWindow,
+    /// Open or close the attendance calendar (`CZ_OPEN_UI` 5).
+    ToggleAttendanceWindow,
+    /// Navigation window: search the client NPC / monster tables.
+    SearchNavigation,
+    /// Navigation window: ALL → NPC → MOB search filter.
+    CycleNavigationSearchKind,
+    /// Navigation window: allow Kafra / airship links in routes.
+    ToggleNavigationServices,
+    /// Navigation window: route to search result `index`.
+    ChooseNavigationResult {
+        index: usize,
+    },
+    /// Navigation window: drop the route and the server target.
+    ClearNavigationRoute,
+    /// Achievement window tab. `minor: None` shows the whole major tab.
+    SelectAchievementCategory {
+        major: u8,
+        minor: Option<u8>,
+    },
+    /// Achievement window row, for the detail panel and Claim reward.
+    SelectAchievement {
+        achievement_id: u32,
+    },
     /// Ask the map server for the attendance period.
     RequestAttendance,
     /// Ask the map server to grant the first completed achievement reward.

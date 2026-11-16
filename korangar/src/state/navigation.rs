@@ -4,6 +4,8 @@
 use korangar_interface::element::StateElement;
 use rust_state::RustState;
 
+pub mod route;
+
 /// How long a viewpoint mark stays on the current map.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, RustState, StateElement)]
 pub enum MinimapMarkDuration {
@@ -66,6 +68,8 @@ pub struct Navigation {
     status_line: String,
     target: Option<NavigationTarget>,
     marks: Vec<MinimapMark>,
+    /// Search, route and guide line (`route.rs`).
+    route: route::NavigationRoute,
 }
 
 pub fn normalize_map_name(name: &str) -> String {
@@ -153,6 +157,7 @@ impl Navigation {
         self.player_x = x;
         self.player_y = y;
         self.refresh_status_line();
+        self.refresh_guide();
     }
 
     pub fn set_navigation(&mut self, map_name: String, x: u16, y: u16, monster_id: u16, target_type: u8, service_flags: u8) {
@@ -166,6 +171,7 @@ impl Navigation {
             service_flags,
             summary,
         });
+        self.route_to_server_target();
     }
 
     /// `kind` is the packet `MarkerType`: 0 for 15 seconds, 1 until the map
@@ -228,10 +234,13 @@ impl Navigation {
         self.player_y = y;
         self.marks.clear();
         self.refresh_status_line();
+        self.refresh_route();
     }
 
     pub fn clear(&mut self) {
+        let route = self.cleared_route();
         *self = Self::default();
+        self.route = route;
     }
 }
 

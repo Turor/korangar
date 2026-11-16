@@ -388,7 +388,7 @@ impl LogicSession {
         Err(self.timeout("session step"))
     }
 
-    fn on_event(&mut self, event: korangar_networking::NetworkEvent) -> Result<(), String> {
+    pub(super) fn on_event(&mut self, event: korangar_networking::NetworkEvent) -> Result<(), String> {
         use korangar_networking::NetworkEvent;
         match event {
             NetworkEvent::LoginServerConnected {
@@ -567,7 +567,7 @@ impl LogicSession {
         self.servers.clear();
     }
 
-    fn take_failure(&mut self) -> Result<(), String> {
+    pub(super) fn take_failure(&mut self) -> Result<(), String> {
         if let Some(message) = self.failure.clone() {
             return Err(message);
         }
