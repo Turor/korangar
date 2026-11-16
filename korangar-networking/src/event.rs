@@ -1508,6 +1508,8 @@ pub enum NetworkEvent {
         variable: u16,
         value: u32,
     },
+    /// Capture, egg list, homunculus state, and companion skill lists.
+    CompanionNotice(crate::companions::CompanionNotice),
     /// The bank UI may open (`ZC_ACK_OPEN_BANKING`).
     BankOpened {
         unknown: i16,

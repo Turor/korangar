@@ -97,6 +97,12 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
         "HomunculusFeed" => Some(InputEvent::HomunculusFeed),
         "HomunculusRelease" => Some(InputEvent::HomunculusRelease),
         "MercenaryDismiss" => Some(InputEvent::MercenaryDismiss),
+        "ClosePetEggs" => Some(InputEvent::ClosePetEggs),
+        "ConfirmPetRename" => Some(InputEvent::ConfirmPetRename),
+        "ConfirmHomunculusRename" => Some(InputEvent::ConfirmHomunculusRename),
+        "HomunculusFollow" => Some(InputEvent::HomunculusFollow),
+        "HomunculusAttack" => Some(InputEvent::HomunculusAttack),
+        "HomunculusStandby" => Some(InputEvent::HomunculusStandby),
         "ToggleMvpMinimap" => Some(InputEvent::ToggleMvpMinimap),
         "OpenMail" => Some(InputEvent::OpenMail),
         "RefreshMail" => Some(InputEvent::RefreshMail),
@@ -403,6 +409,7 @@ pub fn parse_window_class(name: &str) -> Option<WindowClass> {
         "buyorsell" => Some(WindowClass::BuyOrSell),
         "chat" => Some(WindowClass::Chat),
         "companions" => Some(WindowClass::Companions),
+        "peteggs" => Some(WindowClass::PetEggs),
         "charactercreation" => Some(WindowClass::CharacterCreation),
         "characterdeletion" => Some(WindowClass::CharacterDeletion),
         "characteroverview" => Some(WindowClass::CharacterOverview),
@@ -576,6 +583,12 @@ pub fn window_command(class: WindowClass, open: bool) -> Result<WindowCommand, S
                 return Err("companions has no close event".to_owned());
             }
             InputEvent::OpenCompanions
+        }
+        WindowClass::PetEggs => {
+            if open {
+                return Err("pet eggs open from the server".to_owned());
+            }
+            InputEvent::ClosePetEggs
         }
         WindowClass::Refine => {
             if open {

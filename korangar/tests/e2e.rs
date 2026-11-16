@@ -37,6 +37,8 @@ use korangar::e2e::{
 
 #[path = "e2e/chat.rs"]
 mod chat;
+#[path = "e2e/companions.rs"]
+mod companions;
 
 fn live_session() -> Option<LogicSession> {
     match LogicSession::start_live() {

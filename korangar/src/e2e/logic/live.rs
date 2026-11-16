@@ -583,7 +583,7 @@ impl LogicSession {
                 cell_type,
                 map_name,
             } => self.map_world.apply_cell(position, cell_type, &map_name),
-            _ => {}
+            event => self.companion_note.observe(&event),
         }
         Ok(())
     }

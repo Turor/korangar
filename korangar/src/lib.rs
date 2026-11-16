@@ -2678,18 +2678,68 @@ impl Client {
                         },
                         summary,
                     );
+                    refresh_accessory_icon(&mut self.client_state, &self.async_loader, &self.library);
                     self.interface.open_window(CompanionWindow::new());
                 }
                 NetworkEvent::PetState { kind, value, .. } => {
                     self.client_state
                         .follow_mut(client_state().companion_window())
                         .apply_pet_state(kind, value);
+                    if kind == korangar_networking::PET_KIND_ACCESSORY {
+                        refresh_accessory_icon(&mut self.client_state, &self.async_loader, &self.library);
+                    }
                     self.interface.open_window(CompanionWindow::new());
                 }
-                NetworkEvent::HomunculusInfo { summary, .. } => {
-                    self.client_state
-                        .follow_mut(client_state().companion_window())
-                        .show_homunculus(summary);
+                NetworkEvent::HomunculusInfo {
+                    summary,
+                    name,
+                    flags,
+                    level,
+                    hunger,
+                    intimacy,
+                    attack,
+                    magic_attack,
+                    hit,
+                    critical,
+                    defense,
+                    magic_defense,
+                    flee,
+                    attack_motion,
+                    health_points,
+                    maximum_health_points,
+                    spell_points,
+                    maximum_spell_points,
+                    experience,
+                    next_experience,
+                    skill_points,
+                    attack_range,
+                } => {
+                    self.client_state.follow_mut(client_state().companion_window()).show_homunculus(
+                        HomunculusPanel {
+                            name,
+                            flags,
+                            level,
+                            hunger,
+                            intimacy,
+                            attack,
+                            magic_attack,
+                            hit,
+                            critical,
+                            defense,
+                            magic_defense,
+                            flee,
+                            attack_motion,
+                            health_points,
+                            maximum_health_points,
+                            spell_points,
+                            maximum_spell_points,
+                            experience,
+                            next_experience,
+                            skill_points,
+                            attack_range,
+                        },
+                        summary,
+                    );
                     self.interface.open_window(CompanionWindow::new());
                 }
                 NetworkEvent::MercenaryInfo {
@@ -2717,6 +2767,7 @@ impl Client {
                 } => {
                     self.client_state.follow_mut(client_state().companion_window()).show_mercenary(
                         crate::interface::windows::MercenaryPanel {
+                            account_id,
                             name,
                             level,
                             attack,
@@ -2771,6 +2822,15 @@ impl Client {
                         .follow_mut(client_state().companion_window())
                         .apply_elemental_parameter(variable, value);
                     self.interface.open_window(CompanionWindow::new());
+                }
+                NetworkEvent::CompanionNotice(notice) => {
+                    apply_companion_notice(
+                        &mut self.client_state,
+                        &mut self.interface,
+                        &self.async_loader,
+                        &self.library,
+                        notice,
+                    );
                 }
                 NetworkEvent::MonsterInfo { info } => {
                     let name = crate::world::QuestTextSource::monster_name(&*self.library, u32::from(info.job))
@@ -5061,6 +5121,7 @@ impl Client {
         let shop_search_open = self.interface.is_window_with_class_open(WindowClass::SearchStore);
         let shop_report_open = self.interface.is_window_with_class_open(WindowClass::VendingReport);
         let selection_open = self.interface.is_window_with_class_open(WindowClass::ItemSkillSelection);
+        let eggs_open = self.interface.is_window_with_class_open(WindowClass::PetEggs);
         let enchant_open = self.interface.is_window_with_class_open(WindowClass::Enchant);
         let grade_open = self.interface.is_window_with_class_open(WindowClass::EnchantGrade);
         let reform_open = self.interface.is_window_with_class_open(WindowClass::ItemReform);
@@ -5074,6 +5135,7 @@ impl Client {
             &mut self.networking_system,
             &mut self.interface,
         );
+        on_pet_egg_dismissed(eggs_open, &mut self.client_state, &self.interface);
         self.note_dismissed_workshops(enchant_open, grade_open, reform_open, synthesis_open, upgrade_open);
         self.sync_mail_compose();
         self.sync_item_move();
@@ -5773,6 +5835,9 @@ impl Client {
                 }
                 InputEvent::CloseTopWindow => self.on_close_top_window(),
                 InputEvent::Escape => {
+                    if self.client_state.follow_mut(client_state().companion_window()).cancel_capture() {
+                        continue;
+                    }
                     let npc_escape = crate::interface::npc_flow::try_close_npc_script(
                         &mut self.client_state,
                         &mut self.interface,
@@ -5920,14 +5985,30 @@ impl Client {
                                 }
                             }
                             EntityType::Monster => {
-                                let auto_attack = *self.client_state.follow(client_state().game_settings().auto_attack());
-                                let buffered_action = self.client_state.follow_mut(client_state().buffered_action());
+                                let capturing = self
+                                    .client_state
+                                    .follow_mut(client_state().companion_window())
+                                    .accept_capture_click();
+                                if capturing {
+                                    self.networking_system.try_capture_monster(entity_id.0)
+                                } else {
+                                    let follow_up = {
+                                        let window = self.client_state.follow_mut(client_state().companion_window());
+                                        window.remember_attack_target(entity_id.0);
+                                        window.attack_follow_up(entity_id.0)
+                                    };
+                                    if let Some((actor, target)) = follow_up {
+                                        let _ = self.networking_system.companion_attack(actor, target);
+                                    }
+                                    let auto_attack = *self.client_state.follow(client_state().game_settings().auto_attack());
+                                    let buffered_action = self.client_state.follow_mut(client_state().buffered_action());
 
-                                if auto_attack {
-                                    *buffered_action = Some(BufferedAction::AttackEntity { entity_id });
+                                    if auto_attack {
+                                        *buffered_action = Some(BufferedAction::AttackEntity { entity_id });
+                                    }
+
+                                    self.networking_system.player_attack(entity_id)
                                 }
-
-                                self.networking_system.player_attack(entity_id)
                             }
                             EntityType::Warp => {
                                 crate::interface::npc_flow::abort_npc_progress_for_move(
@@ -6322,6 +6403,59 @@ impl Client {
                 }
                 InputEvent::MercenaryDismiss => {
                     let _ = self.networking_system.command_mercenary(korangar_networking::MERC_ACT_DISMISS);
+                }
+                InputEvent::SelectPetEgg { wire_index } => {
+                    let send = self
+                        .client_state
+                        .follow_mut(client_state().companion_window())
+                        .choose_egg_wire(wire_index);
+                    if send {
+                        let _ = self.networking_system.select_pet_egg(wire_index);
+                    }
+                    self.interface.close_window_with_class(WindowClass::PetEggs);
+                }
+                InputEvent::ClosePetEggs => {
+                    self.client_state.follow_mut(client_state().companion_window()).cancel_eggs();
+                    self.interface.close_window_with_class(WindowClass::PetEggs);
+                }
+                InputEvent::ConfirmPetRename => {
+                    if let Ok(name) = self.client_state.follow_mut(client_state().companion_window()).confirm_pet_rename() {
+                        let _ = self.networking_system.rename_pet(name);
+                    }
+                }
+                InputEvent::ConfirmHomunculusRename => {
+                    if let Ok(name) = self
+                        .client_state
+                        .follow_mut(client_state().companion_window())
+                        .confirm_homunculus_rename()
+                    {
+                        let _ = self.networking_system.rename_homunculus(name);
+                    }
+                }
+                InputEvent::HomunculusFollow => {
+                    if let Some(actor) = self.client_state.follow_mut(client_state().companion_window()).command_follow() {
+                        let _ = self.networking_system.companion_follow(actor);
+                    }
+                }
+                InputEvent::HomunculusAttack => {
+                    if let Some((actor, target)) = self.client_state.follow_mut(client_state().companion_window()).command_attack() {
+                        let _ = self.networking_system.companion_attack(actor, target);
+                    }
+                }
+                InputEvent::HomunculusStandby => {
+                    self.client_state.follow_mut(client_state().companion_window()).command_standby();
+                }
+                InputEvent::LevelUpCompanionSkill { skill_id } => {
+                    if self
+                        .client_state
+                        .follow(client_state().companion_window())
+                        .can_level_homunculus_skill(skill_id)
+                    {
+                        let _ = self.networking_system.level_up_skill(SkillId(skill_id));
+                        self.client_state
+                            .follow_mut(client_state().companion_window())
+                            .note_skill_up_sent(skill_id);
+                    }
                 }
                 InputEvent::RequestWarpraBuy => match self.client_state.follow(client_state().warpra_window()).buy_request() {
                     Ok((kind, location_id)) => {
@@ -7813,7 +7947,9 @@ impl Client {
         if self.client_state.follow_mut(client_state().misc_info()).item_obtain_expired(now) {
             self.interface.close_window_with_class(WindowClass::ItemObtain);
         }
-        self.client_state.follow_mut(client_state().misc_info()).refresh_timers(now_unix());
+        let now = now_unix();
+        self.client_state.follow_mut(client_state().misc_info()).refresh_timers(now);
+        refresh_contract(&mut self.client_state, i64::try_from(now).unwrap_or(i64::MAX));
     }
 
     fn drive_autopilot(&mut self) {
@@ -8382,6 +8518,7 @@ impl Client {
                 ),
             };
 
+            let capture_armed = self.client_state.follow(client_state().companion_window()).capture_armed();
             let cursor_state = match input_report.mouse_target {
                 _ if is_rotating_camera => MouseCursorState::RotateCamera,
                 _ if is_grabbing => MouseCursorState::GrabResource,
@@ -8402,7 +8539,13 @@ impl Client {
                             .map(|entity| match entity.get_entity_type() {
                                 EntityType::Npc => MouseCursorState::Dialog,
                                 EntityType::Warp => MouseCursorState::Warp,
-                                EntityType::Monster => MouseCursorState::Attack,
+                                EntityType::Monster => {
+                                    if capture_armed {
+                                        MouseCursorState::Click
+                                    } else {
+                                        MouseCursorState::Attack
+                                    }
+                                }
                                 _ => MouseCursorState::Default,
                             })
                             .unwrap_or(MouseCursorState::Default)
