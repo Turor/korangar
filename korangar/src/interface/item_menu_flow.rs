@@ -10,19 +10,20 @@ use ragnarok_packets::{EquipPosition, HotbarSlot, HotbarTab, InventoryIndex};
 use crate::Client;
 use crate::graphics::{ScreenPosition, ScreenSize};
 use crate::input::InputEvent;
+use crate::interface::components::item_tooltip::{inventory_tooltips, pinned_details_body};
 use crate::interface::resource::ItemSource;
-use crate::interface::windows::{ItemDetailsWindow, ItemMenuWindow, WindowClass, format_item_details, item_details_key};
+use crate::interface::windows::{ItemMenuWindow, WindowClass, item_details_key};
 use crate::state::inventory::{InventoryPathExt, item_activation};
 use crate::state::inventory_view::{is_favorite, is_worn};
 use crate::state::item_menu::{
-    ItemMenuEffect, ItemMenuFacts, MenuOrigin, build_item_menu, effect_of, handle_extension, pending_link_event,
+    ItemMenuEffect, ItemMenuFacts, ItemMenuRow, MenuOrigin, build_item_menu, effect_of, handle_extension, pending_link_event,
 };
+use crate::state::item_move::ItemMoveTarget;
 use crate::state::quick_move::{
     QUICK_MOVE_NO_TARGET, QUICK_MOVE_WORN, QuickMoveDecision, QuickMoveWindows, SlotSecondary, classify_secondary, decide_quick_move,
     item_is_locked,
 };
-use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt};
-use crate::state::{ChatMessage, ClientStatePathExt, client_state, client_theme};
+use crate::state::{ChatMessage, ClientStatePathExt, client_state};
 use crate::world::ResourceMetadata;
 
 fn menu_origin(source: ItemSource) -> MenuOrigin {
@@ -34,6 +35,69 @@ fn menu_origin(source: ItemSource) -> MenuOrigin {
             position_bits: position.bits(),
         },
         ItemSource::Hotbar { tab, slot } => MenuOrigin::Hotbar { tab: tab.0, slot: slot.0 },
+    }
+}
+
+/// What Alt+right-click or a plain right-click should do.
+/// [`Client::on_item_slot_secondary`] and the offline fixture both apply this.
+pub(crate) enum SlotReaction {
+    Ignored,
+    Hint(&'static str),
+    Move(ItemMoveTarget),
+    Mail {
+        index: u16,
+    },
+    OpenMenu {
+        title: String,
+        origin: MenuOrigin,
+        index: u16,
+        rows: Vec<ItemMenuRow>,
+    },
+}
+
+pub(crate) fn react_to_secondary<Meta>(
+    source: ItemSource,
+    item: &InventoryItem<Meta>,
+    name: &str,
+    alt: bool,
+    windows: QuickMoveWindows,
+) -> SlotReaction {
+    let origin = menu_origin(source);
+    match classify_secondary(true, alt) {
+        SlotSecondary::Ignore => SlotReaction::Ignored,
+        SlotSecondary::QuickMove => {
+            let Some(quick_source) = origin.quick_source() else {
+                let hint = if is_worn(item) { QUICK_MOVE_WORN } else { QUICK_MOVE_NO_TARGET };
+                return SlotReaction::Hint(hint);
+            };
+            match decide_quick_move(quick_source, windows, item_is_locked(item), is_worn(item)) {
+                QuickMoveDecision::Move(target) => SlotReaction::Move(target),
+                QuickMoveDecision::Mail => SlotReaction::Mail { index: item.index.0 },
+                QuickMoveDecision::Hint(text) => SlotReaction::Hint(text),
+            }
+        }
+        SlotSecondary::OpenMenu => {
+            let worn = is_worn(item) || matches!(origin, MenuOrigin::Equipment { .. });
+            let facts = ItemMenuFacts {
+                origin,
+                activation: item_activation(item),
+                worn,
+                favorite: is_favorite(item),
+                locked: item_is_locked(item),
+                windows,
+                link_to_chat: pending_link_event(item.index.0).is_some(),
+            };
+            let title = match name.trim() {
+                "" => "Item".to_owned(),
+                name => name.to_owned(),
+            };
+            SlotReaction::OpenMenu {
+                title,
+                origin,
+                index: item.index.0,
+                rows: build_item_menu(&facts),
+            }
+        }
     }
 }
 
@@ -84,53 +148,27 @@ impl Client {
         let Some(item) = self.item_for_slot(source, index) else {
             return;
         };
-        match classify_secondary(true, alt) {
-            SlotSecondary::Ignore => {}
-            SlotSecondary::QuickMove => self.quick_move_item(source, &item),
-            SlotSecondary::OpenMenu => self.open_item_menu(source, &item),
-        }
-    }
-
-    fn quick_move_item(&mut self, source: ItemSource, item: &InventoryItem<ResourceMetadata>) {
-        let origin = menu_origin(source);
-        let Some(quick_source) = origin.quick_source() else {
-            let hint = if is_worn(item) { QUICK_MOVE_WORN } else { QUICK_MOVE_NO_TARGET };
-            self.item_menu_hint(hint);
-            return;
-        };
-        let decision = decide_quick_move(quick_source, self.transfer_windows(), item_is_locked(item), is_worn(item));
-        match decision {
-            QuickMoveDecision::Move(target) => self.offer_item_move(target, item),
-            QuickMoveDecision::Mail => {
-                self.input_event_buffer.push(InputEvent::MailAttachItem {
-                    index: item.index.0,
-                    amount: None,
-                });
+        let reaction = react_to_secondary(source, &item, &item.metadata.name, alt, self.transfer_windows());
+        match reaction {
+            SlotReaction::Ignored => {}
+            SlotReaction::Hint(text) => self.item_menu_hint(text),
+            SlotReaction::Move(target) => self.offer_item_move(target, &item),
+            SlotReaction::Mail { index } => {
+                self.input_event_buffer.push(InputEvent::MailAttachItem { index, amount: None });
             }
-            QuickMoveDecision::Hint(text) => self.item_menu_hint(text),
+            SlotReaction::OpenMenu {
+                title,
+                origin,
+                index,
+                rows,
+            } => self.present_item_menu(title, origin, index, rows),
         }
     }
 
-    fn open_item_menu(&mut self, source: ItemSource, item: &InventoryItem<ResourceMetadata>) {
-        let origin = menu_origin(source);
-        let worn = is_worn(item) || matches!(origin, MenuOrigin::Equipment { .. });
-        let facts = ItemMenuFacts {
-            origin,
-            activation: item_activation(item),
-            worn,
-            favorite: is_favorite(item),
-            locked: item_is_locked(item),
-            windows: self.transfer_windows(),
-            link_to_chat: pending_link_event(item.index.0).is_some(),
-        };
-        let entries = build_item_menu(&facts);
-        let title = match item.metadata.name.trim() {
-            "" => "Item".to_owned(),
-            name => name.to_owned(),
-        };
+    fn present_item_menu(&mut self, title: String, origin: MenuOrigin, index: u16, rows: Vec<ItemMenuRow>) {
         self.client_state
             .follow_mut(client_state().item_menu())
-            .open(title, origin, item.index.0, entries);
+            .open(title, origin, index, rows);
         if !self.interface.is_window_with_class_open(WindowClass::ItemMenu) {
             self.interface.open_window(ItemMenuWindow::new());
         }
@@ -181,6 +219,11 @@ impl Client {
                     amount: None,
                 });
             }
+            ItemMenuEffect::Link => {
+                if let Some(item) = self.item_for_slot(source_of(origin), index) {
+                    self.input_event_buffer.push(InputEvent::LinkItemInChat { item });
+                }
+            }
             ItemMenuEffect::Drop => {
                 if let Some(item) = self.item_for_slot(source_of(origin), index) {
                     self.input_event_buffer.push(InputEvent::DropItem { item });
@@ -194,11 +237,12 @@ impl Client {
         let Some(item) = self.item_for_slot(source_of(origin), index) else {
             return;
         };
-        let gold = *self.client_state.follow(client_theme().tokens().gold());
-        let key = item_details_key(source_of(origin), &item);
-        self.interface.open_or_raise_instance(key, ItemDetailsWindow {
+        let source = source_of(origin);
+        let body = pinned_details_body(&inventory_tooltips(&self.client_state, &item, source));
+        self.input_event_buffer.push(InputEvent::OpenItemDetails {
+            key: item_details_key(source, &item),
             title: item.metadata.name.clone(),
-            body: format_item_details(&item, gold),
+            body,
         });
     }
 

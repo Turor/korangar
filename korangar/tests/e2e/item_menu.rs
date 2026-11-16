@@ -27,12 +27,18 @@ fn item_menu_and_quick_move_offline() {
     assert_eq!(report.no_target_hint, QUICK_MOVE_NO_TARGET);
     assert!(report.no_target_request.is_empty());
 
-    assert_eq!(report.menu_labels, ["Use", "Details", "Favorite", "Drop"]);
-    assert!(!report.menu_labels.iter().any(|label| label == "Link to chat"));
+    assert_eq!(report.menu_labels, ["Use", "Details", "Link to chat", "Favorite", "Drop"]);
     assert!(!report.menu_labels.iter().any(|label| label == "Junk" || label == "Lock"));
     assert_eq!(report.use_request, [0x39, 0x04, 4, 0, 0, 0, 0, 0]);
     assert!(report.details_opened);
+    assert!(report.details_body.contains("Red Potion"));
+    assert!(
+        report.details_body.contains("Weight: 7"),
+        "details body missed the item-finder line: {}",
+        report.details_body
+    );
     assert_eq!(report.keyboard_pick, 1);
+    assert!(report.link_queued, "Link to chat did not queue LinkItemInChat");
 }
 
 #[test]
@@ -53,10 +59,15 @@ fn item_menu_on_test_inventory() {
     assert!(report.inventory_rows > 0, "the TEST character's inventory never arrived");
     assert!(report.has_details, "menu did not include Details: {:?}", report.labels);
     assert!(
+        report.labels.iter().any(|label| label == "Link to chat"),
+        "menu hid Link to chat: {:?}",
+        report.labels
+    );
+    assert!(
         !report
             .labels
             .iter()
-            .any(|label| { label == "Link to chat" || label == "Junk" || label == "Lock" || label == "Unlock" })
+            .any(|label| label == "Junk" || label == "Lock" || label == "Unlock")
     );
     assert_eq!(report.quick_move_hint, QUICK_MOVE_NO_TARGET);
     assert_eq!(report.sent_before, report.sent_after);

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
 use ragnarok_packets::ClientTick;
+use winit::keyboard::KeyCode;
 
 use self::live::SentHeaders;
 pub use self::live::inventory_grid::LiveInventoryGridReport;
@@ -256,6 +257,28 @@ impl LogicSession {
 
     pub fn sent_header_count(&self) -> usize {
         self.sent.headers.lock().map(|guard| guard.len()).unwrap_or(0)
+    }
+
+    /// One injected right-click, with Alt when `alt` is set. The pair is
+    /// `(right button landed, Alt is down)` after the same update the frame
+    /// uses.
+    fn sample_right_click(&mut self, alt: bool) -> (bool, bool) {
+        self.input.expire_synthesized();
+        self.input.advance_synthetic_drag();
+        // Releasing a button that was never down marks a press. Flush that
+        // frame before the click, and stay outside the double-click window.
+        self.tick = self.tick.wrapping_add(1_000);
+        let _ = self.finish_frame();
+        if alt {
+            self.input.synthesize_key(KeyCode::AltLeft, false, false, false);
+        }
+        self.input
+            .synthesize_click(20.0, 20.0, korangar_interface::layout::MouseButton::Right);
+        self.tick = self.tick.wrapping_add(1_000);
+        let (report, _) = self.finish_frame();
+        let right = report.mouse_click == Some(korangar_interface::layout::MouseButton::Right);
+        let alt_down = self.input.key_down(KeyCode::AltLeft);
+        (right, alt_down)
     }
 
     pub fn sent_choices(&self) -> Vec<self::live::SentChoice> {

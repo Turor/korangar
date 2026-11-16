@@ -1,25 +1,33 @@
 //! Right-click item menu and Alt+right-click quick-move, headless.
 //!
-//! The offline run injects Alt+right-click through [`InputSystem`], then runs
-//! the same prompt and packet encode the client uses. The live check is
-//! [`super::LogicSession::item_menu_on_test`].
+//! The offline run opens a storage fixture, injects Alt+right-click through
+//! [`InputSystem`], and applies [`react_to_secondary`] plus the client's
+//! amount prompt. Confirm encodes the same bytes `Client::send_item_move`
+//! sends. The live check is [`super::LogicSession::item_menu_on_test`].
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
+use korangar_networking::InventoryItemDetails;
 use ragnarok_bytes::ByteWriter;
-use ragnarok_packets::{AccountId, ClientTick, InventoryIndex, PacketExt, UseItemPacket};
+use ragnarok_packets::{
+    AccountId, ClientTick, EquipPosition, EquippableItemFlags, InventoryIndex, ItemId, ItemOptions, PacketExt, RegularItemFlags,
+    UseItemPacket,
+};
 use winit::keyboard::KeyCode;
 
 use crate::autopilot::{Command, parse_command};
-use crate::input::InputSystem;
-use crate::interface::item_move_flow::stack_amount;
-use crate::state::inventory::ItemActivation;
-use crate::state::item_menu::{ItemMenuEffect, ItemMenuFacts, ItemMenuState, MenuOrigin, build_item_menu, effect_of, pending_link_event};
-use crate::state::item_move::{ItemMovePrompt, ItemMoveStep, ItemMoveTarget};
-use crate::state::quick_move::{
-    QUICK_MOVE_NO_TARGET, QuickMoveDecision, QuickMoveSource, QuickMoveWindows, SlotSecondary, classify_secondary, decide_quick_move,
-};
+use crate::graphics::Color;
+use crate::input::{InputEvent, InputSystem};
+use crate::interface::components::item_tooltip::{pinned_details_body, tooltip_text};
+use crate::interface::item_menu_flow::{SlotReaction, react_to_secondary};
+use crate::interface::item_move_flow::{confirm_amount, offer_amount, stack_amount};
+use crate::interface::resource::ItemSource;
+use crate::interface::windows::{format_item_details, item_details_key};
+use crate::state::item_compare::ItemTooltipCatalog;
+use crate::state::item_menu::ItemMenuState;
+use crate::state::item_move::{ItemMovePrompt, ItemMoveStep};
+use crate::state::quick_move::{QUICK_MOVE_NO_TARGET, QuickMoveWindows, SlotSecondary, classify_secondary};
 use crate::state::vn_dialog::ChoiceKeys;
 use crate::world::ResourceMetadata;
 
@@ -43,15 +51,19 @@ pub struct OfflineItemMenuReport {
     /// Only the cart is open: `0x0126` for the knife.
     pub cart_request: Vec<u8>,
     pub no_target_hint: String,
-    /// Nothing is encoded when no transfer window is open.
+    /// Bytes the no-target click caused the handler to send.
     pub no_target_request: Vec<u8>,
     pub menu_labels: Vec<String>,
-    /// `0x0439` for inventory index 2 and account 0.
+    /// `0x0439` produced by picking Use.
     pub use_request: Vec<u8>,
-    /// Details is the row the client opens as a pinned details window.
+    /// Details opened a pinned window.
     pub details_opened: bool,
+    /// Body of that window, including Item Finder lines.
+    pub details_body: String,
     /// Arrow down then Enter picks this row.
     pub keyboard_pick: usize,
+    /// Picking Link to chat queued `LinkItemInChat`.
+    pub link_queued: bool,
 }
 
 fn encode<P: PacketExt>(packet: &P) -> Result<Vec<u8>, String> {
@@ -69,36 +81,198 @@ fn script(line: &str) -> Result<String, String> {
     }
 }
 
-fn injected_click(alt: bool) -> (bool, bool) {
-    let mut input = InputSystem::new(Arc::new(AtomicU64::new(0)));
-    input.expire_synthesized();
-    input.advance_synthetic_drag();
-    if alt {
-        input.synthesize_key(KeyCode::AltLeft, false, false, false);
-    }
-    input.synthesize_click(20.0, 20.0, korangar_interface::layout::MouseButton::Right);
-    let report = input.update_delta(ClientTick(1));
-    let right = report.mouse_click == Some(korangar_interface::layout::MouseButton::Right);
-    let alt_down = input.key_down(KeyCode::AltLeft);
-    (right, alt_down)
+struct Fixture {
+    input: InputSystem,
+    tick: u32,
+    inventory: Vec<korangar_networking::InventoryItem<ResourceMetadata>>,
+    windows: QuickMoveWindows,
+    prompt: ItemMovePrompt,
+    sent: Vec<Vec<u8>>,
+    hints: Vec<String>,
+    events: Vec<InputEvent>,
+    menu: ItemMenuState,
+    details: Vec<(u64, String, String)>,
+    catalog: ItemTooltipCatalog,
+    gold: Color,
+    accent: Color,
 }
 
-fn potion_facts() -> ItemMenuFacts {
-    ItemMenuFacts {
-        origin: MenuOrigin::Inventory,
-        activation: ItemActivation::Use,
-        worn: false,
-        favorite: false,
-        locked: false,
-        windows: QuickMoveWindows::default(),
-        link_to_chat: pending_link_event(2).is_some(),
+impl Fixture {
+    fn new() -> Self {
+        let mut catalog = ItemTooltipCatalog::default();
+        catalog.insert_item(501, "Red Potion".to_owned(), 0, 7, 0, "Every Job".to_owned());
+        Self {
+            input: InputSystem::new(Arc::new(AtomicU64::new(0))),
+            tick: 0,
+            inventory: Vec::new(),
+            windows: QuickMoveWindows::default(),
+            prompt: ItemMovePrompt::default(),
+            sent: Vec::new(),
+            hints: Vec::new(),
+            events: Vec::new(),
+            menu: ItemMenuState::default(),
+            details: Vec::new(),
+            catalog,
+            gold: Color::rgb_u8(200, 162, 90),
+            accent: Color::rgb_u8(232, 213, 163),
+        }
+    }
+
+    fn insert(&mut self, item: korangar_networking::InventoryItem<ResourceMetadata>) {
+        self.inventory.push(item);
+    }
+
+    fn take_sent(&mut self) -> Vec<u8> {
+        self.sent.pop().unwrap_or_default()
+    }
+
+    fn inject(&mut self, alt: bool) -> (bool, bool) {
+        self.input.expire_synthesized();
+        self.input.advance_synthetic_drag();
+        // Releasing a button that was never down marks a press. Flush that
+        // frame before the click, and stay outside the double-click window.
+        self.tick = self.tick.wrapping_add(1_000);
+        let _ = self.input.update_delta(ClientTick(self.tick));
+        if alt {
+            self.input.synthesize_key(KeyCode::AltLeft, false, false, false);
+        }
+        self.input
+            .synthesize_click(20.0, 20.0, korangar_interface::layout::MouseButton::Right);
+        self.tick = self.tick.wrapping_add(1_000);
+        let report = self.input.update_delta(ClientTick(self.tick));
+        let right = report.mouse_click == Some(korangar_interface::layout::MouseButton::Right);
+        let alt_down = self.input.key_down(KeyCode::AltLeft);
+        (right, alt_down)
+    }
+
+    /// Inject the click, then run the same reaction the client runs.
+    fn click_slot(&mut self, index: InventoryIndex, alt: bool) -> Result<SlotSecondary, String> {
+        let (right, alt_down) = self.inject(alt);
+        let kind = classify_secondary(right, alt_down);
+        let item = self
+            .inventory
+            .iter()
+            .find(|item| item.index == index)
+            .cloned()
+            .ok_or_else(|| format!("no item at {}", index.0))?;
+        let alt = match kind {
+            SlotSecondary::QuickMove => true,
+            SlotSecondary::OpenMenu => false,
+            SlotSecondary::Ignore => return Ok(kind),
+        };
+        let reaction = react_to_secondary(ItemSource::Inventory, &item, &item.metadata.name, alt, self.windows);
+        self.apply_reaction(reaction, &item)?;
+        Ok(kind)
+    }
+
+    fn apply_reaction(
+        &mut self,
+        reaction: SlotReaction,
+        item: &korangar_networking::InventoryItem<ResourceMetadata>,
+    ) -> Result<(), String> {
+        match reaction {
+            SlotReaction::Ignored => {}
+            SlotReaction::Hint(text) => self.hints.push(text.to_owned()),
+            SlotReaction::Move(target) => {
+                let step = offer_amount(&mut self.prompt, target, item.index.0, stack_amount(item), &item.metadata.name);
+                self.note_step(step)?;
+            }
+            SlotReaction::Mail { index } => {
+                self.events.push(InputEvent::MailAttachItem { index, amount: None });
+            }
+            SlotReaction::OpenMenu {
+                title,
+                origin,
+                index,
+                rows,
+            } => self.menu.open(title, origin, index, rows),
+        }
+        Ok(())
+    }
+
+    fn note_step(&mut self, step: ItemMoveStep) -> Result<(), String> {
+        if let ItemMoveStep::Send { target, index, amount } = step {
+            self.sent.push(crate::e2e::item_move_request(target, index, amount)?);
+        }
+        Ok(())
+    }
+
+    /// The amount window's OK, through [`confirm_amount`].
+    fn confirm(&mut self) -> Result<(), String> {
+        let (target, index, amount) = confirm_amount(&mut self.prompt)?;
+        self.sent.push(crate::e2e::item_move_request(target, index, amount)?);
+        Ok(())
+    }
+
+    fn pick(&mut self, row: usize) -> Result<(), String> {
+        let entry = self.menu.entry_at(row).ok_or("menu row is missing")?;
+        let origin = self.menu.origin();
+        let index = self.menu.index();
+        let effect = crate::state::item_menu::effect_of(entry, origin);
+        self.menu.close();
+        let item_index = InventoryIndex(index);
+        let item = self
+            .inventory
+            .iter()
+            .find(|item| item.index == item_index)
+            .cloned()
+            .ok_or("picked item is not in the fixture")?;
+        match effect {
+            crate::state::item_menu::ItemMenuEffect::UseItem => {
+                self.sent.push(encode(&UseItemPacket::new(item_index, AccountId(0)))?);
+            }
+            crate::state::item_menu::ItemMenuEffect::Details => {
+                let text = tooltip_text(
+                    &item,
+                    ItemSource::Inventory,
+                    &self.catalog,
+                    &self.inventory,
+                    false,
+                    self.gold,
+                    self.accent,
+                );
+                let body = pinned_details_body(&text);
+                let thin = format_item_details(&item, self.gold);
+                if body == thin {
+                    return Err("details body is the thin formatter, not the inventory tooltip".to_owned());
+                }
+                self.details
+                    .push((item_details_key(ItemSource::Inventory, &item), item.metadata.name.clone(), body));
+            }
+            crate::state::item_menu::ItemMenuEffect::Link => {
+                self.events.push(InputEvent::LinkItemInChat { item });
+            }
+            crate::state::item_menu::ItemMenuEffect::Move(target) => {
+                let step = offer_amount(&mut self.prompt, target, item.index.0, stack_amount(&item), &item.metadata.name);
+                self.note_step(step)?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+fn stack(name: &str, index: u16, item_id: u32, amount: u16, item_type: u8) -> korangar_networking::InventoryItem<ResourceMetadata> {
+    korangar_networking::InventoryItem {
+        metadata: ResourceMetadata {
+            texture: None,
+            name: name.to_owned(),
+            description: String::new(),
+        },
+        index: InventoryIndex(index),
+        item_id: ItemId(item_id),
+        item_type,
+        slot: [0; 4],
+        hire_expiration_date: 0,
+        details: InventoryItemDetails::Regular {
+            amount,
+            equipped_position: EquipPosition::empty(),
+            flags: RegularItemFlags::IDENTIFIED,
+        },
     }
 }
 
 fn gear_item() -> korangar_networking::InventoryItem<ResourceMetadata> {
-    use korangar_networking::InventoryItemDetails;
-    use ragnarok_packets::{EquipPosition, EquippableItemFlags, ItemId, ItemOptions};
-
     let option = || ItemOptions {
         index: 0,
         value: 0,
@@ -132,11 +306,6 @@ fn gear_item() -> korangar_networking::InventoryItem<ResourceMetadata> {
 
 /// Storage quick-move, cart quick-move, the closed-window hint, and the menu.
 pub fn offline_item_menu() -> Result<OfflineItemMenuReport, String> {
-    let (alt_right, alt_down) = injected_click(true);
-    let injected_alt_right = classify_secondary(alt_right, alt_down) == SlotSecondary::QuickMove;
-    let (right, plain_alt) = injected_click(false);
-    let injected_right = classify_secondary(right, plain_alt) == SlotSecondary::OpenMenu;
-
     let scripted = [
         "event ItemMenuPick(0)",
         "event ItemMenuPick(1)",
@@ -147,72 +316,62 @@ pub fn offline_item_menu() -> Result<OfflineItemMenuReport, String> {
     .map(|line| script(line))
     .collect::<Result<Vec<_>, _>>()?;
 
-    let mut prompt = ItemMovePrompt::default();
-    if prompt.offer(ItemMoveTarget::ToStorage, 9, 30, "Red Potion") != ItemMoveStep::AskAmount {
-        return Err("a stack of 30 did not ask".to_owned());
-    }
-    let stack_prompt = prompt.prompt.clone();
-    let stack_default = prompt.amount_text.clone();
-    let (target, index, amount) = prompt.confirm()?;
-    if target != ItemMoveTarget::ToStorage || index != 9 || amount != 30 {
-        return Err(format!("stack confirmed as {target:?} {index} {amount}"));
-    }
-    let stack_request = crate::e2e::item_move_request(target, index, amount)?;
+    let mut world = Fixture::new();
+    world.insert(stack("Red Potion", 9, 501, 30, 0));
+    world.insert(stack("Knife", 4, 1201, 1, 0));
+    world.insert(gear_item());
+    world.insert(stack("Red Potion", 2, 501, 1, 0));
+    world.windows.storage = true;
 
-    let mut prompt = ItemMovePrompt::default();
-    let knife = prompt.offer(ItemMoveTarget::ToStorage, 4, 1, "Knife");
-    let ItemMoveStep::Send { target, index, amount } = knife else {
+    let stack_kind = world.click_slot(InventoryIndex(9), true)?;
+    let injected_alt_right = stack_kind == SlotSecondary::QuickMove;
+    if !world.prompt.is_asking() {
+        return Err("a 30-stack with storage open did not ask".to_owned());
+    }
+    let stack_prompt = world.prompt.prompt.clone();
+    let stack_default = world.prompt.amount_text.clone();
+    if !world.sent.is_empty() {
+        return Err("the stack sent before confirm".to_owned());
+    }
+    world.confirm()?;
+    let stack_request = world.take_sent();
+
+    let knife_kind = world.click_slot(InventoryIndex(4), true)?;
+    if knife_kind != SlotSecondary::QuickMove {
+        return Err("knife click was not a quick-move".to_owned());
+    }
+    if world.prompt.is_asking() {
         return Err("a single knife asked for an amount".to_owned());
-    };
-    let knife_request = crate::e2e::item_move_request(target, index, amount)?;
-
-    let gear_amount = stack_amount(&gear_item());
-    let mut prompt = ItemMovePrompt::default();
-    let gear = prompt.offer(ItemMoveTarget::ToStorage, 3, gear_amount, "Knife");
-    let ItemMoveStep::Send { target, index, amount } = gear else {
-        return Err("gear asked for an amount".to_owned());
-    };
-    let gear_request = crate::e2e::item_move_request(target, index, amount)?;
-
-    let cart = decide_quick_move(
-        QuickMoveSource::Inventory,
-        QuickMoveWindows {
-            cart: true,
-            ..QuickMoveWindows::default()
-        },
-        false,
-        false,
-    );
-    let QuickMoveDecision::Move(ItemMoveTarget::ToCart) = cart else {
-        return Err(format!("cart-only quick-move was {cart:?}"));
-    };
-    let mut prompt = ItemMovePrompt::default();
-    let cart_step = prompt.offer(ItemMoveTarget::ToCart, 4, 1, "Knife");
-    let ItemMoveStep::Send { target, index, amount } = cart_step else {
-        return Err("cart knife asked for an amount".to_owned());
-    };
-    let cart_request = crate::e2e::item_move_request(target, index, amount)?;
-
-    let no_target = decide_quick_move(QuickMoveSource::Inventory, QuickMoveWindows::default(), false, false);
-    let QuickMoveDecision::Hint(hint) = no_target else {
-        return Err(format!("no-target quick-move was {no_target:?}"));
-    };
-    if hint != QUICK_MOVE_NO_TARGET {
-        return Err(format!("no-target hint was {hint}"));
     }
-    let no_target_hint = hint.to_owned();
-    let no_target_request = Vec::new();
+    let knife_request = world.take_sent();
 
-    let rows = build_item_menu(&potion_facts());
-    let menu_labels = rows.iter().map(|row| row.label.clone()).collect::<Vec<_>>();
-    let use_request = encode(&UseItemPacket::new(InventoryIndex(2), AccountId(0)))?;
-    let details_opened = rows
-        .iter()
-        .any(|row| effect_of(row.entry, MenuOrigin::Inventory) == ItemMenuEffect::Details);
+    world.click_slot(InventoryIndex(3), true)?;
+    if world.prompt.is_asking() {
+        return Err("gear asked for an amount".to_owned());
+    }
+    let gear_request = world.take_sent();
 
-    let mut menu = ItemMenuState::default();
-    menu.open("Red Potion".to_owned(), MenuOrigin::Inventory, 2, rows);
-    if menu
+    world.windows = QuickMoveWindows {
+        cart: true,
+        ..QuickMoveWindows::default()
+    };
+    world.click_slot(InventoryIndex(4), true)?;
+    let cart_request = world.take_sent();
+
+    world.windows = QuickMoveWindows::default();
+    let sent_before = world.sent.len();
+    world.click_slot(InventoryIndex(4), true)?;
+    let no_target_hint = world.hints.last().cloned().unwrap_or_default();
+    if no_target_hint != QUICK_MOVE_NO_TARGET {
+        return Err(format!("no-target hint was {no_target_hint}"));
+    }
+    let no_target_request = world.sent[sent_before..].iter().flatten().copied().collect::<Vec<_>>();
+
+    let menu_kind = world.click_slot(InventoryIndex(2), false)?;
+    let injected_right = menu_kind == SlotSecondary::OpenMenu;
+    let menu_labels = world.menu.entries.iter().map(|row| row.label.clone()).collect::<Vec<_>>();
+    if world
+        .menu
         .apply_keys(ChoiceKeys {
             next: true,
             ..ChoiceKeys::default()
@@ -221,12 +380,36 @@ pub fn offline_item_menu() -> Result<OfflineItemMenuReport, String> {
     {
         return Err("arrow down picked a row".to_owned());
     }
-    let keyboard_pick = menu
+    let keyboard_pick = world
+        .menu
         .apply_keys(ChoiceKeys {
             confirm: true,
             ..ChoiceKeys::default()
         })
         .ok_or("enter did not pick")?;
+
+    world.click_slot(InventoryIndex(2), false)?;
+    world.pick(0)?;
+    let use_request = world.take_sent();
+    world.click_slot(InventoryIndex(2), false)?;
+    let details_row = world
+        .menu
+        .entries
+        .iter()
+        .position(|row| row.label == "Details")
+        .ok_or("menu has no Details row")?;
+    world.pick(details_row)?;
+    let details_opened = !world.details.is_empty();
+    let details_body = world.details.last().map(|(_, _, body)| body.clone()).unwrap_or_default();
+    world.click_slot(InventoryIndex(2), false)?;
+    let link_row = world
+        .menu
+        .entries
+        .iter()
+        .position(|row| row.label == "Link to chat")
+        .ok_or("menu has no Link to chat row")?;
+    world.pick(link_row)?;
+    let link_queued = world.events.iter().any(|event| matches!(event, InputEvent::LinkItemInChat { .. }));
 
     Ok(OfflineItemMenuReport {
         injected_alt_right,
@@ -243,6 +426,8 @@ pub fn offline_item_menu() -> Result<OfflineItemMenuReport, String> {
         menu_labels,
         use_request,
         details_opened,
+        details_body,
         keyboard_pick,
+        link_queued,
     })
 }

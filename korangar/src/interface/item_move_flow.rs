@@ -14,11 +14,27 @@ use crate::state::{ChatMessage, ClientStatePathExt, client_state};
 use crate::world::ResourceMetadata;
 
 /// Stack size the drop offers; equipment is always 1.
-pub(crate) fn stack_amount(item: &InventoryItem<ResourceMetadata>) -> u16 {
+pub(crate) fn stack_amount<Meta>(item: &InventoryItem<Meta>) -> u16 {
     match &item.details {
         InventoryItemDetails::Regular { amount, .. } => *amount,
         InventoryItemDetails::Equippable { .. } => 1,
     }
+}
+
+/// The amount prompt the client and the offline fixture both run.
+pub(crate) fn offer_amount(
+    prompt: &mut crate::state::item_move::ItemMovePrompt,
+    target: ItemMoveTarget,
+    index: u16,
+    amount: u16,
+    name: &str,
+) -> ItemMoveStep {
+    prompt.offer(target, index, amount, name)
+}
+
+/// OK on that prompt. The caller sends the returned move.
+pub(crate) fn confirm_amount(prompt: &mut crate::state::item_move::ItemMovePrompt) -> Result<(ItemMoveTarget, u16, u16), String> {
+    prompt.confirm()
 }
 
 impl Client {
@@ -29,10 +45,13 @@ impl Client {
     }
 
     fn offer_item_move_index(&mut self, target: ItemMoveTarget, index: u16, amount: u16, name: &str) {
-        let step = self
-            .client_state
-            .follow_mut(client_state().item_move())
-            .offer(target, index, amount, name);
+        let step = offer_amount(
+            self.client_state.follow_mut(client_state().item_move()),
+            target,
+            index,
+            amount,
+            name,
+        );
         match step {
             ItemMoveStep::Send { target, index, amount } => self.send_item_move(target, index, amount),
             ItemMoveStep::AskAmount => {
@@ -95,7 +114,7 @@ impl Client {
     }
 
     fn confirm_item_move(&mut self) {
-        let confirmed = self.client_state.follow_mut(client_state().item_move()).confirm();
+        let confirmed = confirm_amount(self.client_state.follow_mut(client_state().item_move()));
         match confirmed {
             Ok((target, index, amount)) => {
                 self.interface.close_window_with_class(WindowClass::ItemMoveAmount);

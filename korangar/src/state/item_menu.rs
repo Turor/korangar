@@ -1,9 +1,9 @@
 //! Right-click menu for an item slot.
 //!
 //! Rows follow Use or Equip, Details, Link to chat, Favorite, the open
-//! transfer targets, then Drop. Link to chat stays hidden until G55's
-//! `InputEvent::LinkItemInChat` exists ([`pending_link_event`]). Junk and
-//! Lock stay hidden until G58 registers them in [`item_menu_extensions`].
+//! transfer targets, then Drop. Link to chat is shown because
+//! [`crate::input::InputEvent::LinkItemInChat`] exists. Junk and Lock stay
+//! hidden until G58 registers them in [`item_menu_extensions`].
 
 use korangar_interface::element::StateElement;
 use rust_state::RustState;
@@ -103,10 +103,14 @@ pub enum ItemMenuEffect {
     UseItem,
     Unequip,
     Details,
-    Favorite { favorite: bool },
+    Favorite {
+        favorite: bool,
+    },
     Move(ItemMoveTarget),
     Mail,
     Drop,
+    /// Queue [`crate::input::InputEvent::LinkItemInChat`].
+    Link,
     None,
 }
 
@@ -127,14 +131,15 @@ pub fn effect_of(entry: ItemMenuEntry, origin: MenuOrigin) -> ItemMenuEffect {
             _ => ItemMenuEffect::None,
         },
         ItemMenuEntry::Drop => ItemMenuEffect::Drop,
-        ItemMenuEntry::LinkToChat | ItemMenuEntry::Junk | ItemMenuEntry::Lock | ItemMenuEntry::Unlock => ItemMenuEffect::None,
+        ItemMenuEntry::LinkToChat => ItemMenuEffect::Link,
+        ItemMenuEntry::Junk | ItemMenuEntry::Lock | ItemMenuEntry::Unlock => ItemMenuEffect::None,
     }
 }
 
-/// `Some("LinkItemInChat")` once G55's input event exists. `None` hides the
-/// row.
+/// `Some` while [`crate::input::InputEvent::LinkItemInChat`] is in this tree.
+/// `None` hides the row.
 pub fn pending_link_event(_index: u16) -> Option<&'static str> {
-    None
+    Some("LinkItemInChat")
 }
 
 /// Extra rows from features that are not in this tree yet.
@@ -356,8 +361,8 @@ mod tests {
             false,
             QuickMoveWindows::default(),
         ));
-        assert_eq!(labels(&rows), ["Use", "Details", "Favorite", "Drop"]);
-        assert!(pending_link_event(1).is_none());
+        assert_eq!(labels(&rows), ["Use", "Details", "Link to chat", "Favorite", "Drop"]);
+        assert_eq!(pending_link_event(1), Some("LinkItemInChat"));
         assert!(
             item_menu_extensions(&facts(
                 MenuOrigin::Inventory,
@@ -369,11 +374,11 @@ mod tests {
             ))
             .is_empty()
         );
-        assert!(!labels(&rows).contains(&"Link to chat"));
         assert!(!labels(&rows).contains(&"Junk"));
         assert!(!labels(&rows).contains(&"Lock"));
         assert_eq!(effect_of(rows[0].entry, MenuOrigin::Inventory), ItemMenuEffect::UseItem);
         assert_eq!(effect_of(rows[1].entry, MenuOrigin::Inventory), ItemMenuEffect::Details);
+        assert_eq!(effect_of(rows[2].entry, MenuOrigin::Inventory), ItemMenuEffect::Link);
     }
 
     #[test]
@@ -388,6 +393,7 @@ mod tests {
         assert_eq!(labels(&rows), [
             "Use",
             "Details",
+            "Link to chat",
             "Unfavorite",
             "Move to storage",
             "Move to cart",
@@ -399,6 +405,7 @@ mod tests {
         assert_eq!(labels(&locked), [
             "Use",
             "Details",
+            "Link to chat",
             "Favorite",
             "Move to storage",
             "Move to cart",
@@ -421,7 +428,7 @@ mod tests {
                 ..QuickMoveWindows::default()
             },
         ));
-        assert_eq!(labels(&worn), ["Unequip", "Details", "Favorite"]);
+        assert_eq!(labels(&worn), ["Unequip", "Details", "Link to chat", "Favorite"]);
         let stored = build_item_menu(&facts(
             MenuOrigin::Storage,
             ItemActivation::Ignore,
@@ -430,7 +437,7 @@ mod tests {
             false,
             QuickMoveWindows::default(),
         ));
-        assert_eq!(labels(&stored), ["Details", "Move to inventory"]);
+        assert_eq!(labels(&stored), ["Details", "Link to chat", "Move to inventory"]);
         assert_eq!(
             effect_of(ItemMenuEntry::MoveToInventory, MenuOrigin::Storage),
             ItemMenuEffect::Move(crate::state::item_move::ItemMoveTarget::FromStorage)
