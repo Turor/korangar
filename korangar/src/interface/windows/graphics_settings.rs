@@ -35,6 +35,7 @@ where
         use korangar_interface::prelude::*;
 
         let elements = (
+            crate::interface::windows::WindowGroupTabs::new(WindowClass::GraphicsSettings),
             split! {
                 children: (
                     text! {

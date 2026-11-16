@@ -1414,6 +1414,7 @@ where
             minimum_height: GEAR_WINDOW_HEIGHT,
             maximum_height: 900.0,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::Equipment),
                 split! {
                     gaps: theme().window().gaps(),
                     children: (

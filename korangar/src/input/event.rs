@@ -59,6 +59,11 @@ pub enum InputEvent {
     ToggleMenuWindow,
     /// Menu-bar button. `index` is the position in
     /// [`crate::interface::windows::menu_bar::menu_bar_entries`].
+    /// Tab strip click: show `to` in place of `from` (same group).
+    SwitchWindowTab {
+        from: crate::interface::windows::WindowClass,
+        to: crate::interface::windows::WindowClass,
+    },
     MenuBarPress {
         index: u8,
     },

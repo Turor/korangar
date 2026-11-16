@@ -38,6 +38,7 @@ Each line is logged as `AUTOPILOT_CMD ok|err <line>`. Blank lines and `#` commen
 | Command | Effect |
 | --- | --- |
 | `chat <text>` | `SendMessage` (including `@` GM commands). |
+| `tab <WindowClass>` | Switch the open window of that class's tabbed group (Settings, Character, Social, Journal, Pet Stable) to this member, the same as clicking its tab. |
 | `open <WindowClass>` / `close <WindowClass>` | Open or close that window. Names match `WindowClass` (`Inventory`, `Equipment`, `Menu`, `WorldMap`, …). `gear` is `Equipment`. |
 | `toggle <Event>` | Unit `InputEvent` whose name starts with `Toggle` or `Open`, for example `toggle ToggleInventoryWindow` or `toggle ToggleWorldMap`. |
 | `event <spec>` | A unit `InputEvent` name, or one parameterized form below. |

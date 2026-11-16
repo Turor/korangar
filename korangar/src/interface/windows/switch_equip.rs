@@ -130,6 +130,7 @@ where
             theme: InterfaceThemeType::InGame,
             closable: true,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::SwitchEquip),
                 button! {
                     text: "Activate set",
                     event: InputEvent::ActivateEquipSwitch,

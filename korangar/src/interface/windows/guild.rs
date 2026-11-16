@@ -801,6 +801,7 @@ where
             maximum_width: 640.0,
             closable: true,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::Guild),
                 button! {
                     text: "Refresh",
                     event: InputEvent::RequestGuildWindow,

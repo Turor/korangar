@@ -680,6 +680,7 @@ impl CustomWindow<ClientState> for StableWindow {
             minimum_height: 320.0,
             maximum_height: 720.0,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::Stable),
                 text! {
                     text: client_state().stable_window().status(),
                     overflow_behavior: OverflowBehavior::Shrink,
