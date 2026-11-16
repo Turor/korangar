@@ -4,13 +4,15 @@ use rust_state::Path;
 
 use crate::ItemSource;
 use crate::input::InputEvent;
-use crate::interface::components::inventory_controls::{SortLabel, cycle_sort};
+use crate::interface::components::inventory_controls::{SortLabel, TabButton, cycle_sort};
 use crate::interface::components::item_grid::{ItemCountLabel, ItemGrid};
+use crate::interface::components::storage_controls::SavedSearchStrip;
 use crate::interface::windows::WindowClass;
 use crate::loaders::OverflowBehavior;
 use crate::state::inventory::{Inventory, InventoryPathExt};
-use crate::state::inventory_view::InventoryViewPathExt;
+use crate::state::inventory_view::{InventoryTab, InventoryViewPathExt};
 use crate::state::localization::LocalizationPathExt;
+use crate::state::storage_tools::StorageToolsPathExt;
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, ClientStatePathExt, client_state};
 
@@ -68,6 +70,10 @@ where
                 },
                 split! {
                     gaps: theme().window().gaps(),
+                    children: std::array::from_fn::<_, 4, _>(|tab| TabButton::view_only(storage_path, InventoryTab::ALL[tab])),
+                },
+                split! {
+                    gaps: theme().window().gaps(),
                     children: (
                         text_box! {
                             ghost_text: "Search name, effect or card",
@@ -80,6 +86,24 @@ where
                             event: cycle_sort(storage_path),
                         },
                     ),
+                },
+                SavedSearchStrip::new(client_state().storage_tools(), storage_path),
+                split! {
+                    gaps: theme().window().gaps(),
+                    children: (
+                        button! {
+                            text: "Save search",
+                            event: InputEvent::SaveStorageSearch,
+                        },
+                        button! {
+                            text: "Deposit matching",
+                            event: InputEvent::DepositMatchingToStorage,
+                        },
+                    ),
+                },
+                text! {
+                    text: client_state().storage_tools().status(),
+                    overflow_behavior: OverflowBehavior::Shrink,
                 },
                 scroll_view! {
                     children: ItemGrid::new(self.storage_path, ItemSource::Storage, None),

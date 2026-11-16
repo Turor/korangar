@@ -1336,6 +1336,7 @@ impl Client {
             }
         }
         crate::state::inventory_view::refresh_inventory_views(&mut self.client_state);
+        self.tick_storage_deposit();
         self.networking_system.get_events(&mut self.network_event_buffer);
 
         let mut defer_headless_character = false;
@@ -3154,6 +3155,7 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().storage())
                         .fill(&self.async_loader, items);
+                    self.load_storage_searches();
                     self.interface.open_window(StorageWindow::new(client_state().storage()));
                 }
                 NetworkEvent::SetCart { items } => {
@@ -5717,6 +5719,9 @@ impl Client {
                         }
                     }
                 }
+                InputEvent::SaveStorageSearch => self.save_storage_search(),
+                InputEvent::ForgetStorageSearch { query } => self.forget_storage_search(&query),
+                InputEvent::DepositMatchingToStorage => self.start_storage_deposit(),
                 InputEvent::SetItemFavorite { index, favorite } => {
                     let _ = self.networking_system.set_item_favorite(index, favorite);
                 }

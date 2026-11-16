@@ -73,6 +73,8 @@ pub struct TabButton<P> {
     tab: InventoryTab,
     click: TabClick<P>,
     drop: TabDrop,
+    /// Inventory tabs take drops to (un)favorite; storage tabs do not.
+    favorites: bool,
 }
 
 impl<P: Copy> TabButton<P> {
@@ -82,6 +84,15 @@ impl<P: Copy> TabButton<P> {
             tab,
             click: TabClick { inventory_path, tab },
             drop: TabDrop { tab },
+            favorites: true,
+        }
+    }
+
+    /// A tab that only filters the view (storage).
+    pub fn view_only(inventory_path: P, tab: InventoryTab) -> Self {
+        Self {
+            favorites: false,
+            ..Self::new(inventory_path, tab)
         }
     }
 }
@@ -166,7 +177,8 @@ where
 
         if is_hovered {
             match is_move_mode {
-                true => layout.register_drop_handler(&self.drop),
+                true if self.favorites => layout.register_drop_handler(&self.drop),
+                true => {}
                 false => layout.register_click_handler(MouseButton::Left, &self.click),
             }
         }

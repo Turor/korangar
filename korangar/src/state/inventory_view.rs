@@ -270,6 +270,18 @@ impl InventoryView {
         self.sort = sort;
     }
 
+    pub fn search(&self) -> &str {
+        &self.search
+    }
+
+    /// Catalog name of a card slotted in one of this list's items.
+    pub fn card_name(&self, id: u32) -> Option<&str> {
+        self.lookups
+            .get(&id)
+            .and_then(|lookup| lookup.as_ref())
+            .map(|(name, _)| name.as_str())
+    }
+
     pub fn set_search(&mut self, search: impl Into<String>) {
         self.search = search.into();
     }
