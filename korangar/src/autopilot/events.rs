@@ -64,6 +64,8 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
         "CancelMailCompose" => Some(InputEvent::CancelMailCompose),
         "ConfirmMailAttachAmount" => Some(InputEvent::ConfirmMailAttachAmount),
         "CancelMailAttachAmount" => Some(InputEvent::CancelMailAttachAmount),
+        "ConfirmItemMove" => Some(InputEvent::ConfirmItemMove),
+        "CancelItemMove" => Some(InputEvent::CancelItemMove),
         "ToggleItemFinderWindow" => Some(InputEvent::ToggleItemFinderWindow),
         "SearchItemFinder" => Some(InputEvent::SearchItemFinder),
         "RequestGuildWindow" => Some(InputEvent::RequestGuildWindow),

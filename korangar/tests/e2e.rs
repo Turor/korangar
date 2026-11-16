@@ -7,6 +7,8 @@
 mod archives;
 #[path = "e2e/headgear.rs"]
 mod headgear;
+#[path = "e2e/item_move.rs"]
+mod item_move;
 #[path = "e2e/item_workshop.rs"]
 mod item_workshop;
 #[path = "e2e/job_names.rs"]

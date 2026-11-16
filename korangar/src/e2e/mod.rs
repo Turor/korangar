@@ -9,6 +9,7 @@ mod chat;
 mod credentials;
 mod headgear;
 mod inject;
+mod item_move;
 mod item_workshop;
 mod job_names;
 mod logic;
@@ -26,10 +27,12 @@ pub use self::chat::{ChatSession, ChatView};
 pub use self::credentials::{Credentials, LiveConnect, TEST_HOST, TEST_PORT};
 pub use self::headgear::{HeadgearScene, LookedPlayer};
 pub use self::inject::input_path_parity;
+pub use self::item_move::{ItemMoveCase, OfflineItemMoveReport, item_move_request, offline_item_moves};
 pub use self::item_workshop::WorkshopView;
 pub use self::job_names::{JobNamesReport, job_names_scenario};
 pub use self::logic::{
-    DialogView, LivePartyJobReport, LogicSession, MailRoundTrip, Outbound, Phase, SelectedOption, SentChoice, SettingsView,
+    DialogView, LiveItemMoveReport, LivePartyJobReport, LogicSession, MailRoundTrip, Outbound, Phase, SelectedOption, SentChoice,
+    SettingsView,
 };
 pub use self::mail::{OfflineMailReport, offline_mail_exchange};
 pub use self::minimap::{MinimapHarness, MinimapMarkView, MinimapView};
@@ -44,3 +47,4 @@ pub use self::social::{
 };
 pub use self::status_icons::{StatusIconView, StatusStrip};
 pub use self::weather::{MapWorld, WeatherKind};
+pub use crate::state::item_move::{ItemMovePrompt, ItemMoveStep, ItemMoveTarget};

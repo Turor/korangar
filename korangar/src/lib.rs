@@ -120,6 +120,7 @@ use crate::renderer::{EffectRenderer, GameInterfaceRenderer};
 use crate::settings::{
     GameSettingsPathExt, GraphicsSettings, IN_GAME_THEMES_PATH, LightingMode, MENU_THEMES_PATH, ServiceSettingsPathExt, WORLD_THEMES_PATH,
 };
+use crate::state::item_move::ItemMoveTarget;
 use crate::state::skills::{LearnedSkill, SkillTreeLayoutPathExt, bring_skill_to_level};
 use crate::state::theme::{InterfaceTheme, InterfaceThemeType, WorldTheme};
 use crate::state::{BufferedAction, SelectedServicePath};
@@ -219,13 +220,6 @@ pub fn init_tls_rand() {
     let mut seed = [0; 32];
     DefaultRandomSource.fill_bytes(&mut seed);
     rand_aes::tls::rand_seed(seed.into());
-}
-
-fn cart_move_amount(item: &korangar_networking::InventoryItem<crate::world::ResourceMetadata>) -> i32 {
-    match &item.details {
-        korangar_networking::InventoryItemDetails::Regular { amount, .. } => i32::from(*amount),
-        korangar_networking::InventoryItemDetails::Equippable { .. } => 1,
-    }
 }
 
 fn initialize_shutdown_signal() {
@@ -5082,6 +5076,7 @@ impl Client {
         );
         self.note_dismissed_workshops(enchant_open, grade_open, reform_open, synthesis_open, upgrade_open);
         self.sync_mail_compose();
+        self.sync_item_move();
 
         let interface_has_focus = self.interface.has_focus();
 
@@ -6176,30 +6171,10 @@ impl Client {
                     (ItemSource::Equipment { .. }, ItemSource::Inventory) => {
                         let _ = self.networking_system.request_item_unequip(item.index);
                     }
-                    (ItemSource::Inventory, ItemSource::Storage) => {
-                        let amount = match &item.details {
-                            korangar_networking::InventoryItemDetails::Regular { amount, .. } => u32::from(*amount),
-                            korangar_networking::InventoryItemDetails::Equippable { .. } => 1,
-                        };
-                        if amount > 0 {
-                            let _ = self.networking_system.move_item_to_storage(item.index, amount);
-                        }
-                    }
-                    (ItemSource::Storage, ItemSource::Inventory) => {
-                        let amount = match &item.details {
-                            korangar_networking::InventoryItemDetails::Regular { amount, .. } => u32::from(*amount),
-                            korangar_networking::InventoryItemDetails::Equippable { .. } => 1,
-                        };
-                        if amount > 0 {
-                            let _ = self.networking_system.move_item_from_storage(item.index, amount);
-                        }
-                    }
-                    (ItemSource::Inventory, ItemSource::Cart) => {
-                        let _ = self.networking_system.move_item_to_cart(item.index, cart_move_amount(&item));
-                    }
-                    (ItemSource::Cart, ItemSource::Inventory) => {
-                        let _ = self.networking_system.move_item_from_cart(item.index, cart_move_amount(&item));
-                    }
+                    (ItemSource::Inventory, ItemSource::Storage) => self.offer_item_move(ItemMoveTarget::ToStorage, &item),
+                    (ItemSource::Storage, ItemSource::Inventory) => self.offer_item_move(ItemMoveTarget::FromStorage, &item),
+                    (ItemSource::Inventory, ItemSource::Cart) => self.offer_item_move(ItemMoveTarget::ToCart, &item),
+                    (ItemSource::Cart, ItemSource::Inventory) => self.offer_item_move(ItemMoveTarget::FromCart, &item),
                     (ItemSource::Inventory, ItemSource::Hotbar { tab, slot }) => {
                         self.client_state
                             .follow_mut(client_state().hotbar())
@@ -6813,25 +6788,9 @@ impl Client {
                     self.client_state.follow_mut(client_state().trade()).clear();
                     self.interface.close_window_with_class(WindowClass::TradeRequest);
                 }
-                InputEvent::TradeAddItem { index, amount } => {
-                    let trade = self.client_state.follow(client_state().trade());
-                    if trade.can_note_item_add(index, u32::from(amount)) {
-                        let label = trade
-                            .inventory_offers
-                            .iter()
-                            .find(|offer| offer.index == index)
-                            .map(|offer| offer.label.clone())
-                            .unwrap_or_else(|| format!("Item {index}"));
-                        if self
-                            .networking_system
-                            .add_trade_item(Some(InventoryIndex(index)), u32::from(amount))
-                            .is_ok()
-                        {
-                            self.client_state
-                                .follow_mut(client_state().trade())
-                                .note_item_add(index, label, u32::from(amount));
-                        }
-                    }
+                InputEvent::TradeAddItem { index, amount } => self.trade_add_item(index, amount),
+                event @ (InputEvent::OfferTradeItem { .. } | InputEvent::ConfirmItemMove | InputEvent::CancelItemMove) => {
+                    self.on_item_move_input(event)
                 }
                 InputEvent::TradeAddZeny { amount } => {
                     let trade = self.client_state.follow(client_state().trade());

@@ -552,6 +552,17 @@ pub enum InputEvent {
     ConfirmItemDrop,
     /// Close the drop window without sending a packet.
     CancelItemDrop,
+    /// An inventory stack dropped on the trade window. A stack above 1 asks
+    /// how many first.
+    OfferTradeItem {
+        /// Stored inventory index.
+        index: u16,
+        amount: u16,
+    },
+    /// Send the amount typed into the storage / cart / trade amount window.
+    ConfirmItemMove,
+    /// Close the storage / cart / trade amount window without moving.
+    CancelItemMove,
     /// Open the chat room create form. Only works while playing.
     OpenChatRoomCreate,
     /// Open the settings form of the room this client owns.

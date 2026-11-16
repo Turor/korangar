@@ -21,6 +21,7 @@ pub mod hotbar;
 pub mod inventory;
 pub mod item_drop;
 pub mod item_finder;
+pub mod item_move;
 pub mod item_skill_selection;
 pub mod item_workshop;
 pub mod job_names;
@@ -113,6 +114,7 @@ use crate::state::equip_switch::EquipSwitch;
 use crate::state::hotbar::Hotbar;
 use crate::state::inventory::Inventory;
 use crate::state::item_drop::ItemDropPrompt;
+use crate::state::item_move::ItemMovePrompt;
 use crate::state::item_skill_selection::ItemSkillSelectionState;
 use crate::state::item_workshop::{ItemReformState, LaphineSynthesisState, LaphineUpgradeState};
 use crate::state::navigation::Navigation;
@@ -384,6 +386,8 @@ pub struct ClientState {
     inventory: Inventory,
     /// Amount typed when a stack is dropped on the ground.
     item_drop: ItemDropPrompt,
+    /// Amount typed when a stack moves to or from storage, the cart or a trade.
+    item_move: ItemMovePrompt,
     /// Chat room boards, the joined room, and its forms.
     chat_room: ChatRoomState,
     /// Kafra or guild storage. Replaced when a storage list arrives.
@@ -634,6 +638,7 @@ impl ClientState {
             let hotbar = Hotbar::default();
             let inventory = Inventory::default();
             let item_drop = ItemDropPrompt::default();
+            let item_move = ItemMovePrompt::default();
             let storage = Inventory::default();
             let cart = Inventory::default();
             let skill_tree = SkillTree::default();
@@ -759,6 +764,7 @@ impl ClientState {
             hotbar,
             inventory,
             item_drop,
+            item_move,
             chat_room: ChatRoomState::default(),
             storage,
             equip_switch: EquipSwitch::default(),
