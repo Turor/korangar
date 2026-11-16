@@ -31,6 +31,7 @@ impl CustomWindow<ClientState> for RouletteWindow {
             theme: InterfaceThemeType::InGame,
             closable: false,
             elements: (
+                crate::interface::windows::WindowGroupTabs::new(WindowClass::Roulette),
                 text! {
                     text: state_path.points(),
                     overflow_behavior: OverflowBehavior::Shrink,

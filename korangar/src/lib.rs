@@ -5039,7 +5039,10 @@ impl Client {
                         }
                         Some(MenuBarPress::CloseAll(classes)) => {
                             for class in classes {
-                                self.interface.close_window_with_class(class);
+                                match interface::windows::group_member_close_event(class) {
+                                    Some(event) => self.input_event_buffer.push(event),
+                                    None => self.interface.close_window_with_class(class),
+                                }
                             }
                         }
                         None => {}
@@ -5049,12 +5052,21 @@ impl Client {
                     let same_group = interface::windows::WindowGroup::of(from).is_some_and(|group| group.contains(to));
                     if same_group && from != to {
                         self.window_groups.remember(to);
-                        if self.interface.is_window_with_class_open(to) {
+                        let switched = if self.interface.is_window_with_class_open(to) {
                             self.interface.close_window_with_class(from);
                             self.interface.raise_window_classes(&[to]);
+                            true
                         } else if let Some(event) = interface::windows::group_member_open_event(to) {
                             self.interface.share_window_anchor(from, to);
                             self.interface.close_window_with_class(from);
+                            self.input_event_buffer.push(event);
+                            true
+                        } else {
+                            false
+                        };
+                        // Mail, Bank, and Roulette also tell the server. The close runs after the
+                        // open so a tab change does not drop the member that was just requested.
+                        if switched && let Some(event) = interface::windows::group_member_close_event(from) {
                             self.input_event_buffer.push(event);
                         }
                     }
