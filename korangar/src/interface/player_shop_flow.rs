@@ -278,6 +278,9 @@ impl Client {
         let selection_open = self.interface.is_window_with_class_open(WindowClass::ItemSkillSelection);
         let enchant_open = self.interface.is_window_with_class_open(WindowClass::Enchant);
         let grade_open = self.interface.is_window_with_class_open(WindowClass::EnchantGrade);
+        let reform_open = self.interface.is_window_with_class_open(WindowClass::ItemReform);
+        let synthesis_open = self.interface.is_window_with_class_open(WindowClass::LaphineSynthesis);
+        let upgrade_open = self.interface.is_window_with_class_open(WindowClass::LaphineUpgrade);
         self.interface.close_top_window(&self.client_state);
         self.on_shop_windows_dismissed(setup_open, search_open, report_open);
         crate::interface::windows::item_skill_selection::on_window_dismissed(
@@ -286,7 +289,7 @@ impl Client {
             &mut self.networking_system,
             &mut self.interface,
         );
-        self.note_dismissed_workshops(enchant_open, grade_open);
+        self.note_dismissed_workshops(enchant_open, grade_open, reform_open, synthesis_open, upgrade_open);
     }
 
     fn reopen_shop_setup(&mut self) {
