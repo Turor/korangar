@@ -155,7 +155,7 @@ pub struct Achievements {
     attendance_end: u32,
     attendance_known: bool,
     attendance_rewards: Vec<AttendanceReward>,
-    attendance_status: String,
+    pub attendance_status: String,
     #[hidden_element]
     attendance_claimed_today: bool,
     #[hidden_element]
@@ -301,10 +301,6 @@ impl Achievements {
 
     pub fn attendance_cells(&self) -> &[AttendanceCell] {
         &self.attendance_cells
-    }
-
-    pub fn attendance_status_text(&self) -> &str {
-        &self.attendance_status
     }
 
     pub fn claimable_id(&self) -> Option<u32> {
@@ -475,7 +471,7 @@ mod tests {
         assert_eq!(log.attendance_cells().len(), DEFAULT_ATTENDANCE_DAYS);
         assert_eq!(log.attendance_cells()[0].label, "Day 1");
         assert_eq!(log.attendance_cells()[2].state, AttendanceCellState::Today);
-        assert!(log.attendance_status_text().contains("ready"));
+        assert!(log.attendance_status.as_str().contains("ready"));
 
         log.set_attendance(1, 2, 2, vec![
             ragnarok_packets::AttendanceReward { item_id: 501, amount: 3 },
@@ -487,6 +483,6 @@ mod tests {
         assert_eq!(log.attendance_cells()[0].label, "Day 1\nItem 501 x3");
         log.mark_attendance_claimed(&name);
         assert_eq!(log.attendance_cells()[2].state, AttendanceCellState::Upcoming);
-        assert!(log.attendance_status_text().contains("claimed"));
+        assert!(log.attendance_status.as_str().contains("claimed"));
     }
 }
