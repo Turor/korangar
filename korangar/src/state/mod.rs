@@ -25,6 +25,7 @@ pub mod inventory_view;
 pub mod item_compare;
 pub mod item_drop;
 pub mod item_finder;
+pub mod item_flags;
 pub mod item_link;
 pub mod item_menu;
 pub mod item_move;
@@ -126,6 +127,7 @@ use crate::state::equip_switch::EquipSwitch;
 use crate::state::hotbar::Hotbar;
 use crate::state::inventory::Inventory;
 use crate::state::item_drop::ItemDropPrompt;
+use crate::state::item_flags::ItemFlags;
 use crate::state::item_move::ItemMovePrompt;
 use crate::state::item_skill_selection::ItemSkillSelectionState;
 use crate::state::item_workshop::{ItemReformState, LaphineSynthesisState, LaphineUpgradeState};
@@ -399,6 +401,9 @@ pub struct ClientState {
     hotbar: Hotbar,
     /// Player inventory.
     inventory: Inventory,
+    /// Per-character new, junk, and lock marks. Inventory indexes are not the
+    /// key.
+    item_flags: ItemFlags,
     /// Amount typed when a stack is dropped on the ground.
     item_drop: ItemDropPrompt,
     /// Amount typed when a stack moves to or from storage, the cart or a trade.
@@ -660,6 +665,7 @@ impl ClientState {
             let player_character_id = CharacterId(0);
             let hotbar = Hotbar::default();
             let inventory = Inventory::default();
+            let item_flags = ItemFlags::default();
             let item_drop = ItemDropPrompt::default();
             let item_move = ItemMovePrompt::default();
             let dressing_room = DressingRoom::default();
@@ -789,6 +795,7 @@ impl ClientState {
             player_character_id,
             hotbar,
             inventory,
+            item_flags,
             item_drop,
             item_move,
             dressing_room,

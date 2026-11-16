@@ -7,6 +7,7 @@ pub(super) mod dressing_room;
 pub(super) mod grid_navigation;
 pub(super) mod inventory_grid;
 pub(super) mod inventory_view;
+pub(super) mod item_flags;
 pub(super) mod item_link;
 pub(super) mod item_menu;
 pub(super) mod item_move;

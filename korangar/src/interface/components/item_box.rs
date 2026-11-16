@@ -11,6 +11,7 @@ use rust_state::{Path, State};
 
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::input::{InputEvent, MouseInputMode};
+use crate::interface::components::item_flag_overlay;
 use crate::interface::components::item_tooltip::inventory_tooltips;
 use crate::interface::font_scale::from_theme_body;
 use crate::interface::resource::ItemSource;
@@ -375,5 +376,13 @@ where
             struct SlotTooltip;
             layout.add_tooltip(self.tooltip, SlotTooltip.tooltip_id());
         }
+
+        item_flag_overlay::paint(
+            state,
+            layout,
+            layout_info.area,
+            state.try_get(&self.item_path).map(crate::state::item_flags::HoverNote::from_item),
+            is_hovered,
+        );
     }
 }

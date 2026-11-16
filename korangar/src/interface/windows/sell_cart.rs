@@ -350,6 +350,10 @@ where
                     gaps: theme().window().gaps(),
                     children: (
                         button! {
+                            text: "Sell Junk",
+                            event: InputEvent::SellJunk,
+                        },
+                        button! {
                             text: "Sell",
                             event: move |state: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
                                 let cart = state.get(&self.cart_path);

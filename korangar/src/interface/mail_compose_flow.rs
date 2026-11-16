@@ -102,6 +102,11 @@ impl Client {
     /// An inventory stack dropped on the form, or the autopilot form with an
     /// explicit amount.
     fn attach_mail_item(&mut self, index: u16, amount: Option<u16>) {
+        if let Some(message) = self.locked_inventory_message(index) {
+            self.mail_compose_status(message.clone());
+            self.mail_chat(message, MessageColor::Error);
+            return;
+        }
         let Some(candidate) = self.attach_candidate(index) else {
             self.mail_compose_status("That item is no longer in your inventory.".to_owned());
             return;
@@ -139,6 +144,11 @@ impl Client {
         match confirmed {
             Ok((index, count)) => {
                 self.interface.close_window_with_class(WindowClass::MailAttachAmount);
+                if let Some(message) = self.locked_inventory_message(index) {
+                    self.mail_compose_status(message.clone());
+                    self.mail_chat(message, MessageColor::Error);
+                    return;
+                }
                 self.send_attach(index, count);
             }
             Err(message) => self.mail_compose_status(message),

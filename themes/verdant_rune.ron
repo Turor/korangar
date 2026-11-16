@@ -30,4 +30,9 @@ ThemeFile(
     chat: (
         party: Some("#E6D7C8"),
     ),
+    item: (
+        new_glow: Some("#4CC3A0"),
+        junk: Some("#E0708A"),
+        lock: Some("#CFAE5A"),
+    ),
 )
