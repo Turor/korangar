@@ -73,7 +73,6 @@ impl FinderCatalog {
         self.items.is_empty()
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn get(&self, id: u32) -> Option<&FinderItem> {
         self.items.iter().find(|item| item.id == id)
     }
@@ -194,6 +193,16 @@ impl Default for ItemFinderState {
 }
 
 impl ItemFinderState {
+    /// Catalog size; changes when the catalog loads.
+    pub fn catalog_len(&self) -> usize {
+        self.catalog.len()
+    }
+
+    /// Name and weight (tenths) for the inventory view's search and sort.
+    pub fn item_name_and_weight(&self, id: u32) -> Option<(&str, i32)> {
+        self.catalog.get(id).map(|item| (item.name.as_str(), item.weight))
+    }
+
     /// Load whichever files the data path actually has. Missing or invalid
     /// bytes leave the typed catalog empty and record the A5 dependency.
     pub fn load_bytes(&mut self, catalog: Option<&[u8]>, sources: Option<&[u8]>) {

@@ -17,6 +17,7 @@ use rust_state::{Path, PathExt, Selector, State, VecIndexExt};
 use crate::interface::resource::ItemSource;
 use crate::state::ClientState;
 use crate::state::inventory::{Inventory, InventoryPathExt};
+use crate::state::inventory_view::{InventoryTab, InventoryViewPathExt};
 
 /// Slots per grid row.
 pub const GRID_COLUMNS: usize = 10;
@@ -50,8 +51,18 @@ pub fn item_count_text(used: usize, capacity: Option<u32>) -> String {
     }
 }
 
-/// Rows of [`item_box`]es, one per ten slots. Rows are rebuilt only when the
-/// row count changes.
+/// Cells for one tab. `All` keeps the server cap; the other tabs only need
+/// their own stacks plus a spare row.
+pub fn tab_cells(tab: InventoryTab, used: usize, shown: usize, capacity: Option<u32>) -> usize {
+    match tab {
+        InventoryTab::All => grid_cells(used, capacity),
+        _ => grid_cells(shown, None),
+    }
+}
+
+/// Rows of [`item_box`]es, one per ten slots, drawing the inventory view
+/// (tab, sort, search) rather than the raw server list. Rows are rebuilt
+/// only when the row count changes.
 pub struct ItemGrid<P> {
     inventory_path: P,
     source: ItemSource,
@@ -87,18 +98,23 @@ where
 
             let inventory = state.get(&self.inventory_path);
             let capacity = inventory.capacity().or(self.fallback_capacity);
-            let rows = grid_cells(inventory.item_count(), capacity) / GRID_COLUMNS;
+            let rows = tab_cells(inventory.view().tab(), inventory.item_count(), inventory.view().len(), capacity) / GRID_COLUMNS;
 
             self.rows.truncate(rows);
             for row in self.rows.len()..rows {
-                let items_path = self.inventory_path.items();
+                let inventory_path = self.inventory_path;
+                let items_path = inventory_path.view().items();
                 let source = self.source;
                 self.rows.push(ErasedElement::new(split! {
                     gaps: theme().window().gaps(),
                     children: std::array::from_fn::<_, GRID_COLUMNS, _>(|column| {
+                        let position = row * GRID_COLUMNS + column;
                         item_box! {
-                            item_path: items_path.index(row * GRID_COLUMNS + column),
+                            item_path: items_path.index(position),
                             source: source,
+                            dim: Some(Box::new(move |state: &State<ClientState>| {
+                                state.get(&inventory_path).view().is_search_miss(position)
+                            })),
                         }
                     }),
                 }));
@@ -161,7 +177,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{GRID_COLUMNS, grid_cells, item_count_text};
+    use super::{GRID_COLUMNS, grid_cells, item_count_text, tab_cells};
+    use crate::state::inventory_view::InventoryTab;
 
     #[test]
     fn turoran_inventory_draws_all_600_slots() {
@@ -189,6 +206,13 @@ mod tests {
     #[test]
     fn more_items_than_the_cap_are_never_hidden() {
         assert_eq!(grid_cells(105, Some(100)), 110);
+    }
+
+    #[test]
+    fn filtered_tabs_size_to_their_own_stacks() {
+        assert_eq!(tab_cells(InventoryTab::All, 41, 38, Some(600)), 600);
+        assert_eq!(tab_cells(InventoryTab::Usable, 41, 12, Some(600)), 40);
+        assert_eq!(tab_cells(InventoryTab::Etc, 141, 75, Some(600)), 90);
     }
 
     #[test]

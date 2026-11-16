@@ -11,6 +11,7 @@ mod credentials;
 mod headgear;
 mod inject;
 mod inventory_grid;
+mod inventory_view;
 mod item_move;
 mod item_workshop;
 mod job_names;
@@ -33,12 +34,15 @@ pub use self::credentials::{Credentials, LiveConnect, TEST_HOST, TEST_PORT};
 pub use self::headgear::{HeadgearScene, LookedPlayer};
 pub use self::inject::input_path_parity;
 pub use self::inventory_grid::{GridView, OfflineInventoryGridReport, TURORAN_CAP_BYTES, grid_view, offline_inventory_grid};
+pub use self::inventory_view::{
+    DrawnIndexes, FAVORITE_ACK_BYTES, InventorySort, InventoryTab, OfflineInventoryViewReport, offline_inventory_view,
+};
 pub use self::item_move::{ItemMoveCase, OfflineItemMoveReport, item_move_request, offline_item_moves};
 pub use self::item_workshop::WorkshopView;
 pub use self::job_names::{JobNamesReport, job_names_scenario};
 pub use self::logic::{
-    DialogView, LiveInventoryGridReport, LiveItemMoveReport, LivePartyJobReport, LogicSession, MailRoundTrip, Outbound, Phase,
-    SelectedOption, SentChoice, SettingsView,
+    DialogView, LiveInventoryGridReport, LiveInventoryViewReport, LiveItemMoveReport, LivePartyJobReport, LogicSession, MailRoundTrip,
+    Outbound, Phase, SelectedOption, SentChoice, SettingsView,
 };
 pub use self::mail::{OfflineMailReport, offline_mail_exchange};
 pub use self::minimap::{MinimapHarness, MinimapMarkView, MinimapView};
@@ -53,4 +57,5 @@ pub use self::social::{
 };
 pub use self::status_icons::{StatusIconView, StatusStrip};
 pub use self::weather::{MapWorld, WeatherKind};
+pub use crate::interface::components::item_grid::GRID_FULL_CAP_LIMIT;
 pub use crate::state::item_move::{ItemMovePrompt, ItemMoveStep, ItemMoveTarget};

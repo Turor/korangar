@@ -1331,6 +1331,7 @@ impl Client {
                 });
             }
         }
+        crate::state::inventory_view::refresh_inventory_views(&mut self.client_state);
         self.networking_system.get_events(&mut self.network_event_buffer);
 
         let mut defer_headless_character = false;
@@ -3125,6 +3126,11 @@ impl Client {
                         .fill(&self.async_loader, items);
                     let visuals = self.client_state.follow(client_state().inventory()).item_visuals();
                     self.client_state.follow_mut(client_state().hotbar()).apply_item_visuals(&visuals);
+                }
+                NetworkEvent::ItemFavorite { index, favorite } => {
+                    self.client_state
+                        .follow_mut(client_state().inventory())
+                        .set_favorite(index, favorite);
                 }
                 NetworkEvent::ItemCapacity(capacity) => {
                     let maximum = capacity.maximum;
@@ -5706,6 +5712,9 @@ impl Client {
                             }
                         }
                     }
+                }
+                InputEvent::SetItemFavorite { index, favorite } => {
+                    let _ = self.networking_system.set_item_favorite(index, favorite);
                 }
                 InputEvent::SearchItemFinder => {
                     self.client_state.follow_mut(client_state().item_finder()).search();

@@ -67,6 +67,7 @@ pub use self::packet_versions::eden::{
     encode_eden_packet, format_eden_result,
 };
 pub use self::packet_versions::enchant::{format_enchant_result, parse_enchant_index, parse_enchant_item_id, parse_enchant_slot};
+pub use self::packet_versions::inventory_tab::decode_item_favorites;
 pub use self::packet_versions::item_capacity::{FIXED_INVENTORY_SIZE, ItemCapacity, ItemCapacityList, decode_item_capacity};
 pub use self::packet_versions::misc_info::{
     BattlefieldUpdate, ELEMENT_NAMES, MemorialDungeonUpdate, ammunition_is_error, ammunition_message, format_remaining, format_reputation,
@@ -1111,6 +1112,20 @@ where
                     quest_id,
                     active: u8::from(active),
                 }),
+        }
+    }
+
+    /// `CZ_INVENTORY_TAB`: move an inventory item into or out of the
+    /// favorites tab. The server answers with `ZC_INVENTORY_TAB`.
+    pub fn set_item_favorite(&mut self, inventory_index: InventoryIndex, favorite: bool) -> Result<(), NotConnectedError> {
+        let tab = match favorite {
+            true => ragnarok_packets::INVENTORY_TAB_FAVORITE,
+            false => ragnarok_packets::INVENTORY_TAB_NORMAL,
+        };
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(ragnarok_packets::InventoryTabRequestPacket::new(inventory_index, tab))
+            }
         }
     }
 

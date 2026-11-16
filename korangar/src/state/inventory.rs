@@ -7,6 +7,7 @@ use rust_state::RustState;
 
 use crate::graphics::Texture;
 use crate::loaders::AsyncLoader;
+use crate::state::inventory_view::{self, InventoryView};
 use crate::world::ResourceMetadata;
 
 #[derive(Default, RustState, StateElement)]
@@ -21,6 +22,9 @@ pub struct Inventory {
     /// Slot cap from the map server (`0x0B18`, `0x00F2` or `0x0121`).
     #[hidden_element]
     capacity: Option<u32>,
+    /// Tabs, sort and search as drawn (`state::inventory_view`).
+    #[hidden_element]
+    view: InventoryView,
 }
 
 impl Inventory {
@@ -36,6 +40,31 @@ impl Inventory {
 
     pub fn set_capacity(&mut self, maximum: u32) {
         self.capacity = Some(maximum);
+    }
+
+    pub fn view(&self) -> &InventoryView {
+        &self.view
+    }
+
+    pub fn view_mut(&mut self) -> &mut InventoryView {
+        &mut self.view
+    }
+
+    pub fn wanted_lookups(&self, catalog_len: usize) -> Vec<u32> {
+        self.view.wanted_lookups(&self.items, catalog_len)
+    }
+
+    pub fn refresh_view(&mut self, catalog_len: usize, resolved: Vec<(u32, Option<(String, i32)>)>) {
+        self.view.refresh(&self.items, catalog_len, resolved);
+    }
+
+    /// `ZC_INVENTORY_TAB`: the item moved into or out of favorites.
+    pub fn set_favorite(&mut self, index: InventoryIndex, favorite: bool) -> bool {
+        let Some(item) = self.items.iter_mut().find(|item| item.index == index) else {
+            return false;
+        };
+        inventory_view::set_favorite(item, favorite);
+        true
     }
 
     pub fn stacked_amount(&self, item_id: ItemId) -> u16 {
@@ -240,7 +269,7 @@ impl Inventory {
         }
     }
 
-    #[cfg(test)]
+    /// Unit tests and the e2e view harness.
     pub fn from_items(items: Vec<InventoryItem<ResourceMetadata>>) -> Self {
         Self { items, ..Self::default() }
     }

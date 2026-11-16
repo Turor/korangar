@@ -134,6 +134,11 @@ pub enum InputEvent {
     /// Ask the server to destroy the current memorial dungeon
     /// (`CZ_MEMORIALDUNGEON_COMMAND` 3).
     DestroyMemorialDungeon,
+    /// `CZ_INVENTORY_TAB`: move an inventory item into or out of favorites.
+    SetItemFavorite {
+        index: ragnarok_packets::InventoryIndex,
+        favorite: bool,
+    },
     /// Open or close the local Item Finder. Only works while playing.
     ToggleItemFinderWindow,
     /// Re-run the Item Finder query already stored in client state.
