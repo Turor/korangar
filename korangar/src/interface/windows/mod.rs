@@ -119,7 +119,10 @@ pub use self::chat_room::{ChatRoomCreateWindow, ChatRoomPasswordWindow, ChatRoom
 pub use self::clan::ClanWindow;
 #[cfg(feature = "debug")]
 pub use self::commands::CommandsWindow;
-pub use self::companions::{CompanionWindow, CompanionWindowState, MercenaryPanel, PetPanel};
+pub use self::companions::{
+    CompanionPanelView, CompanionSkill, CompanionWindow, CompanionWindowState, EggChoice, HomunculusPanel, MercenaryPanel, PetPanel,
+    SkillView, apply_companion_notice, on_pet_egg_dismissed, refresh_accessory_icon, refresh_contract,
+};
 pub use self::context_menu::ContextMenuWindow;
 pub use self::dialog::{DialogWindow, DialogWindowState, NpcInputBox};
 pub use self::eden::EdenWindow;
@@ -213,6 +216,7 @@ pub enum WindowClass {
     BuyOrSell,
     Chat,
     Companions,
+    PetEggs,
     CharacterCreation,
     CharacterDeletion,
     CharacterOverview,

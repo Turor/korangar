@@ -441,6 +441,27 @@ pub enum InputEvent {
     HomunculusRelease,
     /// `CZ_MER_COMMAND` dismiss.
     MercenaryDismiss,
+    /// Choose an egg. `wire_index` is the `ZC_PETEGG_LIST` value echoed in
+    /// `0x01A7`.
+    SelectPetEgg {
+        wire_index: u16,
+    },
+    /// Close the egg picker. Sends no packet.
+    ClosePetEggs,
+    /// Confirm the pet rename box (`CZ_RENAME_PET`, `0x01A5`).
+    ConfirmPetRename,
+    /// Confirm the homunculus rename box (`CZ_RENAME_MER`, `0x0231`).
+    ConfirmHomunculusRename,
+    /// Follow the owner (`CZ_REQUEST_MOVETOOWNER`, `0x0234`).
+    HomunculusFollow,
+    /// Attack the remembered target (`CZ_REQUEST_ACTNPC`, `0x0233`).
+    HomunculusAttack,
+    /// Stop client attack mode. Hercules has no standby opcode.
+    HomunculusStandby,
+    /// Homunculus skill-up (`CZ_UPGRADE_SKILLLEVEL`, `0x0112`).
+    LevelUpCompanionSkill {
+        skill_id: u16,
+    },
     /// Open or close the alive-MVP minimap.
     ToggleMvpMinimap,
     /// Open the Rodex window and reload the inbox (`0x0AC0` then `0x0AC1`).
