@@ -308,6 +308,10 @@ pub enum ActionKind {
     SwitchTab,
     Keybinds,
     Emotion(u8),
+    /// J while an item slot is hovered.
+    MarkJunk,
+    /// L while an item slot is hovered.
+    MarkLock,
 }
 
 #[derive(Clone, Debug)]
@@ -469,6 +473,8 @@ fn default_actions() -> Vec<ActionDef> {
             ActionKind::SwitchTab,
         ),
         ("keybinds", "Keybinds", KeyName::M, true, false, false, ActionKind::Keybinds),
+        ("mark-junk", "Mark junk", KeyName::J, false, false, false, ActionKind::MarkJunk),
+        ("mark-lock", "Lock item", KeyName::L, false, false, false, ActionKind::MarkLock),
     ];
     for (id, title, key, alt, ctrl, shift, kind) in windows {
         actions.push(ActionDef {
@@ -705,6 +711,8 @@ fn push_action(events: &mut Vec<InputEvent>, kind: ActionKind, active_tab: u8, r
         ActionKind::SwitchTab if pressed => Some(InputEvent::SwitchHotbarTab),
         ActionKind::Keybinds if pressed => Some(InputEvent::ToggleKeybindsWindow),
         ActionKind::Emotion(emotion) if pressed => Some(InputEvent::SendEmotion { emotion }),
+        ActionKind::MarkJunk if pressed => Some(InputEvent::ToggleHoveredJunk),
+        ActionKind::MarkLock if pressed => Some(InputEvent::ToggleHoveredLock),
         _ => None,
     };
     if let Some(event) = event {

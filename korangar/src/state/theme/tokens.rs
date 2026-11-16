@@ -65,6 +65,15 @@ pub struct ThemeTokens {
     /// Item-slot drop shadow. Omitted files derive this from `bg`.
     #[serde(default = "default_slot_shadow")]
     pub slot_shadow: Color,
+    /// `item.new_glow`: soft edge on a stack that arrived after login.
+    #[serde(default = "default_item_new_glow")]
+    pub item_new_glow: Color,
+    /// `item.junk`: badge for a stack marked junk.
+    #[serde(default = "default_item_junk")]
+    pub item_junk: Color,
+    /// `item.lock`: corner glyph for a locked stack.
+    #[serde(default = "default_item_lock")]
+    pub item_lock: Color,
 }
 
 /// Chat channel colors. Every key on disk is optional.
@@ -112,6 +121,18 @@ fn default_chat_colors() -> ChatChannelColors {
 
 fn default_slot_shadow() -> Color {
     Color::rgba_u8(0, 0, 0, 140)
+}
+
+fn default_item_new_glow() -> Color {
+    Color::rgb_u8(255, 152, 48)
+}
+
+fn default_item_junk() -> Color {
+    Color::rgb_u8(198, 64, 88)
+}
+
+fn default_item_lock() -> Color {
+    Color::rgb_u8(220, 150, 72)
 }
 
 /// Status-panel HP fill when a theme file has no `status.hp_bar`.
@@ -176,6 +197,9 @@ impl ThemeTokens {
                 DEFAULT_PARTY_CHAT,
             ),
             slot_shadow: Color::rgb_u8(12, 14, 20).with_alpha_u8(140),
+            item_new_glow: Color::rgb_u8(255, 152, 48),
+            item_junk: Color::rgb_u8(198, 64, 88),
+            item_lock: Color::rgb_u8(220, 150, 72),
         }
     }
 
@@ -228,6 +252,19 @@ pub struct ThemeFile {
     /// Optional `#RRGGBB` slot shadow. Missing keys use `bg`.
     #[serde(default)]
     pub slot_shadow: Option<String>,
+    /// Optional `item: (...)` block. Missing keys use accent, accent2, and
+    /// gold.
+    #[serde(default)]
+    pub item: ItemThemeFile,
+}
+
+/// New-item glow, junk badge, and lock glyph. Every key is optional.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct ItemThemeFile {
+    pub new_glow: Option<String>,
+    pub junk: Option<String>,
+    pub lock: Option<String>,
 }
 
 /// Chat channel colors. Every key is optional.
@@ -327,6 +364,9 @@ impl ThemeFile {
             Some(value) => parse_hex_color(value)?.with_alpha_u8(140),
             None => bg.with_alpha_u8(140),
         };
+        let item_new_glow = optional(&self.item.new_glow, accent)?;
+        let item_junk = optional(&self.item.junk, accent2)?;
+        let item_lock = optional(&self.item.lock, gold)?;
         Some(ThemeTokens {
             name: self.name,
             bg,
@@ -352,6 +392,9 @@ impl ThemeFile {
             window_alpha: self.window_alpha.clamp(0.0, 1.0),
             chat,
             slot_shadow,
+            item_new_glow,
+            item_junk,
+            item_lock,
         })
     }
 }
@@ -437,6 +480,11 @@ fn parse_theme_toml(source: &str) -> Option<ThemeFile> {
             guild: strings.remove("chat.guild"),
         },
         slot_shadow: strings.remove("slot_shadow"),
+        item: ItemThemeFile {
+            new_glow: strings.remove("item.new_glow"),
+            junk: strings.remove("item.junk"),
+            lock: strings.remove("item.lock"),
+        },
     })
 }
 
@@ -784,6 +832,13 @@ job_exp_bar = "#445566"
         assert_eq!(bare.slot_shadow, bare.bg.with_alpha_u8(140));
         assert_eq!(bare.chat.broadcast, bare.gold);
         assert_eq!(bare.chat.error, bare.accent2);
+        assert_eq!(bare.item_new_glow, bare.accent);
+        assert_eq!(bare.item_junk, bare.accent2);
+        assert_eq!(bare.item_lock, bare.gold);
+        let verdant = ThemeTokens::verdant_rune();
+        assert_eq!(verdant.item_new_glow, parse_hex_color("#4CC3A0").unwrap());
+        assert_eq!(verdant.item_junk, parse_hex_color("#E0708A").unwrap());
+        assert_eq!(verdant.item_lock, parse_hex_color("#CFAE5A").unwrap());
 
         let status_danger = r###"ThemeFile(
             name: "Danger",

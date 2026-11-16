@@ -151,12 +151,20 @@ fn equipped_ammo_reactions() -> (String, Vec<String>) {
         storage: true,
         ..QuickMoveWindows::default()
     };
-    let quick = match react_to_secondary(ItemSource::Inventory, &arrows, "Arrow", true, windows, true) {
+    let quick = match react_to_secondary(ItemSource::Inventory, &arrows, "Arrow", true, windows, true, Default::default()) {
         SlotReaction::Hint(text) => format!("hint: {text}"),
         SlotReaction::Move(_) => "move".to_owned(),
         _ => "other".to_owned(),
     };
-    let labels = match react_to_secondary(ItemSource::Inventory, &arrows, "Arrow", false, windows, true) {
+    let labels = match react_to_secondary(
+        ItemSource::Inventory,
+        &arrows,
+        "Arrow",
+        false,
+        windows,
+        true,
+        Default::default(),
+    ) {
         SlotReaction::OpenMenu { rows, .. } => rows.into_iter().map(|row| row.label).collect(),
         _ => Vec::new(),
     };

@@ -11,6 +11,7 @@ use crate::Client;
 use crate::interface::windows::{SearchStoreWindow, VendingReportWindow, VendingSetupWindow, WindowClass};
 use crate::state::inventory::InventoryPathExt;
 use crate::state::item_finder::MISSING_CATALOG_STATUS;
+use crate::state::item_flags::{self, ItemKey};
 use crate::state::player_shops::{
     self, BagSource, SEARCH_ITEM_LIMIT, ShopOpenRequest, ShopReportLine, ShopReportStatePathExt, ShopSearchStatePathExt,
     ShopSetupStatePathExt,
@@ -34,10 +35,13 @@ impl Client {
     }
 
     pub(crate) fn on_vending_prepare(&mut self, item_count: u16) {
-        let candidates = self.bag_candidates(false);
+        let (candidates, locked) = self.vending_candidates();
         self.client_state
             .follow_mut(client_state().shop_setup())
             .start_vending(item_count, candidates);
+        for message in locked {
+            self.shop_chat(message, MessageColor::Error);
+        }
         self.reopen_shop_setup();
         self.shop_chat(
             format!("You can list {item_count} items in a vending shop."),
@@ -150,7 +154,16 @@ impl Client {
     pub(crate) fn submit_shop_setup(&mut self) {
         let request = self.client_state.follow_mut(client_state().shop_setup()).open_request();
         let sent = match request {
-            Ok(ShopOpenRequest::Vending { title, items }) => self.networking_system.open_vending_shop(&title, &items),
+            Ok(ShopOpenRequest::Vending { title, items }) => {
+                let locked = self.vending_lock_messages(&items);
+                if !locked.is_empty() {
+                    for message in locked {
+                        self.shop_chat(message, MessageColor::Error);
+                    }
+                    return;
+                }
+                self.networking_system.open_vending_shop(&title, &items)
+            }
             Ok(ShopOpenRequest::Buying { title, zeny_limit, items }) => {
                 self.networking_system.open_buying_store(&title, zeny_limit, &items)
             }
@@ -313,6 +326,35 @@ impl Client {
         if self.client_state.follow(client_state().item_finder()).catalog_is_empty() {
             crate::load_item_finder(self.game_file_loader.as_ref(), &mut self.client_state);
         }
+    }
+
+    /// Cart rows the vend can list. Locked stacks are named and left out.
+    fn vending_candidates(&self) -> (Vec<player_shops::ShopCandidate>, Vec<String>) {
+        let items = self.client_state.follow(client_state().cart().items());
+        let flags = self.client_state.follow(client_state().item_flags());
+        let mut messages = Vec::new();
+        let mut sources = Vec::new();
+        for item in items.iter() {
+            let key = ItemKey::from_inventory(item);
+            if let Some(message) = flags.refusal(key, &item.metadata.name) {
+                messages.push(message);
+            } else {
+                sources.push(source_from_item(item));
+            }
+        }
+        (player_shops::candidates_from_sources(sources, false), messages)
+    }
+
+    fn vending_lock_messages(&self, items: &[(u16, u16, u32)]) -> Vec<String> {
+        let cart = self.client_state.follow(client_state().cart().items());
+        let flags = self.client_state.follow(client_state().item_flags());
+        let mut messages = Vec::new();
+        for (index, ..) in items {
+            if let Some(message) = item_flags::refusal_for_index(flags, cart, *index) {
+                messages.push(message);
+            }
+        }
+        messages
     }
 
     fn bag_candidates(&self, stackable_only: bool) -> Vec<player_shops::ShopCandidate> {

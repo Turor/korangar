@@ -92,7 +92,7 @@ use state::hotbar::{
     CELL_ITEM, CELL_SKILL, HOTBAR_SLOTS, HOTBAR_TABS, HotbarDispatch, HotbarItemPress, cast_bound_skill, dispatch_hotbar,
     hotbar_item_press, inventory_hint, stop_bound_skill,
 };
-use state::inventory::{GroundDrop, InventoryPathExt, ItemActivation, ThrowUpdate, ground_drop, item_activation, use_ack_targets_self};
+use state::inventory::{InventoryPathExt, ItemActivation, ThrowUpdate, item_activation, use_ack_targets_self};
 use state::localization::Localization;
 use state::skills::SkillTreePathExt;
 use state::theme::{CursorThemePathExt, IndicatorThemePathExt, InterfaceThemePathExt, WorldThemePathExt};
@@ -1757,6 +1757,7 @@ impl Client {
 
                     *self.client_state.follow_mut(client_state().player_name()) = character_information.name;
                     *self.client_state.follow_mut(client_state().player_character_id()) = login_data.character_id;
+                    self.bind_item_flags(login_data.character_id.0);
 
                     let entity_id = player.get_entity_id();
                     let entity_type = player.get_entity_type();
@@ -3128,6 +3129,7 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().inventory())
                         .fill(&self.async_loader, items);
+                    self.note_inventory_snapshot();
                     let visuals = self.client_state.follow(client_state().inventory()).item_visuals();
                     self.client_state.follow_mut(client_state().hotbar()).apply_item_visuals(&visuals);
                 }
@@ -3169,6 +3171,7 @@ impl Client {
                     }
                 }
                 NetworkEvent::CartItemAdded { item } => {
+                    self.note_item_arrival(crate::state::item_flags::ItemKey::from_inventory(&item));
                     let _ = self
                         .client_state
                         .follow_mut(client_state().cart())
@@ -3178,10 +3181,12 @@ impl Client {
                     self.client_state.follow_mut(client_state().cart()).remove_item(index, amount);
                 }
                 NetworkEvent::IventoryItemAdded { item } => {
+                    let arrival = crate::state::item_flags::ItemKey::from_inventory(&item);
                     let visual = self
                         .client_state
                         .follow_mut(client_state().inventory())
                         .add_item(&self.async_loader, item);
+                    self.note_item_arrival(arrival);
                     // A drag that bound the slot before this icon was cached
                     // still has an empty texture. The sprite loader fills the
                     // rest when `visual`'s texture is `None`.
@@ -5142,6 +5147,7 @@ impl Client {
         client_tick: ClientTick,
         #[cfg(feature = "debug")] delta_time: f32,
     ) -> bool {
+        self.begin_item_flag_frame();
         let shop_setup_open = self.interface.is_window_with_class_open(WindowClass::VendingSetup);
         let shop_search_open = self.interface.is_window_with_class_open(WindowClass::SearchStore);
         let shop_report_open = self.interface.is_window_with_class_open(WindowClass::VendingReport);
@@ -6221,35 +6227,11 @@ impl Client {
                         }
                     }
                 }
-                InputEvent::DropItem { item } => match ground_drop(&item) {
-                    Some(GroundDrop::Now(amount)) => {
-                        let _ = self.networking_system.drop_item(item.index, amount);
-                    }
-                    Some(GroundDrop::Ask { max }) => {
-                        self.client_state
-                            .follow_mut(client_state().item_drop())
-                            .begin(item.index.0, max, &item.metadata.name);
-                        if !self.interface.is_window_with_class_open(WindowClass::ItemDrop) {
-                            self.interface.open_window(ItemDropWindow::new());
-                        }
-                        self.interface.request_focus(ItemDropAmountBox);
-                    }
-                    None => {}
-                },
-                InputEvent::ConfirmItemDrop => {
-                    let (index, amount, message) = {
-                        let prompt = self.client_state.follow(client_state().item_drop());
-                        (prompt.index(), prompt.amount(), prompt.invalid_amount_message())
-                    };
-                    if let Some(amount) = amount {
-                        let _ = self.networking_system.drop_item(InventoryIndex(index), amount);
-                        self.interface.close_window_with_class(WindowClass::ItemDrop);
-                    } else {
-                        self.client_state
-                            .follow_mut(client_state().chat_messages())
-                            .push(ChatMessage::new(message, MessageColor::Error));
-                    }
-                }
+                InputEvent::DropItem { item } => self.on_drop_item(item),
+                InputEvent::ConfirmItemDrop => self.on_confirm_item_drop(),
+                InputEvent::ToggleHoveredJunk => self.on_toggle_hovered_junk(),
+                InputEvent::ToggleHoveredLock => self.on_toggle_hovered_lock(),
+                InputEvent::SystemNotice { text } => self.item_flag_notice(text),
                 event @ (InputEvent::OpenChatRoomCreate
                 | InputEvent::OpenChatRoomSettings
                 | InputEvent::CloseChatRoomSettings
@@ -6901,9 +6883,8 @@ impl Client {
                     let _ = self.networking_system.select_buy_or_sell(shop_id, buy_or_sell);
                     self.interface.close_window_with_class(WindowClass::BuyOrSell);
                 }
-                InputEvent::SellItems { items } => {
-                    let _ = self.networking_system.sell_items(items);
-                }
+                InputEvent::SellItems { items } => self.on_sell_items(items),
+                InputEvent::SellJunk => self.on_sell_junk(),
                 InputEvent::StatUp { stat_type } => {
                     let _ = self.networking_system.request_stat_up(stat_type);
                 }

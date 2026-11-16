@@ -25,7 +25,7 @@ use crate::interface::item_move_flow::{confirm_amount, offer_amount, stack_amoun
 use crate::interface::resource::ItemSource;
 use crate::interface::windows::{format_item_details, item_details_key};
 use crate::state::item_compare::ItemTooltipCatalog;
-use crate::state::item_menu::ItemMenuState;
+use crate::state::item_menu::{ItemMenuState, ItemSlotFlags};
 use crate::state::item_move::{ItemMovePrompt, ItemMoveStep};
 use crate::state::quick_move::{QUICK_MOVE_NO_TARGET, QuickMoveWindows, SlotSecondary, classify_secondary};
 use crate::state::vn_dialog::ChoiceKeys;
@@ -160,7 +160,15 @@ impl Fixture {
             SlotSecondary::OpenMenu => false,
             SlotSecondary::Ignore => return Ok(kind),
         };
-        let reaction = react_to_secondary(ItemSource::Inventory, &item, &item.metadata.name, alt, self.windows, false);
+        let reaction = react_to_secondary(
+            ItemSource::Inventory,
+            &item,
+            &item.metadata.name,
+            alt,
+            self.windows,
+            false,
+            ItemSlotFlags::default(),
+        );
         self.apply_reaction(reaction, &item)?;
         Ok(kind)
     }

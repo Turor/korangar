@@ -13,6 +13,8 @@ mod headgear;
 mod inventory_grid;
 #[path = "e2e/inventory_view.rs"]
 mod inventory_view;
+#[path = "e2e/item_flags.rs"]
+mod item_flags;
 #[path = "e2e/item_link.rs"]
 mod item_link;
 #[path = "e2e/item_menu.rs"]

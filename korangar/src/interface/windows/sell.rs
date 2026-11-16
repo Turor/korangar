@@ -13,10 +13,13 @@ use rust_state::{ManuallyAssertExt, Path, PathExt, Selector, State, VecIndexExt}
 
 use super::WindowClass;
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
+use crate::input::InputEvent;
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::renderer::LayoutExt;
+use crate::state::inventory::InventoryPathExt;
+use crate::state::item_flags::refusal_for_index;
 use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
-use crate::state::{ClientState, client_theme};
+use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 use crate::world::ResourceMetadata;
 
 struct PartialEqDisplayStr<T> {
@@ -261,9 +264,24 @@ where
                             A: Path<ClientState, SellItem<(ResourceMetadata, u16)>>,
                             B: Path<ClientState, Vec<SellItem<(ResourceMetadata, u16)>>>,
                         {
-                            fn handle_click(&self, state: &State<ClientState>, _: &mut EventQueue<ClientState>) {
+                            fn handle_click(
+                                &self,
+                                state: &State<ClientState>,
+                                queue: &mut korangar_interface::event::EventQueue<ClientState>,
+                            ) {
                                 let item = state.get(&self.item_path).clone();
                                 let amount = self.amount;
+                                let flags_path = client_state().item_flags();
+                                let items_path = client_state().inventory().items();
+                                let locked = {
+                                    let flags = state.get(&flags_path);
+                                    let inventory = state.get(&items_path);
+                                    refusal_for_index(flags, inventory, item.inventory_index.0)
+                                };
+                                if let Some(message) = locked {
+                                    queue.queue(InputEvent::SystemNotice { text: message });
+                                    return;
+                                }
 
                                 state.update_value_with(self.cart_path, move |cart| {
                                     if let Some(purchase) =
@@ -356,6 +374,10 @@ where
             theme: InterfaceThemeType::InGame,
             resizable: true,
             elements: (
+                button! {
+                    text: "Sell Junk",
+                    event: InputEvent::SellJunk,
+                },
                 scroll_view! {
                     children: ItemList::new(self.items_path, self.cart_path),
                 },

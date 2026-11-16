@@ -10,8 +10,7 @@ use super::item_move::ItemMoveTarget;
 /// Shown when no storage, cart, trade or mail window is open.
 pub const QUICK_MOVE_NO_TARGET: &str = "Open storage, cart, trade or mail to quick-move";
 
-/// Trade and mail refuse a locked stack. G58 supplies the flag; until then
-/// [`item_is_locked`] is false.
+/// Trade and mail refuse a locked stack (`state::item_flags`).
 pub const QUICK_MOVE_LOCKED: &str = "That item is locked.";
 
 /// Worn gear is not a transfer. The player unequips it first.
@@ -89,12 +88,6 @@ pub fn decide_quick_move(source: QuickMoveSource, windows: QuickMoveWindows, loc
         QuickMoveDecision::Move(ItemMoveTarget::ToTrade) | QuickMoveDecision::Mail if locked => QuickMoveDecision::Hint(QUICK_MOVE_LOCKED),
         other => other,
     }
-}
-
-/// G58 replaces this when the lock flag is on the item. Trade and mail check
-/// it; storage and cart do not.
-pub fn item_is_locked<Meta>(_item: &korangar_networking::InventoryItem<Meta>) -> bool {
-    false
 }
 
 #[cfg(test)]

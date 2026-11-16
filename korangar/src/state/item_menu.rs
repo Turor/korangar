@@ -2,8 +2,8 @@
 //!
 //! Rows follow Use or Equip, Details, Link to chat, Favorite, the open
 //! transfer targets, then Drop. Link to chat is shown because
-//! [`crate::input::InputEvent::LinkItemInChat`] exists. Junk and Lock stay
-//! hidden until G58 registers them in [`item_menu_extensions`].
+//! [`crate::input::InputEvent::LinkItemInChat`] exists. Junk and Lock come
+//! last, from [`item_menu_extensions`] (item flags, G58).
 
 use korangar_interface::element::StateElement;
 use rust_state::RustState;
@@ -13,9 +13,8 @@ use super::quick_move::{QuickMoveSource, QuickMoveWindows};
 use super::vn_dialog::{ChoiceKeys, choice_key_outcome};
 use crate::state::item_move::ItemMoveTarget;
 
-/// One menu row. G58 adds [`Self::Junk`], [`Self::Lock`] and [`Self::Unlock`]
-/// through [`item_menu_extensions`]; those variants are hidden while that
-/// list is empty.
+/// One menu row. Junk / Not junk and Lock / Unlock come from
+/// [`item_menu_extensions`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ItemMenuEntry {
     Use,
@@ -32,14 +31,9 @@ pub enum ItemMenuEntry {
     MoveToMail,
     MoveToInventory,
     Drop,
-    /// G58 registers this through [`item_menu_extensions`]. Hidden until then.
-    #[allow(dead_code)]
     Junk,
-    /// G58 registers this through [`item_menu_extensions`]. Hidden until then.
-    #[allow(dead_code)]
+    Unjunk,
     Lock,
-    /// G58 registers this through [`item_menu_extensions`]. Hidden until then.
-    #[allow(dead_code)]
     Unlock,
 }
 
@@ -60,7 +54,8 @@ impl ItemMenuEntry {
             Self::MoveToMail => "Move to mail",
             Self::MoveToInventory => "Move to inventory",
             Self::Drop => "Drop",
-            Self::Junk => "Junk",
+            Self::Junk => "Mark junk",
+            Self::Unjunk => "Not junk",
             Self::Lock => "Lock",
             Self::Unlock => "Unlock",
         }
@@ -132,7 +127,7 @@ pub fn effect_of(entry: ItemMenuEntry, origin: MenuOrigin) -> ItemMenuEffect {
         },
         ItemMenuEntry::Drop => ItemMenuEffect::Drop,
         ItemMenuEntry::LinkToChat => ItemMenuEffect::Link,
-        ItemMenuEntry::Junk | ItemMenuEntry::Lock | ItemMenuEntry::Unlock => ItemMenuEffect::None,
+        ItemMenuEntry::Junk | ItemMenuEntry::Unjunk | ItemMenuEntry::Lock | ItemMenuEntry::Unlock => ItemMenuEffect::None,
     }
 }
 
@@ -144,16 +139,41 @@ pub fn pending_link_event(_index: u16) -> Option<&'static str> {
 
 /// Extra rows from features that are not in this tree yet.
 ///
-/// G58 pushes [`ItemMenuEntry::Junk`] and [`ItemMenuEntry::Lock`] or
-/// [`ItemMenuEntry::Unlock`] from here. An empty list hides those rows.
-pub fn item_menu_extensions(_facts: &ItemMenuFacts) -> Vec<ItemMenuEntry> {
-    Vec::new()
+/// Junk and lock rows for stacks the player carries (inventory, hotbar,
+/// equipment). Storage and cart rows get none.
+pub fn item_menu_extensions(facts: &ItemMenuFacts) -> Vec<ItemMenuEntry> {
+    if matches!(facts.origin, MenuOrigin::Storage | MenuOrigin::Cart) {
+        return Vec::new();
+    }
+    vec![
+        if facts.junk { ItemMenuEntry::Unjunk } else { ItemMenuEntry::Junk },
+        if facts.locked { ItemMenuEntry::Unlock } else { ItemMenuEntry::Lock },
+    ]
 }
 
-/// G58 handles Junk and Lock. `false` means the row did nothing.
-pub fn handle_extension(entry: ItemMenuEntry, index: u16) -> bool {
-    let _ = (entry, index);
-    false
+/// A junk or lock row's new flag value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlagToggle {
+    Junk(bool),
+    Lock(bool),
+}
+
+/// The flag change for a junk / lock row; `None` for every other row.
+pub fn extension_toggle(entry: ItemMenuEntry) -> Option<FlagToggle> {
+    match entry {
+        ItemMenuEntry::Junk => Some(FlagToggle::Junk(true)),
+        ItemMenuEntry::Unjunk => Some(FlagToggle::Junk(false)),
+        ItemMenuEntry::Lock => Some(FlagToggle::Lock(true)),
+        ItemMenuEntry::Unlock => Some(FlagToggle::Lock(false)),
+        _ => None,
+    }
+}
+
+/// Local junk / lock flags of the clicked stack (`state::item_flags`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ItemSlotFlags {
+    pub junk: bool,
+    pub locked: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -163,6 +183,7 @@ pub struct ItemMenuFacts {
     pub worn: bool,
     pub favorite: bool,
     pub locked: bool,
+    pub junk: bool,
     pub windows: QuickMoveWindows,
     /// True only when [`pending_link_event`] returns a name.
     pub link_to_chat: bool,
@@ -364,6 +385,7 @@ mod tests {
             worn,
             favorite,
             locked,
+            junk: false,
             windows,
             link_to_chat: pending_link_event(0).is_some(),
         }
@@ -383,9 +405,17 @@ mod tests {
             false,
             QuickMoveWindows::default(),
         ));
-        assert_eq!(labels(&rows), ["Use", "Details", "Link to chat", "Favorite", "Drop"]);
+        assert_eq!(labels(&rows), [
+            "Use",
+            "Details",
+            "Link to chat",
+            "Favorite",
+            "Drop",
+            "Mark junk",
+            "Lock"
+        ]);
         assert_eq!(pending_link_event(1), Some("LinkItemInChat"));
-        assert!(
+        assert_eq!(
             item_menu_extensions(&facts(
                 MenuOrigin::Inventory,
                 ItemActivation::Use,
@@ -393,11 +423,9 @@ mod tests {
                 false,
                 false,
                 QuickMoveWindows::default(),
-            ))
-            .is_empty()
+            )),
+            [ItemMenuEntry::Junk, ItemMenuEntry::Lock]
         );
-        assert!(!labels(&rows).contains(&"Junk"));
-        assert!(!labels(&rows).contains(&"Lock"));
         assert_eq!(effect_of(rows[0].entry, MenuOrigin::Inventory), ItemMenuEffect::UseItem);
         assert_eq!(effect_of(rows[1].entry, MenuOrigin::Inventory), ItemMenuEffect::Details);
         assert_eq!(effect_of(rows[2].entry, MenuOrigin::Inventory), ItemMenuEffect::Link);
@@ -422,6 +450,8 @@ mod tests {
             "Move to trade",
             "Move to mail",
             "Drop",
+            "Mark junk",
+            "Lock",
         ]);
         let locked = build_item_menu(&facts(MenuOrigin::Inventory, ItemActivation::Use, false, false, true, windows));
         assert_eq!(labels(&locked), [
@@ -431,7 +461,9 @@ mod tests {
             "Favorite",
             "Move to storage",
             "Move to cart",
-            "Drop"
+            "Drop",
+            "Mark junk",
+            "Unlock",
         ]);
     }
 
@@ -450,7 +482,14 @@ mod tests {
                 ..QuickMoveWindows::default()
             },
         ));
-        assert_eq!(labels(&worn), ["Unequip", "Details", "Link to chat", "Favorite"]);
+        assert_eq!(labels(&worn), [
+            "Unequip",
+            "Details",
+            "Link to chat",
+            "Favorite",
+            "Mark junk",
+            "Lock"
+        ]);
         let stored = build_item_menu(&facts(
             MenuOrigin::Storage,
             ItemActivation::Ignore,
@@ -464,6 +503,50 @@ mod tests {
             effect_of(ItemMenuEntry::MoveToInventory, MenuOrigin::Storage),
             ItemMenuEffect::Move(crate::state::item_move::ItemMoveTarget::FromStorage)
         );
+    }
+
+    #[test]
+    fn junk_and_lock_rows_toggle_the_flags() {
+        let mut junk_facts = facts(
+            MenuOrigin::Inventory,
+            ItemActivation::Use,
+            false,
+            false,
+            true,
+            QuickMoveWindows::default(),
+        );
+        junk_facts.junk = true;
+        assert_eq!(item_menu_extensions(&junk_facts), [
+            ItemMenuEntry::Unjunk,
+            ItemMenuEntry::Unlock
+        ]);
+        assert_eq!(labels(&build_item_menu(&junk_facts))[5..], ["Not junk", "Unlock"]);
+        assert_eq!(
+            super::extension_toggle(ItemMenuEntry::Junk),
+            Some(super::FlagToggle::Junk(true))
+        );
+        assert_eq!(
+            super::extension_toggle(ItemMenuEntry::Unjunk),
+            Some(super::FlagToggle::Junk(false))
+        );
+        assert_eq!(
+            super::extension_toggle(ItemMenuEntry::Lock),
+            Some(super::FlagToggle::Lock(true))
+        );
+        assert_eq!(
+            super::extension_toggle(ItemMenuEntry::Unlock),
+            Some(super::FlagToggle::Lock(false))
+        );
+        assert_eq!(super::extension_toggle(ItemMenuEntry::Drop), None);
+        let cart = facts(
+            MenuOrigin::Cart,
+            ItemActivation::Ignore,
+            false,
+            false,
+            false,
+            QuickMoveWindows::default(),
+        );
+        assert!(item_menu_extensions(&cart).is_empty());
     }
 
     #[test]

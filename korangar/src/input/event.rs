@@ -588,6 +588,16 @@ pub enum InputEvent {
     },
     /// Send the amount typed into the drop window.
     ConfirmItemDrop,
+    /// Mark or clear junk on the item slot under the cursor.
+    ToggleHoveredJunk,
+    /// Lock or unlock the item slot under the cursor.
+    ToggleHoveredLock,
+    /// Add every junk stack the open NPC will buy onto the sell cart.
+    SellJunk,
+    /// A short system line, such as a locked-item refusal.
+    SystemNotice {
+        text: String,
+    },
     /// Close the drop window without sending a packet.
     CancelItemDrop,
     /// An inventory stack dropped on the trade window. A stack above 1 asks

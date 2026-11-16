@@ -66,6 +66,10 @@ impl Client {
 
     /// An inventory stack dropped on the trade window.
     fn offer_trade_item(&mut self, index: u16, amount: u16) {
+        if let Some(message) = self.locked_inventory_message(index) {
+            self.item_flag_notice(message);
+            return;
+        }
         let name = self
             .client_state
             .follow(client_state().inventory().items())
@@ -92,6 +96,10 @@ impl Client {
 
     /// Offer `amount` of inventory index `index` in the open trade.
     pub(crate) fn trade_add_item(&mut self, index: u16, amount: u16) {
+        if let Some(message) = self.locked_inventory_message(index) {
+            self.item_flag_notice(message);
+            return;
+        }
         let trade = self.client_state.follow(client_state().trade());
         if !trade.can_note_item_add(index, u32::from(amount)) {
             return;

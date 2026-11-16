@@ -27,8 +27,16 @@ fn item_menu_and_quick_move_offline() {
     assert_eq!(report.no_target_hint, QUICK_MOVE_NO_TARGET);
     assert!(report.no_target_request.is_empty());
 
-    assert_eq!(report.menu_labels, ["Use", "Details", "Link to chat", "Favorite", "Drop"]);
-    assert!(!report.menu_labels.iter().any(|label| label == "Junk" || label == "Lock"));
+    // Junk and Lock come last (item flags, G58).
+    assert_eq!(report.menu_labels, [
+        "Use",
+        "Details",
+        "Link to chat",
+        "Favorite",
+        "Drop",
+        "Mark junk",
+        "Lock"
+    ]);
     assert_eq!(report.use_request, [0x39, 0x04, 4, 0, 0, 0, 0, 0]);
     assert!(report.details_opened);
     assert!(report.details_body.contains("Red Potion"));
@@ -63,11 +71,11 @@ fn item_menu_on_test_inventory() {
         "menu hid Link to chat: {:?}",
         report.labels
     );
+    // Unflagged row: the item-flag rows come last.
     assert!(
-        !report
-            .labels
-            .iter()
-            .any(|label| label == "Junk" || label == "Lock" || label == "Unlock")
+        report.labels.ends_with(&["Mark junk".to_owned(), "Lock".to_owned()]),
+        "menu lacks the junk / lock rows: {:?}",
+        report.labels
     );
     assert_eq!(report.quick_move_hint, QUICK_MOVE_NO_TARGET);
     assert_eq!(report.sent_before, report.sent_after);
