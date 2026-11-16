@@ -14,6 +14,7 @@ use ragnarok_packets::ClientTick;
 use self::live::SentHeaders;
 pub use self::live::inventory_grid::LiveInventoryGridReport;
 pub use self::live::inventory_view::LiveInventoryViewReport;
+pub use self::live::item_menu::LiveItemMenuReport;
 pub use self::live::item_move::LiveItemMoveReport;
 pub use self::live::item_tooltip::LiveItemTooltipReport;
 pub use self::live::job_names::LivePartyJobReport;
@@ -251,6 +252,10 @@ impl LogicSession {
 
     pub fn sent_headers(&self) -> Vec<u16> {
         self.sent.headers.lock().map(|guard| guard.clone()).unwrap_or_default()
+    }
+
+    pub fn sent_header_count(&self) -> usize {
+        self.sent.headers.lock().map(|guard| guard.len()).unwrap_or(0)
     }
 
     pub fn sent_choices(&self) -> Vec<self::live::SentChoice> {

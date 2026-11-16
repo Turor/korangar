@@ -14,6 +14,7 @@ mod inject;
 mod inventory_grid;
 mod inventory_view;
 mod item_link;
+mod item_menu;
 mod item_move;
 mod item_tooltip;
 mod item_workshop;
@@ -43,13 +44,14 @@ pub use self::inventory_view::{
     DrawnIndexes, FAVORITE_ACK_BYTES, InventorySort, InventoryTab, OfflineInventoryViewReport, offline_inventory_view,
 };
 pub use self::item_link::{OfflineItemLinkReport, offline_item_link};
+pub use self::item_menu::{OfflineItemMenuReport, offline_item_menu};
 pub use self::item_move::{ItemMoveCase, OfflineItemMoveReport, item_move_request, offline_item_moves};
 pub use self::item_tooltip::{LiveItemTooltipReport, OfflineTooltipReport, offline_tooltip_view};
 pub use self::item_workshop::WorkshopView;
 pub use self::job_names::{JobNamesReport, job_names_scenario};
 pub use self::logic::{
-    DialogView, LiveInventoryGridReport, LiveInventoryViewReport, LiveItemMoveReport, LivePartyJobReport, LiveStoragePlanReport,
-    LogicSession, MailRoundTrip, Outbound, Phase, SelectedOption, SentChoice, SettingsView,
+    DialogView, LiveInventoryGridReport, LiveInventoryViewReport, LiveItemMenuReport, LiveItemMoveReport, LivePartyJobReport,
+    LiveStoragePlanReport, LogicSession, MailRoundTrip, Outbound, Phase, SelectedOption, SentChoice, SettingsView,
 };
 pub use self::mail::{OfflineMailReport, offline_mail_exchange};
 pub use self::minimap::{MinimapHarness, MinimapMarkView, MinimapView};
