@@ -31,6 +31,7 @@ macro_rules! time_phase {
 
 mod autopilot;
 pub mod deployment;
+pub mod e2e;
 mod graphics;
 mod input;
 mod state;
@@ -5071,29 +5072,7 @@ impl Client {
                         None => {}
                     }
                 }
-                InputEvent::SwitchWindowTab { from, to } => {
-                    let same_group = interface::windows::WindowGroup::of(from).is_some_and(|group| group.contains(to));
-                    if same_group && from != to {
-                        self.window_groups.remember(to);
-                        let switched = if self.interface.is_window_with_class_open(to) {
-                            self.interface.close_window_with_class(from);
-                            self.interface.raise_window_classes(&[to]);
-                            true
-                        } else if let Some(event) = interface::windows::group_member_open_event(to) {
-                            self.interface.share_window_anchor(from, to);
-                            self.interface.close_window_with_class(from);
-                            self.input_event_buffer.push(event);
-                            true
-                        } else {
-                            false
-                        };
-                        // Mail, Bank, and Roulette also tell the server. The close runs after the
-                        // open so a tab change does not drop the member that was just requested.
-                        if switched && let Some(event) = interface::windows::group_member_close_event(from) {
-                            self.input_event_buffer.push(event);
-                        }
-                    }
-                }
+                InputEvent::SwitchWindowTab { from, to } => crate::e2e::apply_switch_window_tab(self, from, to),
                 InputEvent::CycleMenuBarLayout => {
                     let size = *self.client_state.follow(client_state().window_size());
                     let settings = self.client_state.follow_mut(client_state().interface_settings());
@@ -5820,9 +5799,11 @@ impl Client {
                                     .follow_mut(client_state())
                                     .note_local_speech(entity_id, bubble, client_tick.0);
                             }
-                            let _ = self
-                                .networking_system
-                                .send_chat_message(self.client_state.follow(client_state().player_name()), &text);
+                            let _ = crate::e2e::send_public_chat(
+                                &mut self.networking_system,
+                                self.client_state.follow(client_state().player_name()),
+                                &text,
+                            );
                         }
                     }
                 }
@@ -5855,14 +5836,7 @@ impl Client {
                         true,
                     );
                 }
-                InputEvent::ChooseDialogOption { npc_id, option } => {
-                    let _ = self.networking_system.choose_dialog_option(npc_id, option);
-                    self.interface.unfocus();
-
-                    if option == -1 {
-                        crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
-                    }
-                }
+                InputEvent::ChooseDialogOption { npc_id, option } => crate::e2e::apply_choose_dialog_option(self, npc_id, option),
                 InputEvent::UseItem { index } => {
                     let item = self
                         .client_state
@@ -7493,7 +7467,7 @@ impl Client {
                     .any(|entity| entity.get_entity_id() == entity_id)
                 {
                     self.npc_dismissed.clear();
-                    let _ = self.networking_system.start_dialog(entity_id);
+                    let _ = crate::e2e::begin_npc_dialog(&mut self.networking_system, entity_id);
                 }
             }
         }
@@ -7534,11 +7508,7 @@ impl Client {
         let Some(target) = target else {
             return false;
         };
-        let _ = self.networking_system.player_move(WorldPosition {
-            x: target.x,
-            y: target.y,
-            direction: Direction::North,
-        });
+        let _ = crate::e2e::send_walk(&mut self.networking_system, target);
         true
     }
 
@@ -7550,7 +7520,7 @@ impl Client {
         } else {
             *self.client_state.follow_mut(client_state().buffered_action()) = None;
             self.npc_dismissed.clear();
-            let _ = self.networking_system.start_dialog(entity_id);
+            let _ = crate::e2e::begin_npc_dialog(&mut self.networking_system, entity_id);
         }
     }
 
