@@ -137,6 +137,9 @@ pub struct LogicSession {
     pub(super) status_strip: crate::e2e::StatusStrip,
     /// Player looks from the character list and live appear packets.
     pub(super) headgear: crate::e2e::HeadgearScene,
+    /// Slot caps seen on the map server (`0x0B18` arrives before map entry
+    /// ends).
+    pub(super) item_capacities: Vec<korangar_networking::ItemCapacity>,
     /// Item reform and laphine windows driven by injected packets and events.
     pub(super) workshop: crate::e2e::item_workshop::ItemWorkshopSession,
     /// Weather, zone badge, and gat cells for the map the session is on.
@@ -183,6 +186,7 @@ impl LogicSession {
             lock: None,
             status_strip: crate::e2e::StatusStrip::default(),
             headgear: crate::e2e::HeadgearScene::default(),
+            item_capacities: Vec::new(),
             workshop: crate::e2e::item_workshop::ItemWorkshopSession::default(),
             map_world: crate::e2e::weather::MapWorld::default(),
             companion_note: crate::e2e::companions::CompanionNote::default(),

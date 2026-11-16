@@ -26,7 +26,14 @@ impl LogicSession {
         self.enter_world()?;
 
         let mut rows = 0;
-        let mut capacity = None;
+        let inventory_cap = |session: &Self| {
+            session
+                .item_capacities
+                .iter()
+                .rev()
+                .find(|cap| cap.list == ItemCapacityList::Inventory)
+                .map(|cap| cap.maximum)
+        };
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
             let drained = {
@@ -39,7 +46,6 @@ impl LogicSession {
             for event in drained {
                 match event {
                     NetworkEvent::SetInventory { items } => rows = items.len(),
-                    NetworkEvent::ItemCapacity(cap) if cap.list == ItemCapacityList::Inventory => capacity = Some(cap.maximum),
                     other => self.on_event(other)?,
                 }
             }
@@ -47,6 +53,7 @@ impl LogicSession {
             std::thread::sleep(Duration::from_millis(10));
         }
 
+        let capacity = inventory_cap(self);
         Ok(LiveInventoryGridReport {
             inventory_rows: rows,
             inventory_capacity: capacity,
