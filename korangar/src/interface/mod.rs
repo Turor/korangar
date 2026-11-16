@@ -7,6 +7,7 @@ pub mod cursor;
 pub(crate) mod dialog_layer;
 pub mod font_scale;
 pub mod guild_emblem_overlay;
+pub(crate) mod item_menu_flow;
 pub(crate) mod item_move_flow;
 pub mod mail_compose_flow;
 pub(crate) mod npc_flow;

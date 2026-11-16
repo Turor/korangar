@@ -14,10 +14,10 @@ use crate::input::{InputEvent, MouseInputMode};
 use crate::interface::components::item_tooltip::inventory_tooltips;
 use crate::interface::font_scale::from_theme_body;
 use crate::interface::resource::ItemSource;
-use crate::interface::windows::item_details_key;
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::renderer::LayoutExt;
 use crate::state::dressing_room::DressingRoomPathExt;
+use crate::state::item_menu::ItemMenuStatePathExt;
 use crate::state::theme::{InterfaceThemePathExt, SkillTreeThemePathExt, ThemeTokensPathExt};
 use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 use crate::world::ResourceMetadata;
@@ -110,12 +110,12 @@ where
     }
 }
 
-struct ItemDetailsHandler<P> {
+struct ItemMenuClick<P> {
     item_path: P,
     source: ItemSource,
 }
 
-impl<P> ClickHandler<ClientState> for ItemDetailsHandler<P>
+impl<P> ClickHandler<ClientState> for ItemMenuClick<P>
 where
     P: Path<ClientState, InventoryItem<ResourceMetadata>, false>,
 {
@@ -123,16 +123,11 @@ where
         let Some(item) = state.try_get(&self.item_path) else {
             return;
         };
-        let text = inventory_tooltips(state, item, self.source);
-        let body = if text.compare.is_empty() {
-            text.body
-        } else {
-            format!("{}\n{}", text.body, text.compare)
-        };
-        queue.queue(InputEvent::OpenItemDetails {
-            key: item_details_key(self.source, item),
-            title: item.metadata.name.clone(),
-            body,
+        let alt = *state.get(&client_state().item_menu().alt_held());
+        queue.queue(InputEvent::ItemSlotSecondary {
+            source: self.source,
+            index: item.index,
+            alt,
         });
     }
 }
@@ -140,7 +135,7 @@ where
 pub struct ItemBox<A> {
     item_path: A,
     handler: ItemBoxHandler<A>,
-    details_handler: ItemDetailsHandler<A>,
+    menu_handler: ItemMenuClick<A>,
     use_handler: ItemUseHandler<A>,
     amount_display: AmountDisplay,
     /// `0.0` keeps the historical 40px-tall stretched cell. A positive value is
@@ -176,7 +171,7 @@ where
         Self {
             item_path,
             handler: ItemBoxHandler::new(item_path, source),
-            details_handler: ItemDetailsHandler { item_path, source },
+            menu_handler: ItemMenuClick { item_path, source },
             use_handler: ItemUseHandler { item_path },
             amount_display: AmountDisplay::default(),
             side,
@@ -343,7 +338,7 @@ where
 
             if is_hovered && !is_move_mode {
                 layout.register_click_handler(MouseButton::Left, &self.handler);
-                layout.register_click_handler(MouseButton::Right, &self.details_handler);
+                layout.register_click_handler(MouseButton::Right, &self.menu_handler);
                 if self.handler.source == ItemSource::Inventory {
                     layout.register_click_handler(MouseButton::DoubleLeft, &self.use_handler);
                 }
