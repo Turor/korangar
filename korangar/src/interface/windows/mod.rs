@@ -23,6 +23,7 @@ mod commands;
 mod companions;
 mod context_menu;
 mod dialog;
+mod dressing_room;
 mod eden;
 mod emotes;
 mod enchant;
@@ -126,6 +127,8 @@ pub use self::companions::{
 };
 pub use self::context_menu::ContextMenuWindow;
 pub use self::dialog::{DialogWindow, DialogWindowState, NpcInputBox};
+pub use self::dressing_room::DressingRoomWindow;
+pub(crate) use self::dressing_room::{apply_item_preview, queues_preview, sync_dressing_room, take_dressing_animation};
 pub use self::eden::EdenWindow;
 pub use self::emotes::EmotesWindow;
 pub use self::enchant::EnchantWindow;
@@ -294,6 +297,7 @@ pub enum WindowClass {
     LaphineSynthesis,
     LaphineUpgrade,
     StylingShop,
+    DressingRoom,
     MenuBar,
     Emotes,
     #[cfg(feature = "debug")]

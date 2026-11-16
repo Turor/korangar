@@ -427,6 +427,7 @@ pub fn parse_window_class(name: &str) -> Option<WindowClass> {
         "inventory" => Some(WindowClass::Inventory),
         "storage" => Some(WindowClass::Storage),
         "equipment" | "gear" => Some(WindowClass::Equipment),
+        "dressingroom" | "itempreview" | "preview" => Some(WindowClass::DressingRoom),
         "switchequip" => Some(WindowClass::SwitchEquip),
         "skilltree" => Some(WindowClass::SkillTree),
         "stable" => Some(WindowClass::Stable),

@@ -633,6 +633,11 @@ pub enum InputEvent {
         /// Item to move.
         item: InventoryItem<ResourceMetadata>,
     },
+    /// Try an item on in the dressing room. Nothing is sent to the server.
+    PreviewItem {
+        /// Item from the bag, storage, or cart.
+        item: InventoryItem<ResourceMetadata>,
+    },
     /// Show an emotion.
     SendEmotion {
         /// Id of the emotion.

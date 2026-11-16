@@ -17,8 +17,9 @@ use crate::interface::resource::ItemSource;
 use crate::interface::windows::item_details_key;
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::renderer::LayoutExt;
+use crate::state::dressing_room::DressingRoomPathExt;
 use crate::state::theme::{InterfaceThemePathExt, SkillTreeThemePathExt, ThemeTokensPathExt};
-use crate::state::{ClientState, client_theme};
+use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 use crate::world::ResourceMetadata;
 
 #[derive(Default)]
@@ -61,6 +62,11 @@ where
         let item = state.try_get(&self.item_path).unwrap().clone();
         if crate::state::item_link::shift_links() {
             queue.queue(InputEvent::LinkItemInChat { item });
+            return;
+        }
+
+        if crate::interface::windows::queues_preview(*state.get(&client_state().dressing_room().ctrl_down()), self.source) {
+            queue.queue(InputEvent::PreviewItem { item });
             return;
         }
 

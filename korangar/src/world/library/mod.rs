@@ -11,6 +11,7 @@ mod map_sky_data;
 mod monster_name;
 mod navigation_table;
 mod quest_display;
+mod robe_name;
 mod signboard;
 mod skill_description;
 mod skill_information;
@@ -77,6 +78,7 @@ pub struct Library {
     skill_descriptions: HashMap<u16, String>,
     job_parents: JobParents,
     accessory_names: HashMap<u16, String>,
+    robe_names: HashMap<u16, String>,
     achievement_catalog: Arc<AchievementCatalog>,
     attendance_table: Arc<AttendanceTable>,
     navigation_tables: Arc<NavigationTables>,
@@ -101,6 +103,7 @@ impl Library {
         let monster_names = load_monster_names(game_file_loader);
         let (skill_descriptions, job_parents) = load_skill_text(game_file_loader);
         let accessory_names = accessory_name::load_accessory_names(game_file_loader);
+        let robe_names = robe_name::load_robe_names(game_file_loader);
         // Achievement, attendance and navigation tables are optional client files.
         let achievement_catalog = Arc::new(achievement_table::load_achievement_catalog(game_file_loader));
         let attendance_table = Arc::new(achievement_table::load_attendance_table(game_file_loader));
@@ -125,6 +128,7 @@ impl Library {
             skill_descriptions,
             job_parents,
             accessory_names,
+            robe_names,
             achievement_catalog,
             attendance_table,
             navigation_tables,
@@ -143,6 +147,11 @@ impl Library {
     /// `AccNameTable` suffix for a headgear view id, such as `_고글`.
     pub fn accessory_sprite_suffix(&self, view_id: u16) -> Option<&str> {
         self.accessory_names.get(&view_id).map(String::as_str)
+    }
+
+    /// `RobeNameTable` folder for a garment view id, such as `천사날개`.
+    pub fn robe_sprite_name(&self, view_id: u16) -> Option<&str> {
+        self.robe_names.get(&view_id).map(String::as_str)
     }
 
     /// `titletable.lub` name for an achievement title reward.

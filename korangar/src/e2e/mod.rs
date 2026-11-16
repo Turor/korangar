@@ -8,6 +8,7 @@ pub mod archives;
 mod chat;
 mod companions;
 mod credentials;
+mod dressing_room;
 mod headgear;
 mod inject;
 mod inventory_grid;
@@ -33,6 +34,7 @@ pub(crate) use self::actions::{apply_choose_dialog_option, apply_switch_window_t
 pub use self::chat::{ChatSession, ChatView};
 pub use self::companions::{CompanionNote, CompanionSession};
 pub use self::credentials::{Credentials, LiveConnect, TEST_HOST, TEST_PORT};
+pub use self::dressing_room::{LiveDressingReport, OfflineDressingReport, no_preview_message, offline_dressing_room};
 pub use self::headgear::{HeadgearScene, LookedPlayer};
 pub use self::inject::input_path_parity;
 pub use self::inventory_grid::{GridView, OfflineInventoryGridReport, TURORAN_CAP_BYTES, grid_view, offline_inventory_grid};

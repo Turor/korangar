@@ -23,7 +23,7 @@ mod sprite_paths;
 pub mod weather;
 pub(crate) use self::sprite_paths::{
     JOB_NOVICE, JOB_SUMMONER, creation_part_files, hair_color_thumb_grf_path, hair_palette_grf_path, hair_palette_id, hair_thumb_grf_path,
-    resolve_part_files,
+    is_doram_job, resolve_part_files, weapon_job_sprite_name,
 };
 mod video;
 
