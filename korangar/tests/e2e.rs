@@ -13,6 +13,8 @@ mod inventory_grid;
 mod inventory_view;
 #[path = "e2e/item_move.rs"]
 mod item_move;
+#[path = "e2e/item_tooltip.rs"]
+mod item_tooltip;
 #[path = "e2e/item_workshop.rs"]
 mod item_workshop;
 #[path = "e2e/job_names.rs"]

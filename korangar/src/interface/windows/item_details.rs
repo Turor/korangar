@@ -1,12 +1,20 @@
+use korangar_interface::element::store::{ElementStore, ElementStoreMut};
+use korangar_interface::element::{BaseLayoutInfo, Element};
+use korangar_interface::layout::{Resolvers, WindowLayout, with_single_resolver};
+use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
 use korangar_networking::{InventoryItem, InventoryItemDetails, ShopItem};
+use rust_state::State;
 
 use super::WindowClass;
 use crate::graphics::Color;
+use crate::interface::components::item_tooltip::paint_tooltip;
+use crate::interface::font_scale::from_theme_body;
 use crate::interface::resource::ItemSource;
 use crate::loaders::{FontSize, OverflowBehavior};
-use crate::state::ClientState;
-use crate::state::theme::InterfaceThemeType;
+use crate::state::item_compare::{ItemTooltipCatalog, item_tooltip_lines};
+use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType};
+use crate::state::{ClientState, client_theme};
 use crate::world::ResourceMetadata;
 
 /// Stable id so a second right-click focuses the existing details window.
@@ -30,10 +38,11 @@ fn gold_markup(gold: Color) -> String {
     format!("^{:02X}{:02X}{:02X}", gold.red_as_u8(), gold.green_as_u8(), gold.blue_as_u8())
 }
 
-/// Hover tooltip and pinned-window body: name, gold refine/grade accents, then
-/// description.
+/// Item text with no catalog and no worn gear. Slots paint through
+/// `inventory_tooltips`, which adds finder facts and the Shift compare block.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn format_item_details(item: &InventoryItem<ResourceMetadata>, gold: Color) -> String {
-    format_named_details(&item.metadata, Some(&item.details), None, gold)
+    paint_tooltip(&item_tooltip_lines(item, &ItemTooltipCatalog::default(), &[]), gold, gold).body
 }
 
 #[allow(dead_code)]
@@ -84,8 +93,74 @@ fn format_named_details(
     lines.join("\n")
 }
 
-/// Floating, closable, draggable item inspect window. Class is `None` so
-/// several can be open.
+/// Body text at the theme font. `from_theme_body` maps the old 13px size onto
+/// the theme token so a larger interface font scales this window too.
+struct ItemDetailsBody {
+    body: String,
+}
+
+impl ItemDetailsBody {
+    fn new(body: String) -> Self {
+        Self { body }
+    }
+}
+
+impl Element<ClientState> for ItemDetailsBody {
+    type LayoutInfo = BaseLayoutInfo;
+
+    fn create_layout_info(
+        &mut self,
+        state: &State<ClientState>,
+        _: ElementStoreMut,
+        resolvers: &mut dyn Resolvers<ClientState>,
+    ) -> Self::LayoutInfo {
+        let tokens_path = client_theme().tokens();
+        let tokens = state.get(&tokens_path);
+        let font_size = FontSize(from_theme_body(tokens.font_size, 13.0));
+        let text_color = tokens.text;
+        let highlight = tokens.gold;
+        with_single_resolver(resolvers, |resolver| {
+            let (size, _) = resolver.get_text_dimensions(
+                &self.body,
+                text_color,
+                highlight,
+                font_size,
+                HorizontalAlignment::Left { offset: 4.0, border: 2.0 },
+                OverflowBehavior::LineBreak,
+            );
+            Self::LayoutInfo {
+                area: resolver.with_height(size.height + 2.0),
+            }
+        })
+    }
+
+    fn lay_out<'a>(
+        &'a self,
+        state: &'a State<ClientState>,
+        _: ElementStore<'a>,
+        layout_info: &'a Self::LayoutInfo,
+        layout: &mut WindowLayout<'a, ClientState>,
+    ) {
+        let tokens_path = client_theme().tokens();
+        let tokens = state.get(&tokens_path);
+        let font_size = FontSize(from_theme_body(tokens.font_size, 13.0));
+        let text_color = tokens.text;
+        let highlight = tokens.gold;
+        layout.add_text(
+            layout_info.area,
+            &self.body,
+            font_size,
+            text_color,
+            highlight,
+            HorizontalAlignment::Left { offset: 4.0, border: 2.0 },
+            VerticalAlignment::Top { offset: 2.0 },
+            OverflowBehavior::LineBreak,
+        );
+    }
+}
+
+/// Floating, closable, draggable item inspect window. Several can stay open:
+/// `open_or_raise_instance` keys them by item, not by this class.
 pub struct ItemDetailsWindow {
     pub title: String,
     pub body: String,
@@ -93,7 +168,7 @@ pub struct ItemDetailsWindow {
 
 impl CustomWindow<ClientState> for ItemDetailsWindow {
     fn window_class() -> Option<WindowClass> {
-        None
+        Some(WindowClass::ItemDetails)
     }
 
     fn to_window<'a>(self) -> impl Window<ClientState> + 'a {
@@ -105,13 +180,7 @@ impl CustomWindow<ClientState> for ItemDetailsWindow {
             theme: InterfaceThemeType::InGame,
             closable: true,
             minimum_width: 220.0,
-            elements: (
-                text! {
-                    text: self.body,
-                    font_size: FontSize(13.0),
-                    overflow_behavior: OverflowBehavior::LineBreak,
-                },
-            ),
+            elements: (ItemDetailsBody::new(self.body),),
         }
     }
 }
@@ -156,7 +225,7 @@ mod tests {
                 forge_data: None,
                 refinement_level: refine,
                 enchantment_level: grade,
-                flags: EquippableItemFlags::empty(),
+                flags: EquippableItemFlags::IDENTIFIED,
             },
         }
     }
@@ -165,7 +234,7 @@ mod tests {
     fn details_include_gold_refine_and_description() {
         let item = equip("Sword", 7, 2, "A sharp blade.");
         let text = format_item_details(&item, Color::rgb_u8(0xCF, 0xAE, 0x5A));
-        assert!(text.starts_with("Sword"));
+        assert!(text.contains("Sword"), "{text}");
         assert!(text.contains("^CFAE5A+7^000000"));
         assert!(text.contains("^CFAE5AGrade 2^000000"));
         assert!(text.contains("A sharp blade."));

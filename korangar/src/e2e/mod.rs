@@ -13,6 +13,7 @@ mod inject;
 mod inventory_grid;
 mod inventory_view;
 mod item_move;
+mod item_tooltip;
 mod item_workshop;
 mod job_names;
 mod logic;
@@ -38,6 +39,7 @@ pub use self::inventory_view::{
     DrawnIndexes, FAVORITE_ACK_BYTES, InventorySort, InventoryTab, OfflineInventoryViewReport, offline_inventory_view,
 };
 pub use self::item_move::{ItemMoveCase, OfflineItemMoveReport, item_move_request, offline_item_moves};
+pub use self::item_tooltip::{LiveItemTooltipReport, OfflineTooltipReport, offline_tooltip_view};
 pub use self::item_workshop::WorkshopView;
 pub use self::job_names::{JobNamesReport, job_names_scenario};
 pub use self::logic::{

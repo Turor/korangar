@@ -460,6 +460,8 @@ fn load_item_finder(loader: &loaders::GameFileLoader, state: &mut rust_state::St
     state
         .follow_mut(client_state().item_finder())
         .load_bytes(catalog.as_deref(), sources.as_deref());
+    let options = state::item_compare::load_option_names(loader);
+    state.follow_mut(client_state().item_finder()).set_option_names(options);
 }
 
 impl Client {
@@ -891,6 +893,7 @@ impl Client {
         });
 
         let mut client_state = client_state;
+        load_item_finder(game_file_loader.as_ref(), &mut client_state);
         crate::state::achievements::attach_library_tables(&mut client_state, &library);
 
         let active_interface_settings = client_state.follow(crate::client_state().interface_settings()).clone();
@@ -8234,6 +8237,8 @@ impl Client {
         } = self.game_timer.update();
 
         let mut input_report = self.input_system.update_delta(client_tick);
+        let shift_held = self.input_system.key_down(KeyCode::ShiftLeft) || self.input_system.key_down(KeyCode::ShiftRight);
+        self.client_state.follow_mut(client_state().item_compare()).shift_held = shift_held;
 
         self.request_entity_details(&input_report);
 
