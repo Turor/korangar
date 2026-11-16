@@ -3,6 +3,7 @@
 //!
 //! No swapchain. Passwords stay out of errors.
 
+pub(super) mod dressing_room;
 pub(super) mod inventory_grid;
 pub(super) mod inventory_view;
 pub(super) mod item_link;

@@ -6316,6 +6316,12 @@ impl Client {
                     }
                     _ => {}
                 },
+                InputEvent::PreviewItem { item } => {
+                    crate::interface::windows::apply_item_preview(&mut self.client_state, &self.library, &self.sprite_loader, &item);
+                    if !self.interface.is_window_with_class_open(WindowClass::DressingRoom) {
+                        self.interface.open_window(DressingRoomWindow::new());
+                    }
+                }
                 InputEvent::CloseStorage => {
                     if self.interface.is_window_with_class_open(WindowClass::Storage) {
                         let _ = self.networking_system.close_storage();
@@ -7471,6 +7477,13 @@ impl Client {
                     ) else {
                         continue;
                     };
+                    let Some(animation_data) = crate::interface::windows::take_dressing_animation(
+                        self.client_state.follow_mut(client_state().dressing_room()),
+                        entity_id,
+                        animation_data,
+                    ) else {
+                        continue;
+                    };
                     if let Some(entity) = self
                         .client_state
                         .follow_mut(client_state().entities())
@@ -8343,6 +8356,11 @@ impl Client {
             &self.texture_loader,
             self.interface.is_window_with_class_open(WindowClass::CharacterCreation),
         );
+        crate::interface::windows::sync_dressing_room(
+            self.client_state.follow_mut(client_state().dressing_room()),
+            &self.async_loader,
+            self.interface.is_window_with_class_open(WindowClass::DressingRoom),
+        );
 
         let current_camera: &(dyn Camera + Send + Sync) = match currently_playing {
             #[cfg(feature = "debug")]
@@ -8526,6 +8544,8 @@ impl Client {
             self.window_groups.observe(|class| self.interface.is_window_with_class_open(class));
             let menu_bar_bits = menu_bar_open_bits(|class| self.interface.is_window_with_class_open(class));
             *self.client_state.follow_mut(client_state().menu_bar_open()) = menu_bar_bits;
+            let ctrl = self.input_system.key_down(KeyCode::ControlLeft) || self.input_system.key_down(KeyCode::ControlRight);
+            self.client_state.follow_mut(client_state().dressing_room()).set_ctrl(ctrl);
 
             let mut interface_frame = self
                 .interface
