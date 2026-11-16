@@ -239,8 +239,9 @@ impl DropHandler<ClientState> for TradeInventoryDrop {
             InventoryItemDetails::Equippable { .. } => 1,
         };
         let index = item.index.0;
-        if state.get(&client_state().trade()).can_note_item_add(index, u32::from(amount)) {
-            queue.queue(InputEvent::TradeAddItem { index, amount });
+        // A stack above 1 asks how many first (roBrowser's InputBox).
+        if state.get(&client_state().trade()).can_note_item_add(index, 1) {
+            queue.queue(InputEvent::OfferTradeItem { index, amount });
         }
     }
 }
