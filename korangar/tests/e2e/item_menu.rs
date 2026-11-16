@@ -71,11 +71,11 @@ fn item_menu_on_test_inventory() {
         "menu hid Link to chat: {:?}",
         report.labels
     );
+    // Unflagged row: the item-flag rows come last.
     assert!(
-        !report
-            .labels
-            .iter()
-            .any(|label| label == "Junk" || label == "Lock" || label == "Unlock")
+        report.labels.ends_with(&["Mark junk".to_owned(), "Lock".to_owned()]),
+        "menu lacks the junk / lock rows: {:?}",
+        report.labels
     );
     assert_eq!(report.quick_move_hint, QUICK_MOVE_NO_TARGET);
     assert_eq!(report.sent_before, report.sent_after);
