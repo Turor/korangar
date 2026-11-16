@@ -8512,6 +8512,14 @@ impl Client {
             (None, false)
         };
 
+        let grid_keys_taken = interface_has_focus || dialog_ate_confirm || dialog_key.is_some();
+        crate::interface::grid_nav_flow::handle_inventory_grid_keys(
+            &self.input_system,
+            &self.interface,
+            &mut self.client_state,
+            &mut self.input_event_buffer,
+            grid_keys_taken,
+        );
         crate::interface::npc_flow::prepare_vn_dialog(&mut self.client_state, &mut self.interface, screen_size, client_tick.0);
         self.dialog_layer.sync(&mut self.interface);
 

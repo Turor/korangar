@@ -6,6 +6,7 @@ pub(crate) mod context_menu_flow;
 pub mod cursor;
 pub(crate) mod dialog_layer;
 pub mod font_scale;
+pub(crate) mod grid_nav_flow;
 pub mod guild_emblem_overlay;
 pub(crate) mod item_menu_flow;
 pub(crate) mod item_move_flow;

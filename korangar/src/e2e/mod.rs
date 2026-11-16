@@ -9,6 +9,7 @@ mod chat;
 mod companions;
 mod credentials;
 mod dressing_room;
+mod grid_navigation;
 mod headgear;
 mod inject;
 mod inventory_grid;
@@ -37,6 +38,7 @@ pub use self::chat::{ChatSession, ChatView};
 pub use self::companions::{CompanionNote, CompanionSession};
 pub use self::credentials::{Credentials, LiveConnect, TEST_HOST, TEST_PORT};
 pub use self::dressing_room::{LiveDressingReport, OfflineDressingReport, no_preview_message, offline_dressing_room};
+pub use self::grid_navigation::{GridKey, KEY_RUN, OfflineGridNavReport, offline_grid_navigation};
 pub use self::headgear::{HeadgearScene, LookedPlayer};
 pub use self::inject::input_path_parity;
 pub use self::inventory_grid::{GridView, OfflineInventoryGridReport, TURORAN_CAP_BYTES, grid_view, offline_inventory_grid};
@@ -50,7 +52,8 @@ pub use self::item_tooltip::{LiveItemTooltipReport, OfflineTooltipReport, offlin
 pub use self::item_workshop::WorkshopView;
 pub use self::job_names::{JobNamesReport, job_names_scenario};
 pub use self::logic::{
-    DialogView, LiveInventoryGridReport, LiveInventoryViewReport, LiveItemMenuReport, LiveItemMoveReport, LivePartyJobReport,
+    DialogView, LiveGridNavReport, LiveInventoryGridReport, LiveInventoryViewReport, LiveItemMenuReport, LiveItemMoveReport,
+    LivePartyJobReport,
     LiveStoragePlanReport, LogicSession, MailRoundTrip, Outbound, Phase, SelectedOption, SentChoice, SettingsView,
 };
 pub use self::mail::{OfflineMailReport, offline_mail_exchange};

@@ -5,7 +5,7 @@ use rust_state::{ManuallyAssertExt, Path};
 use super::basic_info_view::{WeightColor, WeightLabel, ZenyLabel};
 use crate::ItemSource;
 use crate::interface::components::inventory_controls::{SortLabel, TabButton, WeightBar, cycle_sort};
-use crate::interface::components::item_grid::{INVENTORY_FALLBACK_CAPACITY, ItemCountLabel, ItemGrid};
+use crate::interface::components::item_grid::{CursorReveal, INVENTORY_FALLBACK_CAPACITY, ItemCountLabel, ItemGrid};
 use crate::interface::windows::WindowClass;
 use crate::loaders::OverflowBehavior;
 use crate::state::inventory::{Inventory, InventoryPathExt};
@@ -88,6 +88,7 @@ where
                     overflow_behavior: OverflowBehavior::Shrink,
                 },
                 scroll_view! {
+                    reveal: CursorReveal::new(self.inventory_path, Some(INVENTORY_FALLBACK_CAPACITY)),
                     children: ItemGrid::new(self.inventory_path, ItemSource::Inventory, Some(INVENTORY_FALLBACK_CAPACITY)),
                 },
             ),
