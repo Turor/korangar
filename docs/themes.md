@@ -50,9 +50,10 @@ slot_size = 44.0
 | `text` | Body and title text |
 | `muted` | Secondary labels |
 | `accent` | Selected / dragged slots, primary highlights |
-| `accent2` | Alerts, close-button accent, enemy HP |
+| `accent2` | Alerts and the close-button accent |
 | `hover` | Slot hover border (the theme's gold / amber) |
-| `hp` | Player HP (keep warm) |
+| `hp` | Warm accent kept for older callers (keep warm). Overhead player HP uses `status.hp_bar` |
+| `danger` | Enemy overhead HP. Red unless the theme says otherwise (Ember is orange). Optional; default `#C63D4A`. `status.danger` is the same key |
 | `sp` | Player SP (keep cool) |
 | `gold` | Refine, rarity, zeny, and small gold accents only |
 | `slot_size` | Optional socket side in pixels (default 44) |

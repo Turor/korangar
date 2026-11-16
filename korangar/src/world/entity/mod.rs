@@ -181,6 +181,9 @@ pub struct Common {
     pub guild_id: u32,
     #[hidden_element]
     pub emblem_version: u32,
+    /// Player with PK mode on. Monsters are enemies from [`EntityType`].
+    #[hidden_element]
+    pub attackable: bool,
 }
 
 /// Hercules `HIDDEN_WARP_CLASS` and the other `JT_HIDDEN_*` rows have no body
@@ -268,6 +271,7 @@ impl Common {
             scale,
             guild_id: entity_data.guild_id,
             emblem_version: entity_data.emblem_version,
+            attackable: entity_data.attackable,
         }
     }
 
@@ -1001,13 +1005,19 @@ impl Player {
 
         renderer.render_rectangle(background_position, background_size, theme.status_bar.background_color);
 
+        let health_color = crate::world::overhead_hp::overhead_hp_color(
+            crate::world::overhead_hp::OverheadHpSubject::LocalPlayer,
+            theme.status_bar.player_health_color,
+            theme.status_bar.enemy_health_color,
+        )
+        .unwrap_or(theme.status_bar.player_health_color);
         renderer.render_bar(
             final_position,
             ScreenSize {
                 width: bar_width,
                 height: theme.status_bar.health_height,
             },
-            theme.status_bar.player_health_color,
+            health_color,
             self.common.maximum_health_points as f32,
             self.common.health_points as f32,
         );
@@ -1104,7 +1114,7 @@ impl Npc {
     }
 
     pub fn render_status(&self, renderer: &GameInterfaceRenderer, camera: &dyn Camera, theme: &WorldTheme, window_size: ScreenSize) {
-        if self.common.entity_type != EntityType::Monster {
+        if !crate::world::overhead_hp::is_overhead_enemy(self.common.entity_type, self.common.attackable) {
             return;
         }
 
@@ -1126,13 +1136,19 @@ impl Npc {
             theme.status_bar.background_color,
         );
 
+        let health_color = crate::world::overhead_hp::overhead_hp_color(
+            crate::world::overhead_hp::OverheadHpSubject::Enemy,
+            theme.status_bar.player_health_color,
+            theme.status_bar.enemy_health_color,
+        )
+        .unwrap_or(theme.status_bar.enemy_health_color);
         renderer.render_bar(
             final_position,
             ScreenSize {
                 width: bar_width,
                 height: theme.status_bar.enemy_health_height,
             },
-            theme.status_bar.enemy_health_color,
+            health_color,
             self.common.maximum_health_points as f32,
             self.common.health_points as f32,
         );
@@ -1427,6 +1443,10 @@ impl Entity {
         self.get_common().render_marker(renderer, camera, marker_identifier, hovered);
     }
 
+    pub fn is_attackable(&self) -> bool {
+        self.get_common().attackable
+    }
+
     pub fn render_status(&self, renderer: &GameInterfaceRenderer, camera: &dyn Camera, theme: &WorldTheme, window_size: ScreenSize) {
         match self {
             Self::Player(player) => player.render_status(renderer, camera, theme, window_size),
@@ -1434,8 +1454,25 @@ impl Entity {
         }
     }
 
-    /// One HP bar over a party member. Uses the player health token on the
-    /// enemy bar size.
+    /// Hover and the buffered attack target. Draws the danger bar for
+    /// monsters and hostile players. Party members and other players draw
+    /// nothing here.
+    pub fn render_focused_overhead(
+        &self,
+        renderer: &GameInterfaceRenderer,
+        camera: &dyn Camera,
+        theme: &WorldTheme,
+        window_size: ScreenSize,
+        in_party: bool,
+    ) {
+        if !crate::world::overhead_hp::shows_focused_enemy_bar(self.get_entity_type(), self.is_attackable(), in_party) {
+            return;
+        }
+        self.render_status(renderer, camera, theme, window_size);
+    }
+
+    /// One HP bar over a party member. Same green as the local player
+    /// (`status.hp_bar`), drawn at the enemy bar size.
     pub fn render_party_health(
         &self,
         renderer: &GameInterfaceRenderer,
@@ -1465,13 +1502,19 @@ impl Entity {
             } + (theme.status_bar.border_size * 2.0),
             theme.status_bar.background_color,
         );
+        let health_color = crate::world::overhead_hp::overhead_hp_color(
+            crate::world::overhead_hp::OverheadHpSubject::PartyMember,
+            theme.status_bar.player_health_color,
+            theme.status_bar.enemy_health_color,
+        )
+        .unwrap_or(theme.status_bar.player_health_color);
         renderer.render_bar(
             final_position,
             ScreenSize {
                 width: bar_width,
                 height: theme.status_bar.enemy_health_height,
             },
-            theme.status_bar.player_health_color,
+            health_color,
             maximum,
             health.max(0.0),
         );

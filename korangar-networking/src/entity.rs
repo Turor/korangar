@@ -15,6 +15,9 @@ pub struct EntityData {
     /// Spawn hint from the appear packet. `0x0B47` overwrites this.
     pub guild_id: u32,
     pub emblem_version: u32,
+    /// `is_pk_mode_on` from the appear packet. Monsters are enemies from
+    /// their job; this marks hostile players.
+    pub attackable: bool,
 }
 
 impl EntityData {
@@ -32,6 +35,7 @@ impl EntityData {
             sex: character_information.sex,
             guild_id: 0,
             emblem_version: 0,
+            attackable: false,
         }
     }
 }
@@ -51,6 +55,7 @@ impl From<EntityAppearPacket> for EntityData {
             sex: packet.sex,
             guild_id: packet.guild_id,
             emblem_version: u32::from(packet.emblem_version),
+            attackable: packet.is_pk_mode_on != 0,
         }
     }
 }
@@ -70,6 +75,7 @@ impl From<EntityAppear2Packet> for EntityData {
             sex: packet.sex,
             guild_id: packet.guild_id,
             emblem_version: u32::from(packet.emblem_version),
+            attackable: packet.is_pk_mode_on != 0,
         }
     }
 }
@@ -91,6 +97,7 @@ impl From<MovingEntityAppearPacket> for EntityData {
             sex: packet.sex,
             guild_id: packet.guild_id,
             emblem_version: u32::from(packet.emblem_version),
+            attackable: packet.is_pk_mode_on != 0,
         }
     }
 }

@@ -46,7 +46,7 @@ impl Default for StatusBarTheme {
         Self {
             background_color: Color::monochrome_u8(40),
             player_health_color: Color::rgb_u8(67, 163, 83),
-            enemy_health_color: Color::rgb_u8(206, 49, 116),
+            enemy_health_color: Color::rgb_u8(0xC6, 0x3D, 0x4A),
             spell_point_color: Color::rgb_u8(0, 129, 163),
             activity_point_color: Color::rgb_u8(218, 145, 81),
             player_bar_width: 85.0,
@@ -144,7 +144,7 @@ impl WorldTheme {
             status_bar: StatusBarTheme {
                 background_color: Color::rgb_hex("0F1714").with_alpha_u8(220),
                 player_health_color: Color::rgb_hex("5CC25A"),
-                enemy_health_color: Color::rgb_hex("E0708A"),
+                enemy_health_color: Color::rgb_hex("D23B3B"),
                 spell_point_color: Color::rgb_hex("4A86D8"),
                 activity_point_color: Color::rgb_hex("CFAE5A"),
                 player_bar_width: 96.0,
@@ -304,6 +304,7 @@ mod verdant_rune_world_theme_tests {
         ] {
             let world = WorldTheme::from_tokens(&tokens);
             assert_eq!(world.status_bar.player_health_color, tokens.status_hp_bar, "{}", tokens.name);
+            assert_eq!(world.status_bar.enemy_health_color, tokens.danger, "{}", tokens.name);
             let hp = world.status_bar.player_health_color;
             assert!(
                 hp.green > hp.red && hp.green > hp.blue,

@@ -111,6 +111,12 @@ impl PartyState {
             .collect()
     }
 
+    /// True when this account id is on the roster. Used so a party member
+    /// does not also pick up an enemy overhead bar.
+    pub fn contains_entity(&self, entity_id: EntityId) -> bool {
+        self.members.iter().any(|member| member.account_id.0 == entity_id.0)
+    }
+
     /// HP for overhead bars. Omits the local player, who already draws full
     /// bars.
     pub fn world_health_bars(&self) -> Vec<(EntityId, i32, i32)> {

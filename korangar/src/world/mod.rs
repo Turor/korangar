@@ -15,6 +15,7 @@ mod map;
 pub(crate) mod map_load_failure;
 mod model;
 mod object;
+pub mod overhead_hp;
 mod particles;
 mod pathing;
 mod sound;

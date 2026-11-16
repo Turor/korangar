@@ -39,6 +39,10 @@ pub struct ThemeTokens {
     pub sp: Color,
     /// Refine, rarity, and other small gold accents only.
     pub gold: Color,
+    /// Enemy overhead HP. Red in Verdant, Arcane, and Turoran Dark. Ember
+    /// uses that theme's orange. Not the status-panel HP fill.
+    #[serde(default = "default_danger_color")]
+    pub danger: Color,
     pub slot_size: f32,
     pub corner_radius: f32,
     pub font_size: f32,
@@ -59,6 +63,13 @@ pub struct ThemeTokens {
 
 /// Status-panel HP fill when a theme file has no `status.hp_bar`.
 pub const DEFAULT_STATUS_HP_BAR: &str = "#4CAF50";
+
+/// Enemy overhead HP when a theme file has no `danger` token.
+pub const DEFAULT_DANGER: &str = "#C63D4A";
+
+fn default_danger_color() -> Color {
+    Color::rgb_u8(0xC6, 0x3D, 0x4A)
+}
 
 impl Default for ThemeTokens {
     fn default() -> Self {
@@ -94,6 +105,7 @@ impl ThemeTokens {
             hp: Color::rgb_u8(62, 168, 96),
             sp: Color::rgb_u8(64, 156, 210),
             gold: Color::rgb_u8(220, 150, 72),
+            danger: Color::rgb_u8(198, 64, 88),
             slot_size: 44.0,
             corner_radius: 10.0,
             font_size: 13.0,
@@ -133,6 +145,9 @@ pub struct ThemeFile {
     pub hp: String,
     pub sp: String,
     pub gold: String,
+    /// Optional top-level danger color. `status.danger` is the other spelling.
+    #[serde(default)]
+    pub danger: Option<String>,
     #[serde(default = "default_slot_size")]
     pub slot_size: f32,
     #[serde(default = "default_corner_radius")]
@@ -155,6 +170,8 @@ pub struct StatusThemeFile {
     pub sp_bar: Option<String>,
     pub base_exp_bar: Option<String>,
     pub job_exp_bar: Option<String>,
+    /// `status.danger`. Enemy overhead HP when the top-level key is absent.
+    pub danger: Option<String>,
 }
 
 fn default_slot_size() -> f32 {
@@ -203,7 +220,10 @@ impl ThemeFile {
             }
         };
         let default_hp = parse_hex_color(DEFAULT_STATUS_HP_BAR)?;
+        let default_danger = parse_hex_color(DEFAULT_DANGER)?;
         let status_hp_bar = optional(&self.status.hp_bar, default_hp)?;
+        let danger_value = self.danger.clone().or(self.status.danger.clone());
+        let danger = optional(&danger_value, default_danger)?;
         let status_sp_bar = optional(&self.status.sp_bar, sp)?;
         let status_base_exp_bar = optional(&self.status.base_exp_bar, accent)?;
         let status_job_exp_bar = optional(&self.status.job_exp_bar, accent2)?;
@@ -221,6 +241,7 @@ impl ThemeFile {
             hp: parse_hex_color(&self.hp)?,
             sp: parse_hex_color(&self.sp)?,
             gold: parse_hex_color(&self.gold)?,
+            danger,
             slot_size: if self.slot_size > 0.0 { self.slot_size } else { 44.0 },
             corner_radius: self.corner_radius.max(0.0),
             font_size: if self.font_size > 0.0 { self.font_size } else { 13.0 },
@@ -300,7 +321,9 @@ fn parse_theme_toml(source: &str) -> Option<ThemeFile> {
             sp_bar: strings.remove("status.sp_bar"),
             base_exp_bar: strings.remove("status.base_exp_bar"),
             job_exp_bar: strings.remove("status.job_exp_bar"),
+            danger: strings.remove("status.danger"),
         },
+        danger: strings.remove("danger"),
     })
 }
 
@@ -403,7 +426,8 @@ impl WorldTheme {
                 background_color: tokens.bg.with_alpha_u8(220),
                 // Same green as the status panel (`status.hp_bar`).
                 player_health_color: tokens.status_hp_bar,
-                enemy_health_color: tokens.accent2,
+                // Monsters and other attackable characters (`danger`).
+                enemy_health_color: tokens.danger,
                 spell_point_color: tokens.sp,
                 activity_point_color: tokens.gold,
                 player_bar_width: 96.0,
@@ -606,6 +630,8 @@ font_size = 13.0
         )
         .expect("bare");
         assert_eq!(bare.status_hp_bar, parse_hex_color(DEFAULT_STATUS_HP_BAR).unwrap());
+        assert_eq!(bare.danger, parse_hex_color(DEFAULT_DANGER).unwrap());
+        assert_ne!(bare.danger, bare.accent2);
         assert_eq!(bare.status_sp_bar, bare.sp);
         assert_eq!(bare.status_base_exp_bar, bare.accent);
         assert_eq!(bare.status_job_exp_bar, bare.accent2);
@@ -641,6 +667,16 @@ job_exp_bar = "#445566"
             .replace("\nbase_exp_bar", "\nstatus.base_exp_bar");
         let dotted = parse_theme_file(&dotted).expect("dotted keys");
         assert_eq!(dotted.status_hp_bar, parse_hex_color("#00FF00").unwrap());
+
+        let status_danger = r###"ThemeFile(
+            name: "Danger",
+            bg: "#010101", panel: "#020202", raised: "#030303", border: "#3A4250",
+            text: "#E6E1D6", muted: "#A39B8C", accent: "#D9A441", accent2: "#4F8FBF",
+            hover: "#D9A441", hp: "#E2785C", sp: "#5C9ED6", gold: "#D9A441",
+            status: (danger: Some("#E0673A")),
+        )"###;
+        let from_status = parse_theme_file(status_danger).expect("status.danger");
+        assert_eq!(from_status.danger, parse_hex_color("#E0673A").unwrap());
     }
 
     #[test]
