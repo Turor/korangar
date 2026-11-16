@@ -169,6 +169,63 @@ pub fn capture_lavapipe(path: &Path) -> Result<Option<Capture>, String> {
     }))
 }
 
+/// Drive the installed headless client (`$HUB/verify/run-session.sh`) and grab
+/// its window.
+///
+/// The shot is ImageMagick `import -window` of the Korangar window after the
+/// autopilot opens Settings and switches to Audio. It is not the 64×64 lavapipe
+/// clear.
+pub fn capture_client_settings(bin: &Path, out_dir: &Path, account: &str) -> Result<Capture, String> {
+    let script = Path::new("/root/Work/korangar-gap-swarm-20261109/verify/run-session.sh");
+    if !script.is_file() {
+        return Err("verify/run-session.sh is not installed".to_owned());
+    }
+    if !bin.is_file() {
+        return Err("korangar binary is missing".to_owned());
+    }
+    if account.is_empty() || account.contains('/') || account.contains("..") {
+        return Err("screenshot account name is not a pool id".to_owned());
+    }
+    std::fs::create_dir_all(out_dir).map_err(|error| format!("cannot create screenshot directory: {error}"))?;
+    let steps = std::env::temp_dir().join(format!("korangar-e2e-settings-{}.txt", std::process::id()));
+    std::fs::write(&steps, "open GameSettings\ntab AudioSettings\nshot settings-group\nquit\n")
+        .map_err(|error| format!("cannot write screenshot steps: {error}"))?;
+    let status = Command::new(script)
+        .args(["--task", "G46", "--bin"])
+        .arg(bin)
+        .arg("--steps")
+        .arg(&steps)
+        .arg("--account")
+        .arg(account)
+        .arg("--out")
+        .arg(out_dir)
+        .status()
+        .map_err(|error| format!("cannot start the headless client: {error}"))?;
+    let _ = std::fs::remove_file(&steps);
+    if !status.success() {
+        return Err(format!("headless client exited with {status}"));
+    }
+    let path = out_dir.join("settings-group.png");
+    let bytes = std::fs::metadata(&path)
+        .map(|metadata| metadata.len())
+        .map_err(|_| "headless client did not write settings-group.png".to_owned())?;
+    let image = image::open(&path).map_err(|error| format!("cannot read settings-group.png: {error}"))?;
+    if image.width() < 640 || image.height() < 480 {
+        return Err(format!(
+            "settings-group.png is {}x{}, not a client window",
+            image.width(),
+            image.height()
+        ));
+    }
+    let rgba = image.to_rgba8();
+    let first = rgba.get_pixel(0, 0);
+    let varied = rgba.pixels().any(|pixel| pixel != first);
+    if !varied {
+        return Err("settings-group.png is a single color, not the client window".to_owned());
+    }
+    Ok(Capture { path, bytes })
+}
+
 /// `import -window root`, the same grab `$HUB/verify` uses under Xvfb.
 /// Stays off unless `KORANGAR_E2E_CAPTURE_DISPLAY=1`, so a desktop `DISPLAY` is
 /// not shot by accident.

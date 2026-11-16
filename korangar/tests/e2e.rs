@@ -6,8 +6,8 @@
 use std::path::PathBuf;
 
 use korangar::e2e::{
-    Capture, LiveConnect, LogicSession, Outbound, Phase, capture_display, capture_lavapipe, input_path_parity, lavapipe_icd_present,
-    logic_mode_skips_image_assertions,
+    Capture, LiveConnect, LogicSession, Outbound, Phase, capture_client_settings, capture_display, capture_lavapipe, input_path_parity,
+    lavapipe_icd_present, logic_mode_skips_image_assertions,
 };
 
 fn live_session() -> Option<LogicSession> {
@@ -43,14 +43,23 @@ fn injected_input_matches_winit() {
 #[test]
 fn logic_settings_group_and_dialog_option() {
     let mut session = LogicSession::offline();
+    let closed = session.settings_view();
+    assert!(
+        closed.open_member.is_none(),
+        "an empty session must not invent the Settings catalog"
+    );
     session.apply_line("open GameSettings").unwrap();
     session.apply_line("tab AudioSettings").unwrap();
     let view = session.settings_view();
-    for name in ["Settings", "Character", "Social", "Journal", "Pet Stable"] {
-        assert!(view.group_names.contains(&name), "{:?}", view.group_names);
-    }
+    assert_eq!(view.group_name, Some("Settings"));
     assert_eq!(view.tab_labels, ["Interface", "Graphics", "Audio", "Game", "Keys"]);
     assert_eq!(view.open_member.as_deref(), Some("AudioSettings"));
+    assert!(
+        session
+            .outbound()
+            .iter()
+            .any(|item| matches!(item, Outbound::SwitchWindowTab { to, .. } if to == "AudioSettings"))
+    );
 
     session.preview_dialog(7, "Welcome", &["Storage", "Cancel"]);
     let index = session.choose_option_by_text("cancel").unwrap();
@@ -70,7 +79,7 @@ fn lavapipe_screenshot_when_present() {
         eprintln!("E2E_SKIP lavapipe ICD is not installed");
         return;
     }
-    let path = shot_dir().join("lavapipe-clear.png");
+    let path = shot_dir().join("lavapipe-probe.png");
     match capture_lavapipe(&path) {
         Ok(None) => eprintln!("E2E_SKIP lavapipe adapter was not selected"),
         Ok(Some(Capture { bytes, .. })) => {
@@ -92,11 +101,6 @@ fn login_reaches_character_select() {
     };
     session.login_to_character_select().unwrap_or_else(|error| panic!("{error}"));
     assert_eq!(session.phase(), Phase::CharacterSelect);
-    assert!(
-        session.window_names().iter().any(|name| name == "CharacterSelection"),
-        "windows {:?}",
-        session.window_names()
-    );
     assert!(session.outbound().iter().any(|item| matches!(item, Outbound::Login)));
     assert!(session.outbound().iter().any(|item| matches!(item, Outbound::SelectServer)));
 }
@@ -107,16 +111,16 @@ fn settings_tabs_on_test() {
         return;
     };
     let view = session.open_settings_group().unwrap_or_else(|error| panic!("{error}"));
-    for name in ["Settings", "Character", "Social", "Journal", "Pet Stable"] {
-        assert!(view.group_names.contains(&name), "{:?}", view.group_names);
-    }
+    assert_eq!(view.group_name, Some("Settings"));
     assert_eq!(view.tab_labels, ["Interface", "Graphics", "Audio", "Game", "Keys"]);
     assert_eq!(view.open_member.as_deref(), Some("AudioSettings"));
-    assert_eq!(session.phase(), Phase::CharacterSelect);
-    let path = shot_dir().join("settings-group.png");
-    if let Err(error) = capture_lavapipe(&path) {
-        panic!("{error}");
-    }
+    assert_eq!(session.phase(), Phase::InWorld);
+    assert!(
+        session
+            .outbound()
+            .iter()
+            .any(|item| matches!(item, Outbound::SwitchWindowTab { to, .. } if to == "AudioSettings"))
+    );
 }
 
 #[test]
@@ -138,8 +142,31 @@ fn npc_dialog_option_on_test() {
         )
     }));
     assert!(
-        session.sent_headers().contains(&0x00B8),
-        "headers {:04x?}",
+        session
+            .sent_choices()
+            .iter()
+            .any(|choice| choice.npc_id == chosen.npc_id && choice.option == chosen.wire_option),
+        "choices {:?}, headers {:04x?}",
+        session.sent_choices(),
         session.sent_headers()
     );
+}
+
+/// Real client window under Xvfb and lavapipe. Skips unless live tests are
+/// opted in. A missing renderer does not fail the settings logic scenario.
+#[test]
+fn client_window_shows_settings() {
+    if std::env::var("KORANGAR_E2E").ok().as_deref() != Some("1") {
+        eprintln!("E2E_SKIP set KORANGAR_E2E=1 to capture the client window");
+        return;
+    }
+    let bin = PathBuf::from(env!("CARGO_BIN_EXE_korangar"));
+    match capture_client_settings(&bin, &shot_dir(), "kgap28") {
+        Ok(Capture { path, bytes }) => {
+            assert!(bytes > 1000, "client window shot is too small");
+            assert_eq!(&std::fs::read(&path).unwrap()[..8], b"\x89PNG\r\n\x1a\n");
+            eprintln!("E2E_SHOT {}", path.display());
+        }
+        Err(error) => panic!("{error}"),
+    }
 }

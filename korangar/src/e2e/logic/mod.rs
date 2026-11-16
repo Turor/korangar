@@ -10,11 +10,12 @@ use std::sync::atomic::AtomicU64;
 
 use ragnarok_packets::ClientTick;
 
-pub use self::live::SelectedOption;
 use self::live::SentHeaders;
+pub use self::live::{SelectedOption, SentChoice};
 use crate::autopilot::{ClickKind, Command, parse_command};
+use crate::e2e::actions::{begin_npc_dialog, plan_tab_switch, send_dialog_choice, send_public_chat, send_walk};
 use crate::input::{InputEvent, InputSystem};
-use crate::interface::windows::{WindowClass, WindowGroup, group_member_open_event};
+use crate::interface::windows::{WindowClass, WindowGroup};
 
 #[derive(Clone, Copy)]
 pub(super) struct NpcSpot {
@@ -43,6 +44,9 @@ pub enum Outbound {
     NextDialog { npc_id: u32 },
     CloseDialog { npc_id: u32 },
     ChooseDialogOption { npc_id: u32, option: i8 },
+    SwitchWindowTab { from: String, to: String },
+    SendMessage { text: String },
+    PlayerMove { x: u16, y: u16 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,6 +57,9 @@ pub struct DialogView {
     pub selected: Option<usize>,
     pub awaiting_next: bool,
     pub awaiting_close: bool,
+    /// Set by Next. The following page replaces the text, matching
+    /// `Dialog::add_text`.
+    clear_next: bool,
 }
 
 impl DialogView {
@@ -64,6 +71,7 @@ impl DialogView {
             selected: None,
             awaiting_next: false,
             awaiting_close: false,
+            clear_next: false,
         }
     }
 
@@ -80,8 +88,11 @@ impl DialogView {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SettingsView {
     pub open_member: Option<String>,
+    /// Group of the open member. Empty when no member of a tabbed group is
+    /// open.
+    pub group_name: Option<&'static str>,
+    /// Tabs of that group, not the static catalog of every group.
     pub tab_labels: Vec<&'static str>,
-    pub group_names: Vec<&'static str>,
 }
 
 pub struct LogicSession {
@@ -190,13 +201,23 @@ impl LogicSession {
         self.sent.headers.lock().map(|guard| guard.clone()).unwrap_or_default()
     }
 
+    pub fn sent_choices(&self) -> Vec<self::live::SentChoice> {
+        self.sent.choices()
+    }
+
     pub fn settings_view(&self) -> SettingsView {
         let group = WindowGroup::Settings;
-        let open = group.open_members(|class| self.windows.contains(&class));
+        let Some(class) = group.open_members(|class| self.windows.contains(&class)).into_iter().last() else {
+            return SettingsView {
+                open_member: None,
+                group_name: None,
+                tab_labels: Vec::new(),
+            };
+        };
         SettingsView {
-            open_member: open.last().map(|class| format!("{class:?}")),
+            open_member: Some(format!("{class:?}")),
+            group_name: Some(group.name()),
             tab_labels: group.tabs().iter().map(|tab| tab.label).collect(),
-            group_names: WindowGroup::ALL.into_iter().map(WindowGroup::name).collect(),
         }
     }
 
@@ -225,11 +246,14 @@ impl LogicSession {
             dialog.selected = Some(index);
         }
         self.last_selected = Some(index);
-        self.note(format!("ChooseDialogOption index={index} option={option}"));
+        let event = InputEvent::ChooseDialogOption {
+            npc_id: ragnarok_packets::EntityId(npc_id),
+            option,
+        };
+        self.note_event(&event);
         self.outbound.push(Outbound::ChooseDialogOption { npc_id, option });
         if let Some(net) = self.net.as_mut() {
-            net.choose_dialog_option(ragnarok_packets::EntityId(npc_id), option)
-                .map_err(|_| "map server is not connected".to_owned())?;
+            send_dialog_choice(net, ragnarok_packets::EntityId(npc_id), option).map_err(|_| "map server is not connected".to_owned())?;
         }
         Ok(())
     }
@@ -250,7 +274,20 @@ impl LogicSession {
     fn apply_command(&mut self, command: Command) -> Result<(), String> {
         match command {
             Command::Chat(text) => {
-                self.note(format!("SendMessage {text}"));
+                let event = InputEvent::SendMessage { text: text.clone() };
+                self.note_event(&event);
+                self.outbound.push(Outbound::SendMessage { text: text.clone() });
+                if let Some(net) = self.net.as_mut() {
+                    let name = self
+                        .characters
+                        .first()
+                        .cloned()
+                        .filter(|name| !name.is_empty())
+                        .unwrap_or_else(|| self.username.clone());
+                    if !name.is_empty() && !text.is_empty() {
+                        send_public_chat(net, &name, &text).map_err(|_| "map server is not connected".to_owned())?;
+                    }
+                }
                 Ok(())
             }
             Command::Tab(class) => self.switch_tab(class),
@@ -272,7 +309,14 @@ impl LogicSession {
                 Ok(())
             }
             Command::Move { x, y } => {
-                self.note(format!("PlayerMove {x} {y}"));
+                let event = InputEvent::PlayerMove {
+                    destination: ragnarok_packets::TilePosition { x, y },
+                };
+                self.note_event(&event);
+                self.outbound.push(Outbound::PlayerMove { x, y });
+                if let Some(net) = self.net.as_mut() {
+                    send_walk(net, ragnarok_packets::TilePosition { x, y }).map_err(|_| "map server is not connected".to_owned())?;
+                }
                 Ok(())
             }
             Command::Talk { x, y } => {
@@ -288,7 +332,7 @@ impl LogicSession {
                     self.input.synthesize_click(8.0, 8.0, korangar_interface::layout::MouseButton::Left);
                     let _ = self.finish_frame();
                     if let Some(net) = self.net.as_mut() {
-                        let _ = net.start_dialog(ragnarok_packets::EntityId(npc_id));
+                        let _ = begin_npc_dialog(net, ragnarok_packets::EntityId(npc_id));
                         self.outbound.push(Outbound::StartDialog { npc_id });
                     }
                 }
@@ -349,12 +393,21 @@ impl LogicSession {
         let Some(from) = from else {
             return Ok(());
         };
-        self.note(format!("SwitchWindowTab {from:?} -> {class:?}"));
-        self.close_window(from);
-        if !self.windows.contains(&class)
-            && let Some(event) = group_member_open_event(class)
-        {
-            self.apply_window_event(event);
+        let event = InputEvent::SwitchWindowTab { from, to: class };
+        self.note_event(&event);
+        self.outbound.push(Outbound::SwitchWindowTab {
+            from: format!("{from:?}"),
+            to: format!("{class:?}"),
+        });
+        let to_is_open = self.windows.contains(&class);
+        let Some(plan) = plan_tab_switch(from, class, to_is_open) else {
+            return Ok(());
+        };
+        if plan.close_from {
+            self.close_window(from);
+        }
+        if let Some(open) = plan.open_event {
+            self.apply_window_event(open);
         }
         Ok(())
     }
@@ -386,6 +439,12 @@ impl LogicSession {
         }
         let dialog = self.dialog.get_or_insert_with(|| DialogView::new(npc_id));
         dialog.npc_id = npc_id;
+        if dialog.clear_next {
+            dialog.text.clear();
+            dialog.clear_next = false;
+            dialog.awaiting_next = false;
+            dialog.awaiting_close = false;
+        }
         if !dialog.text.is_empty() && !text.is_empty() {
             dialog.text.push('\n');
         }
@@ -411,6 +470,7 @@ impl LogicSession {
         dialog.npc_id = npc_id;
         dialog.awaiting_next = true;
         dialog.awaiting_close = false;
+        dialog.clear_next = true;
     }
 
     pub(super) fn mark_close(&mut self, npc_id: u32) {
@@ -523,21 +583,36 @@ mod tests {
     use ragnarok_packets::{ChooseDialogOptionPacket, Packet};
 
     use super::{LogicSession, Outbound, safe_option_index};
+    use crate::interface::windows::WindowGroup;
 
     #[test]
     fn settings_script_opens_the_tabbed_group() {
         let mut session = LogicSession::offline();
+        let closed = session.settings_view();
+        assert!(closed.open_member.is_none());
+        assert!(closed.group_name.is_none());
+        assert!(closed.tab_labels.is_empty());
         session.apply_line("open GameSettings").unwrap();
         let view = session.settings_view();
-        for name in ["Settings", "Character", "Social", "Journal", "Pet Stable"] {
-            assert!(view.group_names.contains(&name), "{:?}", view.group_names);
-        }
-        assert_eq!(view.tab_labels, ["Interface", "Graphics", "Audio", "Game", "Keys"]);
         assert_eq!(view.open_member.as_deref(), Some("GameSettings"));
+        assert_eq!(view.group_name, Some("Settings"));
+        assert_eq!(view.tab_labels, ["Interface", "Graphics", "Audio", "Game", "Keys"]);
         session.apply_line("tab AudioSettings").unwrap();
         let view = session.settings_view();
         assert_eq!(view.open_member.as_deref(), Some("AudioSettings"));
+        assert_eq!(view.group_name, Some("Settings"));
+        assert!(session.outbound().iter().any(|item| matches!(
+            item,
+            Outbound::SwitchWindowTab { from, to } if from == "GameSettings" && to == "AudioSettings"
+        )));
         assert!(!session.window_names().iter().any(|name| name == "GameSettings"));
+        for name in ["Settings", "Character", "Social", "Journal", "Pet Stable"] {
+            assert!(WindowGroup::ALL.iter().any(|group| group.name() == name), "{name}");
+        }
+        session.apply_line("move 10 20").unwrap();
+        assert!(matches!(session.outbound().last(), Some(Outbound::PlayerMove { x: 10, y: 20 })));
+        session.apply_line("chat hello").unwrap();
+        assert!(matches!(session.outbound().last(), Some(Outbound::SendMessage { text }) if text == "hello"));
     }
 
     #[test]
@@ -554,5 +629,15 @@ mod tests {
             Some(Outbound::ChooseDialogOption { npc_id: 42, option: 2 })
         ));
         assert_eq!(ChooseDialogOptionPacket::HEADER.0, 0x00B8);
+        session.mark_next(42);
+        session.show_page(42, "Next page");
+        assert_eq!(session.dialog().unwrap().text, "Next page");
+
+        let sent = super::live::SentHeaders::default();
+        let packet = ChooseDialogOptionPacket::new(ragnarok_packets::EntityId(42), 2);
+        ragnarok_packets::handler::PacketCallback::outgoing_packet(&sent, &packet);
+        let choices = sent.choices();
+        assert_eq!(choices, vec![super::SentChoice { npc_id: 42, option: 2 }]);
+        assert!(sent.headers.lock().unwrap().contains(&0x00B8));
     }
 }

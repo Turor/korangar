@@ -3,12 +3,16 @@
 //! See `docs/e2e-harness.md`. Live tests talk only to Hercules TEST and skip
 //! when credentials or the server are missing.
 
+mod actions;
 mod credentials;
 mod inject;
 mod logic;
 mod screenshot;
 
+pub(crate) use self::actions::{apply_choose_dialog_option, apply_switch_window_tab, begin_npc_dialog, send_public_chat, send_walk};
 pub use self::credentials::{Credentials, LiveConnect, TEST_HOST, TEST_PORT};
 pub use self::inject::input_path_parity;
-pub use self::logic::{DialogView, LogicSession, Outbound, Phase, SelectedOption, SettingsView};
-pub use self::screenshot::{Capture, capture_display, capture_lavapipe, lavapipe_icd_present, logic_mode_skips_image_assertions};
+pub use self::logic::{DialogView, LogicSession, Outbound, Phase, SelectedOption, SentChoice, SettingsView};
+pub use self::screenshot::{
+    Capture, capture_client_settings, capture_display, capture_lavapipe, lavapipe_icd_present, logic_mode_skips_image_assertions,
+};

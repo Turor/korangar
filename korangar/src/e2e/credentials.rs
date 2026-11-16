@@ -45,7 +45,7 @@ impl Credentials {
     /// Live tests stay opt-in so a normal `cargo test` never dials TEST.
     pub fn resolve() -> LiveConnect<Credentials> {
         if !opted_in() {
-            return LiveConnect::Skip("set KORANGAR_E2E=1 or KORANGAR_E2E_ACCOUNT to run live TEST scenarios".to_owned());
+            return LiveConnect::Skip("set KORANGAR_E2E=1 to run live TEST scenarios".to_owned());
         }
         let Some(path) = account_path() else {
             return LiveConnect::Skip("no account file (KORANGAR_E2E_ACCOUNT, KORANGAR_AUTOPILOT, or the verify pool)".to_owned());
@@ -58,8 +58,8 @@ impl Credentials {
             Ok(credentials) => credentials,
             Err(error) => return LiveConnect::Invalid(error),
         };
-        if credentials.host != TEST_HOST || credentials.port != TEST_PORT {
-            return LiveConnect::Skip(format!("refusing login that is not {TEST_HOST}:{TEST_PORT}"));
+        if let Err(reason) = gate_endpoint(&credentials) {
+            return LiveConnect::Skip(reason);
         }
         if !tcp_open(&credentials) {
             return LiveConnect::Skip(format!("{TEST_HOST}:{TEST_PORT} unreachable"));
@@ -114,7 +114,16 @@ pub(crate) fn parse_account(text: &str) -> Result<Credentials, String> {
 }
 
 fn opted_in() -> bool {
-    flag("KORANGAR_E2E") || nonempty("KORANGAR_E2E_ACCOUNT").is_some() || nonempty("KORANGAR_AUTOPILOT").is_some()
+    // An autopilot shell must not dial TEST from `cargo test`. The account path
+    // may still come from `KORANGAR_AUTOPILOT` once this flag is set.
+    flag("KORANGAR_E2E")
+}
+
+pub(crate) fn gate_endpoint(credentials: &Credentials) -> Result<(), String> {
+    if credentials.host != TEST_HOST || credentials.port != TEST_PORT {
+        return Err(format!("refusing login that is not {TEST_HOST}:{TEST_PORT}"));
+    }
+    Ok(())
 }
 
 fn account_path() -> Option<PathBuf> {
@@ -174,8 +183,38 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_non_test_endpoint_string() {
-        let credentials = parse_account(r#"{"username":"kgap29","password":"s3cret-value","login_address":"203.0.113.5:6900"}"#).unwrap();
-        assert_ne!(credentials.host, super::TEST_HOST);
+    fn resolve_refuses_a_non_test_endpoint() {
+        let path = std::env::temp_dir().join("korangar-e2e-nontest-account.json");
+        std::fs::write(
+            &path,
+            r#"{"username":"kgap29","password":"s3cret-value","login_address":"203.0.113.5:6900"}"#,
+        )
+        .unwrap();
+        let previous_flag = std::env::var("KORANGAR_E2E").ok();
+        let previous_account = std::env::var("KORANGAR_E2E_ACCOUNT").ok();
+        unsafe {
+            std::env::set_var("KORANGAR_E2E", "1");
+            std::env::set_var("KORANGAR_E2E_ACCOUNT", &path);
+        }
+        let result = super::Credentials::resolve();
+        unsafe {
+            match previous_flag {
+                Some(value) => std::env::set_var("KORANGAR_E2E", value),
+                None => std::env::remove_var("KORANGAR_E2E"),
+            }
+            match previous_account {
+                Some(value) => std::env::set_var("KORANGAR_E2E_ACCOUNT", value),
+                None => std::env::remove_var("KORANGAR_E2E_ACCOUNT"),
+            }
+        }
+        let _ = std::fs::remove_file(&path);
+        match result {
+            super::LiveConnect::Skip(reason) => {
+                assert!(reason.contains("refusing"), "{reason}");
+                assert!(!reason.contains("s3cret-value"), "{reason}");
+            }
+            super::LiveConnect::Invalid(error) => panic!("non-TEST endpoint was invalid, not refused: {error}"),
+            super::LiveConnect::Ready(_) => panic!("non-TEST endpoint was accepted"),
+        }
     }
 }

@@ -6,28 +6,62 @@
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::net::Ipv4Addr;
+#[cfg(unix)]
 use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use ragnarok_bytes::ByteWriter;
 use ragnarok_packets::handler::PacketCallback;
-use ragnarok_packets::{EntityId, JobId, Packet, Sex};
+use ragnarok_packets::{EntityId, JobId, Packet, PacketExt, Sex};
 
 use super::{LogicSession, Outbound, Phase, safe_option_index};
+use crate::e2e::actions::{begin_npc_dialog, send_walk};
 use crate::e2e::credentials::{Credentials, LiveConnect, TEST_HOST};
+
+/// One `0x00B8` choice taken from the serialized packet (npc id at byte 2,
+/// choice at byte 6).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SentChoice {
+    pub npc_id: u32,
+    pub option: i8,
+}
 
 #[derive(Clone, Default)]
 pub(super) struct SentHeaders {
     pub(super) headers: Arc<Mutex<Vec<u16>>>,
+    choices: Arc<Mutex<Vec<SentChoice>>>,
+}
+
+impl SentHeaders {
+    pub(super) fn choices(&self) -> Vec<SentChoice> {
+        self.choices.lock().map(|guard| guard.clone()).unwrap_or_default()
+    }
 }
 
 impl PacketCallback for SentHeaders {
-    fn outgoing_packet<P>(&self, _packet: &P)
+    fn outgoing_packet<P>(&self, packet: &P)
     where
         P: Packet,
     {
+        let mut writer = ByteWriter::new();
+        if packet.packet_to_bytes(&mut writer).is_err() {
+            return;
+        }
+        let bytes = writer.into_inner();
+        if bytes.len() < 2 {
+            return;
+        }
+        let header = u16::from_le_bytes([bytes[0], bytes[1]]);
         if let Ok(mut headers) = self.headers.lock() {
-            headers.push(P::HEADER.0);
+            headers.push(header);
+        }
+        if header == 0x00B8 && bytes.len() >= 7 {
+            let npc_id = u32::from_le_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]);
+            let option = bytes[6] as i8;
+            if let Ok(mut choices) = self.choices.lock() {
+                choices.push(SentChoice { npc_id, option });
+            }
         }
     }
 }
@@ -80,6 +114,7 @@ impl LogicSession {
 
     pub fn open_settings_group(&mut self) -> Result<super::SettingsView, String> {
         self.login_to_character_select()?;
+        self.enter_world()?;
         self.apply_line("open GameSettings")?;
         self.apply_line("tab AudioSettings")?;
         let view = self.settings_view();
@@ -222,12 +257,7 @@ impl LogicSession {
         let Some(net) = self.net.as_mut() else {
             return Err("logic mode has no network".to_owned());
         };
-        net.player_move(ragnarok_packets::WorldPosition {
-            x: tx,
-            y,
-            direction: ragnarok_packets::Direction::North,
-        })
-        .map_err(|_| "map server is not connected".to_owned())?;
+        send_walk(net, ragnarok_packets::TilePosition { x: tx, y }).map_err(|_| "map server is not connected".to_owned())?;
         self.note(format!("PlayerMove {tx} {y}"));
         let wait = Duration::from_millis(400 + u64::from(chebyshev(px, py, tx, y)) * 200).min(Duration::from_secs(8));
         self.pump_for(wait)
@@ -251,8 +281,7 @@ impl LogicSession {
         let Some(net) = self.net.as_mut() else {
             return Err("logic mode has no network".to_owned());
         };
-        net.start_dialog(EntityId(npc_id))
-            .map_err(|_| "map server is not connected".to_owned())?;
+        begin_npc_dialog(net, EntityId(npc_id)).map_err(|_| "map server is not connected".to_owned())?;
         self.outbound.push(Outbound::StartDialog { npc_id });
         self.note(format!("TalkToNpc {npc_id}"));
         Ok(())
@@ -396,7 +425,6 @@ impl LogicSession {
                 self.list_received = true;
                 self.characters = characters.iter().map(|character| clean_name(&character.name)).collect();
                 self.slots = characters.iter().map(|character| character.character_number).collect();
-                self.open_window(crate::interface::windows::WindowClass::CharacterSelection);
                 if self.phase != Phase::EnteringMap && self.phase != Phase::InWorld {
                     self.phase = Phase::CharacterSelect;
                 }
@@ -406,7 +434,6 @@ impl LogicSession {
                 let slot = usize::from(character_information.character_number);
                 self.characters = vec![clean_name(&character_information.name)];
                 self.slots = vec![character_information.character_number];
-                self.open_window(crate::interface::windows::WindowClass::CharacterSelection);
                 self.phase = Phase::CharacterSelect;
                 if !self.selected_sent {
                     self.dispatch_select(slot)?;
@@ -547,18 +574,33 @@ fn account_lock() -> Result<std::fs::File, String> {
         .write(true)
         .open(&path)
         .map_err(|_| "cannot open the e2e account lock".to_owned())?;
+    lock_exclusive(&file)?;
+    let _ = file.write_all(format!("{}\n", std::process::id()).as_bytes());
+    Ok(file)
+}
+
+#[cfg(unix)]
+fn lock_exclusive(file: &std::fs::File) -> Result<(), String> {
     // SAFETY: `fd` is the lock file we just opened, and `LOCK_EX` blocks until the
     // previous live scenario releases it. The file stays open for the session.
     let rc = unsafe { flock(file.as_raw_fd(), LOCK_EX) };
     if rc != 0 {
         return Err("cannot lock the e2e account".to_owned());
     }
-    let _ = file.write_all(format!("{}\n", std::process::id()).as_bytes());
-    Ok(file)
+    Ok(())
 }
 
+#[cfg(not(unix))]
+fn lock_exclusive(_file: &std::fs::File) -> Result<(), String> {
+    // Live TEST runs on CT119. Windows has no `flock`; a no-op keeps the crate
+    // building.
+    Ok(())
+}
+
+#[cfg(unix)]
 const LOCK_EX: i32 = 2;
 
+#[cfg(unix)]
 unsafe extern "C" {
     fn flock(fd: i32, operation: i32) -> i32;
 }
