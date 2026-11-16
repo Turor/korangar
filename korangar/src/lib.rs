@@ -2850,13 +2850,31 @@ impl Client {
                     summary,
                     is_end,
                     next_mail_id,
+                    mails,
                 } => {
+                    self.on_rodex_page(mails);
                     self.client_state
                         .follow_mut(client_state().mail_window())
                         .set_list(summary, is_end, next_mail_id);
                     self.interface.open_window(MailWindow::new());
                 }
-                NetworkEvent::RodexWriteResult { summary, .. } => {
+                NetworkEvent::RodexWriteOpened { allowed, .. } => self.on_rodex_write_opened(allowed),
+                NetworkEvent::RodexReceiver { character_id, name, .. } => self.on_rodex_receiver(character_id, &name),
+                NetworkEvent::RodexItemAttached {
+                    result,
+                    index,
+                    count,
+                    item_id,
+                    weight,
+                } => self.on_rodex_item_attached(result, index, count, item_id, weight),
+                NetworkEvent::RodexItemDetached {
+                    removed,
+                    index,
+                    count,
+                    weight,
+                } => self.on_rodex_item_detached(removed, index, count, weight),
+                NetworkEvent::RodexWriteResult { summary, result } => {
+                    self.on_rodex_send_result(result);
                     self.client_state.follow_mut(client_state().mail_window()).set_status(summary);
                     self.interface.open_window(MailWindow::new());
                 }
@@ -2880,10 +2898,12 @@ impl Client {
                     zeny,
                     item_count,
                     summary,
+                    attachments,
                 } => {
                     self.client_state
                         .follow_mut(client_state().mail_window())
                         .set_read(mail_id, zeny, item_count, summary);
+                    self.on_rodex_read_attachments(&attachments);
                     self.interface.open_window(MailWindow::new());
                 }
                 NetworkEvent::OpenDialog { text, npc_id } => {
@@ -4989,6 +5009,7 @@ impl Client {
             &mut self.interface,
         );
         self.note_dismissed_workshops(enchant_open, grade_open);
+        self.sync_mail_compose();
 
         let interface_has_focus = self.interface.has_focus();
 
@@ -6313,6 +6334,17 @@ impl Client {
                         .follow_mut(client_state().mail_window())
                         .set_status(message.to_owned()),
                 },
+                event @ (InputEvent::OpenMailCompose
+                | InputEvent::ComposeMailTo { .. }
+                | InputEvent::ReadMailId { .. }
+                | InputEvent::ReplyMail
+                | InputEvent::SearchMail
+                | InputEvent::SendMail
+                | InputEvent::CancelMailCompose
+                | InputEvent::MailAttachItem { .. }
+                | InputEvent::ConfirmMailAttachAmount
+                | InputEvent::CancelMailAttachAmount
+                | InputEvent::MailDetachItem { .. }) => self.on_mail_compose_input(event),
                 InputEvent::CloseMail => {
                     let _ = self.networking_system.close_rodex();
                     self.interface.close_window_with_class(WindowClass::Mail);

@@ -454,6 +454,38 @@ pub enum InputEvent {
     DeleteMail,
     /// Tell the map server the mailbox closed (`0x09E9`).
     CloseMail,
+    /// Open a blank Rodex compose form.
+    OpenMailCompose,
+    /// Open the compose form addressed to a character (context menu).
+    ComposeMailTo {
+        receiver: String,
+    },
+    /// Put a mail id in the Mail window and read it (autopilot).
+    ReadMailId {
+        mail_id: i64,
+    },
+    /// Reply to the mail last read in the Mail window.
+    ReplyMail,
+    /// Filter the loaded mail page by the search box.
+    SearchMail,
+    /// Check the receiver, then send the compose form.
+    SendMail,
+    /// Close the compose form without sending.
+    CancelMailCompose,
+    /// Attach an inventory stack (`0x0A04`). `amount: None` asks how many
+    /// when the stack is above 1.
+    MailAttachItem {
+        index: u16,
+        amount: Option<u16>,
+    },
+    /// Confirm the attach amount prompt.
+    ConfirmMailAttachAmount,
+    /// Close the attach amount prompt.
+    CancelMailAttachAmount,
+    /// Take an attached stack back off the mail (`0x0A06`).
+    MailDetachItem {
+        index: u16,
+    },
     /// Open the bank and ask for the vault (`0x09B6`, `0x09AB`).
     OpenBank,
     /// Ask for the vault again (`0x09AB`).
