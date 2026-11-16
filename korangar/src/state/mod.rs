@@ -24,6 +24,7 @@ pub mod item_finder;
 pub mod item_skill_selection;
 pub mod item_workshop;
 pub mod localization;
+pub mod mail_attach;
 pub mod mail_compose;
 pub mod navigation;
 pub mod npc_dialog;

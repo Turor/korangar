@@ -12,6 +12,7 @@ use std::sync::atomic::AtomicU64;
 use ragnarok_packets::ClientTick;
 
 use self::live::SentHeaders;
+pub use self::live::mail::MailRoundTrip;
 pub use self::live::{SelectedOption, SentChoice};
 use crate::autopilot::{ClickKind, Command, parse_command};
 use crate::e2e::actions::{begin_npc_dialog, plan_tab_switch, send_dialog_choice, send_public_chat, send_walk};

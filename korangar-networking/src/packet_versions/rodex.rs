@@ -1,4 +1,5 @@
-//! Rodex / Mail (`0x09E7`–`0x09F6`, list `0x0AC2`).
+//! Rodex / Mail (`0x09E7`–`0x09F6`, list `0x0AC2`, write-form item acks
+//! `0x0A05` / `0x0B3F` / `0x0A07`).
 //!
 //! `0x0AC2` is the post-2017 mail list: one `is_end` byte, then rows of
 //! open type, mail id, read flag, type, 24-byte sender, expiry, and a
@@ -6,11 +7,12 @@
 
 use ragnarok_packets::handler::{DuplicateHandlerError, PacketCallback, PacketHandler};
 use ragnarok_packets::{
-    NewMailStatusPacket, RodexDeleteAckPacket, RodexItemAckPacket, RodexMailEntry, RodexMailListPacket, RodexReadPacket,
-    RodexReadPacket2025, RodexReceiverPacket, RodexWriteOpenedPacket, RodexWriteResultPacket, RodexZenyAckPacket,
+    NewMailStatusPacket, RodexDeleteAckPacket, RodexItemAckPacket, RodexItemAddedPacket, RodexItemAddedPacket2, RodexItemRemovedPacket,
+    RodexMailEntry, RodexMailListPacket, RodexReadPacket, RodexReadPacket2025, RodexReceiverPacket, RodexWriteOpenedPacket,
+    RodexWriteResultPacket, RodexZenyAckPacket, rodex_ack_index,
 };
 
-use crate::event::{NetworkEvent, NetworkEventList, RodexMailSummary};
+use crate::event::{NetworkEvent, NetworkEventList, RodexAttachment, RodexMailSummary};
 
 pub fn register_rodex_packets<Callback>(packet_handler: &mut PacketHandler<NetworkEventList, Callback>) -> Result<(), DuplicateHandlerError>
 where
@@ -50,6 +52,26 @@ where
         base_level: packet.base_level,
         name: packet.name,
     })?;
+    packet_handler.register(|packet: RodexItemAddedPacket| NetworkEvent::RodexItemAttached {
+        result: packet.result,
+        index: rodex_ack_index(packet.raw_index),
+        count: packet.count,
+        item_id: packet.item_id,
+        weight: packet.weight,
+    })?;
+    packet_handler.register(|packet: RodexItemAddedPacket2| NetworkEvent::RodexItemAttached {
+        result: packet.result,
+        index: rodex_ack_index(packet.raw_index),
+        count: packet.count,
+        item_id: packet.item_id,
+        weight: packet.weight,
+    })?;
+    packet_handler.register(|packet: RodexItemRemovedPacket| NetworkEvent::RodexItemDetached {
+        removed: packet.result == 1,
+        index: rodex_ack_index(packet.raw_index),
+        count: packet.count,
+        weight: packet.weight,
+    })?;
     packet_handler.register(|packet: RodexWriteResultPacket| NetworkEvent::RodexWriteResult {
         result: packet.result,
         summary: format_rodex_write_result(packet.result),
@@ -75,6 +97,7 @@ where
             zeny: packet.zeny,
             item_count: packet.item_count,
             summary,
+            attachments: parse_rodex_attachments(&packet.items, usize::from(packet.item_count)),
         })
     })?;
     packet_handler.register(|packet: RodexReadPacket2025| {
@@ -84,6 +107,7 @@ where
             zeny: packet.zeny,
             item_count: packet.item_count,
             summary,
+            attachments: parse_rodex_attachments(&packet.items, usize::from(packet.item_count)),
         })
     })?;
     Ok(())
@@ -142,12 +166,18 @@ pub fn rodex_page_cursor(mails: &[RodexMailEntry]) -> i64 {
     mails.last().map(|mail| mail.mail_id).unwrap_or(0)
 }
 
+/// `ZC_ACK_READ_RODEX_SUB` row sizes this client can split. Every layout
+/// starts with the `u16` amount and the `u32` item id.
+///
+/// Turoran Hercules sends three forge options after the five random options:
+/// 74 bytes on 2019-05-30 (refine before the cards) and 75 on 2025-07-16
+/// (refine and grade at the end). Stock Hercules has no forge block: 59 and
+/// 60 bytes.
+const ATTACHMENT_ROW_SIZES: [usize; 4] = [74, 75, 59, 60];
+
 /// Attachment rows after the mail text.
 ///
-/// 2019-05-30 renewal rows are 59 bytes (item id is `u32`, cards are `u32`).
-/// The 2025-07-16 row adds a grade byte and is 60 bytes. The item id is at
-/// offset 2 in both. Any other length stays a count so a wrong stride cannot
-/// invent item ids.
+/// Any other length stays a count so a wrong stride cannot invent item ids.
 pub fn rodex_attachment_labels(item_count: u8, items: &[u8]) -> String {
     let count = usize::from(item_count);
     if count == 0 {
@@ -162,17 +192,19 @@ pub fn rodex_attachment_labels(item_count: u8, items: &[u8]) -> String {
     }
     parsed
         .into_iter()
-        .map(|(item_id, amount)| format!("item {item_id} x{amount}"))
+        .map(|attachment| format!("item {} x{}", attachment.item_id, attachment.amount))
         .collect::<Vec<_>>()
         .join(", ")
 }
 
-fn parse_rodex_attachments(items: &[u8], count: usize) -> Vec<(u32, u16)> {
+/// Item id and amount of each attachment row, or nothing when the block is
+/// not `count` rows of a known size.
+pub fn parse_rodex_attachments(items: &[u8], count: usize) -> Vec<RodexAttachment> {
     if count == 0 || !items.len().is_multiple_of(count) {
         return Vec::new();
     }
     let stride = items.len() / count;
-    if stride != 59 && stride != 60 {
+    if !ATTACHMENT_ROW_SIZES.contains(&stride) {
         return Vec::new();
     }
     items
@@ -180,7 +212,7 @@ fn parse_rodex_attachments(items: &[u8], count: usize) -> Vec<(u32, u16)> {
         .filter_map(|chunk| {
             let amount = u16::from_le_bytes([chunk[0], chunk[1]]);
             let item_id = u32::from_le_bytes([chunk[2], chunk[3], chunk[4], chunk[5]]);
-            (item_id != 0).then_some((item_id, amount))
+            (item_id != 0).then_some(RodexAttachment { item_id, amount })
         })
         .collect()
 }
@@ -219,9 +251,10 @@ mod tests {
     use ragnarok_packets::RodexMailEntry;
 
     use super::{
-        format_rodex_items, format_rodex_mails, format_rodex_read, format_rodex_write_result, format_rodex_zeny, parse_rodex_mail_id,
-        rodex_attachment_labels, rodex_page_cursor,
+        format_rodex_items, format_rodex_mails, format_rodex_read, format_rodex_write_result, format_rodex_zeny, parse_rodex_attachments,
+        parse_rodex_mail_id, rodex_attachment_labels, rodex_page_cursor,
     };
+    use crate::event::RodexAttachment;
 
     fn sample(title: &str, is_read: u8, mail_type: u8) -> RodexMailEntry {
         RodexMailEntry {
@@ -265,6 +298,20 @@ mod tests {
         row[2] = 0xF5;
         row[3] = 0x01;
         assert_eq!(rodex_attachment_labels(1, &row), "item 501 x3");
+        // Turoran rows carry forge options: 75 bytes on 2025-07-16, 74 before.
+        for size in [74, 75] {
+            let mut rows = vec![0u8; size * 2];
+            rows[0] = 1;
+            rows[2..6].copy_from_slice(&1201u32.to_le_bytes());
+            rows[size] = 20;
+            rows[size + 2..size + 6].copy_from_slice(&7060u32.to_le_bytes());
+            assert_eq!(rodex_attachment_labels(2, &rows), "item 1201 x1, item 7060 x20");
+            assert_eq!(parse_rodex_attachments(&rows, 2), vec![
+                RodexAttachment { item_id: 1201, amount: 1 },
+                RodexAttachment { item_id: 7060, amount: 20 },
+            ]);
+        }
+        assert!(parse_rodex_attachments(&[0u8; 70], 1).is_empty());
         assert_eq!(rodex_attachment_labels(1, &[1, 2, 3]), "1 item");
         assert_eq!(parse_rodex_mail_id(" 15 "), Some(15));
         assert_eq!(parse_rodex_mail_id(""), None);

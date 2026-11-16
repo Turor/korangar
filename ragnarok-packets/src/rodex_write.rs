@@ -1,9 +1,11 @@
-//! Rodex compose packets: open the write form, check the receiver, send,
-//! and cancel. Layouts follow Hercules `packets_struct.h` and roBrowser
-//! `PacketStructure.js`.
+//! Rodex compose packets: open the write form, check the receiver, attach
+//! and remove items, send, and cancel. Layouts follow Hercules
+//! `packets_struct.h` and roBrowser `PacketStructure.js`.
 
 use ragnarok_bytes::{FromBytes, ToBytes};
 use ragnarok_macros::{ClientPacket, MapServer, Packet, ServerPacket};
+
+use crate::{InventoryIndex, ItemOptions};
 
 /// Longest Rodex title Hercules keeps (`RODEX_TITLE_LENGTH` minus the NUL).
 pub const RODEX_TITLE_MAX: usize = 39;
@@ -111,6 +113,93 @@ impl SendRodexPacket {
     }
 }
 
+/// `CZ_REQ_ADD_ITEM_RODEX` (`0x0A04`, 6 bytes). Attach `count` of one
+/// inventory stack to the mail being written.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A04)]
+pub struct AddRodexItemPacket {
+    pub index: InventoryIndex,
+    pub count: u16,
+}
+
+/// `CZ_REQ_REMOVE_RODEX_ITEM` (`0x0A06`, 6 bytes). Take `count` of an
+/// attached stack back off the mail.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A06)]
+pub struct RemoveRodexItemPacket {
+    pub index: InventoryIndex,
+    pub count: u16,
+}
+
+/// `ZC_ACK_ADD_ITEM_RODEX` (`0x0A05`, 63 bytes), before PACKETVER_MAIN_NUM
+/// 20200916.
+///
+/// On a failure Hercules zeroes everything after `result`, so `raw_index`
+/// is kept as the wire value (inventory index + 2, or 0) instead of an
+/// [`InventoryIndex`], which would reject the 0. `weight` is the mail's
+/// total attachment weight in displayed units.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A05)]
+pub struct RodexItemAddedPacket {
+    pub result: u8,
+    pub raw_index: u16,
+    pub count: u16,
+    pub item_id: u32,
+    pub item_type: u8,
+    pub identified: u8,
+    pub damaged: u8,
+    pub refine: u8,
+    pub cards: [u32; 4],
+    pub options: [ItemOptions; 5],
+    pub weight: u16,
+    pub favorite: u8,
+    pub location: u32,
+}
+
+/// `ZC_ACK_ADD_ITEM_RODEX` (`0x0B3F`, 64 bytes), PACKETVER_MAIN_NUM >=
+/// 20200916 / RE >= 20200723. Refine moves to the end and a grade byte
+/// follows it.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B3F)]
+pub struct RodexItemAddedPacket2 {
+    pub result: u8,
+    pub raw_index: u16,
+    pub count: u16,
+    pub item_id: u32,
+    pub item_type: u8,
+    pub identified: u8,
+    pub damaged: u8,
+    pub cards: [u32; 4],
+    pub options: [ItemOptions; 5],
+    pub weight: u16,
+    pub favorite: u8,
+    pub location: u32,
+    pub refine: u8,
+    pub grade: u8,
+}
+
+/// `ZC_ACK_REMOVE_ITEM_MAIL` (`0x0A07`, 9 bytes). `result` 1 means removed;
+/// `count` is how many came off.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0A07)]
+pub struct RodexItemRemovedPacket {
+    pub result: u8,
+    pub raw_index: u16,
+    pub count: u16,
+    pub weight: u16,
+}
+
+/// Inventory index from a Rodex ack's wire index (`index + 2`). `None` for
+/// the zeroed index of a failed add.
+pub fn rodex_ack_index(raw_index: u16) -> Option<u16> {
+    raw_index.checked_sub(2)
+}
+
 /// Longest prefix of `text` that fits in `max` bytes.
 pub fn clip_bytes(text: &str, max: usize) -> &str {
     if text.len() <= max {
@@ -205,5 +294,88 @@ mod tests {
         opened.push(1);
         let opened = parse::<RodexWriteOpenedPacket>(&opened);
         assert_eq!((opened.receiver_name.as_str(), opened.result), ("Bob", 1));
+    }
+
+    #[test]
+    fn attachment_requests_carry_the_wire_index() {
+        let add = write(&AddRodexItemPacket {
+            index: InventoryIndex(5),
+            count: 3,
+        });
+        assert_eq!(add, [0x04, 0x0A, 7, 0, 3, 0]);
+        let remove = write(&RemoveRodexItemPacket {
+            index: InventoryIndex(0),
+            count: 1,
+        });
+        assert_eq!(remove, [0x06, 0x0A, 2, 0, 1, 0]);
+    }
+
+    fn add_ack_prefix(header: u16, result: u8, raw_index: u16, count: u16, item_id: u32) -> Vec<u8> {
+        let mut bytes = header.to_le_bytes().to_vec();
+        bytes.push(result);
+        bytes.extend(raw_index.to_le_bytes());
+        bytes.extend(count.to_le_bytes());
+        bytes.extend(item_id.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn add_acks_parse_both_layouts() {
+        // 0x0A05: type, identified, damaged, refine, 4 cards, 5 options, weight,
+        // favorite, location = 63 bytes.
+        let mut old = add_ack_prefix(0x0A05, 0, 9, 2, 501);
+        old.extend([3, 1, 0, 0]);
+        old.extend([0u8; 16]);
+        old.extend([0u8; 25]);
+        old.extend(14u16.to_le_bytes());
+        old.push(0);
+        old.extend(0u32.to_le_bytes());
+        assert_eq!(old.len(), 63);
+        let old = parse::<RodexItemAddedPacket>(&old);
+        assert_eq!(
+            (old.result, old.raw_index, old.count, old.item_id, old.weight),
+            (0, 9, 2, 501, 14)
+        );
+        assert_eq!(rodex_ack_index(old.raw_index), Some(7));
+
+        // 0x0B3F: refine and grade move to the end = 64 bytes.
+        let mut new = add_ack_prefix(0x0B3F, 0, 2, 1, 1201);
+        new.extend([5, 1, 0]);
+        new.extend(4001u32.to_le_bytes());
+        new.extend([0u8; 12]);
+        new.extend([0u8; 25]);
+        new.extend(50u16.to_le_bytes());
+        new.push(1);
+        new.extend(2u32.to_le_bytes());
+        new.extend([7, 1]);
+        assert_eq!(new.len(), 64);
+        let new = parse::<RodexItemAddedPacket2>(&new);
+        assert_eq!(
+            (new.item_id, new.cards[0], new.weight, new.location, new.refine, new.grade),
+            (1201, 4001, 50, 2, 7, 1)
+        );
+        assert_eq!(rodex_ack_index(new.raw_index), Some(0));
+    }
+
+    #[test]
+    fn a_failed_add_has_a_zero_index() {
+        let mut failed = add_ack_prefix(0x0B3F, 4, 0, 0, 0);
+        failed.resize(64, 0);
+        let failed = parse::<RodexItemAddedPacket2>(&failed);
+        assert_eq!(failed.result, 4);
+        assert_eq!(rodex_ack_index(failed.raw_index), None);
+    }
+
+    #[test]
+    fn remove_ack_parses() {
+        let mut bytes = 0x0A07u16.to_le_bytes().to_vec();
+        bytes.push(1);
+        bytes.extend(7u16.to_le_bytes());
+        bytes.extend(2u16.to_le_bytes());
+        bytes.extend(30u16.to_le_bytes());
+        assert_eq!(bytes.len(), 9);
+        let removed = parse::<RodexItemRemovedPacket>(&bytes);
+        assert_eq!((removed.result, removed.count, removed.weight), (1, 2, 30));
+        assert_eq!(rodex_ack_index(removed.raw_index), Some(5));
     }
 }

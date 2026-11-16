@@ -147,7 +147,7 @@ pub use self::item_workshop::{ItemReformWindow, LaphineSynthesisWindow, LaphineU
 pub use self::keybinds::KeybindsWindow;
 pub use self::login::{LoginWindow, LoginWindowState, LoginWindowStatePathExt};
 pub use self::mail::{MailWindow, MailWindowState};
-pub use self::mail_compose::{MailComposeBodyBox, MailComposeToBox, MailComposeWindow};
+pub use self::mail_compose::{MailAttachAmountBox, MailAttachAmountWindow, MailComposeBodyBox, MailComposeToBox, MailComposeWindow};
 #[cfg(feature = "debug")]
 pub use self::maps::MapsWindow;
 pub use self::menu::MenuWindow;
@@ -260,6 +260,7 @@ pub enum WindowClass {
     Menu,
     Mail,
     MailCompose,
+    MailAttachAmount,
     MvpMinimap,
     Respawn,
     Roulette,

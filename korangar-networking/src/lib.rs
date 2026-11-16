@@ -41,8 +41,8 @@ pub use self::equip_switch::EquipSwitchSlotPathExt;
 pub use self::equip_switch::{EquipSwitchSlot, assign_slot, position_label, replace_slots};
 pub use self::event::{
     ChatRoomMember, DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, GuildSkillSnapshot, HuntIndexUpdate,
-    NetworkEvent, OwnShopLine, RefineMaterialOffer, RodexMailSummary, RoulettePrize, SearchStoreHit, StatusChangeState, ViewedEquipPiece,
-    WeaponRefineOffer,
+    NetworkEvent, OwnShopLine, RefineMaterialOffer, RodexAttachment, RodexMailSummary, RoulettePrize, SearchStoreHit, StatusChangeState,
+    ViewedEquipPiece, WeaponRefineOffer,
 };
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
@@ -71,7 +71,7 @@ pub use self::packet_versions::npc_dialog::{
     dialog_hotkey, existing_cutin_texture, npc_input_reply_bytes, packets_for_progress, parse_npc_number, progress_complete,
     progress_fraction, progress_outcome, sound_effect_path, step_number,
 };
-pub use self::packet_versions::rodex::{format_rodex_mails, parse_rodex_mail_id};
+pub use self::packet_versions::rodex::{format_rodex_mails, parse_rodex_attachments, parse_rodex_mail_id};
 pub use self::packet_versions::stable::{format_stable_result, parse_stable_action, parse_stable_id};
 pub use self::packet_versions::warpra::{
     format_warpra_destinations, format_warpra_result, push_warpra_chunk, warpra_kind_name, warpra_level_requirement,
@@ -3908,7 +3908,7 @@ mod packet_handlers {
         assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x09EB);
         let events = process_one(SupportedPacketVersion::_20220406, writer.as_slice());
         assert!(
-            matches!(events.as_slice(), [NetworkEvent::RodexRead { mail_id: 42, zeny: 100, item_count: 1, summary }]
+            matches!(events.as_slice(), [NetworkEvent::RodexRead { mail_id: 42, zeny: 100, item_count: 1, summary, .. }]
             if summary.contains("Hello") && summary.contains("zeny 100"))
         );
         let events = process_one(SupportedPacketVersion::_20190530, writer.as_slice());

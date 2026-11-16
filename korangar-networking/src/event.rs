@@ -106,6 +106,13 @@ pub struct ChatRoomMember {
     pub owner: bool,
 }
 
+/// One item row of a read Rodex mail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RodexAttachment {
+    pub item_id: u32,
+    pub amount: u16,
+}
+
 /// One row of a Rodex mail page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RodexMailSummary {
@@ -827,6 +834,23 @@ pub enum NetworkEvent {
         base_level: u16,
         name: String,
     },
+    /// `ZC_ACK_ADD_ITEM_RODEX` (`0x0A05` / `0x0B3F`). `index` is the
+    /// inventory index, `None` when the add failed. `weight` is the mail's
+    /// attachment weight after the add.
+    RodexItemAttached {
+        result: u8,
+        index: Option<u16>,
+        count: u16,
+        item_id: u32,
+        weight: u16,
+    },
+    /// `ZC_ACK_REMOVE_ITEM_MAIL` (`0x0A07`).
+    RodexItemDetached {
+        removed: bool,
+        index: Option<u16>,
+        count: u16,
+        weight: u16,
+    },
     /// `ZC_ACK_WRITE_MAIL` (`0x09ED`).
     RodexWriteResult {
         result: u8,
@@ -855,6 +879,8 @@ pub enum NetworkEvent {
         zeny: i64,
         item_count: u8,
         summary: String,
+        /// Item rows, empty when the row layout is not one this client knows.
+        attachments: Vec<RodexAttachment>,
     },
     /// Sense / Monster Information result (`0x018C`).
     MonsterInfo {

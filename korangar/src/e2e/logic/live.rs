@@ -3,6 +3,8 @@
 //!
 //! No swapchain. Passwords stay out of errors.
 
+pub(super) mod mail;
+
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::net::Ipv4Addr;

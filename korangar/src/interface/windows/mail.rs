@@ -123,6 +123,13 @@ impl MailWindowState {
         self.status = summary;
     }
 
+    /// Name the attachments of the open mail ("Red Potion x3, Knife x1").
+    pub fn set_attachment_names(&mut self, names: &str) {
+        if !names.is_empty() {
+            self.attach_text = format!("Attachments: {names}");
+        }
+    }
+
     /// Put `mail_id` in the mail id box.
     pub fn select_mail(&mut self, mail_id: i64) {
         self.mail_id_text = mail_id.to_string();

@@ -62,6 +62,8 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
         "SearchMail" => Some(InputEvent::SearchMail),
         "SendMail" => Some(InputEvent::SendMail),
         "CancelMailCompose" => Some(InputEvent::CancelMailCompose),
+        "ConfirmMailAttachAmount" => Some(InputEvent::ConfirmMailAttachAmount),
+        "CancelMailAttachAmount" => Some(InputEvent::CancelMailAttachAmount),
         "ToggleItemFinderWindow" => Some(InputEvent::ToggleItemFinderWindow),
         "SearchItemFinder" => Some(InputEvent::SearchItemFinder),
         "RequestGuildWindow" => Some(InputEvent::RequestGuildWindow),
@@ -247,6 +249,9 @@ enum ScriptedEvent {
     ContextMenuPick(usize),
     ComposeMailTo(String),
     ReadMailId(i64),
+    /// Inventory index and amount; amount 0 asks like a drag and drop.
+    MailAttachItem(u16, u16),
+    MailDetachItem(u16),
     TradeAddItem {
         index: u16,
         amount: u16,
@@ -353,6 +358,11 @@ pub fn scripted_event(spec: &str) -> Result<InputEvent, String> {
         ScriptedEvent::ContextMenuPick(index) => InputEvent::ContextMenuPick { index },
         ScriptedEvent::ComposeMailTo(receiver) => InputEvent::ComposeMailTo { receiver },
         ScriptedEvent::ReadMailId(mail_id) => InputEvent::ReadMailId { mail_id },
+        ScriptedEvent::MailAttachItem(index, amount) => InputEvent::MailAttachItem {
+            index,
+            amount: (amount > 0).then_some(amount),
+        },
+        ScriptedEvent::MailDetachItem(index) => InputEvent::MailDetachItem { index },
         ScriptedEvent::TradeAddItem { index, amount } => InputEvent::TradeAddItem { index, amount },
         ScriptedEvent::TradeAddZeny(amount) => InputEvent::TradeAddZeny { amount },
         ScriptedEvent::SetShowEquipment(enabled) => InputEvent::SetShowEquipment { enabled },
