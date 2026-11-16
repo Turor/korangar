@@ -849,6 +849,7 @@ where
     packet_handler.register_noop::<PartyInvitePacket>()?;
     packet_handler.register_noop::<StatusChangeSequencePacket>()?;
     crate::packet_versions::clan::register_clan_packets(packet_handler)?;
+    crate::packet_versions::chat_room::register_chat_room_packets(packet_handler)?;
     crate::packet_versions::guild::register_guild_action_packets(packet_handler)?;
     packet_handler.register_noop::<ChangeMapCellPacket>()?;
     packet_handler.register(open_market_event)?;

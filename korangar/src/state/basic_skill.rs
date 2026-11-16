@@ -10,10 +10,16 @@
 const BASIC_SKILL_ID: u16 = 1;
 /// `USESKILL_FAIL_LEVEL`.
 const FAIL_LEVEL: u8 = 0;
+/// `USESKILL_FAIL_THERE_ARE_NPC_AROUND`: Hercules refuses chat rooms and
+/// vending this close to an NPC (`min_npc_vendchat_distance`).
+const FAIL_NPC_AROUND: u8 = 83;
 
 /// Error line for a failed `0x0110`, or `None` when the failure is not a
 /// Basic Skill level gate.
 pub fn basic_skill_failure_text(skill_id: u16, cause: u8, btype: i32) -> Option<&'static str> {
+    if skill_id == BASIC_SKILL_ID && cause == FAIL_NPC_AROUND {
+        return Some("You cannot do that this close to an NPC. Move away and try again.");
+    }
     if skill_id != BASIC_SKILL_ID || cause != FAIL_LEVEL {
         return None;
     }
@@ -47,6 +53,13 @@ mod tests {
         assert!(basic_skill_failure_text(1, 0, 0).unwrap().contains("trade"));
         assert!(basic_skill_failure_text(1, 0, 2).unwrap().contains("sit"));
         assert!(basic_skill_failure_text(1, 0, 9).is_some());
+    }
+
+    #[test]
+    fn npc_nearby_refusal_has_a_message() {
+        // Hercules `clif_parse_CreateChatRoom`: skill_fail(sd, 1,
+        // USESKILL_FAIL_THERE_ARE_NPC_AROUND, 0, 0).
+        assert!(basic_skill_failure_text(1, 83, 0).unwrap().contains("NPC"));
     }
 
     #[test]
