@@ -405,6 +405,7 @@ impl LogicSession {
 
     pub(super) fn on_event(&mut self, event: korangar_networking::NetworkEvent) -> Result<(), String> {
         use korangar_networking::NetworkEvent;
+        self.headgear.observe(&event);
         match event {
             NetworkEvent::LoginServerConnected {
                 character_servers,

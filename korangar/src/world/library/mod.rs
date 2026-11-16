@@ -27,6 +27,7 @@ use korangar_loaders::FileLoader;
 use mlua::{ErrorContext, Lua};
 use ragnarok_packets::{ItemId, JobId, SkillId};
 
+pub use self::accessory_name::parse_accessory_names;
 pub use self::achievement_table::{AchievementCatalog, AchievementInfo, AttendanceTable, merge_achievement_table, parse_attendance_chunk};
 #[cfg(test)]
 pub use self::achievement_table::{AchievementReward, AttendanceTableReward};

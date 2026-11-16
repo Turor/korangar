@@ -7157,11 +7157,14 @@ impl Client {
         look: ragnarok_packets::SpriteChangeType,
         value: u32,
     ) {
-        let entity = state
+        // Looks can arrive for an account that already left the screen.
+        let Some(entity) = state
             .follow_mut(client_state().entities())
             .iter_mut()
             .find(|entity| entity.get_entity_id().0 == account_id.0)
-            .unwrap();
+        else {
+            return;
+        };
 
         if entity.apply_player_look(look, value)
             && let Some(animation_data) = async_loader.request_animation_data_load(

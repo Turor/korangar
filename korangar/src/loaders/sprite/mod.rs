@@ -111,6 +111,12 @@ impl SpriteLoader {
         Ok(sprite)
     }
 
+    /// Whether `data\\sprite\\{path}` is in a local or remote archive. Works
+    /// for `.act` files too, which live next to the sprites.
+    pub fn sprite_file_exists(&self, path: &str) -> bool {
+        self.game_file_loader.file_exists(&format!("data\\sprite\\{path}"))
+    }
+
     pub fn get(&self, path: &str) -> Option<Arc<Sprite>> {
         self.cache.lock().unwrap().get(path).cloned()
     }
