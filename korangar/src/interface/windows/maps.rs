@@ -1,7 +1,7 @@
 use korangar_interface::window::{CustomWindow, Window};
 use ragnarok_packets::TilePosition;
 
-use super::mvp_minimap::MvpMinimapView;
+use super::minimap::MvpMinimapView;
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::state::theme::InterfaceThemeType;

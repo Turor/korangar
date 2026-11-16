@@ -5,6 +5,8 @@
 
 #[path = "e2e/archives.rs"]
 mod archives;
+#[path = "e2e/minimap.rs"]
+mod minimap;
 #[path = "e2e/release.rs"]
 mod release;
 #[path = "e2e/social.rs"]

@@ -2143,6 +2143,7 @@ impl Client {
                         board.set_map_id(&map_name);
                         board.set_player_cell(position.x, position.y);
                     }
+                    self.ensure_mvp_minimap_open();
                     self.async_loader.request_map_load(map_name, Some(position));
                 }
                 NetworkEvent::UpdateClientTick { client_tick, received_at } => {
@@ -4769,6 +4770,44 @@ impl Client {
         }
     }
 
+    /// The minimap has no close button. Open it once a player is in the world.
+    fn ensure_mvp_minimap_open(&mut self) {
+        let player_in_world = self.client_state.try_follow(this_entity()).is_some();
+        let already_open = self.interface.is_window_with_class_open(WindowClass::MvpMinimap);
+        if crate::interface::windows::minimap::minimap_open_after_map_entry(player_in_world, already_open) && !already_open {
+            self.interface.open_window(MvpMinimapWindow);
+        }
+    }
+
+    /// Load `유저인터페이스\map\<map>.bmp` while the minimap is open. A miss
+    /// keeps the themed square and is logged once per map file.
+    fn sync_minimap_texture(&mut self) {
+        if !self.interface.is_window_with_class_open(WindowClass::MvpMinimap) {
+            return;
+        }
+        let (file, loaded) = {
+            let board = self.client_state.follow(client_state().mvp_minimap());
+            (board.image_file(), board.loaded_image().to_owned())
+        };
+        if !crate::interface::windows::minimap::image_needs_load(&file, &loaded) {
+            return;
+        }
+        let loaded_texture = self.load_interface_texture(&file);
+        let board = self.client_state.follow_mut(client_state().mvp_minimap());
+        match loaded_texture {
+            LoadedInterfaceTexture::Image(texture) => {
+                board.record_ready(&file);
+                board.install_image(texture);
+            }
+            LoadedInterfaceTexture::Retry => board.note_image_retry(),
+            LoadedInterfaceTexture::Missing => {
+                if board.record_missing(&file) {
+                    eprintln!("{}", crate::interface::windows::minimap::missing_image_log(&file));
+                }
+            }
+        }
+    }
+
     /// `true` when the archive path reads and decodes. A manifest entry whose
     /// bytes are missing is `false` and does not install the placeholder.
     fn interface_texture_readable(&self, archive: &str) -> bool {
@@ -5668,7 +5707,9 @@ impl Client {
                 InputEvent::OpenItemDetails { key, title, body } => {
                     self.interface.open_or_raise_instance(key, ItemDetailsWindow { title, body });
                 }
-                InputEvent::ToggleShowInterface => self.show_interface = !self.show_interface,
+                InputEvent::ToggleShowInterface => {
+                    self.show_interface = crate::interface::windows::minimap::toggle_show_interface(self.show_interface);
+                }
                 InputEvent::SelectCharacter { slot } => {
                     if self.client_state.follow(client_state().pincode_window()).allows_select() {
                         let _ = self.networking_system.select_character(slot);
@@ -6336,14 +6377,7 @@ impl Client {
                     let _ = self.networking_system.close_roulette();
                     self.interface.close_window_with_class(WindowClass::Roulette);
                 }
-                InputEvent::ToggleMvpMinimap => {
-                    if self.map.is_some() {
-                        match self.interface.is_window_with_class_open(WindowClass::MvpMinimap) {
-                            true => self.interface.close_window_with_class(WindowClass::MvpMinimap),
-                            false => self.interface.open_window(MvpMinimapWindow),
-                        }
-                    }
-                }
+                InputEvent::ToggleMvpMinimap => self.ensure_mvp_minimap_open(),
                 InputEvent::CloseEnchant => {
                     if self.interface.is_window_with_class_open(WindowClass::Enchant) {
                         let _ = self.networking_system.close_ui_enchant();
@@ -7188,6 +7222,7 @@ impl Client {
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
     fn update_loaded_resources(&mut self, client_tick: ClientTick) {
         let mut autopilot_effects = Vec::new();
+        let mut open_minimap = false;
         for map_name in self.async_loader.take_failed_maps() {
             let failure = crate::world::map_load_failure::on_map_load_failed(&map_name, self.networking_system.is_map_server_connected());
             eprintln!(
@@ -7340,6 +7375,7 @@ impl Client {
                             self.client_state
                                 .follow_mut(client_state().mvp_minimap())
                                 .set_map_size(width, height);
+                            open_minimap = true;
                             let _ = self.networking_system.map_loaded();
                             if self.autopilot.is_some() {
                                 self.interface.close_window_with_class(WindowClass::CharacterOverview);
@@ -7404,6 +7440,9 @@ impl Client {
                 }
                 _ => {}
             }
+        }
+        if open_minimap {
+            self.ensure_mvp_minimap_open();
         }
         self.apply_autopilot(autopilot_effects);
     }
@@ -8059,6 +8098,7 @@ impl Client {
             .update(self.client_state.follow(client_state().entities()), delta_time as f32);
 
         self.sync_world_map_textures();
+        self.sync_minimap_texture();
         self.sync_menu_bar_icons();
         crate::interface::windows::sync_preview(
             self.client_state.follow_mut(client_state().character_screen()),

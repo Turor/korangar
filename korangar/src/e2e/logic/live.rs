@@ -142,6 +142,19 @@ impl LogicSession {
         self.select_npc_option()
     }
 
+    pub fn enter_world_for_minimap(&mut self) -> Result<(), String> {
+        self.login_to_character_select()?;
+        self.enter_world()
+    }
+
+    pub fn minimap_view(&self) -> crate::e2e::minimap::MinimapView {
+        super::super::minimap::view_for_session(self.phase == Phase::InWorld, &self.map_name, self.player_x, self.player_y)
+    }
+
+    pub fn character_cell(&self) -> Option<(u16, u16)> {
+        Some((self.player_x?, self.player_y?))
+    }
+
     fn dispatch_login(&mut self) -> Result<(), String> {
         let address = format!("{TEST_HOST}:{}", crate::e2e::TEST_PORT)
             .parse()
