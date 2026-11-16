@@ -14,6 +14,8 @@ mod skill_description;
 mod skill_information;
 mod skill_requirements;
 mod skill_tree;
+mod status_icon;
+mod status_icon_builtin;
 
 use std::hash::Hash;
 
@@ -40,6 +42,7 @@ pub use self::signboard::MapSignboards;
 pub use self::skill_description::{JobParents, compose_skill_description, shown_skill_level};
 use self::skill_description::{filter_job_prefixed_lines, load_skill_text};
 pub use self::skill_tree::SkillTreeLayout;
+pub use self::status_icon::{StatusIconInfo, parse_status_icons, with_builtin_icons};
 use crate::loaders::GameFileLoader;
 pub use crate::world::library::skill_information::SkillListInformation;
 pub use crate::world::library::skill_requirements::{SkillListKey, SkillListRequirements};
@@ -59,6 +62,7 @@ pub struct Library {
     skill_descriptions: HashMap<u16, String>,
     job_parents: JobParents,
     accessory_names: HashMap<u16, String>,
+    status_icons: HashMap<u16, StatusIconInfo>,
 }
 
 impl Library {
@@ -78,6 +82,7 @@ impl Library {
         let monster_names = load_monster_names(game_file_loader);
         let (skill_descriptions, job_parents) = load_skill_text(game_file_loader);
         let accessory_names = accessory_name::load_accessory_names(game_file_loader);
+        let status_icons = status_icon::load_status_icons(game_file_loader);
 
         Ok(Self {
             job_identity_table,
@@ -94,6 +99,7 @@ impl Library {
             skill_descriptions,
             job_parents,
             accessory_names,
+            status_icons,
         })
     }
 
@@ -107,6 +113,12 @@ impl Library {
     /// `AccNameTable` suffix for a headgear view id, such as `_고글`.
     pub fn accessory_sprite_suffix(&self, view_id: u16) -> Option<&str> {
         self.accessory_names.get(&view_id).map(String::as_str)
+    }
+
+    /// Icon file and tooltip for an EFST id from `stateicon/*.lub`, with the
+    /// built-in icon files for older statuses.
+    pub fn status_icon(&self, status_index: u16) -> Option<&StatusIconInfo> {
+        self.status_icons.get(&status_index)
     }
 
     pub fn map_display_name(&self, internal: &str) -> String {

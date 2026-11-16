@@ -1279,8 +1279,35 @@ impl Client {
         self.spawn_str_effects(&paths, entity_id, position, repeating);
     }
 
+    /// Icon art and tooltip for a local status, looked up once per activation
+    /// from `stateicon/*.lub` and `data\texture\effect\`.
+    fn resolve_status_presentation(&mut self, status_index: u16) {
+        if !self
+            .client_state
+            .follow(client_state().status_effects())
+            .needs_presentation(status_index)
+        {
+            return;
+        }
+        let info = self.library.status_icon(status_index);
+        let tooltip = crate::state::status_effects::status_tooltip(status_index, info);
+        let icon = info.and_then(|info| info.icon.as_deref()).and_then(|name| {
+            let path = crate::state::status_effects::status_icon_texture_path(name);
+            // The texture loader substitutes a placeholder for missing files,
+            // so check first and keep the letter chip instead.
+            self.game_file_loader
+                .file_exists(&format!("data\\texture\\{path}"))
+                .then(|| self.texture_loader.get_or_load(&path, ImageType::Color).ok())
+                .flatten()
+        });
+        self.client_state
+            .follow_mut(client_state().status_effects())
+            .set_presentation(status_index, icon, tooltip);
+    }
+
     fn handle_network_events(&mut self, client_tick: ClientTick) {
         *self.client_state.follow_mut(client_state().client_tick()) = client_tick;
+        self.client_state.follow_mut(client_state().status_effects()).expire(client_tick);
         self.cast_bars.expire(client_tick.0);
         self.client_state.follow_mut(client_state().navigation()).expire(client_tick.0);
         self.client_state.follow_mut(client_state()).expire_chat_overlays(client_tick.0);
@@ -4381,6 +4408,7 @@ impl Client {
                             StatusChangeState::Ended => statuses.end(status_index),
                             StatusChangeState::Active | StatusChangeState::StillActive | StatusChangeState::Other(_) => {
                                 statuses.apply(status_index, remaining_milliseconds, total_duration_milliseconds, client_tick);
+                                self.resolve_status_presentation(status_index);
                             }
                         }
                     }
@@ -4400,6 +4428,7 @@ impl Client {
                             StatusChangeState::Ended => statuses.end(status_index),
                             StatusChangeState::Active | StatusChangeState::StillActive | StatusChangeState::Other(_) => {
                                 statuses.apply(status_index, 0, 0, client_tick);
+                                self.resolve_status_presentation(status_index);
                             }
                         }
                     }
