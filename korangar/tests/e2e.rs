@@ -3,6 +3,8 @@
 //! Offline cases always run. Live cases print `E2E_SKIP` and return when
 //! `KORANGAR_E2E` / an account file is unset, or when Hercules TEST is down.
 
+#[path = "e2e/archives.rs"]
+mod archives;
 #[path = "e2e/release.rs"]
 mod release;
 #[path = "e2e/social.rs"]
@@ -14,6 +16,9 @@ use korangar::e2e::{
     Capture, LiveConnect, LogicSession, Outbound, Phase, capture_client_settings, capture_display, capture_lavapipe, input_path_parity,
     lavapipe_icd_present, logic_mode_skips_image_assertions,
 };
+
+#[path = "e2e/chat.rs"]
+mod chat;
 
 fn live_session() -> Option<LogicSession> {
     match LogicSession::start_live() {

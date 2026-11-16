@@ -6,8 +6,8 @@ use korangar_interface::element::store::{ElementStore, ElementStoreMut, Persiste
 use korangar_interface::element::{Element, StateElement};
 use korangar_interface::event::{ClickHandler, Event, EventQueue, InputHandler, ScrollHandler};
 use korangar_interface::layout::area::Area;
-use korangar_interface::layout::{Resolvers, WindowLayout, with_single_resolver};
-use korangar_interface::prelude::{HorizontalAlignment, TextThemePathExt, VerticalAlignment};
+use korangar_interface::layout::{MouseButton, Resolvers, WindowLayout, with_single_resolver};
+use korangar_interface::prelude::{ButtonThemePathExt, HorizontalAlignment, TextThemePathExt, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
 use korangar_networking::MessageColor;
 use rust_state::{Path, RustState, State};
@@ -17,8 +17,8 @@ use crate::graphics::Color;
 use crate::input::InputEvent;
 use crate::loaders::OverflowBehavior;
 use crate::state::chat::{
-    CHAT_LINE_SPACING, ChannelMaskPathExt, ChatChannel, ChatFilterState, ChatFilterStatePathExt, ChatTab, ListScroll, scroll_list,
-    stacked_content_height, sync_list_scroll,
+    CHAT_LINE_SPACING, ChannelMaskPathExt, ChatChannel, ChatFilterState, ChatFilterStatePathExt, ChatTab, ChatTabSlot, FIXED_CHAT_TABS,
+    ListScroll, MAX_PARTNER_TABS, format_unread_badge, scroll_list, stacked_content_height, sync_list_scroll,
 };
 use crate::state::localization::LocalizationPathExt;
 use crate::state::theme::{ChatThemePathExt, InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
@@ -244,24 +244,277 @@ where
     }
 }
 
-#[derive(Clone, Copy)]
-struct SelectTab<F, L> {
-    filters_path: F,
-    label_path: L,
-    tab: ChatTab,
+const TAB_SLOTS: usize = FIXED_CHAT_TABS + MAX_PARTNER_TABS;
+const TAB_GAP: f32 = 4.0;
+const TAB_PAD_X: f32 = 6.0;
+const TAB_CLOSE_WIDTH: f32 = 14.0;
+const TAB_MAX_WIDTH: f32 = 168.0;
+
+struct SelectChatTab<W, M> {
+    window: W,
+    messages: M,
+    slot: usize,
 }
 
-impl<F, L> ClickHandler<ClientState> for SelectTab<F, L>
+impl<W, M> ClickHandler<ClientState> for SelectChatTab<W, M>
 where
-    F: Path<ClientState, ChatFilterState> + Copy,
-    L: Path<ClientState, String> + Copy,
+    W: Path<ClientState, ChatWindowState> + Copy,
+    M: Path<ClientState, Vec<ChatMessage>> + Copy,
 {
     fn handle_click(&self, state: &State<ClientState>, _: &mut korangar_interface::event::EventQueue<ClientState>) {
-        let filters_path = self.filters_path;
-        let label_path = self.label_path;
-        let tab = self.tab;
-        state.update_value_with(filters_path, move |filters| filters.select(tab));
-        state.update_value(label_path, tab.window_title());
+        let len = state.get(&self.messages).len();
+        let slot = self.slot;
+        state.update_value_with(self.window, move |window| {
+            if let Some(tab) = window.filters.tab_for_slot(slot) {
+                window.select_tab(tab, len);
+            }
+        });
+    }
+}
+
+struct ClosePartnerTab<W, M> {
+    window: W,
+    messages: M,
+    slot: usize,
+}
+
+impl<W, M> ClickHandler<ClientState> for ClosePartnerTab<W, M>
+where
+    W: Path<ClientState, ChatWindowState> + Copy,
+    M: Path<ClientState, Vec<ChatMessage>> + Copy,
+{
+    fn handle_click(&self, state: &State<ClientState>, _: &mut korangar_interface::event::EventQueue<ClientState>) {
+        let len = state.get(&self.messages).len();
+        let slot = self.slot;
+        state.update_value_with(self.window, move |window| window.close_partner_tab(slot, len));
+    }
+}
+
+struct PlacedTab {
+    area: Area,
+    select_area: Area,
+    close_area: Option<Area>,
+    label_area: Area,
+    badge_area: Option<Area>,
+    label: String,
+    badge: String,
+    selected: bool,
+    slot: usize,
+}
+
+struct ChatTabStripLayout {
+    tabs: Vec<PlacedTab>,
+}
+
+struct ChatTabStrip<W, M> {
+    window: W,
+    messages: M,
+    selects: [SelectChatTab<W, M>; TAB_SLOTS],
+    closes: [ClosePartnerTab<W, M>; MAX_PARTNER_TABS],
+}
+
+impl<W, M> ChatTabStrip<W, M>
+where
+    W: Copy,
+    M: Copy,
+{
+    fn new(window: W, messages: M) -> Self {
+        Self {
+            window,
+            messages,
+            selects: std::array::from_fn(|slot| SelectChatTab { window, messages, slot }),
+            closes: std::array::from_fn(|slot| ClosePartnerTab { window, messages, slot }),
+        }
+    }
+}
+
+impl<W, M> Element<ClientState> for ChatTabStrip<W, M>
+where
+    W: Path<ClientState, ChatWindowState> + Copy,
+    M: Path<ClientState, Vec<ChatMessage>> + Copy,
+{
+    type LayoutInfo = ChatTabStripLayout;
+
+    fn create_layout_info(
+        &mut self,
+        state: &State<ClientState>,
+        _: ElementStoreMut,
+        resolvers: &mut dyn Resolvers<ClientState>,
+    ) -> Self::LayoutInfo {
+        with_single_resolver(resolvers, |resolver| {
+            let player_name = state.get(&client_state().player_name()).clone();
+            let slots = {
+                let messages = state.get(&self.messages);
+                let window = state.get(&self.window);
+                window.filters.tab_slots(messages, &player_name)
+            };
+            let font_size = *state.get(&client_theme().button().font_size());
+            let text_color = *state.get(&client_theme().button().foreground_color());
+            let accent = *state.get(&client_theme().tokens().accent());
+            let highlight = *state.get(&client_theme().text().highlight_color());
+            let row_height = *state.get(&client_theme().button().height());
+            let available = resolver.push_available_area();
+            // The measure closure borrows the resolver. Drop it before committing height.
+            let (placed, height) = {
+                let text_width = |text: &str, color: Color| {
+                    resolver
+                        .get_text_dimensions(
+                            text,
+                            color,
+                            highlight,
+                            font_size,
+                            HorizontalAlignment::Left { offset: 0.0, border: 0.0 },
+                            OverflowBehavior::Shrink,
+                        )
+                        .0
+                        .width()
+                };
+
+                let mut placed = Vec::with_capacity(slots.len());
+                let mut x = 0.0;
+                let mut y = 0.0;
+                for slot in slots {
+                    let badge = format_unread_badge(slot.unread).unwrap_or_default();
+                    let label_width = text_width(&slot.label, text_color);
+                    let badge_width = if badge.is_empty() { 0.0 } else { text_width(&badge, accent) };
+                    let close_width = if slot.closable { TAB_CLOSE_WIDTH } else { 0.0 };
+                    let badge_gap = if badge.is_empty() { 0.0 } else { TAB_GAP };
+                    let mut chip_width = TAB_PAD_X + label_width + badge_gap + badge_width + close_width + TAB_PAD_X;
+                    let mut shown_label = label_width;
+                    if chip_width > TAB_MAX_WIDTH {
+                        shown_label = (shown_label - (chip_width - TAB_MAX_WIDTH)).max(12.0);
+                        chip_width = TAB_PAD_X + shown_label + badge_gap + badge_width + close_width + TAB_PAD_X;
+                    }
+                    if x > 0.0 && x + chip_width > available.width {
+                        x = 0.0;
+                        y += row_height + TAB_GAP;
+                    }
+                    let area = Area {
+                        left: available.left + x,
+                        top: available.top + y,
+                        width: chip_width,
+                        height: row_height,
+                    };
+                    let close_area = slot.closable.then_some(Area {
+                        left: area.left + area.width - TAB_CLOSE_WIDTH,
+                        top: area.top,
+                        width: TAB_CLOSE_WIDTH,
+                        height: area.height,
+                    });
+                    let select_width = area.width - close_area.map(|close| close.width).unwrap_or(0.0);
+                    let select_area = Area {
+                        left: area.left,
+                        top: area.top,
+                        width: select_width,
+                        height: area.height,
+                    };
+                    let label_area = Area {
+                        left: area.left + TAB_PAD_X,
+                        top: area.top,
+                        width: shown_label,
+                        height: area.height,
+                    };
+                    let badge_area = if badge.is_empty() {
+                        None
+                    } else {
+                        Some(Area {
+                            left: label_area.left + shown_label + TAB_GAP,
+                            top: area.top,
+                            width: badge_width,
+                            height: area.height,
+                        })
+                    };
+                    placed.push(PlacedTab {
+                        area,
+                        select_area,
+                        close_area,
+                        label_area,
+                        badge_area,
+                        label: slot.label,
+                        badge,
+                        selected: slot.selected,
+                        slot: slot.slot,
+                    });
+                    x += chip_width + TAB_GAP;
+                }
+                let height = if placed.is_empty() { row_height } else { y + row_height };
+                (placed, height)
+            };
+            resolver.commit_used_height(height);
+            Self::LayoutInfo { tabs: placed }
+        })
+    }
+
+    fn lay_out<'a>(
+        &'a self,
+        state: &'a State<ClientState>,
+        _: ElementStore<'a>,
+        layout_info: &'a Self::LayoutInfo,
+        layout: &mut WindowLayout<'a, ClientState>,
+    ) {
+        let accent = *state.get(&client_theme().tokens().accent());
+        let highlight = *state.get(&client_theme().text().highlight_color());
+        let font_size = *state.get(&client_theme().button().font_size());
+        let corner = *state.get(&client_theme().button().corner_diameter());
+        let shadow = *state.get(&client_theme().button().shadow_color());
+        let shadow_padding = *state.get(&client_theme().button().shadow_padding());
+        let idle_background = *state.get(&client_theme().button().background_color());
+        let hot_background = *state.get(&client_theme().button().hovered_background_color());
+        let idle_foreground = *state.get(&client_theme().button().foreground_color());
+        let hot_foreground = *state.get(&client_theme().button().hovered_foreground_color());
+
+        for tab in &layout_info.tabs {
+            let select_hover = tab.select_area.check().run(layout);
+            let close_hover = tab.close_area.is_some_and(|area| area.check().run(layout));
+            let hot = tab.selected || select_hover || close_hover;
+            layout.add_rectangle(
+                tab.area,
+                corner,
+                if hot { hot_background } else { idle_background },
+                shadow,
+                shadow_padding,
+            );
+            if select_hover && let Some(handler) = self.selects.get(tab.slot) {
+                layout.register_click_handler(MouseButton::Left, handler);
+            }
+            if close_hover && let Some(handler) = tab.close_area.and(self.closes.get(tab.slot - FIXED_CHAT_TABS)) {
+                layout.register_click_handler(MouseButton::Left, handler);
+            }
+            layout.add_text(
+                tab.label_area,
+                &tab.label,
+                font_size,
+                if hot { hot_foreground } else { idle_foreground },
+                highlight,
+                HorizontalAlignment::Left { offset: 0.0, border: 0.0 },
+                VerticalAlignment::Center { offset: 0.0 },
+                OverflowBehavior::Shrink,
+            );
+            if let Some(badge_area) = tab.badge_area {
+                layout.add_text(
+                    badge_area,
+                    &tab.badge,
+                    font_size,
+                    accent,
+                    highlight,
+                    HorizontalAlignment::Left { offset: 0.0, border: 0.0 },
+                    VerticalAlignment::Center { offset: 0.0 },
+                    OverflowBehavior::Shrink,
+                );
+            }
+            if let Some(close_area) = tab.close_area {
+                layout.add_text(
+                    close_area,
+                    "x",
+                    font_size,
+                    if close_hover { accent } else { idle_foreground },
+                    highlight,
+                    HorizontalAlignment::Center { offset: 0.0, border: 0.0 },
+                    VerticalAlignment::Center { offset: 0.0 },
+                    OverflowBehavior::Shrink,
+                );
+            }
+        }
     }
 }
 
@@ -385,34 +638,145 @@ impl ChatWindowState {
         crate::state::chat::whisper_target_armed(&self.whisper_target, &self.whisper_disarm_stamp)
     }
 
-    /// Remember a whisper target without queueing a message to send.
-    pub(crate) fn set_whisper_target(&mut self, target: String) {
-        crate::state::chat::remember_whisper_target(&mut self.recent_whisper_targets, &target);
-        self.whisper_target.clone_from(&target);
-        // Picking a name is roBrowser whisper mode, so the box is armed.
-        self.whisper_disarm_stamp.clear();
-        self.pending_whisper_name.clear();
-        self.pending_whisper_text.clear();
+    pub(crate) fn active_tab(&self) -> &ChatTab {
+        &self.filters.active
     }
 
-    pub(crate) fn begin_whisper(&mut self, target: String, text: String) -> (String, String) {
+    /// Context menu Whisper: create or reuse the partner tab and show it.
+    pub(crate) fn focus_partner(&mut self, name: String, message_len: usize) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        self.filters.ensure_partner(name, message_len);
+        let canonical = self
+            .filters
+            .partners
+            .iter()
+            .find(|partner| crate::state::chat::names_equal(&partner.name, name))
+            .map(|partner| partner.name.clone())
+            .unwrap_or_else(|| name.to_owned());
+        self.select_tab(ChatTab::Partner(canonical), message_len);
+    }
+
+    /// Partner tabs arm whisper mode. Leaving one disarms it without clearing
+    /// the name box, matching `/w`.
+    pub(crate) fn select_tab(&mut self, tab: ChatTab, message_len: usize) {
+        let leaving_partner = self.filters.active.partner_name().is_some();
+        self.filters.select_at(tab, message_len);
+        if let Some(name) = self.filters.active.partner_name() {
+            let name = name.to_owned();
+            crate::state::chat::remember_whisper_target(&mut self.recent_whisper_targets, &name);
+            self.whisper_target.clone_from(&name);
+            self.whisper_disarm_stamp.clear();
+        } else if leaving_partner {
+            let target = self.whisper_target.clone();
+            crate::state::chat::disarm_sticky_whisper(&mut self.whisper_target, &mut self.whisper_disarm_stamp, &target);
+        }
+        self.active_tab_label = self.filters.active.window_title();
+    }
+
+    /// Drop a partner tab. The chat window stays open. Closing the active
+    /// partner returns to the generic Whisper tab and disarms whisper mode.
+    pub(crate) fn close_partner_tab(&mut self, index: usize, message_len: usize) {
+        let Some(name) = self.filters.remove_partner(index) else {
+            return;
+        };
+        let was_active = self
+            .filters
+            .active
+            .partner_name()
+            .is_some_and(|active| crate::state::chat::names_equal(active, &name));
+        if was_active {
+            self.select_tab(ChatTab::Whisper, message_len);
+        }
+    }
+
+    pub(crate) fn begin_whisper(&mut self, target: String, text: String, message_len: usize) -> (String, String) {
+        self.filters.ensure_partner(&target, message_len);
+        let stay_armed = self
+            .filters
+            .active
+            .partner_name()
+            .is_some_and(|name| crate::state::chat::names_equal(name, &target));
         crate::state::chat::remember_whisper_target(&mut self.recent_whisper_targets, &target);
-        crate::state::chat::disarm_sticky_whisper(&mut self.whisper_target, &mut self.whisper_disarm_stamp, &target);
+        if stay_armed {
+            self.whisper_target.clone_from(&target);
+            self.whisper_disarm_stamp.clear();
+        } else {
+            crate::state::chat::disarm_sticky_whisper(&mut self.whisper_target, &mut self.whisper_disarm_stamp, &target);
+        }
         self.pending_whisper_name.clone_from(&target);
         self.pending_whisper_text.clone_from(&text);
         (target, text)
     }
 
-    pub(crate) fn recent_whisper_targets_mut(&mut self) -> &mut Vec<String> {
-        &mut self.recent_whisper_targets
+    /// Same character rules as the chat text box. `Some` is the line Enter
+    /// submits.
+    pub(crate) fn apply_chat_character(&mut self, character: char) -> Option<String> {
+        if character == '\t' || character == '\r' || character == '\n' {
+            if self.current_text.is_empty() {
+                return None;
+            }
+            return Some(std::mem::take(&mut self.current_text));
+        }
+        if character == '\u{8}' {
+            self.current_text.pop();
+            return None;
+        }
+        if !character.is_control() && self.current_text.len().saturating_add(character.len_utf8()) <= MAXIMUM_CHAT_MESSAGE_LENGTH {
+            self.current_text.push(character);
+        }
+        None
     }
 
-    pub(crate) fn pending_whisper_mut(&mut self) -> (&mut Vec<String>, &mut String, &mut String) {
-        (
+    pub(crate) fn record_incoming_whisper(&mut self, messages: &mut Vec<ChatMessage>, sender: &str, text: &str) {
+        crate::state::chat::record_whisper(messages, &mut self.recent_whisper_targets, &mut self.filters, sender, text);
+    }
+
+    pub(crate) fn record_whisper_ack(&mut self, messages: &mut Vec<ChatMessage>, result: u8) {
+        crate::state::chat::record_whisper_ack(
+            messages,
             &mut self.recent_whisper_targets,
+            &mut self.filters,
             &mut self.pending_whisper_name,
             &mut self.pending_whisper_text,
-        )
+            result,
+        );
+    }
+
+    pub(crate) fn tab_slots(&self, messages: &[ChatMessage], player_name: &str) -> Vec<ChatTabSlot> {
+        self.filters.tab_slots(messages, player_name)
+    }
+
+    /// Same selection the tab-strip click handler performs.
+    pub(crate) fn select_slot(&mut self, slot: usize, message_len: usize) -> bool {
+        let Some(tab) = self.filters.tab_for_slot(slot) else {
+            return false;
+        };
+        self.select_tab(tab, message_len);
+        true
+    }
+
+    pub(crate) fn close_named_partner(&mut self, name: &str, message_len: usize) -> bool {
+        let Some(index) = self
+            .filters
+            .partners
+            .iter()
+            .position(|partner| crate::state::chat::names_equal(&partner.name, name))
+        else {
+            return false;
+        };
+        self.close_partner_tab(index, message_len);
+        true
+    }
+
+    pub(crate) fn visible_lines(&self, messages: &[ChatMessage]) -> Vec<(String, MessageColor)> {
+        messages
+            .iter()
+            .filter(|message| self.filters.allows_message(message))
+            .map(|message| (message.text.clone(), message.color))
+            .collect()
     }
 }
 
@@ -465,11 +829,6 @@ where
             stamp_path,
         };
 
-        let select_tab = |tab: ChatTab| SelectTab {
-            filters_path,
-            label_path,
-            tab,
-        };
         let toggle_channel = |channel: ChatChannel| ToggleChannel { filters_path, channel };
 
         window! {
@@ -485,16 +844,7 @@ where
             minimum_height: super::placement::CHAT_WINDOW_MIN_HEIGHT,
             maximum_height: 800.0,
             elements: (
-                split! {
-                    gaps: theme().window().gaps(),
-                    children: (
-                        button! { text: "All", event: select_tab(ChatTab::All) },
-                        button! { text: "Whisper", event: select_tab(ChatTab::Whisper) },
-                        button! { text: "Party", event: select_tab(ChatTab::Party) },
-                        button! { text: "Guild", event: select_tab(ChatTab::Guild) },
-                        button! { text: "System", event: select_tab(ChatTab::System) },
-                    ),
-                },
+                ChatTabStrip::new(window_state, messages_path),
                 split! {
                     gaps: theme().window().gaps(),
                     children: (
@@ -566,5 +916,64 @@ where
                 ChatElement::new(messages_path, window_state),
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::chat::{OutgoingChat, parse_outgoing_chat};
+
+    #[test]
+    fn partner_tab_arms_whisper_and_closing_it_disarms() {
+        let mut window = ChatWindowState::default();
+        window.focus_partner("Cara".to_owned(), 0);
+        assert_eq!(window.active_tab().label(), "Cara");
+        assert!(window.whisper_target_armed());
+        assert_eq!(window.whisper_target_text(), "Cara");
+        assert!(matches!(
+            parse_outgoing_chat("hello", window.whisper_target_text(), window.whisper_target_armed(), window.sends_guild_chat()),
+            OutgoingChat::Whisper { target, text } if target == "Cara" && text == "hello"
+        ));
+
+        let (target, text) = window.begin_whisper("Cara".to_owned(), "hello".to_owned(), 0);
+        assert_eq!(target, "Cara");
+        assert_eq!(text, "hello");
+        assert!(window.whisper_target_armed(), "staying on the partner tab keeps whisper mode");
+
+        window.select_tab(ChatTab::All, 0);
+        assert!(!window.whisper_target_armed());
+        assert_eq!(window.whisper_target_text(), "Cara");
+        assert!(matches!(
+            parse_outgoing_chat("public", window.whisper_target_text(), window.whisper_target_armed(), false),
+            OutgoingChat::Public(text) if text == "public"
+        ));
+
+        window.select_tab(ChatTab::Partner("Cara".to_owned()), 0);
+        assert!(window.whisper_target_armed());
+        window.close_partner_tab(0, 0);
+        assert_eq!(window.active_tab(), &ChatTab::Whisper);
+        assert!(window.filters.partners.is_empty());
+        assert!(!window.whisper_target_armed());
+    }
+
+    #[test]
+    fn closing_an_inactive_partner_keeps_the_armed_tab() {
+        let mut window = ChatWindowState::default();
+        window.focus_partner("Cara".to_owned(), 0);
+        window.filters.ensure_partner("Dana", 0);
+        window.close_partner_tab(1, 0);
+        assert_eq!(window.active_tab().label(), "Cara");
+        assert!(window.whisper_target_armed());
+        assert_eq!(window.filters.partner_names(), vec!["Cara".to_string()]);
+    }
+
+    #[test]
+    fn typed_enter_submits_the_chat_box() {
+        let mut window = ChatWindowState::default();
+        assert!(window.apply_chat_character('h').is_none());
+        assert!(window.apply_chat_character('i').is_none());
+        assert_eq!(window.apply_chat_character('\r').as_deref(), Some("hi"));
+        assert!(window.apply_chat_character('\r').is_none());
     }
 }

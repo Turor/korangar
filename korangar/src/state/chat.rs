@@ -152,7 +152,17 @@ impl ChannelMask {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, RustState)]
+/// Fixed channel tabs plus one slot per whisper partner.
+///
+/// Partner tabs are session-only. The generic Whisper tab stays and shows
+/// every whisper.
+pub const FIXED_CHAT_TABS: usize = 5;
+/// Oldest inactive partner tab is recycled once this many are open.
+pub const MAX_PARTNER_TABS: usize = 8;
+/// Unread badges render this value as `99+`.
+pub const UNREAD_BADGE_CAP: u32 = 99;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, RustState)]
 pub enum ChatTab {
     #[default]
     All,
@@ -160,37 +170,79 @@ pub enum ChatTab {
     Party,
     Guild,
     System,
+    Partner(String),
 }
 
 impl Display for ChatTab {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.label())
+        formatter.write_str(&self.label())
     }
 }
 
 impl ChatTab {
     /// Chat window title for this tab, such as `Chat - Party`.
-    pub fn window_title(self) -> String {
+    pub fn window_title(&self) -> String {
         format!("Chat - {}", self.label())
     }
 
-    pub fn label(self) -> &'static str {
+    pub fn label(&self) -> String {
         match self {
-            Self::All => "All",
-            Self::Whisper => "Whisper",
-            Self::Party => "Party",
-            Self::Guild => "Guild",
-            Self::System => "System",
+            Self::All => "All".to_owned(),
+            Self::Whisper => "Whisper".to_owned(),
+            Self::Party => "Party".to_owned(),
+            Self::Guild => "Guild".to_owned(),
+            Self::System => "System".to_owned(),
+            Self::Partner(name) => name.clone(),
+        }
+    }
+
+    pub fn partner_name(&self) -> Option<&str> {
+        match self {
+            Self::Partner(name) => Some(name.as_str()),
+            _ => None,
         }
     }
 }
 
-/// Active tab plus the filter stored for every tab.
+/// One closable whisper conversation. `seen` is the first chat-log index that
+/// is still unread.
+#[derive(Debug, Clone, PartialEq, Eq, RustState)]
+pub struct PartnerTab {
+    pub name: String,
+    pub mask: ChannelMask,
+    pub seen: usize,
+    /// Newer tabs and the tab the player just opened have a higher stamp.
+    pub stamp: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct FixedSeen {
+    all: usize,
+    whisper: usize,
+    party: usize,
+    guild: usize,
+    system: usize,
+}
+
+/// One row the chat tab strip draws.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatTabSlot {
+    pub slot: usize,
+    pub tab: ChatTab,
+    pub label: String,
+    pub unread: u32,
+    pub closable: bool,
+    pub selected: bool,
+}
+
+/// Active tab plus the filter stored for every fixed tab.
 ///
 /// [`Self::shown`] mirrors the active tab so the chat window can bind
-/// checkboxes without swapping paths when the player changes tabs.
+/// checkboxes without swapping paths when the player changes tabs. Partner
+/// tabs keep their own whisper mask and are not edited by those checkboxes.
 #[derive(Debug, Clone, PartialEq, Eq, RustState, StateElement)]
 pub struct ChatFilterState {
+    #[hidden_element]
     pub active: ChatTab,
     pub shown: ChannelMask,
     pub all: ChannelMask,
@@ -198,6 +250,12 @@ pub struct ChatFilterState {
     pub party: ChannelMask,
     pub guild: ChannelMask,
     pub system: ChannelMask,
+    #[hidden_element]
+    pub partners: Vec<PartnerTab>,
+    #[hidden_element]
+    seen: FixedSeen,
+    #[hidden_element]
+    partner_clock: u64,
 }
 
 impl Default for ChatFilterState {
@@ -211,41 +269,312 @@ impl Default for ChatFilterState {
             party: ChannelMask::only_party(),
             guild: ChannelMask::only_guild(),
             system: ChannelMask::system_and_announce(),
+            partners: Vec::new(),
+            seen: FixedSeen::default(),
+            partner_clock: 0,
         }
     }
 }
 
 impl ChatFilterState {
-    pub fn select(&mut self, tab: ChatTab) {
+    /// Select `tab` and treat every line already in the log as read on both
+    /// the tab being left and the tab being opened.
+    pub fn select_at(&mut self, tab: ChatTab, message_len: usize) {
+        let tab = self.canonical(tab);
+        self.mark_seen(&self.active.clone(), message_len);
         self.active = tab;
-        self.shown = self.stored(tab);
+        self.mark_seen(&self.active.clone(), message_len);
+        if let Some(name) = self.active.partner_name().map(str::to_owned) {
+            self.touch_partner(&name);
+        }
+        self.shown = self.mask_of(&self.active);
+    }
+
+    #[cfg(test)]
+    pub fn select(&mut self, tab: ChatTab) {
+        self.select_at(tab, 0);
     }
 
     pub fn toggle(&mut self, channel: ChatChannel) {
+        if self.active.partner_name().is_some() {
+            return;
+        }
         let enabled = !self.shown.allows(channel);
         self.shown.set(channel, enabled);
-        match self.active {
+        match &self.active {
             ChatTab::All => self.all = self.shown,
             ChatTab::Whisper => self.whisper = self.shown,
             ChatTab::Party => self.party = self.shown,
             ChatTab::Guild => self.guild = self.shown,
             ChatTab::System => self.system = self.shown,
+            ChatTab::Partner(_) => {}
         }
     }
 
     pub fn allows_message(&self, message: &ChatMessage) -> bool {
-        self.shown.allows(message.channel)
+        self.tab_accepts(&self.active, message)
     }
 
-    fn stored(&self, tab: ChatTab) -> ChannelMask {
+    /// Open `name` or reuse the existing partner tab. A ninth tab replaces the
+    /// oldest one that is not currently selected.
+    pub fn ensure_partner(&mut self, name: &str, message_index: usize) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        if let Some(index) = self.partners.iter().position(|partner| names_equal(&partner.name, name)) {
+            let stamp = self.next_stamp();
+            self.partners[index].stamp = stamp;
+            return;
+        }
+        if self.partners.len() >= MAX_PARTNER_TABS
+            && let Some(index) = self.oldest_inactive()
+        {
+            let stamp = self.next_stamp();
+            let partner = &mut self.partners[index];
+            partner.name = name.to_owned();
+            partner.mask = ChannelMask::only_whisper();
+            partner.seen = message_index;
+            partner.stamp = stamp;
+            return;
+        }
+        if self.partners.len() >= MAX_PARTNER_TABS {
+            return;
+        }
+        let stamp = self.next_stamp();
+        self.partners.push(PartnerTab {
+            name: name.to_owned(),
+            mask: ChannelMask::only_whisper(),
+            seen: message_index,
+            stamp,
+        });
+    }
+
+    pub fn remove_partner(&mut self, index: usize) -> Option<String> {
+        if index >= self.partners.len() {
+            return None;
+        }
+        Some(self.partners.remove(index).name)
+    }
+
+    #[cfg(test)]
+    pub fn partner_names(&self) -> Vec<String> {
+        self.partners.iter().map(|partner| partner.name.clone()).collect()
+    }
+
+    pub fn tab_for_slot(&self, slot: usize) -> Option<ChatTab> {
+        match slot {
+            0 => Some(ChatTab::All),
+            1 => Some(ChatTab::Whisper),
+            2 => Some(ChatTab::Party),
+            3 => Some(ChatTab::Guild),
+            4 => Some(ChatTab::System),
+            other => self
+                .partners
+                .get(other - FIXED_CHAT_TABS)
+                .map(|partner| ChatTab::Partner(partner.name.clone())),
+        }
+    }
+
+    pub fn tab_slots(&self, messages: &[ChatMessage], player_name: &str) -> Vec<ChatTabSlot> {
+        let fixed = [ChatTab::All, ChatTab::Whisper, ChatTab::Party, ChatTab::Guild, ChatTab::System];
+        let mut slots = Vec::with_capacity(fixed.len() + self.partners.len());
+        for (index, tab) in fixed.into_iter().enumerate() {
+            slots.push(self.slot(index, tab, false, messages, player_name));
+        }
+        for (index, partner) in self.partners.iter().enumerate() {
+            let tab = ChatTab::Partner(partner.name.clone());
+            slots.push(self.slot(FIXED_CHAT_TABS + index, tab, true, messages, player_name));
+        }
+        slots
+    }
+
+    /// Lines that arrived after this tab was last selected, that this tab
+    /// shows, and that the player did not send.
+    pub fn unread_count(&self, tab: &ChatTab, messages: &[ChatMessage], player_name: &str) -> u32 {
+        if same_tab(&self.active, tab) {
+            return 0;
+        }
+        let seen = self.seen_of(tab);
+        messages
+            .iter()
+            .skip(seen)
+            .filter(|message| self.tab_accepts(tab, message) && !is_own_outgoing_line(message, player_name))
+            .count() as u32
+    }
+
+    fn slot(&self, index: usize, tab: ChatTab, closable: bool, messages: &[ChatMessage], player_name: &str) -> ChatTabSlot {
+        let unread = self.unread_count(&tab, messages, player_name);
+        ChatTabSlot {
+            slot: index,
+            label: tab.label(),
+            selected: same_tab(&self.active, &tab),
+            tab,
+            unread,
+            closable,
+        }
+    }
+
+    fn canonical(&self, tab: ChatTab) -> ChatTab {
+        match tab {
+            ChatTab::Partner(name) => {
+                let stored = self
+                    .partners
+                    .iter()
+                    .find(|partner| names_equal(&partner.name, &name))
+                    .map(|partner| partner.name.clone())
+                    .unwrap_or(name);
+                ChatTab::Partner(stored)
+            }
+            other => other,
+        }
+    }
+
+    fn tab_accepts(&self, tab: &ChatTab, message: &ChatMessage) -> bool {
+        match tab {
+            ChatTab::Partner(name) => self.mask_of(tab).allows(message.channel) && whisper_for_partner(message, name),
+            _ => self.mask_of(tab).allows(message.channel),
+        }
+    }
+
+    fn mask_of(&self, tab: &ChatTab) -> ChannelMask {
         match tab {
             ChatTab::All => self.all,
             ChatTab::Whisper => self.whisper,
             ChatTab::Party => self.party,
             ChatTab::Guild => self.guild,
             ChatTab::System => self.system,
+            ChatTab::Partner(name) => self
+                .partners
+                .iter()
+                .find(|partner| names_equal(&partner.name, name))
+                .map(|partner| partner.mask)
+                .unwrap_or_else(ChannelMask::only_whisper),
         }
     }
+
+    fn seen_of(&self, tab: &ChatTab) -> usize {
+        match tab {
+            ChatTab::All => self.seen.all,
+            ChatTab::Whisper => self.seen.whisper,
+            ChatTab::Party => self.seen.party,
+            ChatTab::Guild => self.seen.guild,
+            ChatTab::System => self.seen.system,
+            ChatTab::Partner(name) => self
+                .partners
+                .iter()
+                .find(|partner| names_equal(&partner.name, name))
+                .map(|partner| partner.seen)
+                .unwrap_or(usize::MAX),
+        }
+    }
+
+    fn mark_seen(&mut self, tab: &ChatTab, message_len: usize) {
+        match tab {
+            ChatTab::All => self.seen.all = message_len,
+            ChatTab::Whisper => self.seen.whisper = message_len,
+            ChatTab::Party => self.seen.party = message_len,
+            ChatTab::Guild => self.seen.guild = message_len,
+            ChatTab::System => self.seen.system = message_len,
+            ChatTab::Partner(name) => {
+                if let Some(partner) = self.partners.iter_mut().find(|partner| names_equal(&partner.name, name)) {
+                    partner.seen = message_len;
+                }
+            }
+        }
+    }
+
+    fn touch_partner(&mut self, name: &str) {
+        let stamp = self.next_stamp();
+        if let Some(partner) = self.partners.iter_mut().find(|partner| names_equal(&partner.name, name)) {
+            partner.stamp = stamp;
+        }
+    }
+
+    fn oldest_inactive(&self) -> Option<usize> {
+        let active = self.active.partner_name();
+        self.partners
+            .iter()
+            .enumerate()
+            .filter(|(_, partner)| active.is_none_or(|name| !names_equal(name, &partner.name)))
+            .min_by_key(|(_, partner)| partner.stamp)
+            .map(|(index, _)| index)
+    }
+
+    fn next_stamp(&mut self) -> u64 {
+        self.partner_clock = self.partner_clock.saturating_add(1);
+        self.partner_clock
+    }
+}
+
+pub fn same_tab(left: &ChatTab, right: &ChatTab) -> bool {
+    match (left, right) {
+        (ChatTab::Partner(left), ChatTab::Partner(right)) => names_equal(left, right),
+        (left, right) => left == right,
+    }
+}
+
+pub fn names_equal(left: &str, right: &str) -> bool {
+    left.trim().eq_ignore_ascii_case(right.trim())
+}
+
+/// `None` when the count is zero. Values above 99 render as `99+`.
+pub fn format_unread_badge(count: u32) -> Option<String> {
+    match count {
+        0 => None,
+        1..=UNREAD_BADGE_CAP => Some(count.to_string()),
+        _ => Some(format!("{UNREAD_BADGE_CAP}+")),
+    }
+}
+
+/// The player's own public echo (`Name : text`) and the `[To name]` whisper
+/// echo. Whisper failures are not outgoing lines.
+pub fn is_own_outgoing_line(message: &ChatMessage, player_name: &str) -> bool {
+    if message.channel == ChatChannel::Whisper
+        && let Some(rest) = message.text.trim_start().strip_prefix("[To ")
+        && rest.contains(']')
+    {
+        return true;
+    }
+    let player_name = player_name.trim();
+    if player_name.is_empty() {
+        return false;
+    }
+    matches!(message.text.strip_prefix(player_name), Some(rest) if rest.starts_with(" : "))
+}
+
+fn whisper_for_partner(message: &ChatMessage, name: &str) -> bool {
+    whisper_partner_name(message).is_some_and(|partner| names_equal(partner, name))
+}
+
+pub fn whisper_partner_name(message: &ChatMessage) -> Option<&str> {
+    if let Some(name) = message.partner.as_deref() {
+        let name = name.trim();
+        if !name.is_empty() {
+            return Some(name);
+        }
+    }
+    parse_whisper_partner(&message.text)
+}
+
+fn parse_whisper_partner(text: &str) -> Option<&str> {
+    let text = text.trim();
+    if let Some(rest) = text.strip_prefix("[From ").or_else(|| text.strip_prefix("[To ")) {
+        let name = rest.split_once(']')?.0.trim();
+        if !name.is_empty() {
+            return Some(name);
+        }
+    }
+    const SUFFIXES: [&str; 3] = [" is ignoring you.", " is ignoring everyone.", " is offline."];
+    for suffix in SUFFIXES {
+        if let Some(name) = text.strip_suffix(suffix) {
+            let name = name.trim();
+            if !name.is_empty() {
+                return Some(name);
+            }
+        }
+    }
+    None
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -636,19 +965,26 @@ pub fn own_chat_echo_color(text: &str, player_name: &str, color: MessageColor) -
     }
 }
 
-pub fn record_whisper(messages: &mut Vec<ChatMessage>, recent: &mut Vec<String>, sender: &str, text: &str) {
+pub fn record_whisper(messages: &mut Vec<ChatMessage>, recent: &mut Vec<String>, filters: &mut ChatFilterState, sender: &str, text: &str) {
     let sender = sender.trim();
     let text = strip_whisper_code(text).trim();
     if sender.is_empty() || text.is_empty() {
         return;
     }
+    filters.ensure_partner(sender, messages.len());
     remember_whisper_target(recent, sender);
-    messages.push(ChatMessage::new(format!("[From {sender}] : {text}"), MessageColor::Whisper));
+    messages.push(ChatMessage::with_partner(
+        format!("[From {sender}] : {text}"),
+        MessageColor::Whisper,
+        ChatChannel::Whisper,
+        Some(sender.to_owned()),
+    ));
 }
 
 pub fn record_whisper_ack(
     messages: &mut Vec<ChatMessage>,
     recent: &mut Vec<String>,
+    filters: &mut ChatFilterState,
     pending_name: &mut String,
     pending_text: &mut String,
     result: u8,
@@ -659,15 +995,25 @@ pub fn record_whisper_ack(
         if name.is_empty() || text.is_empty() {
             return;
         }
+        filters.ensure_partner(&name, messages.len());
         remember_whisper_target(recent, &name);
-        messages.push(ChatMessage::new(format!("[To {name}] : {text}"), MessageColor::Whisper));
+        messages.push(ChatMessage::with_partner(
+            format!("[To {name}] : {text}"),
+            MessageColor::Whisper,
+            ChatChannel::Whisper,
+            Some(name),
+        ));
         return;
     }
     let who = if name.is_empty() { "Player".to_string() } else { name };
-    messages.push(ChatMessage::with_channel(
+    if who != "Player" {
+        filters.ensure_partner(&who, messages.len());
+    }
+    messages.push(ChatMessage::with_partner(
         whisper_failure_line(&who, result),
         MessageColor::Error,
         ChatChannel::Whisper,
+        Some(who).filter(|name| name != "Player"),
     ));
 }
 
@@ -975,24 +1321,115 @@ mod tests {
     fn whisper_ack_and_receive_use_the_whisper_channel() {
         let mut messages = Vec::new();
         let mut recent = Vec::new();
-        record_whisper(&mut messages, &mut recent, "Bob", "|00hello");
+        let mut filters = ChatFilterState::default();
+        record_whisper(&mut messages, &mut recent, &mut filters, "Bob", "|00hello");
         assert_eq!(messages[0].text, "[From Bob] : hello");
         assert_eq!(messages[0].channel, ChatChannel::Whisper);
+        assert_eq!(messages[0].partner.as_deref(), Some("Bob"));
         assert_eq!(recent, vec!["Bob".to_string()]);
+        assert_eq!(filters.partner_names(), vec!["Bob".to_string()]);
 
         let mut pending_name = "Cara".to_string();
         let mut pending_text = "yo".to_string();
-        record_whisper_ack(&mut messages, &mut recent, &mut pending_name, &mut pending_text, 0);
+        record_whisper_ack(
+            &mut messages,
+            &mut recent,
+            &mut filters,
+            &mut pending_name,
+            &mut pending_text,
+            0,
+        );
         assert!(pending_name.is_empty());
         assert_eq!(messages[1].text, "[To Cara] : yo");
         assert_eq!(messages[1].channel, ChatChannel::Whisper);
+        assert!(is_own_outgoing_line(&messages[1], "anyone"));
         assert_eq!(recent[0], "Cara");
 
         let mut pending_name = "Bob".to_string();
         let mut pending_text = "again".to_string();
-        record_whisper_ack(&mut messages, &mut recent, &mut pending_name, &mut pending_text, 2);
+        record_whisper_ack(
+            &mut messages,
+            &mut recent,
+            &mut filters,
+            &mut pending_name,
+            &mut pending_text,
+            2,
+        );
         assert_eq!(messages[2].channel, ChatChannel::Whisper);
         assert_eq!(messages[2].text, "Bob is ignoring you.");
         assert!(matches!(messages[2].color, MessageColor::Error));
+        assert_eq!(messages[2].partner.as_deref(), Some("Bob"));
+        filters.select_at(ChatTab::Partner("Bob".to_owned()), messages.len());
+        assert!(filters.allows_message(&messages[2]));
+        assert!(!is_own_outgoing_line(&messages[2], "Bob"));
+    }
+
+    #[test]
+    fn unread_counts_skip_the_active_tab_and_own_lines() {
+        let mut filters = ChatFilterState::default();
+        let mut messages = Vec::new();
+        messages.push(ChatMessage::new("Bob : hi".to_owned(), MessageColor::Public));
+        messages.push(ChatMessage::new("rally".to_owned(), MessageColor::Party));
+        messages.push(ChatMessage::new("notice".to_owned(), MessageColor::Server));
+        assert_eq!(filters.unread_count(&ChatTab::All, &messages, "kgap04"), 0);
+        assert_eq!(filters.unread_count(&ChatTab::Party, &messages, "kgap04"), 1);
+        assert_eq!(filters.unread_count(&ChatTab::System, &messages, "kgap04"), 1);
+        assert_eq!(filters.unread_count(&ChatTab::Whisper, &messages, "kgap04"), 0);
+        assert_eq!(format_unread_badge(1).as_deref(), Some("1"));
+        assert_eq!(format_unread_badge(99).as_deref(), Some("99"));
+        assert_eq!(format_unread_badge(100).as_deref(), Some("99+"));
+        assert_eq!(format_unread_badge(0), None);
+
+        filters.select_at(ChatTab::Party, messages.len());
+        assert_eq!(filters.unread_count(&ChatTab::Party, &messages, "kgap04"), 0);
+        messages.push(ChatMessage::new("kgap04 : mine".to_owned(), MessageColor::Public));
+        messages.push(ChatMessage::new("Cara : yo".to_owned(), MessageColor::Public));
+        assert_eq!(filters.unread_count(&ChatTab::All, &messages, "kgap04"), 1);
+        assert!(is_own_outgoing_line(messages.iter().rev().nth(1).unwrap(), "kgap04"));
+
+        filters.select_at(ChatTab::All, messages.len());
+        assert_eq!(filters.unread_count(&ChatTab::All, &messages, "kgap04"), 0);
+        messages.push(ChatMessage::new("again".to_owned(), MessageColor::Party));
+        assert_eq!(filters.unread_count(&ChatTab::Party, &messages, "kgap04"), 1);
+    }
+
+    #[test]
+    fn partner_tabs_track_whispers_and_recycle_the_oldest_inactive() {
+        let mut filters = ChatFilterState::default();
+        let mut messages = Vec::new();
+        let mut recent = Vec::new();
+        record_whisper(&mut messages, &mut recent, &mut filters, "Cara", "secret");
+        let cara = ChatTab::Partner("Cara".to_owned());
+        assert_eq!(filters.unread_count(&cara, &messages, "kgap04"), 1);
+        assert_eq!(filters.unread_count(&ChatTab::Whisper, &messages, "kgap04"), 1);
+        assert_eq!(filters.unread_count(&ChatTab::All, &messages, "kgap04"), 0);
+
+        filters.select_at(cara.clone(), messages.len());
+        assert_eq!(filters.unread_count(&cara, &messages, "kgap04"), 0);
+        assert!(filters.allows_message(&messages[0]));
+        filters.select_at(ChatTab::All, messages.len());
+        messages.push(ChatMessage::with_partner(
+            "[To Cara] : hi".to_owned(),
+            MessageColor::Whisper,
+            ChatChannel::Whisper,
+            Some("Cara".to_owned()),
+        ));
+        assert_eq!(filters.unread_count(&cara, &messages, "kgap04"), 0);
+        record_whisper(&mut messages, &mut recent, &mut filters, "cara", "again");
+        assert_eq!(filters.partner_names(), vec!["Cara".to_string()]);
+        assert_eq!(filters.unread_count(&cara, &messages, "kgap04"), 1);
+
+        let mut capped = ChatFilterState::default();
+        for name in ["a", "b", "c", "d", "e", "f", "g", "h"] {
+            capped.ensure_partner(name, 0);
+        }
+        capped.select_at(ChatTab::Partner("a".to_owned()), 0);
+        capped.ensure_partner("i", 0);
+        let names = capped.partner_names();
+        assert_eq!(names.len(), MAX_PARTNER_TABS);
+        assert!(names.iter().any(|name| name == "a"));
+        assert!(names.iter().any(|name| name == "i"));
+        assert!(!names.iter().any(|name| name == "b"));
+        assert!(names.iter().any(|name| name == "h"));
     }
 }

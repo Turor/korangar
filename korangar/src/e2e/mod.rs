@@ -4,6 +4,8 @@
 //! when credentials or the server are missing.
 
 mod actions;
+pub mod archives;
+mod chat;
 mod credentials;
 mod inject;
 mod logic;
@@ -12,6 +14,7 @@ mod screenshot;
 mod social;
 
 pub(crate) use self::actions::{apply_choose_dialog_option, apply_switch_window_tab, begin_npc_dialog, send_public_chat, send_walk};
+pub use self::chat::{ChatSession, ChatView};
 pub use self::credentials::{Credentials, LiveConnect, TEST_HOST, TEST_PORT};
 pub use self::inject::input_path_parity;
 pub use self::logic::{DialogView, LogicSession, Outbound, Phase, SelectedOption, SentChoice, SettingsView};

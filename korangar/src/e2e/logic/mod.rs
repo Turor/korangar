@@ -520,6 +520,30 @@ impl LogicSession {
     pub(super) fn hold_lock(&mut self, file: std::fs::File) {
         self.lock = Some(file);
     }
+
+    pub(crate) fn buffer_text(&mut self, text: &str) {
+        for character in text.chars() {
+            self.input.buffer_character(character);
+        }
+    }
+
+    pub(crate) fn take_frame_characters(&mut self) -> Vec<char> {
+        self.finish_frame().0.characters
+    }
+
+    pub(crate) fn show_window(&mut self, class: WindowClass) {
+        self.open_window(class);
+    }
+
+    /// `CZ_WHISPER` through the same call the client match arm uses. Offline
+    /// sessions have no socket and only record the intent at the caller.
+    pub(crate) fn dispatch_whisper(&mut self, target: &str, text: &str) -> Result<(), String> {
+        if let Some(net) = self.net.as_mut() {
+            net.send_whisper(target, text)
+                .map_err(|_| "map server is not connected".to_owned())?;
+        }
+        Ok(())
+    }
 }
 
 impl Drop for LogicSession {

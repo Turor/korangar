@@ -27,10 +27,14 @@ The bootstrap check uses the normal GameFileLoader/clientinfo parser without
 window, GPU or login. It does not prove rendering, complete assets or gameplay.
 
 Remote mode defaults to no proprietary local GRFs when game_archives.ron is
-absent. Explicit local overlays retain priority and must exist. Malformed
-archive settings and unavailable/invalid manifests fail with diagnostics;
-missing defaults no longer trigger a native archive panic. Existing pinned
-cache revisions are not silently updated. Use a fresh runtime/cache per revision.
+absent. When that file exists, overlays and configured GRFs are searched
+before the remote cache (see `docs/local-archives.md`). A missing non-optional
+entry logs a warning. Startup continues when another archive, `archive/`, or
+remote mode is present, and stops only when nothing was mounted offline.
+Malformed archive settings and
+unavailable/invalid manifests fail with diagnostics; missing defaults no
+longer trigger a native archive panic. Existing pinned cache revisions are
+not silently updated. Use a fresh runtime/cache per revision.
 
 For a complete dev install, stage an approved full raw asset snapshot with its
 entire dependency set and use a separate cache (do not deploy production).
