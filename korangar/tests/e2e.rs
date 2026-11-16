@@ -3,6 +3,8 @@
 //! Offline cases always run. Live cases print `E2E_SKIP` and return when
 //! `KORANGAR_E2E` / an account file is unset, or when Hercules TEST is down.
 
+#[path = "e2e/archives.rs"]
+mod archives;
 #[path = "e2e/release.rs"]
 mod release;
 

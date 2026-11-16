@@ -4,6 +4,7 @@
 //! when credentials or the server are missing.
 
 mod actions;
+pub mod archives;
 mod chat;
 mod credentials;
 mod inject;

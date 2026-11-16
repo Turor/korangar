@@ -197,6 +197,12 @@ pub(crate) fn is_portable() -> bool {
     PORTABLE.get().is_some()
 }
 
+/// Runtime directory chosen by a portable Windows install, when startup opted
+/// in.
+pub(crate) fn portable_runtime_dir() -> Option<PathBuf> {
+    PORTABLE.get().map(|paths| paths.runtime.clone())
+}
+
 /// Keep only short technical wgpu failure text for startup-error.log.
 /// Never persist panic payloads, clipboard, packets, URLs, or env values.
 pub(crate) fn sanitize_graphics_diagnostic(kind: &str, detail: &str) -> String {

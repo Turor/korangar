@@ -6,9 +6,8 @@ mod cache;
 mod list;
 mod resname;
 
-use core::panic;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 
@@ -19,7 +18,10 @@ use korangar_loaders::remote::PersistentAssets;
 use korangar_loaders::{FileLoader, FileNotFoundError};
 
 pub use self::cache::{sync_cache_archive, texture_file_dds_name, video_file_ivf_name};
-use self::list::GameArchiveList;
+use self::list::{
+    GameArchiveList, PathAnchor, ResolvedArchiveConfig, ResolvedEntry, anchor_log_line, korangar_archive_dir, path_anchor,
+    same_archive_path,
+};
 use super::archive::folder::FolderArchive;
 use super::archive::native::NativeArchive;
 use super::archive::{Archive, ArchiveType, normalize_archive_path};
@@ -35,9 +37,47 @@ pub(crate) const HASH_FILE_PATH: &str = "game_file_hash.txt";
 /// users.
 const GAME_FILE_DERIVE_KEY: &str = "korangar 2025-03-09 14:17:23 game file key v1";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ArchiveRole {
+    Overlay,
+    Configured,
+    Korangar,
+    /// Derived `cache.7z`. Not part of the operator search order or the hash.
+    AssetCache,
+}
+
+impl ArchiveRole {
+    fn tag(self) -> &'static str {
+        match self {
+            Self::Overlay => "overlay",
+            Self::Configured => "archive",
+            Self::Korangar => "korangar",
+            Self::AssetCache => "cache",
+        }
+    }
+}
+
 struct LoaderArchive {
     archive: Box<dyn Archive>,
     is_game_archive: bool,
+    role: ArchiveRole,
+    /// Resolved filesystem path. Empty for archives added without a path.
+    location: String,
+}
+
+/// Which configured source would serve a virtual path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GameFileOrigin {
+    /// Operator overlay. `path` is the resolved folder or GRF.
+    Overlay { path: String },
+    /// Entry from `archives` in `client/game_archives.ron` or DATA.INI.
+    ConfiguredArchive { path: String },
+    /// Korangar `archive/` directory, below configured archives.
+    KorangarArchive { path: String },
+    /// Bytes already stored in the verified remote cache.
+    RemoteCache,
+    /// Listed by the remote manifest or loose index, but not stored yet.
+    RemoteFetch,
 }
 
 /// Type implementing the game file loader.
@@ -53,6 +93,9 @@ pub struct GameFileLoader {
     remote: RwLock<Option<Arc<PersistentAssets>>>,
     /// Map aliases from `data\resnametable.txt`, read on the first map file.
     map_aliases: OnceLock<HashMap<String, String>>,
+    warnings: RwLock<Vec<String>>,
+    search_order: RwLock<Vec<String>>,
+    anchor_line: RwLock<String>,
 }
 
 fn note_missing_game_file(path: &str) {
@@ -146,32 +189,46 @@ impl GameFileLoader {
     }
 
     fn add_archive(&self, archive: Box<dyn Archive>, is_game_archive: bool) {
-        self.archives.write().unwrap().insert(0, LoaderArchive { archive, is_game_archive });
+        let role = if is_game_archive {
+            ArchiveRole::Configured
+        } else {
+            ArchiveRole::AssetCache
+        };
+        self.add_mounted(archive, is_game_archive, role, String::new());
     }
 
-    fn get_archive_type_by_path(path: &Path) -> ArchiveType {
-        if path.is_dir() || path.display().to_string().ends_with('/') {
-            ArchiveType::Folder
-        } else if let Some(extension) = path.extension()
-            && let Some("grf") = extension.to_str()
-        {
-            ArchiveType::Native
-        } else if let Some(extension) = path.extension()
-            && let Some("7z") = extension.to_str()
-        {
-            ArchiveType::SevenZip
+    fn add_mounted(&self, archive: Box<dyn Archive>, is_game_archive: bool, role: ArchiveRole, location: String) {
+        self.archives.write().unwrap().insert(0, LoaderArchive {
+            archive,
+            is_game_archive,
+            role,
+            location,
+        });
+    }
+
+    fn get_archive_type_by_path(path: &Path) -> Option<ArchiveType> {
+        if path.is_dir() {
+            Some(ArchiveType::Folder)
+        } else if let Some(extension) = path.extension().and_then(|extension| extension.to_str()) {
+            match extension {
+                "grf" => Some(ArchiveType::Native),
+                "7z" => Some(ArchiveType::SevenZip),
+                _ => None,
+            }
         } else {
-            panic!("Provided archive must be a directory or have a .grf extension")
+            None
         }
     }
 
-    fn load_archive_from_path(path: &str) -> Box<dyn Archive> {
-        let path = Path::new(path);
-
+    fn load_archive_from_path(path: &Path) -> Result<Box<dyn Archive>, String> {
         match GameFileLoader::get_archive_type_by_path(path) {
-            ArchiveType::Folder => Box::new(FolderArchive::from_path(path)),
-            ArchiveType::Native => Box::new(NativeArchive::from_path(path)),
-            ArchiveType::SevenZip => Box::new(SevenZipArchive::from_path(path)),
+            Some(ArchiveType::Folder) => Ok(Box::new(FolderArchive::from_path(path))),
+            Some(ArchiveType::Native) => Ok(Box::new(NativeArchive::from_path(path))),
+            Some(ArchiveType::SevenZip) => Ok(Box::new(SevenZipArchive::from_path(path))),
+            None => Err(format!(
+                "warning: game archive skipped (not a directory, .grf, or .7z): {}",
+                path.display()
+            )),
         }
     }
 
@@ -193,40 +250,146 @@ impl GameFileLoader {
             }
         }
         let remote_enabled = self.remote.read().unwrap().is_some();
-        let game_archive_list = GameArchiveList::load(remote_enabled)?;
-        if !remote_enabled && game_archive_list.archives.is_empty() {
-            return Err(
-                "No game assets configured: add licensed local GRFs/overlays to client/game_archives.ron, or configure \
-                 KORANGAR_REMOTE_BASE_URL and a staged manifest/cache. See docs/turoran-native-test.md."
-                    .into(),
-            );
-        }
-        for path in &game_archive_list.archives {
-            // Missing archives are skipped (DATA.INI / partial installs). Remote mode
-            // continues to serve files from the verified cache when local GRFs are absent.
-            if !Path::new(path).exists() {
-                #[cfg(feature = "debug")]
-                print_debug!("Skipping missing game archive {}", path);
-                continue;
-            }
-            let game_archive = Self::load_archive_from_path(path);
-            self.add_archive(game_archive, true);
-        }
+        let executable = std::env::current_exe().ok();
+        let working_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let portable = crate::deployment::portable_runtime_dir();
+        let (base, anchor) = path_anchor(executable.as_deref(), &working_dir, portable.as_deref());
+        self.mount_at(&base, anchor, remote_enabled)?;
 
         #[cfg(feature = "debug")]
         timer.stop();
         Ok(())
     }
 
+    /// Load `client/game_archives.ron` from `install_dir` as the install root.
+    ///
+    /// Tests use this so they do not depend on the process working directory.
+    /// Remote assets already attached to this loader stay attached.
+    pub fn load_from_install(&self, install_dir: &Path) -> Result<(), String> {
+        let remote_enabled = self.remote.read().unwrap().is_some();
+        self.mount_at(install_dir, PathAnchor::InstallDir, remote_enabled)
+    }
+
+    /// Startup warnings for missing non-optional archives. Optional misses are
+    /// absent. Each warning names the resolved path.
+    pub fn startup_warnings(&self) -> Vec<String> {
+        self.warnings.read().unwrap().clone()
+    }
+
+    /// Final search order, highest priority first. Includes the remote layers
+    /// when a remote cache is configured.
+    pub fn search_order(&self) -> Vec<String> {
+        self.search_order.read().unwrap().clone()
+    }
+
+    /// The path-resolution log line from the last load.
+    pub fn anchor_line(&self) -> String {
+        self.anchor_line.read().unwrap().clone()
+    }
+
+    /// Source that [`Self::get`] would use for `path`, ignoring the derived
+    /// texture cache. `None` when no mounted archive or remote entry has it.
+    pub fn origin_of(&self, path: &str) -> Option<GameFileOrigin> {
+        let archive_path = normalize_archive_path(path);
+        if let Some(target) = self.map_alias(&archive_path)
+            && let Some(origin) = self.origin_exact(&target)
+        {
+            return Some(origin);
+        }
+        self.origin_exact(&archive_path)
+    }
+
+    fn origin_exact(&self, archive_path: &str) -> Option<GameFileOrigin> {
+        for mounted in self.archives.read().unwrap().iter() {
+            if mounted.role == ArchiveRole::AssetCache || !mounted.archive.file_exists(archive_path) {
+                continue;
+            }
+            let path = mounted.location.clone();
+            return Some(match mounted.role {
+                ArchiveRole::Overlay => GameFileOrigin::Overlay { path },
+                ArchiveRole::Configured => GameFileOrigin::ConfiguredArchive { path },
+                ArchiveRole::Korangar => GameFileOrigin::KorangarArchive { path },
+                ArchiveRole::AssetCache => unreachable!("asset cache is skipped above"),
+            });
+        }
+        let remote = self.remote.read().unwrap();
+        let remote = remote.as_ref()?;
+        if remote.is_cached_locally(archive_path) {
+            Some(GameFileOrigin::RemoteCache)
+        } else if remote.contains(archive_path) {
+            Some(GameFileOrigin::RemoteFetch)
+        } else {
+            None
+        }
+    }
+
+    fn mount_at(&self, base: &Path, anchor: PathAnchor, remote_enabled: bool) -> Result<(), String> {
+        let line = anchor_log_line(anchor, base);
+        eprintln!("{line}");
+        *self.anchor_line.write().unwrap() = line;
+
+        let resolved = GameArchiveList::load_resolved(base, remote_enabled)?;
+        for warning in &resolved.warnings {
+            eprintln!("{warning}");
+        }
+        *self.warnings.write().unwrap() = resolved.warnings.clone();
+
+        let mut opened = open_existing(&resolved, &mut self.warnings.write().unwrap());
+        for (role, path, archive) in opened.drain(..).rev() {
+            let location = path.display().to_string();
+            self.add_mounted(archive, true, role, location);
+        }
+
+        let mut order = Vec::new();
+        for mounted in self.archives.read().unwrap().iter() {
+            if mounted.role == ArchiveRole::AssetCache {
+                continue;
+            }
+            order.push(format!("{}: {}", mounted.role.tag(), mounted.location));
+        }
+        if remote_enabled {
+            order.push("remote verified cache".to_owned());
+            order.push("remote fetch".to_owned());
+        }
+        #[cfg(feature = "debug")]
+        {
+            print_debug!("Game file search order (highest priority first):");
+            for (index, entry) in order.iter().enumerate() {
+                print_debug!("  {}: {entry}", index + 1);
+            }
+        }
+        *self.search_order.write().unwrap() = order;
+
+        let mounted_any = self.archives.read().unwrap().iter().any(|archive| archive.is_game_archive);
+        if !remote_enabled && !mounted_any {
+            return Err(
+                "No game assets configured: add licensed local GRFs/overlays to client/game_archives.ron, or configure \
+                 KORANGAR_REMOTE_BASE_URL and a staged manifest/cache. See docs/turoran-native-test.md."
+                    .into(),
+            );
+        }
+        Ok(())
+    }
+
     pub fn calculate_hash(&self) -> Hash {
         let mut hasher = blake3::Hasher::new_derive_key(GAME_FILE_DERIVE_KEY);
+        // Role and resolved path are part of the key so a different overlay set
+        // cannot reuse `cache.7z` when the file bytes happen to match.
         self.archives
             .read()
             .unwrap()
             .iter()
             .filter(|archive| archive.is_game_archive)
-            .for_each(|archive| archive.archive.hash(&mut hasher));
+            .for_each(|archive| {
+                hasher.update(archive.role.tag().as_bytes());
+                hasher.update(b"\0");
+                hasher.update(archive.location.as_bytes());
+                hasher.update(b"\0");
+                archive.archive.hash(&mut hasher);
+                hasher.update(b"\0");
+            });
         if let Some(remote) = self.remote.read().unwrap().as_ref() {
+            hasher.update(b"remote\0");
             hasher.update(remote.revision().as_bytes());
         }
         hasher.finalize()
@@ -270,15 +433,17 @@ impl GameFileLoader {
             return;
         };
 
-        let Ok(_hash) = Hash::from_hex(hash_file) else {
+        let Ok(stored) = Hash::from_hex(hash_file) else {
             #[cfg(feature = "debug")]
             print_debug!("Can't read game hash file. Using empty cache");
             return;
         };
 
-        #[cfg(feature = "debug")]
-        if _hash != game_file_hash {
+        if stored != game_file_hash {
+            eprintln!("warning: asset cache does not match the current archives and overlays; not using {CACHE_FILE_NAME}");
+            #[cfg(feature = "debug")]
             print_debug!("[{}] Cache is out of sync. Please re-sync or delete the cache", "error".red());
+            return;
         }
 
         self.add_archive(archive, false);
@@ -303,6 +468,42 @@ impl GameFileLoader {
             ),
         }
     }
+}
+
+/// Highest priority first. Missing paths are already warned about and are not
+/// opened. A later entry that resolves to the same filesystem path is skipped.
+fn open_existing(resolved: &ResolvedArchiveConfig, warnings: &mut Vec<String>) -> Vec<(ArchiveRole, PathBuf, Box<dyn Archive>)> {
+    let mut planned = Vec::new();
+    for entry in &resolved.overlays {
+        push_existing(&mut planned, ArchiveRole::Overlay, entry);
+    }
+    for entry in resolved.archives.iter().rev() {
+        push_existing(&mut planned, ArchiveRole::Configured, entry);
+    }
+    if let Some(korangar) = korangar_archive_dir(&resolved.base)
+        && !planned.iter().any(|(_, path)| same_archive_path(path, &korangar))
+    {
+        planned.push((ArchiveRole::Korangar, korangar));
+    }
+
+    let mut opened = Vec::new();
+    for (role, path) in planned {
+        match GameFileLoader::load_archive_from_path(&path) {
+            Ok(archive) => opened.push((role, path, archive)),
+            Err(warning) => {
+                eprintln!("{warning}");
+                warnings.push(warning);
+            }
+        }
+    }
+    opened
+}
+
+fn push_existing(planned: &mut Vec<(ArchiveRole, PathBuf)>, role: ArchiveRole, entry: &ResolvedEntry) {
+    if !entry.path.exists() || planned.iter().any(|(_, path)| same_archive_path(path, &entry.path)) {
+        return;
+    }
+    planned.push((role, entry.path.clone()));
 }
 
 pub fn fix_broken_texture_file_endings(path: &str) -> String {
@@ -489,5 +690,245 @@ mod prefetch_tests {
         assert_eq!(selected, InterfaceTextureAttempt::Ready(candidates[1].clone()));
         assert_eq!(hangul_reads, 0);
         let _ = fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+mod archive_config_tests {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+
+    use korangar_loaders::remote::{PersistentAssets, RemoteConfig};
+
+    use super::*;
+    use crate::world::{display_name_from_table, load_map_display_names};
+
+    fn temp_install(label: &str) -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let id = NEXT.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("korangar-mount-{label}-{}-{id}", std::process::id()));
+        fs::create_dir_all(path.join("client")).unwrap();
+        path
+    }
+
+    fn write_virtual(root: &Path, virtual_path: &str, bytes: &[u8]) {
+        let relative = virtual_path.replace('\\', "/");
+        let path = root.join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn overlay_beats_configured_archive_and_korangar_directory() {
+        let install = temp_install("order");
+        write_virtual(&install.join("overlay"), r"data\e2e\shared.txt", b"from-overlay");
+        write_virtual(
+            &install.join("overlay"),
+            r"data\luafiles514\lua files\Enchant\EnchantList.lub",
+            b"lub-from-overlay",
+        );
+        write_virtual(
+            &install.join("overlay"),
+            r"data\mapnametable.txt",
+            b"prontera.rsw#Overlay Prontera#\n",
+        );
+        write_virtual(&install.join("packs"), r"data\e2e\shared.txt", b"from-configured");
+        write_virtual(&install.join("packs"), r"data\e2e\only-configured.txt", b"from-configured");
+        write_virtual(&install.join("archive"), r"data\e2e\shared.txt", b"from-korangar");
+        write_virtual(&install.join("archive"), r"data\e2e\only-configured.txt", b"from-korangar");
+        write_virtual(&install.join("archive"), r"data\e2e\only-korangar.txt", b"from-korangar");
+        fs::write(
+            install.join("client/game_archives.ron"),
+            r#"(
+                overlays: ["overlay/", "lower-overlay/"],
+                archives: ["packs/", (path: "missing-required.grf", optional: false), (path: "missing-optional.grf", optional: true)],
+            )"#,
+        )
+        .unwrap();
+        write_virtual(&install.join("lower-overlay"), r"data\e2e\shared.txt", b"from-lower-overlay");
+
+        let loader = GameFileLoader::default();
+        loader.load_from_install(&install).unwrap();
+
+        assert_eq!(loader.get(r"data\e2e\shared.txt").unwrap(), b"from-overlay");
+        assert!(matches!(
+            loader.origin_of(r"data\e2e\shared.txt"),
+            Some(GameFileOrigin::Overlay { .. })
+        ));
+        assert_eq!(
+            loader.get(r"data\luafiles514\lua files\Enchant\EnchantList.lub").unwrap(),
+            b"lub-from-overlay"
+        );
+        assert_eq!(loader.get(r"data\e2e\only-configured.txt").unwrap(), b"from-configured");
+        assert!(matches!(
+            loader.origin_of(r"data\e2e\only-configured.txt"),
+            Some(GameFileOrigin::ConfiguredArchive { .. })
+        ));
+        assert_eq!(loader.get(r"data\e2e\only-korangar.txt").unwrap(), b"from-korangar");
+        assert!(matches!(
+            loader.origin_of(r"data\e2e\only-korangar.txt"),
+            Some(GameFileOrigin::KorangarArchive { .. })
+        ));
+
+        let names = load_map_display_names(&loader);
+        assert_eq!(display_name_from_table(&names, "prontera.rsw"), "Overlay Prontera");
+
+        let warnings = loader.startup_warnings();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("missing-required.grf"));
+        assert!(warnings[0].contains(&install.display().to_string()));
+        assert!(!warnings.iter().any(|warning| warning.contains("missing-optional")));
+
+        let order = loader.search_order();
+        assert_eq!(order[0], format!("overlay: {}", install.join("overlay").display()));
+        assert_eq!(order[1], format!("overlay: {}", install.join("lower-overlay").display()));
+        assert!(order.iter().any(|entry| entry.starts_with("archive:") && entry.contains("packs")));
+        assert!(order.iter().any(|entry| entry.starts_with("korangar:")));
+        let overlay_at = order.iter().position(|entry| entry.starts_with("overlay:")).unwrap();
+        let archive_at = order.iter().position(|entry| entry.starts_with("archive:")).unwrap();
+        let korangar_at = order.iter().position(|entry| entry.starts_with("korangar:")).unwrap();
+        assert!(overlay_at < archive_at && archive_at < korangar_at, "{order:?}");
+        assert!(loader.anchor_line().contains("install directory"));
+        assert!(loader.anchor_line().contains(&install.display().to_string()));
+        assert_ne!(install, std::env::current_dir().unwrap());
+
+        let _ = fs::remove_dir_all(install);
+    }
+
+    #[test]
+    fn nothing_mounted_still_reports_the_missing_archive() {
+        let install = temp_install("empty");
+        fs::write(
+            install.join("client/game_archives.ron"),
+            r#"(archives: ["missing-required.grf"], overlays: [])"#,
+        )
+        .unwrap();
+        let loader = GameFileLoader::default();
+        let error = loader.load_from_install(&install).unwrap_err();
+        assert!(error.contains("No game assets"));
+        assert!(
+            loader
+                .startup_warnings()
+                .iter()
+                .any(|warning| warning.contains("missing-required.grf"))
+        );
+        let _ = fs::remove_dir_all(install);
+    }
+
+    #[test]
+    fn overlay_identity_changes_the_archive_hash() {
+        let first = temp_install("hash-a");
+        let second = temp_install("hash-b");
+        for install in [&first, &second] {
+            write_virtual(&install.join("overlay"), r"data\e2e\shared.txt", b"same-bytes");
+            fs::write(
+                install.join("client/game_archives.ron"),
+                r#"(overlays: ["overlay/"], archives: [])"#,
+            )
+            .unwrap();
+        }
+        let loader_a = GameFileLoader::default();
+        loader_a.load_from_install(&first).unwrap();
+        let hash_a = loader_a.calculate_hash();
+        fs::write(first.join("overlay/data/e2e/shared.txt"), b"changed-bytes").unwrap();
+        assert_ne!(loader_a.calculate_hash(), hash_a);
+
+        let loader_b = GameFileLoader::default();
+        loader_b.load_from_install(&second).unwrap();
+        let restored = GameFileLoader::default();
+        fs::write(first.join("overlay/data/e2e/shared.txt"), b"same-bytes").unwrap();
+        restored.load_from_install(&first).unwrap();
+        assert_eq!(restored.calculate_hash(), hash_a);
+        assert_ne!(
+            loader_b.calculate_hash(),
+            hash_a,
+            "a different overlay path must not reuse the cache key"
+        );
+        let _ = fs::remove_dir_all(first);
+        let _ = fs::remove_dir_all(second);
+    }
+
+    #[test]
+    fn replaced_grf_changes_the_archive_hash() {
+        let install = temp_install("grf-hash");
+        let grf = install.join("patch.grf");
+        write_grf(&grf, b"first-bytes");
+        fs::write(install.join("client/game_archives.ron"), r#"(archives: ["patch.grf"])"#).unwrap();
+
+        let first = GameFileLoader::default();
+        first.load_from_install(&install).unwrap();
+        let hash_first = first.calculate_hash();
+        drop(first);
+
+        write_grf(&grf, b"second-bytes-differ");
+        let second = GameFileLoader::default();
+        second.load_from_install(&install).unwrap();
+        assert_ne!(
+            second.calculate_hash(),
+            hash_first,
+            "a replaced GRF at the same path must not reuse the cache key"
+        );
+        assert_eq!(second.get(r"data\e2e\body.txt").unwrap(), b"second-bytes-differ");
+        let _ = fs::remove_dir_all(install);
+    }
+
+    fn write_grf(path: &Path, body: &[u8]) {
+        use crate::loaders::archive::native::builder::NativeArchiveBuilder;
+        use crate::loaders::archive::{Compression, Writable};
+
+        let mut builder = NativeArchiveBuilder::from_path(path);
+        builder.add_file(r"data\e2e\body.txt", body.to_vec(), Compression::Default);
+        builder.finish().unwrap();
+    }
+
+    #[test]
+    fn remote_cache_is_below_local_overlays() {
+        let install = temp_install("remote");
+        write_virtual(&install.join("overlay"), r"data\e2e\shared.txt", b"from-overlay");
+        fs::write(
+            install.join("client/game_archives.ron"),
+            r#"(overlays: ["overlay/"], archives: [])"#,
+        )
+        .unwrap();
+
+        let body = b"remote-bytes";
+        let sha = "0fcb052055ffc840bf26ce7ad980f959da83ca69c8439369053cee468ae93463";
+        let absent_sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let cache = install.join("cache");
+        fs::create_dir_all(cache.join("objects")).unwrap();
+        fs::write(cache.join("objects").join(sha), body).unwrap();
+        fs::write(
+            cache.join("loose-index.json"),
+            format!(
+                r#"{{"files":[{{"path":"data/e2e/shared.txt","size":12,"sha256":"{sha}"}},{{"path":"data/e2e/cached.txt","size":12,"sha256":"{sha}"}},{{"path":"data/e2e/fetch.txt","size":12,"sha256":"{absent_sha}"}}]}}"#
+            ),
+        )
+        .unwrap();
+        let assets = PersistentAssets::open(RemoteConfig {
+            base_url: "https://example.invalid/client/".into(),
+            cache_dir: cache,
+            allow_http: false,
+            offline: true,
+        })
+        .unwrap();
+
+        let loader = GameFileLoader::default();
+        *loader.remote.write().unwrap() = Some(Arc::new(assets));
+        loader.load_from_install(&install).unwrap();
+
+        assert_eq!(loader.get(r"data\e2e\shared.txt").unwrap(), b"from-overlay");
+        assert!(matches!(
+            loader.origin_of(r"data\e2e\shared.txt"),
+            Some(GameFileOrigin::Overlay { .. })
+        ));
+        assert_eq!(loader.get(r"data\e2e\cached.txt").unwrap(), body);
+        assert_eq!(loader.origin_of(r"data\e2e\cached.txt"), Some(GameFileOrigin::RemoteCache));
+        assert_eq!(loader.origin_of(r"data\e2e\fetch.txt"), Some(GameFileOrigin::RemoteFetch));
+        let order = loader.search_order();
+        assert_eq!(order[order.len() - 2], "remote verified cache");
+        assert_eq!(order.last().map(String::as_str), Some("remote fetch"));
+        let _ = fs::remove_dir_all(install);
     }
 }
