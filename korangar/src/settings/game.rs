@@ -21,6 +21,10 @@ fn default_show_equipment() -> bool {
     true
 }
 
+fn default_show_weather() -> bool {
+    true
+}
+
 #[derive(Clone, Serialize, Deserialize, RustState, StateElement)]
 pub struct GameSettings {
     pub auto_attack: bool,
@@ -42,6 +46,9 @@ pub struct GameSettings {
     /// The server echo (`0x02DA` / `0x02D9`) overwrites the saved value.
     #[serde(default = "default_show_equipment")]
     pub show_equipment: bool,
+    /// Draw map weather. Missing settings stay on.
+    #[serde(default = "default_show_weather")]
+    pub show_weather: bool,
 }
 
 impl Default for GameSettings {
@@ -52,6 +59,7 @@ impl Default for GameSettings {
             dialog_chars_per_second: default_dialog_chars_per_second(),
             dialog_portrait_dim: default_dialog_portrait_dim(),
             show_equipment: default_show_equipment(),
+            show_weather: default_show_weather(),
         }
     }
 }

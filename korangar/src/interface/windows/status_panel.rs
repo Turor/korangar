@@ -18,6 +18,7 @@ use crate::interface::windows::WindowClass;
 use crate::interface::windows::basic_info_view::{WeightColor, WeightLabel, ZenyLabel};
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::renderer::LayoutExt;
+use crate::state::map_properties::MapPropertiesPathExt;
 use crate::state::status_effects::{CountdownSweep, StatusEffects, countdown_sweep, format_remaining, remaining_ms};
 use crate::state::status_names::status_effect_name;
 use crate::state::theme::{BasicInfoThemePathExt, InterfaceThemePathExt, InterfaceThemeType, ThemeTokens, ThemeTokensPathExt};
@@ -402,6 +403,58 @@ fn paint_resource_bar<'a>(
     });
 }
 
+/// Chip on the right of the name row. `None` when there is no zone or the
+/// row is too narrow to keep both the name and the chip.
+fn map_badge_chip(name: &Area, badge: &str) -> Option<Area> {
+    if badge.is_empty() {
+        return None;
+    }
+    let text_width = badge.chars().count() as f32 * 6.2 + 12.0;
+    let width = text_width.min(name.width * 0.55);
+    if width < 28.0 || name.width - width < 24.0 {
+        return None;
+    }
+    Some(Area {
+        left: name.left + name.width - width,
+        top: name.top + 1.0,
+        width,
+        height: (name.height - 2.0).max(1.0),
+    })
+}
+
+fn paint_map_badge<'a>(layout: &mut WindowLayout<'a, ClientState>, chip: Area, badge: &'a str, tokens: &ThemeTokens) {
+    layout.add_rectangle(
+        chip,
+        CornerDiameter::uniform(3.0),
+        tokens.border,
+        Color::TRANSPARENT,
+        ShadowPadding::uniform(0.0),
+    );
+    let inset = Area {
+        left: chip.left + 1.0,
+        top: chip.top + 1.0,
+        width: (chip.width - 2.0).max(0.0),
+        height: (chip.height - 2.0).max(0.0),
+    };
+    layout.add_rectangle(
+        inset,
+        CornerDiameter::uniform(2.0),
+        tokens.raised,
+        Color::TRANSPARENT,
+        ShadowPadding::uniform(0.0),
+    );
+    layout.add_text(
+        chip,
+        badge,
+        FontSize((tokens.font_size - 2.0).max(10.0)),
+        tokens.danger,
+        tokens.danger,
+        HorizontalAlignment::Center { offset: 0.0, border: 0.0 },
+        VerticalAlignment::Center { offset: 0.0 },
+        OverflowBehavior::Shrink,
+    );
+}
+
 struct StatusHeader<N, H, HM, S, SM> {
     name: N,
     hp_label: PairLabel<H, HM>,
@@ -450,8 +503,15 @@ where
         paint_portrait(state, layout, panel_area(frames.portrait));
 
         let name_font = FontSize(tokens.font_size);
+        let badge = state.follow(client_state().map_properties().badge()).as_str();
+        let mut name_area = panel_area(frames.name);
+        let chip = map_badge_chip(&name_area, badge);
+        if let Some(chip) = chip {
+            name_area.width = (chip.left - name_area.left - 4.0).max(0.0);
+            paint_map_badge(layout, chip, badge, tokens);
+        }
         layout.add_text(
-            panel_area(frames.name),
+            name_area,
             state.get(&self.name).as_str(),
             name_font,
             tokens.text,

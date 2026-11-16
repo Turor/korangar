@@ -397,6 +397,8 @@ pub struct Client {
     saved_packet_version: SupportedPacketVersion,
 
     particle_holder: ParticleHolder,
+    weather: crate::world::weather::WeatherSet,
+    weather_field: crate::world::weather::WeatherField,
     point_light_manager: PointLightManager,
     effect_holder: EffectHolder,
     cast_bars: effects::CastBars,
@@ -829,6 +831,8 @@ impl Client {
             let autopilot = autopilot::Autopilot::from_env();
 
             let particle_holder = ParticleHolder::default();
+            let weather = crate::world::weather::WeatherSet::default();
+            let weather_field = crate::world::weather::WeatherField::default();
             let point_light_manager = PointLightManager::new();
             let effect_holder = EffectHolder::default();
             let cast_bars = effects::CastBars::default();
@@ -969,6 +973,8 @@ impl Client {
             saved_username,
             saved_packet_version,
             particle_holder,
+            weather,
+            weather_field,
             point_light_manager,
             effect_holder,
             cast_bars,
@@ -2056,6 +2062,9 @@ impl Client {
                 }
                 NetworkEvent::ChangeMap { map_name, position } => {
                     self.map = None;
+                    self.weather.clear();
+                    self.weather_field.clear();
+                    self.client_state.follow_mut(client_state().map_properties()).note_map(&map_name);
                     self.clear_chat_rooms();
                     self.particle_holder.clear();
                     self.effect_holder.clear();
@@ -2415,25 +2424,29 @@ impl Client {
                 }
                 NetworkEvent::SpecialEffect { entity_id, effect_id } => {
                     let effect_value = effects::effect_id_value(effect_id);
-                    // Unmapped effects are skipped. `chat_line_for_special_effect` is the
-                    // single place that could ask for a chat line, and it never does.
-                    if let Some(line) = effects::chat_line_for_special_effect(effect_value) {
-                        self.client_state
-                            .follow_mut(client_state().chat_messages())
-                            .push(ChatMessage::new(line.to_string(), MessageColor::Information));
-                    }
-                    let paths = effects::collect_str_paths(&[effects::EffectRef::Id(effect_value)]);
-                    self.spawn_str_effects(&paths, entity_id, None, false);
-                    if matches!(effect_id, EffectId::Heal | EffectId::Heal2 | EffectId::Heal3 | EffectId::Heal4)
-                        && let Some(entity) = self
-                            .client_state
-                            .follow(client_state().entities())
-                            .iter()
-                            .find(|entity| entity.get_entity_id() == entity_id)
-                            .or_else(|| self.client_state.try_follow(this_entity()))
-                    {
-                        self.particle_holder
-                            .spawn_particle(Box::new(HealNumber::new(entity.get_position(), "+".to_owned())));
+                    let show_weather = *self.client_state.follow(client_state().game_settings().show_weather());
+                    self.weather.set_show(show_weather);
+                    if !self.weather.note_effect(effect_value) {
+                        // Unmapped effects are skipped. `chat_line_for_special_effect` is the
+                        // single place that could ask for a chat line, and it never does.
+                        if let Some(line) = effects::chat_line_for_special_effect(effect_value) {
+                            self.client_state
+                                .follow_mut(client_state().chat_messages())
+                                .push(ChatMessage::new(line.to_string(), MessageColor::Information));
+                        }
+                        let paths = effects::collect_str_paths(&[effects::EffectRef::Id(effect_value)]);
+                        self.spawn_str_effects(&paths, entity_id, None, false);
+                        if matches!(effect_id, EffectId::Heal | EffectId::Heal2 | EffectId::Heal3 | EffectId::Heal4)
+                            && let Some(entity) = self
+                                .client_state
+                                .follow(client_state().entities())
+                                .iter()
+                                .find(|entity| entity.get_entity_id() == entity_id)
+                                .or_else(|| self.client_state.try_follow(this_entity()))
+                        {
+                            self.particle_holder
+                                .spawn_particle(Box::new(HealNumber::new(entity.get_position(), "+".to_owned())));
+                        }
                     }
                 }
                 NetworkEvent::SkillEffectAndDamage {
@@ -4655,6 +4668,26 @@ impl Client {
                             blue,
                             now: client_tick.0,
                         });
+                }
+                NetworkEvent::MapProperty { property_type, flags } => {
+                    self.client_state
+                        .follow_mut(client_state().map_properties())
+                        .apply_property(property_type, flags);
+                }
+                NetworkEvent::MapType { map_type } => {
+                    self.client_state
+                        .follow_mut(client_state().map_properties())
+                        .apply_map_type(map_type);
+                }
+                NetworkEvent::ChangeMapCell {
+                    position,
+                    cell_type,
+                    map_name,
+                } => {
+                    let accept = self.client_state.follow(client_state().map_properties()).accepts_map(&map_name);
+                    if accept && let Some(map) = self.map.as_ref() {
+                        map.set_gat_cell(position, cell_type);
+                    }
                 }
             }
         }
@@ -7390,6 +7423,7 @@ impl Client {
                             // Load of main menu map. Skip this when a map session is already
                             // up: that load is stale and was painting Create Character in-world.
                             let map = self.map.insert(map);
+                            map.clear_cell_overrides();
 
                             map.set_ambient_sound_sources(&self.audio_engine);
                             self.audio_engine.play_background_music_track(DEFAULT_BACKGROUND_MUSIC);
@@ -7412,6 +7446,7 @@ impl Client {
                             self.interface.close_window_with_class(WindowClass::CharacterCreation);
                             self.interface.close_window_with_class(WindowClass::CharacterSelection);
                             let map = self.map.insert(map);
+                            map.clear_cell_overrides();
 
                             map.set_ambient_sound_sources(&self.audio_engine);
                             let npc_track = {
@@ -8160,6 +8195,14 @@ impl Client {
 
         // Update particles.
         self.particle_holder.update(delta_time as f32);
+        let show_weather = *self.client_state.follow(client_state().game_settings().show_weather());
+        self.weather.set_show(show_weather);
+        let weather_center = self
+            .client_state
+            .try_follow(this_entity())
+            .map(|player| player.get_position())
+            .unwrap_or(Point3::new(0.0, 0.0, 0.0));
+        self.weather_field.sync(self.weather.visible(), weather_center, delta_time as f32);
         self.effect_holder
             .update(self.client_state.follow(client_state().entities()), delta_time as f32);
 
@@ -8597,6 +8640,7 @@ impl Client {
                 indicator_instruction: &mut indicator_instruction,
                 water_instruction: &mut water_instruction,
                 particle_holder: &mut self.particle_holder,
+                weather_field: &self.weather_field,
                 effect_holder: &mut self.effect_holder,
                 cast_bars: &self.cast_bars,
                 effect_renderer: &mut self.effect_renderer,
@@ -9030,6 +9074,7 @@ struct MapRenderContext<'a, 'm: 'a> {
     indicator_instruction: &'a mut Option<IndicatorInstruction>,
     water_instruction: &'a mut Option<WaterInstruction<'m>>,
     particle_holder: &'a mut ParticleHolder,
+    weather_field: &'a crate::world::weather::WeatherField,
     effect_holder: &'a mut EffectHolder,
     cast_bars: &'a effects::CastBars,
     effect_renderer: &'a mut EffectRenderer,
@@ -9290,6 +9335,8 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
             self.scaling,
             self.client_state.follow(client_state().entities()),
         );
+        self.weather_field
+            .render(self.bottom_interface_renderer, self.current_camera, self.screen_size);
 
         self.effect_holder.render(self.effect_renderer, self.current_camera);
         self.render_cast_bars();
