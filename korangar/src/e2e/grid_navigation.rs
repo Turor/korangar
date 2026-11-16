@@ -7,7 +7,7 @@ use ragnarok_packets::{EquipPosition, InventoryIndex};
 use crate::e2e::inventory_view::regular;
 use crate::interface::components::item_grid::{GRID_COLUMNS, tab_cells};
 pub use crate::state::grid_nav::GridKey;
-use crate::state::grid_nav::{row_fraction, step_cursor};
+use crate::state::grid_nav::{GridFrame, enter_free_for_chat, grid_frame, row_fraction, step_cursor};
 use crate::state::inventory::Inventory;
 use crate::state::inventory_view::{InventorySort, InventoryTab, item_type};
 
@@ -26,6 +26,76 @@ pub struct OfflineGridNavReport {
     pub focused: Vec<bool>,
     /// Row scroll fraction for the cursor at 0 and at 35 on a 100-slot grid.
     pub reveal: Vec<Option<(f32, f32)>>,
+    /// One Enter frame with chat open, as (stack used, chat focused), in
+    /// order: right after End; after a mouse click; after Escape; after
+    /// closing and reopening the inventory; while an NPC dialog waits;
+    /// while a text box has focus.
+    pub enter_frames: Vec<(Option<u16>, bool)>,
+    /// Cursor after the inventory closed and reopened.
+    pub cursor_after_reopen: Option<usize>,
+}
+
+fn open_frame() -> GridFrame {
+    GridFrame {
+        inventory_open: true,
+        ..GridFrame::default()
+    }
+}
+
+/// What one frame does with Enter and chat open: the stack the grid uses
+/// and whether chat takes focus (`lib.rs` rule).
+fn enter_frame(inventory: &mut Inventory, frame: GridFrame) -> (Option<u16>, bool) {
+    let used = grid_frame(inventory.view_mut(), &GridFrame { enter: true, ..frame });
+    let chat_open = true;
+    (
+        used.map(|index| index.0),
+        enter_free_for_chat(used.is_some(), false) && chat_open,
+    )
+}
+
+fn armed(inventory: &mut Inventory) {
+    grid_frame(inventory.view_mut(), &GridFrame {
+        keys: vec![GridKey::End],
+        ..open_frame()
+    });
+}
+
+fn grid_enter_frames(inventory: &mut Inventory) -> (Vec<(Option<u16>, bool)>, Option<usize>) {
+    let mut frames = Vec::new();
+    armed(inventory);
+    frames.push(enter_frame(inventory, open_frame()));
+
+    armed(inventory);
+    grid_frame(inventory.view_mut(), &GridFrame {
+        mouse_clicked: true,
+        ..open_frame()
+    });
+    frames.push(enter_frame(inventory, open_frame()));
+
+    armed(inventory);
+    grid_frame(inventory.view_mut(), &GridFrame {
+        escape: true,
+        ..open_frame()
+    });
+    frames.push(enter_frame(inventory, open_frame()));
+
+    armed(inventory);
+    grid_frame(inventory.view_mut(), &GridFrame::default());
+    let cursor_after_reopen = inventory.view().cursor();
+    frames.push(enter_frame(inventory, open_frame()));
+
+    armed(inventory);
+    frames.push(enter_frame(inventory, GridFrame {
+        dialog_waiting: true,
+        ..open_frame()
+    }));
+
+    armed(inventory);
+    frames.push(enter_frame(inventory, GridFrame {
+        keys_taken: true,
+        ..open_frame()
+    }));
+    (frames, cursor_after_reopen)
 }
 
 pub const KEY_RUN: [GridKey; 10] = [
@@ -87,6 +157,8 @@ pub fn offline_grid_navigation() -> Result<OfflineGridNavReport, String> {
     inventory.refresh_view(0, Vec::new());
     let after_tab = inventory.view().cursor();
 
+    let (enter_frames, cursor_after_reopen) = grid_enter_frames(&mut inventory);
+
     let rows = tab_cells(InventoryTab::All, 40, 40, Some(100)) / GRID_COLUMNS;
     let reveal = vec![row_fraction(0, rows), row_fraction(35, rows)];
 
@@ -97,5 +169,7 @@ pub fn offline_grid_navigation() -> Result<OfflineGridNavReport, String> {
         after_tab,
         focused,
         reveal,
+        enter_frames,
+        cursor_after_reopen,
     })
 }

@@ -245,6 +245,8 @@ pub struct InventoryView {
     key: Option<u64>,
     /// Keyboard cursor: a drawn position (`state::grid_nav`).
     cursor: Option<usize>,
+    /// A grid key was the last input, so Enter belongs to the grid.
+    cursor_armed: bool,
 }
 
 impl InventoryView {
@@ -282,10 +284,21 @@ impl InventoryView {
 
     pub fn move_cursor(&mut self, key: crate::state::grid_nav::GridKey) {
         self.cursor = crate::state::grid_nav::step_cursor(self.cursor, self.items.len(), key);
+        self.cursor_armed = self.cursor.is_some();
     }
 
     pub fn clear_cursor(&mut self) {
         self.cursor = None;
+        self.cursor_armed = false;
+    }
+
+    pub fn cursor_armed(&self) -> bool {
+        self.cursor_armed && self.cursor.is_some()
+    }
+
+    /// Keeps the highlighted cell but gives Enter back to chat.
+    pub fn disarm_cursor(&mut self) {
+        self.cursor_armed = false;
     }
 
     /// The stack under the keyboard cursor.

@@ -32,6 +32,23 @@ fn grid_navigation_offline() {
     assert_eq!(report.after_use, Some(1));
     assert_eq!(report.after_tab, None);
     assert_eq!(report.reveal, [Some((0.0, 0.1)), Some((0.3, 0.4))]);
+
+    // Etc tab holds only Jellopy 6. Enter with chat open does exactly one
+    // thing: the grid uses the stack only right after a grid key; after a
+    // click, Escape, close + reopen, a waiting dialog or a focused text box
+    // it goes to chat and nothing is used.
+    assert_eq!(report.enter_frames, [
+        (Some(6), false),
+        (None, true),
+        (None, true),
+        (None, true),
+        (None, true),
+        (None, true),
+    ]);
+    for (used, chat) in &report.enter_frames {
+        assert!(used.is_some() != *chat, "Enter must use a stack or focus chat, never both");
+    }
+    assert_eq!(report.cursor_after_reopen, None);
 }
 
 #[test]

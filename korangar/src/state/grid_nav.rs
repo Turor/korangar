@@ -7,7 +7,10 @@
 //! always uses that cell's server index. Korangar has no gamepad input
 //! layer yet, so a controller drives this through the same key events.
 
+use ragnarok_packets::InventoryIndex;
+
 use crate::interface::components::item_grid::GRID_COLUMNS;
+use crate::state::inventory_view::InventoryView;
 
 /// One navigation key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,6 +45,55 @@ pub fn step_cursor(cursor: Option<usize>, len: usize, key: GridKey) -> Option<us
         GridKey::Home => 0,
         GridKey::End => last,
     })
+}
+
+/// One frame of input as the grid sees it.
+#[derive(Clone, Debug, Default)]
+pub struct GridFrame {
+    pub inventory_open: bool,
+    /// A text box has focus, or the NPC dialog took the key this frame.
+    pub keys_taken: bool,
+    /// The NPC dialog waits for Next / Close / a choice / an input.
+    pub dialog_waiting: bool,
+    pub mouse_clicked: bool,
+    pub escape: bool,
+    pub keys: Vec<GridKey>,
+    pub enter: bool,
+}
+
+/// Whether grid keys apply this frame at all.
+pub fn grid_keys_allowed(inventory_open: bool, keys_taken: bool, dialog_waiting: bool) -> bool {
+    inventory_open && !keys_taken && !dialog_waiting
+}
+
+/// Applies one frame to the view and returns the stack Enter uses, if any.
+///
+/// Enter belongs to the grid only while it is armed: a grid key was the
+/// last input. A mouse click, Escape, focus elsewhere or a waiting dialog
+/// disarms it, so a later Enter goes to chat. Closing the inventory also
+/// drops the cursor.
+pub fn grid_frame(view: &mut InventoryView, frame: &GridFrame) -> Option<InventoryIndex> {
+    if !frame.inventory_open {
+        view.clear_cursor();
+        return None;
+    }
+    if frame.mouse_clicked || frame.escape || !grid_keys_allowed(frame.inventory_open, frame.keys_taken, frame.dialog_waiting) {
+        view.disarm_cursor();
+        return None;
+    }
+    for key in &frame.keys {
+        view.move_cursor(*key);
+    }
+    if frame.enter && frame.keys.is_empty() && view.cursor_armed() {
+        return view.cursor_item().map(|item| item.index);
+    }
+    None
+}
+
+/// Enter may still focus chat this frame: neither the NPC dialog nor the
+/// grid took it. `lib.rs` checks this first in the Enter-focuses-chat rule.
+pub fn enter_free_for_chat(grid_took_enter: bool, dialog_ate_confirm: bool) -> bool {
+    !grid_took_enter && !dialog_ate_confirm
 }
 
 /// Scroll range of the cursor's row as fractions of the grid height, for
@@ -81,6 +133,17 @@ mod tests {
     #[test]
     fn a_stale_cursor_is_clamped() {
         assert_eq!(step_cursor(Some(40), 12, GridKey::Left), Some(10));
+    }
+
+    #[test]
+    fn keys_are_ignored_when_closed_focused_or_in_a_dialog() {
+        assert!(grid_keys_allowed(true, false, false));
+        assert!(!grid_keys_allowed(false, false, false));
+        assert!(!grid_keys_allowed(true, true, false));
+        assert!(!grid_keys_allowed(true, false, true));
+        assert!(enter_free_for_chat(false, false));
+        assert!(!enter_free_for_chat(true, false));
+        assert!(!enter_free_for_chat(false, true));
     }
 
     #[test]
