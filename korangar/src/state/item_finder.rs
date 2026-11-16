@@ -11,6 +11,8 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
+use crate::state::item_compare::ItemTooltipCatalog;
+
 /// Catalog path the generator writes. A5 publishes the item table this file is
 /// built from.
 pub const CATALOG_PATH: &str = "System/itemfinder.turoran.v8.json";
@@ -75,6 +77,10 @@ impl FinderCatalog {
 
     pub fn get(&self, id: u32) -> Option<&FinderItem> {
         self.items.iter().find(|item| item.id == id)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &FinderItem> {
+        self.items.iter()
     }
 }
 
@@ -176,6 +182,10 @@ pub struct ItemFinderState {
     sources: Option<ItemSources>,
     #[hidden_element]
     sources_ready: bool,
+    /// Name, slots, weight, level, and jobs for item tooltips. Rebuilt when
+    /// the catalog loads so a hover does not scan the finder list.
+    #[hidden_element]
+    tooltip_catalog: ItemTooltipCatalog,
 }
 
 impl Default for ItemFinderState {
@@ -188,6 +198,7 @@ impl Default for ItemFinderState {
             catalog: FinderCatalog::default(),
             sources: None,
             sources_ready: false,
+            tooltip_catalog: ItemTooltipCatalog::default(),
         }
     }
 }
@@ -233,6 +244,32 @@ impl ItemFinderState {
         if !self.catalog.is_empty() {
             self.search();
         }
+        self.rebuild_tooltip_catalog();
+    }
+
+    pub fn tooltip_catalog(&self) -> &ItemTooltipCatalog {
+        &self.tooltip_catalog
+    }
+
+    pub fn set_option_names(&mut self, names: HashMap<u16, String>) {
+        self.tooltip_catalog.set_options(names);
+    }
+
+    fn rebuild_tooltip_catalog(&mut self) {
+        let options = self.tooltip_catalog.take_options();
+        let mut catalog = ItemTooltipCatalog::default();
+        for item in self.catalog.iter() {
+            catalog.insert_item(
+                item.id,
+                item.name.clone(),
+                item.slots,
+                item.weight,
+                item.equip_level,
+                item.jobs.clone(),
+            );
+        }
+        catalog.set_options(options);
+        self.tooltip_catalog = catalog;
     }
 
     pub fn set_category(&mut self, category: &str) {
@@ -390,7 +427,7 @@ fn parse_item(value: &Value) -> Option<FinderItem> {
         flat_mdef,
         weapon_level: json_i32(value.get("wl")),
         slots: json_i32(value.get("s")),
-        weight: json_i32(value.get("w")),
+        weight: json_rounded_i32(value.get("w")),
         equip_level: json_i32(value.get("lv")),
         jobs: value.get("j").and_then(Value::as_str).unwrap_or("").to_owned(),
         mvp_item_id: value.get("mvp").and_then(Value::as_u64).map(|id| id as u32),
@@ -706,6 +743,20 @@ fn json_i32(value: Option<&Value>) -> i32 {
     value.and_then(Value::as_i64).unwrap_or(0) as i32
 }
 
+/// Item Finder stores weight as `Weight/10`, which is a JSON float (`100.0`).
+/// `as_i64` misses those, so the old parser stored 0.
+fn json_rounded_i32(value: Option<&Value>) -> i32 {
+    let Some(value) = value else { return 0 };
+    if let Some(integer) = value.as_i64() {
+        return integer as i32;
+    }
+    value
+        .as_f64()
+        .filter(|number| number.is_finite())
+        .map(|number| number.round() as i32)
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -733,6 +784,31 @@ mod tests {
         "quests": {"1201": ["npc/quests/knife.txt"]},
         "penalty": {"11": [[0, 100], [10, 50]], "12": [[-10, 80], [0, 100]]}
     }"#;
+
+    #[test]
+    fn weight_keeps_generator_floats_and_tooltip_facts_omit_price() {
+        let catalog = parse_catalog(br#"{"items":[{"id":1,"n":"Rock","w":100.0,"s":2,"lv":3,"j":"Novice"}]}"#).unwrap();
+        assert_eq!(catalog.get(1).unwrap().weight, 100);
+        let mut state = ItemFinderState::default();
+        state.load_bytes(
+            Some(br#"{"items":[{"id":1,"n":"Rock","w":100.0,"s":2,"lv":3,"j":"Novice"}]}"#),
+            None,
+        );
+        let facts = state.tooltip_catalog().get(1).unwrap();
+        assert_eq!(facts.weight, 100);
+        assert_eq!(facts.slots, 2);
+        assert_eq!(facts.equip_level, 3);
+        assert_eq!(facts.jobs, "Novice");
+        assert!(facts.sell_price.is_none());
+        assert_eq!(
+            parse_catalog(br#"{"items":[{"id":2,"n":"Knife","w":40}]}"#)
+                .unwrap()
+                .get(2)
+                .unwrap()
+                .weight,
+            40
+        );
+    }
 
     #[test]
     fn missing_bytes_keep_the_a5_stub() {

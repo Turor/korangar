@@ -20,6 +20,7 @@ pub mod guild_emblem;
 pub mod hotbar;
 pub mod inventory;
 pub mod inventory_view;
+pub mod item_compare;
 pub mod item_drop;
 pub mod item_finder;
 pub mod item_move;
@@ -83,6 +84,7 @@ use self::clan::ClanState;
 use self::context_menu::ContextMenuState;
 use self::friends::FriendListEntry;
 use self::guild::GuildState;
+use self::item_compare::ItemCompareState;
 use self::item_finder::ItemFinderState;
 use self::party::PartyState;
 use self::player_shops::{ShopReportState, ShopSearchState, ShopSetupState};
@@ -333,6 +335,8 @@ pub struct ClientState {
     party: PartyState,
     /// Local Item Finder catalog, query, and result rows.
     item_finder: ItemFinderState,
+    /// Shift held, so inventory tooltips can compare with worn gear.
+    item_compare: ItemCompareState,
     /// List of items offered in the shop.
     // TODO: Unhide this
     #[hidden_element]
@@ -601,6 +605,7 @@ impl ClientState {
             let clan = ClanState::default();
             let party = PartyState::default();
             let item_finder = ItemFinderState::default();
+            let item_compare = ItemCompareState::default();
         });
 
         time_phase!("create player resources", {
@@ -744,6 +749,7 @@ impl ClientState {
             clan,
             party,
             item_finder,
+            item_compare,
             shop_items,
             buy_cart,
             sell_items,
