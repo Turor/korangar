@@ -8359,6 +8359,7 @@ impl Client {
         crate::interface::windows::sync_dressing_room(
             self.client_state.follow_mut(client_state().dressing_room()),
             &self.async_loader,
+            &self.sprite_loader,
             self.interface.is_window_with_class_open(WindowClass::DressingRoom),
         );
 

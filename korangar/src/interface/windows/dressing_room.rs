@@ -53,10 +53,11 @@ pub fn apply_item_preview(
         let items = state.follow(client_state().inventory().items());
         dressing_room::worn_look_from_player(player, items)
     };
-    state.follow_mut(client_state().dressing_room()).apply_item(
+    state.follow_mut(client_state().dressing_room()).apply_item_with_robes(
         &worn,
         item,
         |view_id| library.accessory_sprite_suffix(view_id).map(str::to_owned),
+        |view_id| library.robe_sprite_name(view_id).map(str::to_owned),
         |path| sprite_exists(sprites, path),
     );
 }
@@ -65,13 +66,34 @@ fn sprite_exists(sprites: &SpriteLoader, path: &str) -> bool {
     sprites.sprite_file_exists(&format!("{path}.spr")) && sprites.sprite_file_exists(&format!("{path}.act"))
 }
 
+/// Dye head part index 1 the way the VN portrait does. Palette 0 stays built
+/// in.
+fn sync_head_dye(room: &mut DressingRoom, sprites: &SpriteLoader) {
+    let Some(request) = room.head_dye_request() else {
+        if !room.head_dye_key().is_empty() || !room.head_dye().is_empty() {
+            room.set_head_dye(String::new(), Vec::new());
+        }
+        return;
+    };
+    let key = format!("{}\n{}", request.sprite, request.palette);
+    if room.head_dye_key() == key {
+        return;
+    }
+    let frames = sprites
+        .get_with_palette(&request.sprite, &request.palette)
+        .map(|sprite| sprite.textures.clone())
+        .unwrap_or_default();
+    room.set_head_dye(key, frames);
+}
+
 /// Ask the animation loader for the portrait while the window is open.
 /// A closed window drops the portrait and still sends nothing.
-pub fn sync_dressing_room(room: &mut DressingRoom, async_loader: &AsyncLoader, window_open: bool) {
+pub fn sync_dressing_room(room: &mut DressingRoom, async_loader: &AsyncLoader, sprites: &SpriteLoader, window_open: bool) {
     if !window_open {
         room.clear_loaded();
         return;
     }
+    sync_head_dye(room, sprites);
     let Some((entity_id, files)) = room.take_load_request() else {
         return;
     };
@@ -170,8 +192,10 @@ impl Element<ClientState> for DressingRoomView {
             tokens.border,
             ShadowPadding::diagonal(1.0, 2.0),
         );
+        let direction = room.direction();
+        let head_dye = room.head_dye().to_vec();
         if let Some(animation) = room.preview() {
-            paint_frame(layout, portrait, animation, room.direction());
+            paint_frame(layout, portrait, animation, direction, &head_dye);
         }
 
         let mut top = area.top + PORTRAIT + GAP;
@@ -307,6 +331,7 @@ fn paint_frame(
     area: korangar_interface::layout::area::Area,
     animation: &AnimationData,
     direction: u8,
+    head_dye: &[Arc<crate::graphics::Texture>],
 ) {
     let Some(frame) = idle_frame(animation, direction) else {
         return;
@@ -349,7 +374,19 @@ fn paint_frame(
             box_top,
             box_size,
         );
-        let texture = animation.animation_pair[part.animation_index].sprites.textures[part.sprite_number].clone();
+        let dyed = (part.animation_index == 1)
+            .then(|| head_dye.get(part.sprite_number))
+            .flatten()
+            .cloned();
+        let Some(texture) = dyed.or_else(|| {
+            animation
+                .animation_pair
+                .get(part.animation_index)
+                .and_then(|pair| pair.sprites.textures.get(part.sprite_number))
+                .cloned()
+        }) else {
+            continue;
+        };
         layout.add_texture(
             korangar_interface::layout::area::Area { left, top, width, height },
             texture,

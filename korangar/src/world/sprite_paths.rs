@@ -195,6 +195,52 @@ pub(crate) fn job_sprite_name(job_id: JobId) -> &'static str {
     }
 }
 
+/// Folder roBrowser `WeaponJobTable` uses for weapons and shields.
+/// Third and fourth jobs share the second job's sprite (`룬나이트` → `기사`).
+/// Mounted crusader (`CRUSADER2`) is not a body row in [`job_sprite_name`].
+pub(crate) fn weapon_job_sprite_name(job_id: JobId) -> &'static str {
+    match weapon_job_base(job_id.0) {
+        21 => "신페코크루세이더",
+        base => job_sprite_name(JobId(base)),
+    }
+}
+
+fn weapon_job_base(job: u16) -> u16 {
+    match job {
+        // Knight, rune knight, dragon knight, and the high knight body.
+        4008 | 4054 | 4060 | 4096 | 4252 | 4265 | 4332 => 7,
+        // Peco knight and its later mounts.
+        4014 | 4036 | 4080 | 4081 | 4109 | 4280 | 4345 => 13,
+        // Priest, archbishop, cardinal.
+        4009 | 4057 | 4063 | 4099 | 4256 | 4269 | 4336 => 8,
+        // Wizard, warlock, arch mage.
+        4010 | 4055 | 4061 | 4097 | 4255 | 4268 | 4335 => 9,
+        // Blacksmith, mechanic, meister.
+        4011 | 4058 | 4064 | 4100 | 4086 | 4087 | 4253 | 4266 | 4279 | 4333 | 4347 => 10,
+        // Hunter, ranger, windhawk.
+        4012 | 4056 | 4062 | 4098 | 4084 | 4085 | 4257 | 4270 | 4278 | 4337 | 4346 => 11,
+        // Assassin, guillotine cross, shadow cross.
+        4013 | 4059 | 4065 | 4101 | 4254 | 4267 | 4334 => 12,
+        // Crusader, royal guard, imperial guard.
+        4015 | 4066 | 4073 | 4102 | 4258 | 4271 | 4338 => 14,
+        // Mounted crusader.
+        4022 | 4082 | 4083 | 4110 | 4281 | 4348 => 21,
+        // Monk, sura, inquisitor.
+        4016 | 4070 | 4077 | 4106 | 4262 | 4275 | 4342 => 15,
+        // Sage, sorcerer, elemental master.
+        4017 | 4067 | 4074 | 4103 | 4261 | 4274 | 4341 => 16,
+        // Rogue, shadow chaser, abyss chaser.
+        4018 | 4072 | 4079 | 4108 | 4260 | 4273 | 4340 => 17,
+        // Alchemist, genetic, biolo.
+        4019 | 4071 | 4078 | 4107 | 4259 | 4272 | 4339 => 18,
+        // Bard, minstrel, troubadour.
+        4020 | 4068 | 4075 | 4104 | 4263 | 4276 | 4343 => 19,
+        // Dancer, wanderer, trouvere.
+        4021 | 4069 | 4076 | 4105 | 4264 | 4277 | 4344 => 20,
+        other => other,
+    }
+}
+
 /// Body then head. Sprite and action loaders append `.spr` / `.act` under
 /// `data\sprite`.
 pub(crate) fn player_part_files(job_id: JobId, sex: Sex, head: Option<usize>) -> Vec<String> {
@@ -385,6 +431,17 @@ mod tests {
         let tribe = player_part_files(JobId(4217), Sex::Female, None);
         assert!(tribe[0].starts_with("도람족\\몸통\\"));
         assert!(!tribe[0].contains("묘족"));
+    }
+
+    #[test]
+    fn weapon_folders_follow_the_second_job() {
+        assert_eq!(weapon_job_sprite_name(JobId(0)), "초보자");
+        assert_eq!(weapon_job_sprite_name(JobId(7)), "기사");
+        assert_eq!(weapon_job_sprite_name(JobId(4054)), "기사");
+        assert_eq!(weapon_job_sprite_name(JobId(4252)), "기사");
+        assert_eq!(weapon_job_sprite_name(JobId(4265)), "기사");
+        assert_eq!(weapon_job_sprite_name(JobId(4008)), "기사");
+        assert_ne!(weapon_job_sprite_name(JobId(4054)), job_sprite_name(JobId(4054)));
     }
 
     #[test]

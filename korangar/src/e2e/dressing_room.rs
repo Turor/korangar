@@ -193,7 +193,7 @@ pub fn headgear_to_preview(items: &[InventoryItem<NoMetadata>], worn_heads: [u16
         let slots = [PreviewSlot::HeadBottom, PreviewSlot::HeadTop, PreviewSlot::HeadMid];
         for (slot, view_id) in slots.into_iter().zip(worn_heads) {
             if view_id > 0 {
-                views.push(ItemView { slot: Some(slot), view_id });
+                views.push(ItemView::only(Some(slot), view_id));
             }
         }
     }

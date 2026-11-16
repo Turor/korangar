@@ -53,6 +53,7 @@ pub mod styling_shop;
 pub mod theme;
 pub mod trade;
 pub mod view_equip;
+mod view_names;
 pub mod vn_dialog;
 
 use std::cell::Cell;

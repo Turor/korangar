@@ -3,9 +3,10 @@
 //!
 //! Headgear paths use [`headgear_sprite_candidates`] and
 //! [`player_look_part_files`], the same accessory-id lookup the world
-//! renderer uses. Garment, shield, and weapon parts use the roBrowser file
-//! layout (`로브`, `방패`, `인간족` / `도람족`). A view id whose sprite files
-//! are missing stays in the slot list and the window shows
+//! renderer uses. Garments use `RobeNameTable` (static `RobeTable` when the
+//! lub has no row). Weapons and shields use `WeaponNameTable`, `ShieldTable`,
+//! and `WeaponJobTable`, always under `인간족` or `방패`. A view id whose
+//! sprite files are missing stays in the slot list and the window shows
 //! [`NO_PREVIEW`]; the part is left out of the sprite so it never draws a
 //! black box.
 
@@ -14,8 +15,10 @@ use std::sync::Arc;
 use korangar_networking::{InventoryItem, InventoryItemDetails};
 use ragnarok_packets::{EquipPosition, JobId, Sex};
 
-use super::vn_dialog::headgear_sprite_candidates;
-use crate::world::{AnimationData, Player, PlayerLook, player_look_part_files};
+use super::view_names::{shield_file_name, static_robe_name, weapon_file_suffix};
+use super::vn_dialog::{head_palette_file, headgear_sprite_candidates};
+use crate::graphics::Texture;
+use crate::world::{AnimationData, Player, PlayerLook, player_look_part_files, weapon_job_sprite_name};
 
 pub const NO_PREVIEW: &str = "No preview for this item";
 
@@ -154,29 +157,87 @@ impl Default for WornLook {
 }
 
 /// Equip location and view sprite (`wItemSpriteNumber`) of one item.
+///
+/// `slot` is the first matching location. `also` holds every other location
+/// the same view id is written into. A headpiece with both top and mid bits
+/// fills both slots.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ItemView {
     pub slot: Option<PreviewSlot>,
+    pub also: [Option<PreviewSlot>; 9],
     pub view_id: u16,
 }
 
-/// Headgear, costume headgear, garment, shield, or weapon. Other locations
-/// (armor, shoes, a potion) have no preview slot.
-pub fn preview_slot(position: EquipPosition) -> Option<PreviewSlot> {
-    const ORDER: &[(EquipPosition, PreviewSlot)] = &[
+impl ItemView {
+    pub fn only(slot: Option<PreviewSlot>, view_id: u16) -> Self {
+        Self {
+            slot,
+            also: [None; 9],
+            view_id,
+        }
+    }
+}
+
+/// Every preview slot this equip location covers. Head bits all match.
+/// A two-handed weapon is a weapon, not a shield.
+pub fn position_slots(position: EquipPosition) -> Vec<PreviewSlot> {
+    if position.is_empty() {
+        return Vec::new();
+    }
+    let mut slots = Vec::new();
+    const HEADS: &[(EquipPosition, PreviewSlot)] = &[
         (EquipPosition::COSTUME_HEAD_LOWER, PreviewSlot::CostumeHeadBottom),
         (EquipPosition::COSTUME_HEAD_MIDDLE, PreviewSlot::CostumeHeadMid),
         (EquipPosition::COSTUME_HEAD_TOP, PreviewSlot::CostumeHeadTop),
-        (EquipPosition::COSTUME_GARMENT, PreviewSlot::CostumeGarment),
         (EquipPosition::HEAD_LOWER, PreviewSlot::HeadBottom),
         (EquipPosition::HEAD_MIDDLE, PreviewSlot::HeadMid),
         (EquipPosition::HEAD_TOP, PreviewSlot::HeadTop),
-        (EquipPosition::GARMENT, PreviewSlot::Garment),
-        (EquipPosition::RIGHT_HAND, PreviewSlot::Weapon),
-        (EquipPosition::LEFT_RIGHT_HAND, PreviewSlot::Weapon),
-        (EquipPosition::LEFT_HAND, PreviewSlot::Shield),
     ];
-    ORDER.iter().find(|(flag, _)| position.contains(*flag)).map(|(_, slot)| *slot)
+    for (flag, slot) in HEADS {
+        if position.contains(*flag) {
+            slots.push(*slot);
+        }
+    }
+    if position.contains(EquipPosition::COSTUME_GARMENT) {
+        slots.push(PreviewSlot::CostumeGarment);
+    }
+    if position.contains(EquipPosition::GARMENT) {
+        slots.push(PreviewSlot::Garment);
+    }
+    let two_hand = position.contains(EquipPosition::LEFT_RIGHT_HAND)
+        || (position.contains(EquipPosition::RIGHT_HAND) && position.contains(EquipPosition::LEFT_HAND));
+    if position.contains(EquipPosition::RIGHT_HAND) || position.contains(EquipPosition::LEFT_RIGHT_HAND) {
+        slots.push(PreviewSlot::Weapon);
+    }
+    if position.contains(EquipPosition::LEFT_HAND) && !two_hand {
+        slots.push(PreviewSlot::Shield);
+    }
+    slots
+}
+
+fn view_from_slots(slots: Vec<PreviewSlot>, view_id: u16) -> ItemView {
+    let mut also = [None; 9];
+    for (index, slot) in slots.iter().skip(1).take(also.len()).enumerate() {
+        also[index] = Some(*slot);
+    }
+    ItemView {
+        slot: slots.first().copied(),
+        also,
+        view_id,
+    }
+}
+
+fn written_slots(view: &ItemView) -> Vec<PreviewSlot> {
+    let mut slots = Vec::new();
+    if let Some(slot) = view.slot {
+        slots.push(slot);
+    }
+    for slot in view.also.into_iter().flatten() {
+        if !slots.contains(&slot) {
+            slots.push(slot);
+        }
+    }
+    slots
 }
 
 pub fn item_view<T>(item: &InventoryItem<T>) -> ItemView {
@@ -185,11 +246,8 @@ pub fn item_view<T>(item: &InventoryItem<T>) -> ItemView {
             equip_position,
             w_item_sprite_number,
             ..
-        } => ItemView {
-            slot: preview_slot(*equip_position),
-            view_id: *w_item_sprite_number,
-        },
-        InventoryItemDetails::Regular { .. } => ItemView { slot: None, view_id: 0 },
+        } => view_from_slots(position_slots(*equip_position), *w_item_sprite_number),
+        InventoryItemDetails::Regular { .. } => ItemView::only(None, 0),
     }
 }
 
@@ -235,7 +293,7 @@ fn equipped_view<T>(items: &[InventoryItem<T>], slot: PreviewSlot) -> u16 {
             else {
                 return None;
             };
-            if equipped_position.is_empty() || preview_slot(*equipped_position) != Some(slot) {
+            if equipped_position.is_empty() || !position_slots(*equipped_position).contains(&slot) {
                 return None;
             }
             Some(*w_item_sprite_number)
@@ -283,6 +341,11 @@ pub struct DressingRoom {
     generation: u32,
     #[hidden_element]
     preview: Option<Arc<AnimationData>>,
+    /// Dyed head frames. Empty keeps the sprite's built-in palette.
+    #[hidden_element]
+    head_dye: Vec<Arc<Texture>>,
+    #[hidden_element]
+    head_dye_key: String,
 }
 
 impl DressingRoom {
@@ -331,13 +394,24 @@ impl DressingRoom {
             .collect()
     }
 
-    /// Layer `item` on `worn`. A later click replaces only its own slot.
+    /// Layer `item` on `worn`. A later click replaces only its own slots.
     pub fn apply_item<T, S, E>(&mut self, worn: &WornLook, item: &InventoryItem<T>, suffix: S, exists: E)
     where
         S: Fn(u16) -> Option<String>,
         E: Fn(&str) -> bool,
     {
-        self.apply_view(worn, item_view(item), suffix, exists);
+        self.apply_item_with_robes(worn, item, suffix, |_| None, exists);
+    }
+
+    /// Same as [`Self::apply_item`], with `RobeNameTable` overriding the static
+    /// robe names.
+    pub fn apply_item_with_robes<T, S, R, E>(&mut self, worn: &WornLook, item: &InventoryItem<T>, suffix: S, robe: R, exists: E)
+    where
+        S: Fn(u16) -> Option<String>,
+        R: Fn(u16) -> Option<String>,
+        E: Fn(&str) -> bool,
+    {
+        self.apply_view_with_robes(worn, item_view(item), suffix, robe, exists);
     }
 
     pub fn apply_view<S, E>(&mut self, worn: &WornLook, view: ItemView, suffix: S, exists: E)
@@ -345,25 +419,40 @@ impl DressingRoom {
         S: Fn(u16) -> Option<String>,
         E: Fn(&str) -> bool,
     {
+        self.apply_view_with_robes(worn, view, suffix, |_| None, exists);
+    }
+
+    fn apply_view_with_robes<S, R, E>(&mut self, worn: &WornLook, view: ItemView, suffix: S, robe: R, exists: E)
+    where
+        S: Fn(u16) -> Option<String>,
+        R: Fn(u16) -> Option<String>,
+        E: Fn(&str) -> bool,
+    {
         self.ensure();
         self.copy_worn(worn);
         for view_id in [worn.head_bottom, worn.head_top, worn.head_mid, view.view_id] {
             self.remember_suffix(view_id, &suffix);
         }
-        self.resolve_worn_paths(&exists);
-        match view.slot {
-            Some(slot) if view.view_id > 0 => {
+        self.resolve_worn_paths(&robe, &exists);
+        let slots = written_slots(&view);
+        if view.view_id > 0 && !slots.is_empty() {
+            let mut found = false;
+            for slot in slots {
                 let index = slot.index();
                 self.preview_ids[index] = view.view_id;
-                let path = self.resolve_path(slot, view.view_id, &exists);
-                if path.is_empty() {
-                    self.notice = NO_PREVIEW.to_owned();
-                } else {
-                    self.notice.clear();
+                let path = self.resolve_path(slot, view.view_id, &robe, &exists);
+                if !path.is_empty() {
+                    found = true;
                 }
                 self.preview_paths[index] = path;
             }
-            _ => self.notice = NO_PREVIEW.to_owned(),
+            if found {
+                self.notice.clear();
+            } else {
+                self.notice = NO_PREVIEW.to_owned();
+            }
+        } else {
+            self.notice = NO_PREVIEW.to_owned();
         }
         self.rebuild_parts();
     }
@@ -396,6 +485,39 @@ impl DressingRoom {
         self.preview = None;
         self.requested_key.clear();
         self.pending_entity = 0;
+        self.head_dye.clear();
+        self.head_dye_key.clear();
+    }
+
+    /// Indexed head frames dyed with the player's hair colour. Empty means
+    /// palette 0, or a missing palette file: paint the built-in palette.
+    pub fn head_dye(&self) -> &[Arc<Texture>] {
+        &self.head_dye
+    }
+
+    pub fn head_dye_key(&self) -> &str {
+        &self.head_dye_key
+    }
+
+    pub fn set_head_dye(&mut self, key: String, frames: Vec<Arc<Texture>>) {
+        self.head_dye_key = key;
+        self.head_dye = frames;
+    }
+
+    /// Sprite and palette paths for the head, when the colour is not 0.
+    pub fn head_dye_request(&self) -> Option<HeadDyeRequest> {
+        if self.hair_color == 0 {
+            return None;
+        }
+        let head = self.part_files.get(1)?;
+        if head.is_empty() || head.starts_with('?') {
+            return None;
+        }
+        let palette = head_palette_file(head, self.hair_color)?;
+        Some(HeadDyeRequest {
+            sprite: format!("{head}.spr"),
+            palette,
+        })
     }
 
     pub fn take_load_request(&mut self) -> Option<(u32, Vec<String>)> {
@@ -464,14 +586,15 @@ impl DressingRoom {
         (!name.is_empty()).then_some(name)
     }
 
-    fn resolve_worn_paths<E>(&mut self, exists: &E)
+    fn resolve_worn_paths<R, E>(&mut self, robe: &R, exists: &E)
     where
+        R: Fn(u16) -> Option<String>,
         E: Fn(&str) -> bool,
     {
         let heads = [self.worn_head_bottom, self.worn_head_mid, self.worn_head_top];
         for (index, view_id) in heads.into_iter().enumerate() {
             let slot = PreviewSlot::from_index(index).unwrap();
-            self.worn_head_paths[index] = self.resolve_path(slot, view_id, exists);
+            self.worn_head_paths[index] = self.resolve_path(slot, view_id, robe, exists);
         }
         let extras = [
             (PreviewSlot::Garment, self.worn_garment),
@@ -480,27 +603,33 @@ impl DressingRoom {
             (PreviewSlot::CostumeGarment, self.worn_costume_garment),
         ];
         for (index, (slot, view_id)) in extras.into_iter().enumerate() {
-            self.worn_extra_paths[index] = self.resolve_path(slot, view_id, exists);
+            self.worn_extra_paths[index] = self.resolve_path(slot, view_id, robe, exists);
         }
     }
 
-    fn resolve_path<E>(&self, slot: PreviewSlot, view_id: u16, exists: &E) -> String
+    fn resolve_path<R, E>(&self, slot: PreviewSlot, view_id: u16, robe: &R, exists: &E) -> String
     where
+        R: Fn(u16) -> Option<String>,
         E: Fn(&str) -> bool,
     {
         if view_id == 0 {
             return String::new();
         }
         let sex_name = sex_folder(self.female);
-        let (job, tribe) = self.job_and_tribe();
+        let (class_name, tribe) = self.job_and_tribe();
         let candidates = if slot.is_head() {
             headgear_sprite_candidates(view_id, sex_name, self.suffix_owned(view_id).as_deref())
         } else if matches!(slot, PreviewSlot::Garment | PreviewSlot::CostumeGarment) {
-            garment_candidates(view_id, sex_name, &job)
+            match robe_label(view_id, robe) {
+                Some(name) => garment_candidates(&name, sex_name, &class_name, tribe == "도람족"),
+                None => Vec::new(),
+            }
         } else if slot == PreviewSlot::Weapon {
-            weapon_candidates(view_id, sex_name, &job, &tribe)
+            let job = weapon_job_sprite_name(JobId(self.job_id));
+            weapon_candidates(view_id, sex_name, job)
         } else {
-            shield_candidates(view_id, sex_name, &job)
+            let job = weapon_job_sprite_name(JobId(self.job_id));
+            shield_candidates(view_id, sex_name, job)
         };
         candidates.into_iter().find(|path| exists(path)).unwrap_or_default()
     }
@@ -616,22 +745,40 @@ fn sex_folder(female: bool) -> &'static str {
     if female { "여" } else { "남" }
 }
 
-fn garment_candidates(view_id: u16, sex_name: &str, job: &str) -> Vec<String> {
-    vec![
-        format!("로브\\{view_id}\\{sex_name}\\{job}_{sex_name}"),
-        format!("로브\\_{view_id}\\{sex_name}\\{job}_{sex_name}"),
-    ]
+/// Palette request for the head sprite. Palette 0 is not a request.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeadDyeRequest {
+    pub sprite: String,
+    pub palette: String,
 }
 
-fn weapon_candidates(view_id: u16, sex_name: &str, job: &str, tribe: &str) -> Vec<String> {
-    vec![
-        format!("{tribe}\\{job}\\{job}_{sex_name}_{view_id}"),
-        format!("{tribe}\\{job}\\{job}_{sex_name}{view_id}"),
-    ]
+fn robe_label<R>(view_id: u16, robe: &R) -> Option<String>
+where
+    R: Fn(u16) -> Option<String>,
+{
+    robe(view_id)
+        .filter(|name| !name.is_empty())
+        .or_else(|| static_robe_name(view_id).map(str::to_owned))
+}
+
+fn garment_candidates(name: &str, sex_name: &str, class_name: &str, doram: bool) -> Vec<String> {
+    let mut paths = vec![format!("로브\\{name}\\{sex_name}\\{class_name}_{sex_name}")];
+    if doram {
+        paths.push(format!("로브\\{name}\\{name}_doram"));
+    } else {
+        paths.push(format!("로브\\{name}\\{name}"));
+    }
+    paths
+}
+
+fn weapon_candidates(view_id: u16, sex_name: &str, job: &str) -> Vec<String> {
+    let suffix = weapon_file_suffix(view_id);
+    vec![format!("인간족\\{job}\\{job}_{sex_name}{suffix}")]
 }
 
 fn shield_candidates(view_id: u16, sex_name: &str, job: &str) -> Vec<String> {
-    vec![format!("방패\\{job}\\{job}_{sex_name}_{view_id}")]
+    let name = shield_file_name(view_id);
+    vec![format!("방패\\{job}\\{job}_{sex_name}_{name}")]
 }
 
 #[cfg(test)]
@@ -719,7 +866,7 @@ mod tests {
     }
 
     fn exists(path: &str) -> bool {
-        path.ends_with("여_리본") || path.ends_with("여_고글") || path.ends_with("초보자_남_3")
+        path.ends_with("여_리본") || path.ends_with("여_고글") || path.ends_with("초보자_남_검")
     }
 
     #[test]
@@ -779,15 +926,7 @@ mod tests {
             ..WornLook::default()
         };
         let mut room = DressingRoom::default();
-        room.apply_view(
-            &worn,
-            ItemView {
-                slot: Some(PreviewSlot::HeadTop),
-                view_id: 9,
-            },
-            suffix,
-            |_| false,
-        );
+        room.apply_view(&worn, ItemView::only(Some(PreviewSlot::HeadTop), 9), suffix, |_| false);
         let top = room.slot_views().into_iter().find(|slot| slot.slot == "head_top").unwrap();
         assert_eq!(top.preview_id, 9);
         assert!(top.sprite_path.is_empty());
@@ -799,22 +938,15 @@ mod tests {
                 .all(|file| file.starts_with('?'))
         );
 
-        room.apply_view(
-            &worn,
-            ItemView {
-                slot: Some(PreviewSlot::Weapon),
-                view_id: 3,
-            },
-            suffix,
-            exists,
-        );
+        room.apply_view(&worn, ItemView::only(Some(PreviewSlot::Weapon), 3), suffix, exists);
         let weapon = room.slot_views().into_iter().find(|slot| slot.slot == "weapon").unwrap();
         assert_eq!(weapon.preview_id, 3);
-        assert!(weapon.sprite_path.contains("초보자_남_3"));
+        assert_eq!(weapon.sprite_path, "인간족\\초보자\\초보자_남_검");
+        assert!(!weapon.sprite_path.contains("초보자_남_3"));
         assert!(
             room.part_files()
                 .iter()
-                .any(|file| file.starts_with('?') && file.contains("초보자_남_3"))
+                .any(|file| file.starts_with('?') && file.contains("초보자_남_검"))
         );
     }
 
@@ -826,15 +958,7 @@ mod tests {
             ..WornLook::default()
         };
         let mut room = DressingRoom::default();
-        room.apply_view(
-            &worn,
-            ItemView {
-                slot: Some(PreviewSlot::HeadTop),
-                view_id: 8,
-            },
-            suffix,
-            exists,
-        );
+        room.apply_view(&worn, ItemView::only(Some(PreviewSlot::HeadTop), 8), suffix, exists);
         room.toggle_hide_other_headgear();
         let views = room.slot_views();
         let top = views.iter().find(|slot| slot.slot == "head_top").unwrap();
@@ -842,5 +966,138 @@ mod tests {
         assert_eq!(top.shown_id, 8);
         assert_eq!(bottom.shown_id, 0);
         assert!(room.hide_other_headgear());
+    }
+
+    #[test]
+    fn gear_paths_use_the_sprite_name_tables() {
+        let mut room = DressingRoom::default();
+        let male = WornLook {
+            female: false,
+            hair_style: 1,
+            ..WornLook::default()
+        };
+        let hit = |path: &str| {
+            path.ends_with("초보자_남_검")
+                || path.ends_with("초보자_남_가드")
+                || path.ends_with("기사_남_검")
+                || path.contains("천사날개")
+                || path.contains("summoner_남_검")
+        };
+        room.apply_item(&male, &equip(1, EquipPosition::RIGHT_HAND, 2), suffix, hit);
+        let sword = room.slot_views().into_iter().find(|slot| slot.slot == "weapon").unwrap();
+        assert_eq!(sword.sprite_path, "인간족\\초보자\\초보자_남_검");
+
+        room.apply_item(&male, &equip(2, EquipPosition::LEFT_HAND, 1), suffix, hit);
+        let guard = room.slot_views().into_iter().find(|slot| slot.slot == "shield").unwrap();
+        assert_eq!(guard.sprite_path, "방패\\초보자\\초보자_남_가드");
+        room.apply_item(&male, &equip(3, EquipPosition::LEFT_HAND, 9), suffix, hit);
+        let unknown_shield = room.slot_views().into_iter().find(|slot| slot.slot == "shield").unwrap();
+        assert_eq!(unknown_shield.sprite_path, "방패\\초보자\\초보자_남_가드");
+        assert!(!unknown_shield.sprite_path.contains("_9"));
+
+        let rune = WornLook { job_id: 4054, ..male };
+        room.apply_item(&rune, &equip(4, EquipPosition::RIGHT_HAND, 2), suffix, hit);
+        let rune_sword = room.slot_views().into_iter().find(|slot| slot.slot == "weapon").unwrap();
+        assert_eq!(rune_sword.sprite_path, "인간족\\기사\\기사_남_검");
+        assert!(!rune_sword.sprite_path.contains("룬나이트"));
+
+        let dragon = WornLook { job_id: 4252, ..male };
+        room.apply_item(&dragon, &equip(5, EquipPosition::RIGHT_HAND, 2), suffix, hit);
+        let dragon_sword = room.slot_views().into_iter().find(|slot| slot.slot == "weapon").unwrap();
+        assert_eq!(dragon_sword.sprite_path, "인간족\\기사\\기사_남_검");
+
+        let doram = WornLook { job_id: 4218, ..male };
+        room.apply_item(&doram, &equip(6, EquipPosition::RIGHT_HAND, 2), suffix, hit);
+        let doram_sword = room.slot_views().into_iter().find(|slot| slot.slot == "weapon").unwrap();
+        assert_eq!(doram_sword.sprite_path, "인간족\\summoner\\summoner_남_검");
+        assert!(!doram_sword.sprite_path.contains("도람족"));
+
+        let female = WornLook {
+            female: true,
+            hair_style: 2,
+            ..WornLook::default()
+        };
+        room.apply_item(&female, &equip(7, EquipPosition::GARMENT, 1), suffix, hit);
+        let robe = room.slot_views().into_iter().find(|slot| slot.slot == "garment").unwrap();
+        assert_eq!(robe.sprite_path, "로브\\천사날개\\여\\초보자_여");
+
+        room.apply_item_with_robes(
+            &female,
+            &equip(8, EquipPosition::COSTUME_GARMENT, 4),
+            suffix,
+            |_| Some("custom_cape".to_owned()),
+            |path| path.contains("custom_cape"),
+        );
+        let costume = room.slot_views().into_iter().find(|slot| slot.slot == "costume_garment").unwrap();
+        assert_eq!(costume.sprite_path, "로브\\custom_cape\\여\\초보자_여");
+
+        room.apply_item(&female, &equip(9, EquipPosition::GARMENT, 9000), suffix, |_| false);
+        let missing = room.slot_views().into_iter().find(|slot| slot.slot == "garment").unwrap();
+        assert_eq!(missing.preview_id, 9000);
+        assert!(missing.sprite_path.is_empty());
+        assert_eq!(room.notice(), NO_PREVIEW);
+    }
+
+    #[test]
+    fn a_multi_bit_hat_fills_every_matching_head_slot() {
+        let worn = WornLook {
+            female: true,
+            hair_style: 2,
+            head_bottom: 4,
+            ..WornLook::default()
+        };
+        let mut room = DressingRoom::default();
+        room.apply_item(
+            &worn,
+            &equip(1, EquipPosition::HEAD_TOP | EquipPosition::HEAD_MIDDLE, 8),
+            suffix,
+            exists,
+        );
+        let views = room.slot_views();
+        let top = views.iter().find(|slot| slot.slot == "head_top").unwrap();
+        let mid = views.iter().find(|slot| slot.slot == "head_mid").unwrap();
+        let bottom = views.iter().find(|slot| slot.slot == "head_bottom").unwrap();
+        assert_eq!(top.preview_id, 8);
+        assert_eq!(mid.preview_id, 8);
+        assert_eq!(bottom.preview_id, 0);
+        assert_eq!(room.part_files().iter().filter(|file| file.contains("_고글")).count(), 1);
+
+        room.apply_item(
+            &worn,
+            &equip(2, EquipPosition::COSTUME_HEAD_TOP | EquipPosition::COSTUME_HEAD_MIDDLE, 5),
+            suffix,
+            exists,
+        );
+        let views = room.slot_views();
+        assert_eq!(views.iter().find(|slot| slot.slot == "costume_head_top").unwrap().preview_id, 5);
+        assert_eq!(views.iter().find(|slot| slot.slot == "costume_head_mid").unwrap().preview_id, 5);
+        assert_eq!(views.iter().find(|slot| slot.slot == "head_top").unwrap().preview_id, 8);
+
+        room.apply_item(&worn, &equip(3, EquipPosition::LEFT_RIGHT_HAND, 2), suffix, |path| {
+            path.ends_with("초보자_여_검")
+        });
+        let views = room.slot_views();
+        assert_eq!(views.iter().find(|slot| slot.slot == "weapon").unwrap().preview_id, 2);
+        assert_eq!(views.iter().find(|slot| slot.slot == "shield").unwrap().preview_id, 0);
+    }
+
+    #[test]
+    fn hair_color_requests_a_head_palette_and_zero_stays_plain() {
+        let colored = WornLook {
+            female: true,
+            hair_style: 2,
+            hair_color: 4,
+            ..WornLook::default()
+        };
+        let mut room = DressingRoom::default();
+        room.apply_view(&colored, ItemView::only(Some(PreviewSlot::HeadTop), 8), suffix, exists);
+        let request = room.head_dye_request().expect("palette");
+        assert!(request.sprite.ends_with("2_여.spr"), "{}", request.sprite);
+        assert!(request.palette.ends_with("머리2_여_4.pal"), "{}", request.palette);
+        assert!(request.palette.starts_with("data\\palette\\머리\\"));
+
+        let plain = WornLook { hair_color: 0, ..colored };
+        room.apply_view(&plain, ItemView::only(Some(PreviewSlot::HeadTop), 8), suffix, exists);
+        assert!(room.head_dye_request().is_none());
     }
 }
