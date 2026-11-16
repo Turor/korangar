@@ -28,4 +28,7 @@ ThemeFile(
         base_exp_bar: Some("#9B6BE0"),
         job_exp_bar: Some("#45B5B0"),
     ),
+    chat: (
+        party: Some("#E6D7C8"),
+    ),
 )

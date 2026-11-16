@@ -270,6 +270,9 @@ impl InterfaceRenderer {
         highlight_color: Color,
         mut font_size: FontSize,
     ) -> f32 {
+        // The text layouter measured at this scale but stored the unscaled font
+        // so this is the only multiply. World text uses `GameInterfaceRenderer`.
+        font_size = FontSize(crate::interface::font_scale::scale_font_size(font_size.0));
         // TODO: Can't we scale after laying out the text? Would cut down on
         // multiplications.
         if self.high_quality_interface {

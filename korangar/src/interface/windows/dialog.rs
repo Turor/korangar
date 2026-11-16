@@ -679,8 +679,8 @@ where
             title: self.window_state_path.npc_name(),
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
-            // No colour override: the band uses the shared window background
-            // (`panel` at the theme `window_alpha`, 1.0 = opaque).
+            // No colour override: the band is a normal window, so it uses the
+            // shared panel background and the theme frame (`window.frame_color`).
             closable: true,
             resizable: false,
             minimum_width: self.window_state_path.band_width(),

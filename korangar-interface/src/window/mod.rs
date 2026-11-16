@@ -122,6 +122,12 @@ where
     pub overflow_behavior: App::OverflowBehavior,
     pub anchor_color: App::Color,
     pub closest_anchor_color: App::Color,
+    /// Outline drawn just inside the window edge. Themes set this from
+    /// `border`.
+    pub frame_color: App::Color,
+    /// Thickness of [`Self::frame_color`] in interface pixels. Zero skips the
+    /// outline.
+    pub frame_width: f32,
 }
 
 pub struct WindowData<App>
@@ -570,13 +576,31 @@ where
             *state.get(&theme().window().overflow_behavior()),
         );
 
-        layout.add_rectangle(
-            layout_info.area,
-            *state.get(&self.corner_diameter),
-            *state.get(&self.background_color),
-            *state.get(&self.shadow_color),
-            *state.get(&self.shadow_padding),
-        );
+        let frame_width = *state.get(&theme().window().frame_width());
+        if frame_width > 0.0 {
+            layout.add_rectangle(
+                layout_info.area,
+                *state.get(&self.corner_diameter),
+                *state.get(&theme().window().frame_color()),
+                *state.get(&self.shadow_color),
+                *state.get(&self.shadow_padding),
+            );
+            layout.add_rectangle(
+                inset_area(layout_info.area, frame_width),
+                *state.get(&self.corner_diameter),
+                *state.get(&self.background_color),
+                *state.get(&self.shadow_color),
+                App::ShadowPadding::none(),
+            );
+        } else {
+            layout.add_rectangle(
+                layout_info.area,
+                *state.get(&self.corner_diameter),
+                *state.get(&self.background_color),
+                *state.get(&self.shadow_color),
+                *state.get(&self.shadow_padding),
+            );
+        }
 
         if horizontal_resize_hovered && horizontal_resize_available
             || matches!(layout.get_mouse_mode(), MouseMode::ResizingWindow {
@@ -648,6 +672,17 @@ where
     }
 }
 
+/// Inner fill after a frame of `inset` interface pixels is drawn on `area`.
+pub fn inset_area(area: Area, inset: f32) -> Area {
+    let inset = if inset.is_finite() { inset.max(0.0) } else { 0.0 };
+    Area {
+        left: area.left + inset,
+        top: area.top + inset,
+        width: (area.width - inset * 2.0).max(0.0),
+        height: (area.height - inset * 2.0).max(0.0),
+    }
+}
+
 /// Top-left corner for a window of `width` by `height` so it stays inside a
 /// `screen_width` by `screen_height` viewport. A window larger than the
 /// viewport is pinned to the top-left edge.
@@ -659,7 +694,23 @@ pub(crate) fn clamp_window_origin(left: f32, top: f32, width: f32, height: f32, 
 
 #[cfg(test)]
 mod tests {
-    use super::clamp_window_origin;
+    use super::{Area, clamp_window_origin, inset_area};
+
+    #[test]
+    fn frame_inset_leaves_a_border_inside_the_window() {
+        let outer = Area {
+            left: 10.0,
+            top: 20.0,
+            width: 100.0,
+            height: 80.0,
+        };
+        let inner = inset_area(outer, 2.0);
+        assert_eq!(inner.left, 12.0);
+        assert_eq!(inner.top, 22.0);
+        assert_eq!(inner.width, 96.0);
+        assert_eq!(inner.height, 76.0);
+        assert_eq!(inset_area(outer, 0.0).width, outer.width);
+    }
 
     #[test]
     fn window_inside_the_viewport_does_not_move() {

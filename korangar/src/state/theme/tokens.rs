@@ -59,6 +59,59 @@ pub struct ThemeTokens {
     /// Defaults to 1.0 (opaque).
     #[serde(default = "default_window_alpha")]
     pub window_alpha: f32,
+    /// Chat channel colors. Party defaults to `#E6D7C8` when a file omits it.
+    #[serde(default = "default_chat_colors")]
+    pub chat: ChatChannelColors,
+    /// Item-slot drop shadow. Omitted files derive this from `bg`.
+    #[serde(default = "default_slot_shadow")]
+    pub slot_shadow: Color,
+}
+
+/// Chat channel colors. Every key on disk is optional.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, RustState, StateElement)]
+pub struct ChatChannelColors {
+    pub party: Color,
+    pub broadcast: Color,
+    pub server: Color,
+    pub error: Color,
+    pub information: Color,
+    pub public: Color,
+    pub whisper: Color,
+    pub guild: Color,
+}
+
+/// roBrowser party chat for other members. Used when a theme file omits
+/// `chat.party`.
+pub const DEFAULT_PARTY_CHAT: Color = Color::rgb_u8(230, 215, 200);
+
+impl ChatChannelColors {
+    fn derived(text: Color, accent: Color, accent2: Color, sp: Color, gold: Color, party: Color) -> Self {
+        Self {
+            party,
+            broadcast: gold,
+            server: sp,
+            error: accent2,
+            information: accent,
+            public: text,
+            whisper: sp,
+            guild: accent,
+        }
+    }
+}
+
+fn default_chat_colors() -> ChatChannelColors {
+    ChatChannelColors::derived(
+        Color::rgb_u8(235, 236, 240),
+        Color::rgb_u8(255, 152, 48),
+        Color::rgb_u8(198, 64, 88),
+        Color::rgb_u8(64, 156, 210),
+        Color::rgb_u8(220, 150, 72),
+        DEFAULT_PARTY_CHAT,
+    )
+}
+
+fn default_slot_shadow() -> Color {
+    Color::rgba_u8(0, 0, 0, 140)
 }
 
 /// Status-panel HP fill when a theme file has no `status.hp_bar`.
@@ -114,6 +167,15 @@ impl ThemeTokens {
             status_base_exp_bar: Color::rgb_u8(255, 152, 48),
             status_job_exp_bar: Color::rgb_u8(198, 64, 88),
             window_alpha: 1.0,
+            chat: ChatChannelColors::derived(
+                Color::rgb_u8(235, 236, 240),
+                Color::rgb_u8(255, 152, 48),
+                Color::rgb_u8(198, 64, 88),
+                Color::rgb_u8(64, 156, 210),
+                Color::rgb_u8(220, 150, 72),
+                DEFAULT_PARTY_CHAT,
+            ),
+            slot_shadow: Color::rgb_u8(12, 14, 20).with_alpha_u8(140),
         }
     }
 
@@ -160,6 +222,26 @@ pub struct ThemeFile {
     /// Optional `status: (...)` block (TOML: `[status]` or `status.key`).
     #[serde(default)]
     pub status: StatusThemeFile,
+    /// Optional `chat: (...)` block. Missing keys are derived from the palette.
+    #[serde(default)]
+    pub chat: ChatThemeFile,
+    /// Optional `#RRGGBB` slot shadow. Missing keys use `bg`.
+    #[serde(default)]
+    pub slot_shadow: Option<String>,
+}
+
+/// Chat channel colors. Every key is optional.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct ChatThemeFile {
+    pub party: Option<String>,
+    pub broadcast: Option<String>,
+    pub server: Option<String>,
+    pub error: Option<String>,
+    pub information: Option<String>,
+    pub public: Option<String>,
+    pub whisper: Option<String>,
+    pub guild: Option<String>,
 }
 
 /// Status-panel bar colors. Every key is optional.
@@ -227,20 +309,38 @@ impl ThemeFile {
         let status_sp_bar = optional(&self.status.sp_bar, sp)?;
         let status_base_exp_bar = optional(&self.status.base_exp_bar, accent)?;
         let status_job_exp_bar = optional(&self.status.job_exp_bar, accent2)?;
+        let bg = parse_hex_color(&self.bg)?;
+        let text = parse_hex_color(&self.text)?;
+        let gold = parse_hex_color(&self.gold)?;
+        let party = optional(&self.chat.party, DEFAULT_PARTY_CHAT)?;
+        let chat = ChatChannelColors {
+            party,
+            broadcast: optional(&self.chat.broadcast, gold)?,
+            server: optional(&self.chat.server, sp)?,
+            error: optional(&self.chat.error, accent2)?,
+            information: optional(&self.chat.information, accent)?,
+            public: optional(&self.chat.public, text)?,
+            whisper: optional(&self.chat.whisper, sp)?,
+            guild: optional(&self.chat.guild, accent)?,
+        };
+        let slot_shadow = match &self.slot_shadow {
+            Some(value) => parse_hex_color(value)?.with_alpha_u8(140),
+            None => bg.with_alpha_u8(140),
+        };
         Some(ThemeTokens {
             name: self.name,
-            bg: parse_hex_color(&self.bg)?,
+            bg,
             panel: parse_hex_color(&self.panel)?,
             raised: parse_hex_color(&self.raised)?,
             border: parse_hex_color(&self.border)?,
-            text: parse_hex_color(&self.text)?,
+            text,
             muted: parse_hex_color(&self.muted)?,
-            accent: parse_hex_color(&self.accent)?,
-            accent2: parse_hex_color(&self.accent2)?,
+            accent,
+            accent2,
             hover: parse_hex_color(&self.hover)?,
             hp: parse_hex_color(&self.hp)?,
-            sp: parse_hex_color(&self.sp)?,
-            gold: parse_hex_color(&self.gold)?,
+            sp,
+            gold,
             danger,
             slot_size: if self.slot_size > 0.0 { self.slot_size } else { 44.0 },
             corner_radius: self.corner_radius.max(0.0),
@@ -250,6 +350,8 @@ impl ThemeFile {
             status_base_exp_bar,
             status_job_exp_bar,
             window_alpha: self.window_alpha.clamp(0.0, 1.0),
+            chat,
+            slot_shadow,
         })
     }
 }
@@ -324,6 +426,17 @@ fn parse_theme_toml(source: &str) -> Option<ThemeFile> {
             danger: strings.remove("status.danger"),
         },
         danger: strings.remove("danger"),
+        chat: ChatThemeFile {
+            party: strings.remove("chat.party"),
+            broadcast: strings.remove("chat.broadcast"),
+            server: strings.remove("chat.server"),
+            error: strings.remove("chat.error"),
+            information: strings.remove("chat.information"),
+            public: strings.remove("chat.public"),
+            whisper: strings.remove("chat.whisper"),
+            guild: strings.remove("chat.guild"),
+        },
+        slot_shadow: strings.remove("slot_shadow"),
     })
 }
 
@@ -667,6 +780,10 @@ job_exp_bar = "#445566"
             .replace("\nbase_exp_bar", "\nstatus.base_exp_bar");
         let dotted = parse_theme_file(&dotted).expect("dotted keys");
         assert_eq!(dotted.status_hp_bar, parse_hex_color("#00FF00").unwrap());
+        assert_eq!(bare.chat.party, DEFAULT_PARTY_CHAT);
+        assert_eq!(bare.slot_shadow, bare.bg.with_alpha_u8(140));
+        assert_eq!(bare.chat.broadcast, bare.gold);
+        assert_eq!(bare.chat.error, bare.accent2);
 
         let status_danger = r###"ThemeFile(
             name: "Danger",
@@ -677,6 +794,30 @@ job_exp_bar = "#445566"
         )"###;
         let from_status = parse_theme_file(status_danger).expect("status.danger");
         assert_eq!(from_status.danger, parse_hex_color("#E0673A").unwrap());
+    }
+
+    #[test]
+    fn chat_party_and_slot_shadow_can_be_overridden() {
+        let source = r###"ThemeFile(
+            name: "Channels",
+            bg: "#010101", panel: "#020202", raised: "#030303", border: "#3A4250",
+            text: "#E6E1D6", muted: "#A39B8C", accent: "#D9A441", accent2: "#4F8FBF",
+            hover: "#D9A441", hp: "#E2785C", sp: "#5C9ED6", gold: "#D9A441",
+            chat: (party: Some("#010203")),
+            slot_shadow: Some("#112233"),
+        )"###;
+        let tokens = parse_theme_file(source).expect("override");
+        assert_eq!(tokens.chat.party, parse_hex_color("#010203").unwrap());
+        assert_eq!(tokens.slot_shadow.red_as_u8(), 0x11);
+        assert_eq!(tokens.slot_shadow.green_as_u8(), 0x22);
+        assert_eq!(tokens.slot_shadow.blue_as_u8(), 0x33);
+        assert_eq!(tokens.slot_shadow.alpha_as_u8(), 140);
+
+        let toml = "name = \"T\"\nbg = \"#000000\"\npanel = \"#000000\"\nraised = \"#000000\"\nborder = \"#000000\"\ntext = \
+                    \"#FFFFFF\"\nmuted = \"#888888\"\naccent = \"#FF0000\"\naccent2 = \"#00FF00\"\nhover = \"#FFFF00\"\nhp = \
+                    \"#FF0000\"\nsp = \"#0000FF\"\ngold = \"#FFFF00\"\nchat.party = \"#ABCDEF\"\n";
+        let dotted = parse_theme_file(toml).expect("toml chat");
+        assert_eq!(dotted.chat.party, parse_hex_color("#ABCDEF").unwrap());
     }
 
     #[test]

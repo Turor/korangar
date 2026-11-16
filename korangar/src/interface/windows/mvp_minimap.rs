@@ -10,6 +10,7 @@ use rust_state::{Path, RustState, State};
 
 use super::WindowClass;
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
+use crate::interface::font_scale::from_theme_body;
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt};
 use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme, this_entity};
@@ -247,7 +248,7 @@ where
         layout.add_text(
             text_area,
             board.caption.as_str(),
-            FontSize(14.0),
+            FontSize(from_theme_body(tokens.font_size, 14.0)),
             tokens.text,
             tokens.gold,
             HorizontalAlignment::Left { offset: 0.0, border: 0.0 },

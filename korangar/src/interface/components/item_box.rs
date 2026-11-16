@@ -11,6 +11,7 @@ use rust_state::{Path, State};
 
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::input::{InputEvent, MouseInputMode};
+use crate::interface::font_scale::from_theme_body;
 use crate::interface::resource::ItemSource;
 use crate::interface::windows::{format_item_details, item_details_key};
 use crate::loaders::{FontSize, OverflowBehavior};
@@ -171,13 +172,22 @@ pub fn slot_border_and_fill(state: &State<ClientState>, is_hovered: bool, is_dro
     (border, fill)
 }
 
-pub fn paint_item_slot(layout: &mut WindowLayout<ClientState>, area: Area, border: Color, fill: Color, corner: f32, framed: bool) {
+pub fn paint_item_slot(
+    state: &State<ClientState>,
+    layout: &mut WindowLayout<ClientState>,
+    area: Area,
+    border: Color,
+    fill: Color,
+    corner: f32,
+    framed: bool,
+) {
+    let shadow = *state.get(&client_theme().tokens().slot_shadow());
     if framed {
         layout.add_rectangle(
             area,
             CornerDiameter::uniform(corner),
             border,
-            Color::rgba_u8(0, 0, 0, 140),
+            shadow,
             ShadowPadding::diagonal(0.0, 0.0),
         );
         let inset = 2.0;
@@ -198,7 +208,7 @@ pub fn paint_item_slot(layout: &mut WindowLayout<ClientState>, area: Area, borde
             area,
             CornerDiameter::uniform(corner),
             fill,
-            Color::rgba_u8(0, 0, 0, 100),
+            shadow,
             ShadowPadding::diagonal(2.0, 5.0),
         );
     }
@@ -273,7 +283,7 @@ where
 
         let (border, fill) = slot_border_and_fill(state, is_hovered, is_move_mode);
         let corner = if self.side > 0.0 { 4.0 } else { 20.0 };
-        paint_item_slot(layout, layout_info.area, border, fill, corner, self.side > 0.0);
+        paint_item_slot(state, layout, layout_info.area, border, fill, corner, self.side > 0.0);
 
         if is_hovered {
             layout.register_drop_handler(&self.handler);
@@ -313,7 +323,7 @@ where
                 layout.add_text(
                     layout_info.area,
                     self.amount_display.string.as_ref().unwrap(),
-                    FontSize(12.0),
+                    FontSize(from_theme_body(*state.get(&client_theme().tokens().font_size()), 12.0)),
                     *state.get(&client_theme().text().color()),
                     *state.get(&client_theme().tokens().gold()),
                     HorizontalAlignment::Right { offset: 3.0, border: 3.0 },

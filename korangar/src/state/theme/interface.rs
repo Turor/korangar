@@ -243,7 +243,6 @@ impl InterfaceTheme {
             accent2,
             hover,
             gold,
-            sp,
             corner_radius,
             font_size,
             ..
@@ -281,6 +280,8 @@ impl InterfaceTheme {
                 overflow_behavior: OverflowBehavior::Shrink,
                 anchor_color: border,
                 closest_anchor_color: hover,
+                frame_color: border,
+                frame_width: 2.0,
             },
             text: TextTheme {
                 color: text,
@@ -416,7 +417,7 @@ impl InterfaceTheme {
                 overflow_behavior: OverflowBehavior::Shrink,
             },
             tooltip: TooltipTheme {
-                background_color: bg.with_alpha_u8(230),
+                background_color: bg.with_alpha_u8(tokens.window_alpha_u8()),
                 foreground_color: text,
                 highlight_color: gold,
                 shadow_color: Color::rgba_u8(0, 0, 0, 120),
@@ -435,14 +436,14 @@ impl InterfaceTheme {
             chat: ChatTheme {
                 window_color: panel.with_alpha_u8(tokens.window_alpha_u8()),
                 text_box_background_color: bg.with_alpha_u8(tokens.window_alpha_u8()),
-                broadcast_color: gold,
-                server_color: sp,
-                error_color: accent2,
-                information_color: accent,
-                public_color: text,
-                whisper_color: sp,
-                party_color: Color::rgb_u8(230, 215, 200),
-                guild_color: accent,
+                broadcast_color: tokens.chat.broadcast,
+                server_color: tokens.chat.server,
+                error_color: tokens.chat.error,
+                information_color: tokens.chat.information,
+                public_color: tokens.chat.public,
+                whisper_color: tokens.chat.whisper,
+                party_color: tokens.chat.party,
+                guild_color: tokens.chat.guild,
                 bubble_color: text,
                 bubble_background_color: panel.with_alpha_u8(180),
                 announce_background_color: bg.with_alpha_u8(170),
@@ -476,6 +477,27 @@ impl InterfaceTheme {
             },
             basic_info: BasicInfoTheme::from_tokens(tokens),
         }
+    }
+
+    /// Multiply chrome row heights by the player font scale.
+    ///
+    /// Call once on a freshly loaded theme. Font sizes stay at the token value;
+    /// the text layouter applies the same factor when measuring.
+    pub fn with_font_scale(mut self, factor: f32) -> Self {
+        let factor = if factor.is_finite() { factor.clamp(0.8, 1.5) } else { 1.0 };
+        if (factor - 1.0).abs() < f32::EPSILON {
+            return self;
+        }
+        self.window.title_height *= factor;
+        self.text.height *= factor;
+        self.button.height *= factor;
+        self.state_button.height *= factor;
+        self.text_box.height *= factor;
+        self.field.height *= factor;
+        self.collapsible.title_height *= factor;
+        self.drop_down.item_height *= factor;
+        self.drop_down.button_height *= factor;
+        self
     }
 
     pub fn load(theme_type: InterfaceThemeType, name: &str) -> Self {
@@ -643,6 +665,8 @@ impl InterfaceTheme {
                 overflow_behavior: OverflowBehavior::Shrink,
                 anchor_color: Color::rgb_u8(130, 105, 160),
                 closest_anchor_color: Color::rgb_u8(255, 175, 30),
+                frame_color: Color::rgb_u8(130, 105, 160),
+                frame_width: 2.0,
             },
             text: TextTheme {
                 color: Color::monochrome_u8(220),
@@ -778,7 +802,7 @@ impl InterfaceTheme {
                 overflow_behavior: OverflowBehavior::LineBreak,
             },
             tooltip: TooltipTheme {
-                background_color: Color::rgba_u8(15, 15, 15, 200),
+                background_color: Color::rgba_u8(15, 15, 15, 255),
                 foreground_color: Color::monochrome_u8(235),
                 highlight_color: Color::rgb_u8(255, 160, 60),
                 shadow_color: Color::rgba_u8(0, 0, 0, 100),
@@ -867,6 +891,8 @@ impl InterfaceTheme {
                 overflow_behavior: OverflowBehavior::Shrink,
                 anchor_color: Color::rgb_u8(140, 105, 130),
                 closest_anchor_color: Color::rgb_u8(255, 175, 30),
+                frame_color: Color::rgb_u8(140, 105, 130),
+                frame_width: 2.0,
             },
             text: TextTheme {
                 color: Color::monochrome_u8(220),
@@ -1002,7 +1028,7 @@ impl InterfaceTheme {
                 overflow_behavior: OverflowBehavior::LineBreak,
             },
             tooltip: TooltipTheme {
-                background_color: Color::rgba_u8(15, 15, 15, 200),
+                background_color: Color::rgba_u8(15, 15, 15, 255),
                 foreground_color: Color::monochrome_u8(235),
                 highlight_color: Color::rgb_u8(255, 160, 60),
                 shadow_color: Color::rgba_u8(0, 0, 0, 100),
@@ -1309,5 +1335,83 @@ mod menu_theme_tests {
         assert_eq!(ember.tokens.name, ThemeTokens::ember_forge().name);
         let unknown = InterfaceTheme::menu_for_in_game("no-such-theme");
         assert_eq!(unknown.tokens, ThemeTokens::default());
+    }
+}
+
+#[cfg(test)]
+mod styling_token_tests {
+    use korangar_networking::MessageColor;
+
+    use super::{InterfaceTheme, InterfaceThemeType};
+    use crate::graphics::Color;
+    use crate::settings::VERDANT_RUNE_THEME_NAME;
+    use crate::state::theme::ThemeTokens;
+
+    #[test]
+    fn tooltip_and_context_menu_backgrounds_are_opaque() {
+        let tokens = ThemeTokens::verdant_rune();
+        let theme = InterfaceTheme::from_tokens(&tokens);
+        // Context menus are windows with no background override, so they use this fill.
+        assert_eq!(theme.window.background_color.alpha_as_u8(), 255);
+        assert_eq!(theme.tooltip.background_color.alpha_as_u8(), tokens.window_alpha_u8());
+        assert_eq!(theme.tooltip.background_color.alpha_as_u8(), 255);
+
+        let mut half = tokens.clone();
+        half.window_alpha = 0.5;
+        let theme = InterfaceTheme::from_tokens(&half);
+        assert_eq!(theme.tooltip.background_color.alpha_as_u8(), half.window_alpha_u8());
+        assert_eq!(theme.window.background_color.alpha_as_u8(), half.window_alpha_u8());
+
+        let stock = InterfaceTheme::load(InterfaceThemeType::InGame, "^missing-stock-fallback^");
+        assert_eq!(stock.tooltip.background_color.alpha_as_u8(), 255);
+        let menu = InterfaceTheme::menu_for_in_game(VERDANT_RUNE_THEME_NAME);
+        assert_eq!(menu.tooltip.background_color.alpha_as_u8(), 255);
+    }
+
+    #[test]
+    fn window_and_dialog_band_frame_comes_from_the_border_token() {
+        let tokens = ThemeTokens::verdant_rune();
+        let theme = InterfaceTheme::from_tokens(&tokens);
+        // The dialog band, minimap, menu bar, chat, and context menu are `window!`
+        // with no frame override, so they draw this color.
+        assert_eq!(theme.window.frame_color, tokens.border);
+        assert!(theme.window.frame_width >= 1.0);
+        let mut recolored = tokens.clone();
+        recolored.border = Color::rgb_u8(1, 2, 3);
+        let theme = InterfaceTheme::from_tokens(&recolored);
+        assert_eq!(theme.window.frame_color.red_as_u8(), 1);
+        assert_eq!(theme.window.frame_color.green_as_u8(), 2);
+        assert_eq!(theme.window.frame_color.blue_as_u8(), 3);
+    }
+
+    #[test]
+    fn party_chat_color_follows_the_token() {
+        let tokens = ThemeTokens::verdant_rune();
+        let theme = InterfaceTheme::from_tokens(&tokens);
+        assert_eq!(theme.chat.message_color(MessageColor::Party), tokens.chat.party);
+        let mut changed = tokens.clone();
+        changed.chat.party = Color::rgb_u8(10, 20, 30);
+        let theme = InterfaceTheme::from_tokens(&changed);
+        assert_eq!(theme.chat.message_color(MessageColor::Party).red_as_u8(), 10);
+        assert_eq!(theme.chat.message_color(MessageColor::Party).green_as_u8(), 20);
+        assert_eq!(theme.chat.message_color(MessageColor::Party).blue_as_u8(), 30);
+    }
+
+    #[test]
+    fn font_scale_grows_chrome_without_baking_the_font_size() {
+        let theme = InterfaceTheme::from_tokens(&ThemeTokens::verdant_rune());
+        let title = theme.window.title_height;
+        let font = theme.text.font_size;
+        let button = theme.button.height;
+        let scaled = InterfaceTheme::from_tokens(&ThemeTokens::verdant_rune()).with_font_scale(1.5);
+        assert!((scaled.window.title_height - title * 1.5).abs() < 0.01);
+        assert!((scaled.button.height - button * 1.5).abs() < 0.01);
+        assert!((scaled.text.height - theme.text.height * 1.5).abs() < 0.01);
+        assert_eq!(scaled.text.font_size, font);
+        assert_eq!(scaled.window.frame_color, theme.window.frame_color);
+        let identity = InterfaceTheme::from_tokens(&ThemeTokens::verdant_rune()).with_font_scale(1.0);
+        assert_eq!(identity.window.title_height, title);
+        let clamped = InterfaceTheme::from_tokens(&ThemeTokens::verdant_rune()).with_font_scale(3.0);
+        assert!((clamped.window.title_height - title * 1.5).abs() < 0.01);
     }
 }

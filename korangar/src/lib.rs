@@ -433,6 +433,8 @@ pub struct Client {
     loaded_world_theme: String,
     loaded_in_game_theme_mtime: Option<std::time::SystemTime>,
     loaded_world_theme_mtime: Option<std::time::SystemTime>,
+    /// Percent baked into the loaded interface theme's chrome heights.
+    loaded_font_percent: u16,
     force_reload_themes: bool,
     active_graphics_settings: GraphicsSettings,
     graphics_engine: GraphicsEngine,
@@ -892,6 +894,7 @@ impl Client {
         let active_interface_settings = client_state.follow(crate::client_state().interface_settings()).clone();
         let loaded_in_game_theme = session_theme_name(&active_interface_settings.in_game_theme).to_string();
         let loaded_world_theme = session_theme_name(&active_interface_settings.world_theme).to_string();
+        let loaded_font_percent = active_interface_settings.font_scale.percent;
 
         interface.open_window(LoginWindow::new(
             crate::client_state().login_window(),
@@ -988,6 +991,7 @@ impl Client {
             loaded_world_theme_mtime: crate::state::theme::theme_file_mtime(&loaded_world_theme),
             loaded_in_game_theme,
             loaded_world_theme,
+            loaded_font_percent,
             force_reload_themes: false,
             active_graphics_settings: graphics_settings,
             graphics_engine,
@@ -1138,18 +1142,35 @@ impl Client {
             self.active_interface_settings.menu_theme = interface_settings.menu_theme.clone();
         }
 
+        let font_scale = self.client_state.follow(client_state().interface_settings()).font_scale.clone();
+        let font_factor = crate::interface::font_scale::font_scale_factor(font_scale.percent);
+        crate::interface::font_scale::set_active_factor(font_factor);
+        if self.active_interface_settings.font_scale != font_scale {
+            self.active_interface_settings.font_scale = font_scale.clone();
+        }
+
         let interface_settings = self.client_state.follow(client_state().interface_settings());
 
         let saved_in_game_theme = interface_settings.in_game_theme.clone();
         let in_game_theme = session_theme_name(&saved_in_game_theme).to_string();
         let in_game_mtime = crate::state::theme::theme_file_mtime(&in_game_theme);
-        if self.force_reload_themes || self.loaded_in_game_theme != in_game_theme || self.loaded_in_game_theme_mtime != in_game_mtime {
-            let theme = InterfaceTheme::load(InterfaceThemeType::InGame, &in_game_theme);
+        if crate::state::theme::theme_reload_due(
+            &self.loaded_in_game_theme,
+            self.loaded_in_game_theme_mtime,
+            self.loaded_font_percent,
+            &in_game_theme,
+            in_game_mtime,
+            font_scale.percent,
+            self.force_reload_themes,
+        ) {
+            let theme = InterfaceTheme::load(InterfaceThemeType::InGame, &in_game_theme).with_font_scale(font_factor);
             *self.client_state.follow_mut(client_state().in_game_theme()) = theme;
             // Login/char-select/PIN screens follow the same token theme.
-            *self.client_state.follow_mut(client_state().menu_theme()) = InterfaceTheme::menu_for_in_game(&in_game_theme);
+            *self.client_state.follow_mut(client_state().menu_theme()) =
+                InterfaceTheme::menu_for_in_game(&in_game_theme).with_font_scale(font_factor);
             self.loaded_in_game_theme = in_game_theme;
             self.loaded_in_game_theme_mtime = in_game_mtime;
+            self.loaded_font_percent = font_scale.percent;
         }
         if self.active_interface_settings.in_game_theme != saved_in_game_theme {
             self.active_interface_settings.in_game_theme = saved_in_game_theme;

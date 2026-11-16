@@ -28,6 +28,7 @@ mod enchant;
 mod enchant_grade;
 pub(crate) mod equipment;
 mod error;
+mod font_scale_control;
 #[cfg(feature = "debug")]
 mod frame_inspector;
 mod friend_list;

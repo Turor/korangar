@@ -5,6 +5,7 @@ pub mod components;
 pub(crate) mod context_menu_flow;
 pub mod cursor;
 pub(crate) mod dialog_layer;
+pub mod font_scale;
 pub mod guild_emblem_overlay;
 pub(crate) mod npc_flow;
 pub(crate) mod npc_overlay;
