@@ -10,6 +10,7 @@ mod credentials;
 mod headgear;
 mod inject;
 mod item_workshop;
+mod job_names;
 mod logic;
 mod mail;
 mod minimap;
@@ -26,7 +27,10 @@ pub use self::credentials::{Credentials, LiveConnect, TEST_HOST, TEST_PORT};
 pub use self::headgear::{HeadgearScene, LookedPlayer};
 pub use self::inject::input_path_parity;
 pub use self::item_workshop::WorkshopView;
-pub use self::logic::{DialogView, LogicSession, MailRoundTrip, Outbound, Phase, SelectedOption, SentChoice, SettingsView};
+pub use self::job_names::{JobNamesReport, job_names_scenario};
+pub use self::logic::{
+    DialogView, LivePartyJobReport, LogicSession, MailRoundTrip, Outbound, Phase, SelectedOption, SentChoice, SettingsView,
+};
 pub use self::mail::{OfflineMailReport, offline_mail_exchange};
 pub use self::minimap::{MinimapHarness, MinimapMarkView, MinimapView};
 pub use self::navigation_followups::{MapRouteReport, RewardDetailReport, map_route_scenario, reward_detail_scenario};

@@ -308,6 +308,19 @@ mod character_slot_preview {
                     OverflowBehavior::Shrink,
                 );
 
+                if let Some(class) = crate::state::job_names::job_name(i32::from(character_information.job_id.0)) {
+                    layout.add_text(
+                        layout_info.area,
+                        class,
+                        FontSize(14.0),
+                        *state.get(&client_theme().tokens().gold()),
+                        *state.get(&client_theme().tokens().accent()),
+                        HorizontalAlignment::Right { offset: 5.0, border: 3.0 },
+                        VerticalAlignment::Top { offset: 30.0 },
+                        OverflowBehavior::Shrink,
+                    );
+                }
+
                 layout.add_text(
                     layout_info.area,
                     "Base level",

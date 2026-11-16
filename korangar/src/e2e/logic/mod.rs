@@ -12,6 +12,7 @@ use std::sync::atomic::AtomicU64;
 use ragnarok_packets::ClientTick;
 
 use self::live::SentHeaders;
+pub use self::live::job_names::LivePartyJobReport;
 pub use self::live::mail::MailRoundTrip;
 pub use self::live::{SelectedOption, SentChoice};
 use crate::autopilot::{ClickKind, Command, parse_command};

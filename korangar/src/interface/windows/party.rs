@@ -358,6 +358,7 @@ where
                         children: (
                             text! { text: party_path.name(), },
                             PartyRoster::new(party_path),
+                            text! { text: party_path.options_text(), },
                             button! {
                                 text: "Leave",
                                 event: InputEvent::LeaveParty,
@@ -408,16 +409,16 @@ where
                                 event: invite_from_button,
                             },
                             button! {
-                                text: "Share experience",
+                                text: "Switch experience sharing",
                                 disabled: ComputedSelector::new_default(move |state: &ClientState| *locked.follow_safe(state)),
                                 event: toggle_experience,
                             },
                             button! {
-                                text: "Share item pickup",
+                                text: "Switch item pickup sharing",
                                 event: toggle_pickup,
                             },
                             button! {
-                                text: "Share loot",
+                                text: "Switch loot sharing",
                                 event: toggle_division,
                             },
                         ),

@@ -48,6 +48,8 @@ pub struct PartyState {
     pub experience_share_locked: bool,
     pub item_pickup: bool,
     pub item_division: bool,
+    /// The three share settings in words, for the party window.
+    pub options_text: String,
     pub invitations_allowed: bool,
     pub local_account_id: AccountId,
     pub self_is_leader: bool,
@@ -65,6 +67,7 @@ impl Default for PartyState {
             experience_share_locked: false,
             item_pickup: false,
             item_division: false,
+            options_text: String::new(),
             invitations_allowed: true,
             local_account_id: AccountId(0),
             self_is_leader: false,
@@ -194,7 +197,25 @@ impl PartyState {
             PartyUpdate::InviteResult { name, result } => invite_notice(&name, result),
         };
         self.refresh_leader_flag();
+        self.options_text = self.options_summary();
         notice
+    }
+
+    /// roBrowser's party setup as three lines: "Even share" or "Each takes"
+    /// for experience, item pickup and loot. A level gap that keeps
+    /// experience from being shared (option 2) says so.
+    pub fn options_summary(&self) -> String {
+        let share = |on: bool| if on { "Even share" } else { "Each takes" };
+        let experience = if self.experience_share_locked {
+            "Each takes (level gap too wide to share)"
+        } else {
+            share(self.experience_share != 0)
+        };
+        format!(
+            "Experience: {experience}\nItem pickup: {}\nLoot: {}",
+            share(self.item_pickup),
+            share(self.item_division)
+        )
     }
 
     fn apply_create(&mut self, result: u8) -> Option<PartyNotice> {
@@ -472,43 +493,7 @@ fn refresh_label(member: &mut PartyMember) {
     );
 }
 
-pub fn job_label(job: i16) -> String {
-    let name = match job {
-        0 => "Novice",
-        1 => "Swordman",
-        2 => "Mage",
-        3 => "Archer",
-        4 => "Acolyte",
-        5 => "Merchant",
-        6 => "Thief",
-        7 => "Knight",
-        8 => "Priest",
-        9 => "Wizard",
-        10 => "Blacksmith",
-        11 => "Hunter",
-        12 => "Assassin",
-        13 => "Knight",
-        14 => "Crusader",
-        15 => "Monk",
-        16 => "Sage",
-        17 => "Rogue",
-        18 => "Alchemist",
-        19 => "Bard",
-        20 => "Dancer",
-        21 => "Crusader",
-        22 => "Wedding",
-        23 => "Super Novice",
-        24 => "Gunslinger",
-        25 => "Ninja",
-        26 => "Novice High",
-        27 => "Swordman High",
-        28 => "Mage High",
-        29 => "Archer High",
-        30 => "Acolyte High",
-        _ => return format!("Job {job}"),
-    };
-    name.to_owned()
-}
+pub use super::job_names::job_label;
 
 /// Chat line for `ZC_PARTY_JOIN_REQ_ACK` (`0x02C5`).
 ///
@@ -603,6 +588,55 @@ mod tests {
         assert_eq!(job_label(nova.job), "Knight");
         assert!(nova.label.contains("prontera"));
         assert!(!nova.label.contains(".gat"));
+    }
+
+    #[test]
+    fn options_text_follows_the_share_settings() {
+        let mut state = PartyState::default();
+        state.apply(
+            PartyUpdate::Options {
+                experience_share: 1,
+                item_pickup: false,
+                item_division: true,
+            },
+            AccountId(1),
+        );
+        assert_eq!(
+            state.options_text,
+            "Experience: Even share\nItem pickup: Each takes\nLoot: Even share"
+        );
+        state.apply(PartyUpdate::ExperienceShare(2), AccountId(1));
+        assert!(state.options_text.starts_with("Experience: Each takes (level gap"));
+        state.apply(PartyUpdate::ExperienceShare(0), AccountId(1));
+        assert!(state.options_text.starts_with("Experience: Each takes\n"));
+    }
+
+    #[test]
+    fn third_job_members_are_named() {
+        let mut member = PartyMember {
+            account_id: AccountId(5),
+            character_id: CharacterId(5),
+            name: "Rune".to_owned(),
+            map_name: "prontera.gat".to_owned(),
+            leader: false,
+            online: true,
+            dead: false,
+            job: 4060,
+            base_level: 175,
+            health: 0,
+            maximum_health: 0,
+            spell_points: 0,
+            maximum_spell_points: 0,
+            x: 0,
+            y: 0,
+            has_position: false,
+            label: String::new(),
+        };
+        refresh_label(&mut member);
+        assert_eq!(member.label, "Rune  Rune Knight  Lv175  prontera  Online");
+        member.job = 4008;
+        refresh_label(&mut member);
+        assert!(member.label.contains("Lord Knight"), "{}", member.label);
     }
 
     #[test]

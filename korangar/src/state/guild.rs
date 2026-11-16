@@ -659,57 +659,7 @@ fn info_rows(guild: &GuildState) -> Vec<String> {
     ]
 }
 
-pub fn job_label(job: i16) -> String {
-    let known = match job {
-        0 => Some("Novice"),
-        1 => Some("Swordman"),
-        2 => Some("Mage"),
-        3 => Some("Archer"),
-        4 => Some("Acolyte"),
-        5 => Some("Merchant"),
-        6 => Some("Thief"),
-        7 => Some("Knight"),
-        8 => Some("Priest"),
-        9 => Some("Wizard"),
-        10 => Some("Blacksmith"),
-        11 => Some("Hunter"),
-        12 => Some("Assassin"),
-        14 => Some("Crusader"),
-        15 => Some("Monk"),
-        16 => Some("Sage"),
-        17 => Some("Rogue"),
-        18 => Some("Alchemist"),
-        19 => Some("Bard"),
-        20 => Some("Dancer"),
-        23 => Some("Super Novice"),
-        24 => Some("Gunslinger"),
-        25 => Some("Ninja"),
-        4008 => Some("Lord Knight"),
-        4009 => Some("High Priest"),
-        4010 => Some("High Wizard"),
-        4011 => Some("Whitesmith"),
-        4012 => Some("Sniper"),
-        4013 => Some("Assassin Cross"),
-        4054 => Some("Rune Knight"),
-        4055 => Some("Warlock"),
-        4056 => Some("Ranger"),
-        4057 => Some("Archbishop"),
-        4058 => Some("Mechanic"),
-        4059 => Some("Guillotine Cross"),
-        4066 => Some("Royal Guard"),
-        4067 => Some("Sorcerer"),
-        4068 => Some("Minstrel"),
-        4069 => Some("Wanderer"),
-        4070 => Some("Sura"),
-        4071 => Some("Genetic"),
-        4072 => Some("Shadow Chaser"),
-        _ => None,
-    };
-    match known {
-        Some(name) => name.to_owned(),
-        None => format!("Job {job}"),
-    }
-}
+pub use super::job_names::job_label;
 
 pub fn make_guild_result_text(result: u8) -> String {
     match result {
