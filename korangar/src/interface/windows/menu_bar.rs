@@ -9,9 +9,10 @@
 //! Party is not a second button.
 //!
 //! Related windows share one button ([`super::WindowGroup`]): Character,
-//! Journal, Social, Settings and Pet Stable. The button opens the member that
-//! was shown last and closes whichever member is open; the member windows
-//! switch between each other with their tab strip.
+//! Journal, Social, Settings, Pet Stable and Services. The button opens the
+//! member that was shown last and closes whichever member is open; the member
+//! windows switch between each other with their tab strip. Services is Mail,
+//! Bank, and Roulette, and it opens Bank until one of those has been shown.
 //!
 //! Buttons show the roBrowser `menu_icon/bt_*.bmp` art when the client has it
 //! and fall back to the caption at the normal button font size. The tooltip
@@ -58,8 +59,9 @@ const MENU_BAR_TITLE_GAP: f32 = 2.0;
 const MENU_BAR_BORDER: f32 = 8.0;
 /// Space above the buttons (title strip, the drag handle) and below them.
 const MENU_BAR_CHROME_HEIGHT: f32 = MENU_BAR_TITLE + MENU_BAR_GAPS + MENU_BAR_TITLE_GAP + MENU_BAR_BORDER;
-/// One cell. Wide enough for a six-letter caption at the normal button font
-/// and tall enough for the 32×34 `menu_icon` art.
+/// One cell. Wide enough for a six-letter caption at the normal button font.
+/// Longer captions, such as Services, shrink to fit. Tall enough for the
+/// 32×34 `menu_icon` art.
 pub const MENU_BAR_CELL_WIDTH: f32 = 56.0;
 pub const MENU_BAR_CELL_HEIGHT: f32 = 36.0;
 const BUTTON_GAP: f32 = 4.0;
@@ -121,10 +123,6 @@ enum MenuBarKind {
     /// `event` opens the window when it is closed and closes it when it is
     /// open.
     Toggle(Box<InputEvent>),
-    OpenClose {
-        open: Box<InputEvent>,
-        close: Box<InputEvent>,
-    },
     /// `open` shows the window. A second click only removes it.
     OpenOrDismiss(Box<InputEvent>),
     /// One button for a tabbed window group.
@@ -176,20 +174,6 @@ impl MenuBarEntry {
         Self::new(label, caption, hotkey, icon, class, MenuBarKind::Toggle(Box::new(event)))
     }
 
-    fn open_close(
-        label: &str,
-        caption: &'static str,
-        icon: Option<&'static str>,
-        class: WindowClass,
-        open: InputEvent,
-        close: InputEvent,
-    ) -> Self {
-        Self::new(label, caption, None, icon, class, MenuBarKind::OpenClose {
-            open: Box::new(open),
-            close: Box::new(close),
-        })
-    }
-
     fn group(caption: &'static str, icon: Option<&'static str>, group: WindowGroup) -> Self {
         let tabs: Vec<String> = group
             .tabs()
@@ -200,7 +184,7 @@ impl MenuBarEntry {
             })
             .collect();
         let label = format!("{}: {}", group.name(), tabs.join(", "));
-        Self::new(&label, caption, None, icon, group.tabs()[0].class, MenuBarKind::Group(group))
+        Self::new(&label, caption, None, icon, group.default_member(), MenuBarKind::Group(group))
     }
 
     /// Whether this button's window, or any window of its group, is open.
@@ -236,13 +220,12 @@ pub fn menu_bar_entries() -> &'static [MenuBarEntry] {
 
 fn menu_bar_entry_list() -> Vec<MenuBarEntry> {
     use InputEvent::{
-        CloseBank, CloseMail, CloseRoulette, OpenBank, OpenEden, OpenMail, OpenRoulette, OpenWarpra, ToggleCartWindow, ToggleChatWindow,
-        ToggleEmotesWindow, ToggleHotbarWindow, ToggleInventoryWindow, ToggleItemFinderWindow, ToggleMenuWindow, ToggleMvpMinimap,
-        ToggleNavigationWindow, ToggleSkillTreeWindow, ToggleStatusPanelWindow, ToggleWorldMap,
+        OpenEden, OpenWarpra, ToggleCartWindow, ToggleChatWindow, ToggleEmotesWindow, ToggleHotbarWindow, ToggleInventoryWindow,
+        ToggleItemFinderWindow, ToggleMenuWindow, ToggleMvpMinimap, ToggleNavigationWindow, ToggleSkillTreeWindow, ToggleStatusPanelWindow,
+        ToggleWorldMap,
     };
     use WindowClass::{
-        Bank, Cart, Chat, Eden, Emotes, Hotbar, Inventory, ItemFinder, Mail, Menu, MvpMinimap, Navigation, Roulette, SkillTree,
-        StatusPanel, Warpra, WorldMap,
+        Cart, Chat, Eden, Emotes, Hotbar, Inventory, ItemFinder, Menu, MvpMinimap, Navigation, SkillTree, StatusPanel, Warpra, WorldMap,
     };
 
     let icon = |name: &'static str| Some(name);
@@ -267,8 +250,7 @@ fn menu_bar_entry_list() -> Vec<MenuBarEntry> {
         ),
         MenuBarEntry::group("Quests", icon("menu_icon\\bt_quest.bmp"), WindowGroup::Journal),
         MenuBarEntry::group("Social", icon("menu_icon\\bt_party.bmp"), WindowGroup::Social),
-        MenuBarEntry::open_close("Mail", "Mail", icon("menu_icon\\bt_mail.bmp"), Mail, OpenMail, CloseMail),
-        MenuBarEntry::open_close("Bank", "Bank", icon("menu_icon\\bt_bank.bmp"), Bank, OpenBank, CloseBank),
+        MenuBarEntry::group("Services", None, WindowGroup::Services),
         MenuBarEntry::toggle("Minimap", "Map", None, None, MvpMinimap, ToggleMvpMinimap),
         MenuBarEntry::toggle(
             "World Map",
@@ -296,7 +278,6 @@ fn menu_bar_entry_list() -> Vec<MenuBarEntry> {
         MenuBarEntry::group("Pets", None, WindowGroup::PetStable),
         MenuBarEntry::open_or_dismiss("Eden", "Eden", Eden, OpenEden),
         MenuBarEntry::open_or_dismiss("Warpra", "Warp", Warpra, OpenWarpra),
-        MenuBarEntry::open_close("Roulette", "Wheel", None, Roulette, OpenRoulette, CloseRoulette),
         MenuBarEntry::toggle("Basic info", "Info", None, None, StatusPanel, ToggleStatusPanelWindow),
     ]
 }
@@ -332,7 +313,6 @@ pub fn press_menu_bar(index: usize, is_open: impl Fn(WindowClass) -> bool) -> Op
             }
         }
         MenuBarKind::Toggle(event) => MenuBarPress::Dispatch(event.clone()),
-        MenuBarKind::OpenClose { open: open_event, close } => MenuBarPress::Dispatch(if open { close.clone() } else { open_event.clone() }),
         MenuBarKind::OpenOrDismiss(open_event) => {
             if open {
                 MenuBarPress::Close(entry.class)
@@ -878,8 +858,8 @@ mod tests {
     };
     use crate::graphics::{Color, ScreenPosition};
     use crate::input::InputEvent;
-    use crate::interface::windows::WindowClass;
     use crate::interface::windows::placement::{HudFrame, first_open_hud};
+    use crate::interface::windows::{WindowClass, WindowGroup};
 
     const LAYOUTS: [MenuBarLayout; 4] = [
         MenuBarLayout::Auto,
@@ -909,7 +889,7 @@ mod tests {
             assert!(classes.insert(entry.class), "duplicate class {:?}", entry.class);
             assert!(!entry.caption.is_empty());
             assert!(
-                entry.caption.chars().count() <= 6,
+                entry.caption.chars().count() <= 8,
                 "{} caption is too long for a cell",
                 entry.caption
             );
@@ -925,23 +905,6 @@ mod tests {
                     assert_eq!(std::mem::discriminant(event.as_ref()), std::mem::discriminant(closed.as_ref()));
                     assert_eq!(std::mem::discriminant(event.as_ref()), std::mem::discriminant(opened.as_ref()));
                     assert_eq!(event_window(closed.as_ref()), Some(entry.class), "{}", entry.tooltip);
-                }
-                (MenuBarKind::OpenClose { open, close }, Some(MenuBarPress::Dispatch(closed)), Some(MenuBarPress::Dispatch(opened))) => {
-                    assert_eq!(
-                        std::mem::discriminant(open.as_ref()),
-                        std::mem::discriminant(closed.as_ref()),
-                        "{} closed press must be the open event",
-                        entry.tooltip
-                    );
-                    assert_eq!(
-                        std::mem::discriminant(close.as_ref()),
-                        std::mem::discriminant(opened.as_ref()),
-                        "{} open press must be the close event",
-                        entry.tooltip
-                    );
-                    assert_ne!(std::mem::discriminant(open.as_ref()), std::mem::discriminant(close.as_ref()));
-                    assert_eq!(event_window(closed.as_ref()), Some(entry.class));
-                    assert_eq!(event_window(opened.as_ref()), Some(entry.class));
                 }
                 (MenuBarKind::OpenOrDismiss(open), Some(MenuBarPress::Dispatch(closed)), Some(MenuBarPress::Close(class))) => {
                     assert_eq!(std::mem::discriminant(open.as_ref()), std::mem::discriminant(closed.as_ref()));
@@ -965,11 +928,29 @@ mod tests {
             }
         }
 
-        assert!(entries.iter().any(|entry| matches!(entry.kind, MenuBarKind::OpenClose { .. })));
         assert!(entries.iter().any(|entry| entry.class == WindowClass::Stats));
         assert!(entries.iter().any(|entry| entry.class == WindowClass::Emotes));
         assert!(entries.iter().any(|entry| entry.covers(WindowClass::Keybinds)));
         assert!(press_menu_bar(entries.len(), |_| false).is_none());
+    }
+
+    #[test]
+    fn services_is_one_button_without_standalone_mail_bank_or_roulette() {
+        let entries = menu_bar_entries();
+        let services: Vec<_> = entries
+            .iter()
+            .filter(|entry| entry.covers(WindowClass::Mail) || entry.covers(WindowClass::Bank) || entry.covers(WindowClass::Roulette))
+            .collect();
+        assert_eq!(services.len(), 1);
+        assert_eq!(services[0].caption, "Services");
+        assert!(matches!(services[0].kind, MenuBarKind::Group(WindowGroup::Services)));
+        assert_eq!(services[0].class, WindowClass::Bank);
+        for caption in ["Mail", "Bank", "Wheel", "Roulette"] {
+            assert!(
+                entries.iter().all(|entry| entry.caption != caption),
+                "{caption} is still a button"
+            );
+        }
     }
 
     #[test]
