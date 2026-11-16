@@ -98,9 +98,10 @@ impl Client {
                 if character_name.is_empty() {
                     return;
                 }
+                let message_len = self.client_state.follow(client_state().chat_messages()).len();
                 self.client_state
                     .follow_mut(client_state().chat_window())
-                    .set_whisper_target(character_name);
+                    .focus_partner(character_name, message_len);
                 if !self.interface.is_window_with_class_open(WindowClass::Chat) {
                     self.interface
                         .open_window(ChatWindow::new(client_state().chat_window(), client_state().chat_messages()));
