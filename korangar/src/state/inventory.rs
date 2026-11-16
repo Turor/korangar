@@ -25,6 +25,10 @@ pub struct Inventory {
     /// Tabs, sort and search as drawn (`state::inventory_view`).
     #[hidden_element]
     view: InventoryView,
+    /// Ammo stack named by `ZC_EQUIP_ARROW`. Regular rows carry the item's
+    /// equip slot, not whether it is worn, so this is tracked separately.
+    #[hidden_element]
+    equipped_ammo: Option<InventoryIndex>,
 }
 
 impl Inventory {
@@ -40,6 +44,10 @@ impl Inventory {
 
     pub fn set_capacity(&mut self, maximum: u32) {
         self.capacity = Some(maximum);
+    }
+
+    pub fn equipped_ammo(&self) -> Option<InventoryIndex> {
+        self.equipped_ammo
     }
 
     pub fn view(&self) -> &InventoryView {
@@ -303,7 +311,12 @@ impl Inventory {
         let item = self.items.iter_mut().find(|item| item.index == index).unwrap();
 
         let InventoryItemDetails::Equippable { equipped_position, .. } = &mut item.details else {
-            // This can happen for ammunition for example.
+            // Ammunition: remember which stack is equipped.
+            match new_equipped_position.is_empty() {
+                false => self.equipped_ammo = Some(index),
+                true if self.equipped_ammo == Some(index) => self.equipped_ammo = None,
+                true => {}
+            }
             return;
         };
 

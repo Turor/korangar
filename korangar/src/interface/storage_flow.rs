@@ -8,7 +8,7 @@ use std::time::Instant;
 use crate::Client;
 use crate::interface::windows::WindowClass;
 use crate::state::inventory::InventoryPathExt;
-use crate::state::storage_tools::{SAVED_SEARCHES_FILE, SavedSearchFile, deposit_plan};
+use crate::state::storage_tools::{SAVED_SEARCHES_FILE, SavedSearchFile, deposit_plan, live_deposit_amount};
 use crate::state::{ClientStatePathExt, client_state};
 
 impl Client {
@@ -23,7 +23,11 @@ impl Client {
 
     fn persist_storage_searches(&mut self) {
         let path = Path::new(SAVED_SEARCHES_FILE);
-        let mut file = SavedSearchFile::load(path);
+        // An unreadable or invalid file is left alone rather than replaced
+        // with this character's list only.
+        let Ok(mut file) = SavedSearchFile::load_checked(path) else {
+            return;
+        };
         self.client_state.follow(client_state().storage_tools()).store_into(&mut file);
         let _ = file.save(path);
     }
@@ -50,6 +54,7 @@ impl Client {
             let view = inventory.view();
             deposit_plan(
                 self.client_state.follow(client_state().inventory().items()),
+                inventory.equipped_ammo(),
                 storage.view().tab(),
                 storage.view().search(),
                 |id| view.card_name(id),
@@ -68,12 +73,28 @@ impl Client {
             self.client_state.follow_mut(client_state().storage_tools()).cancel_deposit();
             return;
         }
-        let next = self
-            .client_state
-            .follow_mut(client_state().storage_tools())
-            .next_deposit(Instant::now());
-        if let Some((index, amount)) = next {
-            let _ = self.networking_system.move_item_to_storage(index, u32::from(amount));
+        let now = Instant::now();
+        // Skipped entries cost no send, so the next one goes out this frame.
+        while let Some(index) = self.client_state.follow_mut(client_state().storage_tools()).pop_due(now) {
+            let amount = {
+                let inventory = self.client_state.follow(client_state().inventory());
+                live_deposit_amount(
+                    self.client_state.follow(client_state().inventory().items()),
+                    index,
+                    inventory.equipped_ammo(),
+                )
+            };
+            let tools = client_state().storage_tools();
+            match amount {
+                None => self.client_state.follow_mut(tools).mark_skipped(),
+                Some(amount) => {
+                    match self.networking_system.move_item_to_storage(index, u32::from(amount)) {
+                        Ok(()) => self.client_state.follow_mut(tools).mark_sent(now),
+                        Err(_) => self.client_state.follow_mut(tools).fail("not connected"),
+                    }
+                    return;
+                }
+            }
         }
     }
 }

@@ -18,16 +18,25 @@ fn storage_tabs_saved_searches_and_deposit_offline() {
         (InventoryTab::Etc, vec![0]),
     ]);
 
-    // Worn knife 3, equipped arrows 5 and favorite card 7 never move.
+    // Worn knife 3 and favorite card 7 never move. Arrows 5 carry the ammo
+    // slot as WearState like every ammo row; they stay only while
+    // ZC_EQUIP_ARROW named their index.
     assert_eq!(report.plans, [
-        (InventoryTab::All, "", vec![(2, 30), (4, 1), (6, 12), (8, 4)]),
-        (InventoryTab::Usable, "", vec![(2, 30), (8, 4)]),
-        (InventoryTab::Etc, "", vec![(6, 12)]),
+        (InventoryTab::All, "", None, vec![2, 4, 5, 6, 8]),
+        (InventoryTab::All, "", Some(5), vec![2, 4, 6, 8]),
+        (InventoryTab::Usable, "", None, vec![2, 8]),
+        (InventoryTab::Etc, "", None, vec![5, 6]),
+        (InventoryTab::Etc, "", Some(5), vec![6]),
         // The knife holds a Poring Card; the card itself is a favorite.
-        (InventoryTab::All, "poring", vec![(4, 1)]),
+        (InventoryTab::All, "poring", None, vec![4]),
+        (InventoryTab::Favorites, "", None, vec![]),
     ]);
 
     assert_eq!(report.throttled, [Some(2), None, Some(6)]);
+    // Checked against the live row at send time: current amount, then not
+    // at all once it is a favorite or gone.
+    assert_eq!(report.send_time, [Some(12), Some(10), None, None]);
+    assert_eq!(report.ammo_tracking, (Some(5), None));
     assert_eq!(report.deposit_status, "Deposited 2 stacks");
 
     assert_eq!(report.alice, ["card", "ore"]);
@@ -47,9 +56,10 @@ fn storage_deposit_plan_on_test_character() {
     };
     let report = session.storage_deposit_plan_on_test().unwrap();
     eprintln!(
-        "E2E_STORAGE_PLAN rows={} protected={} planned={}",
-        report.inventory_rows, report.protected, report.planned
+        "E2E_STORAGE_PLAN rows={} worn={} ammo={:?} protected={} planned={}",
+        report.inventory_rows, report.worn, report.equipped_ammo, report.protected, report.planned
     );
     assert!(report.inventory_rows > 0, "the TEST character's inventory never arrived");
     assert_eq!(report.planned, report.inventory_rows - report.protected);
+    assert!(report.protected >= report.worn, "worn gear is always protected");
 }

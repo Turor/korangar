@@ -4,16 +4,17 @@
 
 use std::time::Instant;
 
+use korangar_networking::InventoryItemDetails;
 use ragnarok_packets::{EquipPosition, InventoryIndex};
 
 use crate::e2e::inventory_view::{drawn, gear, regular};
 use crate::state::inventory::Inventory;
 use crate::state::inventory_view::{InventorySort, InventoryTab, item_type, set_favorite};
 pub use crate::state::storage_tools::{DEPOSIT_INTERVAL, MAX_SAVED_SEARCHES, SavedSearchFile};
-use crate::state::storage_tools::{StorageTools, deposit_plan};
+use crate::state::storage_tools::{StorageTools, deposit_plan, live_deposit_amount};
 
-/// (storage tab, search, planned (index, amount) moves).
-pub type DepositCase = (InventoryTab, &'static str, Vec<(u16, u16)>);
+/// (storage tab, search, equipped ammo index, planned inventory indexes).
+pub type DepositCase = (InventoryTab, &'static str, Option<u16>, Vec<u16>);
 
 /// What the offline run observed.
 #[derive(Clone, Debug, PartialEq)]
@@ -22,8 +23,13 @@ pub struct OfflineStorageReport {
     pub storage_tabs: Vec<(InventoryTab, Vec<u16>)>,
     /// Inventory indexes "Deposit matching" queues per (tab, search).
     pub plans: Vec<DepositCase>,
-    /// Indexes sent at 0 ms, 50 ms and one interval later.
+    /// Indexes popped at 0 ms, 50 ms and one interval later.
     pub throttled: Vec<Option<u16>>,
+    /// Send-time amounts for a queued stack: as queued, after it shrank to
+    /// 10, after it became a favorite, after it was removed.
+    pub send_time: Vec<Option<u16>>,
+    /// Tracked ammo index after `ZC_EQUIP_ARROW` for 5, then its unequip.
+    pub ammo_tracking: (Option<u16>, Option<u16>),
     pub deposit_status: String,
     /// Saved searches for Alice and Bob after a save/load through a file.
     pub alice: Vec<String>,
@@ -64,29 +70,60 @@ pub fn offline_storage_tools(scratch: &std::path::Path) -> Result<OfflineStorage
     // The view hides worn gear; the plan works on the raw list.
     all_items.insert(1, gear(3, 1201, "Knife", true, [0; 4]));
     let plans = [
-        (InventoryTab::All, ""),
-        (InventoryTab::Usable, ""),
-        (InventoryTab::Etc, ""),
-        (InventoryTab::All, "poring"),
+        (InventoryTab::All, "", None),
+        (InventoryTab::All, "", Some(5)),
+        (InventoryTab::Usable, "", None),
+        (InventoryTab::Etc, "", None),
+        (InventoryTab::Etc, "", Some(5)),
+        (InventoryTab::All, "poring", None),
+        (InventoryTab::Favorites, "", None),
     ]
     .into_iter()
-    .map(|(tab, query)| {
-        let plan = deposit_plan(&all_items, tab, query, |id| inventory.view().card_name(id))
-            .into_iter()
-            .map(|(index, amount)| (index.0, amount))
-            .collect();
-        (tab, query, plan)
+    .map(|(tab, query, ammo)| {
+        let plan = deposit_plan(&all_items, ammo.map(InventoryIndex), tab, query, |id| {
+            inventory.view().card_name(id)
+        })
+        .into_iter()
+        .map(|index| index.0)
+        .collect();
+        (tab, query, ammo, plan)
     })
     .collect();
 
     let mut tools = StorageTools::default();
-    tools.start_deposit(vec![(InventoryIndex(2), 30), (InventoryIndex(6), 12)]);
+    tools.start_deposit(vec![InventoryIndex(2), InventoryIndex(6)]);
     let start = Instant::now();
-    let throttled = [start, start + DEPOSIT_INTERVAL / 4, start + DEPOSIT_INTERVAL]
-        .into_iter()
-        .map(|now| tools.next_deposit(now).map(|(index, _)| index.0))
-        .collect();
+    let mut throttled = Vec::new();
+    for now in [start, start + DEPOSIT_INTERVAL / 4, start + DEPOSIT_INTERVAL] {
+        let popped = tools.pop_due(now);
+        if popped.is_some() {
+            tools.mark_sent(now);
+        }
+        throttled.push(popped.map(|index| index.0));
+    }
     let deposit_status = tools.status().to_owned();
+
+    let mut tracked = Inventory::from_items(all_items.clone());
+    tracked.update_equipped_position(InventoryIndex(5), EquipPosition::AMMO);
+    let equipped = tracked.equipped_ammo().map(|index| index.0);
+    tracked.update_equipped_position(InventoryIndex(5), EquipPosition::NONE);
+    let ammo_tracking = (equipped, tracked.equipped_ammo().map(|index| index.0));
+
+    let mut live = all_items.clone();
+    let jellopy = InventoryIndex(6);
+    let mut send_time = vec![live_deposit_amount(&live, jellopy, None)];
+    if let Some(InventoryItemDetails::Regular { amount, .. }) =
+        live.iter_mut().find(|item| item.index == jellopy).map(|item| &mut item.details)
+    {
+        *amount = 10;
+    }
+    send_time.push(live_deposit_amount(&live, jellopy, None));
+    if let Some(item) = live.iter_mut().find(|item| item.index == jellopy) {
+        set_favorite(item, true);
+    }
+    send_time.push(live_deposit_amount(&live, jellopy, None));
+    live.retain(|item| item.index != jellopy);
+    send_time.push(live_deposit_amount(&live, jellopy, None));
 
     let path = scratch.join("storage_searches.ron");
     let mut alice = StorageTools::default();
@@ -109,6 +146,8 @@ pub fn offline_storage_tools(scratch: &std::path::Path) -> Result<OfflineStorage
         storage_tabs,
         plans,
         throttled,
+        send_time,
+        ammo_tracking,
         deposit_status,
         alice: alice_again.saved().to_vec(),
         bob: bob.saved().to_vec(),
