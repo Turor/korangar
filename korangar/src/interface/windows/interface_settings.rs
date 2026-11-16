@@ -2,12 +2,15 @@ use korangar_interface::window::{CustomWindow, Window};
 use rust_state::Path;
 
 use crate::input::InputEvent;
+use crate::interface::font_scale::FontScaleSettingPathExt;
 use crate::interface::windows::WindowClass;
 use crate::loaders::OverflowBehavior;
 use crate::settings::{InterfaceSettings, InterfaceSettingsCapabilities, InterfaceSettingsCapabilitiesPathExt, InterfaceSettingsPathExt};
 use crate::state::localization::LocalizationPathExt;
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, ClientStatePathExt, client_state};
+
+struct FontScalePercentBox;
 
 pub struct InterfaceSettingsWindow<A, B> {
     settings_path: A,
@@ -95,6 +98,21 @@ where
                         selected: self.settings_path.world_theme(),
                         options: self.capabilities_path.world_themes(),
                     }
+                )
+            },
+            split! {
+                children: (
+                    text! {
+                        text: "Font scale %",
+                        overflow_behavior: OverflowBehavior::Shrink,
+                    },
+                    super::font_scale_control::FontScaleSlider::new(self.settings_path.font_scale()),
+                    text_box! {
+                        ghost_text: "100",
+                        state: self.settings_path.font_scale().draft(),
+                        input_handler: super::font_scale_control::FontScaleInput::new(self.settings_path.font_scale()),
+                        focus_id: FontScalePercentBox,
+                    },
                 )
             },
             button! {

@@ -482,15 +482,25 @@ impl TextLayouter<ClientState> for Arc<FontLoader> {
         available_width: f32,
         overflow_behavior: OverflowBehavior,
     ) -> (ScreenSize, FontSize) {
-        let (size, font_size) = self.as_ref().get_text_dimensions(
+        // Player scale changes the measured size. The font written back stays in
+        // the caller's space (theme font, or that font after shrink) so render
+        // can apply the scale once. See `unscale_laid_out_font`.
+        let factor = crate::interface::font_scale::active_factor();
+        let scaled = FontSize(font_size.0 * factor);
+        let (size, scaled_out) = self.as_ref().get_text_dimensions(
             text,
             default_color,
             highlight_color,
-            font_size,
+            scaled,
             1.0,
             available_width,
             overflow_behavior,
         );
+        let font_size = FontSize(crate::interface::font_scale::unscale_laid_out_font(
+            font_size.0,
+            factor,
+            scaled_out.0,
+        ));
 
         (size, font_size)
     }

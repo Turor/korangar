@@ -494,12 +494,16 @@ impl ClientState {
         });
 
         time_phase!("load themes", {
+            let font_factor = interface_settings.font_scale_factor();
+            crate::interface::font_scale::set_active_factor(font_factor);
             // Login/char-select/PIN screens use the same token palette as the HUD.
-            let menu_theme = InterfaceTheme::menu_for_in_game(session_theme_name(&interface_settings.in_game_theme));
+            let menu_theme =
+                InterfaceTheme::menu_for_in_game(session_theme_name(&interface_settings.in_game_theme)).with_font_scale(font_factor);
             let in_game_theme = InterfaceTheme::load(
                 InterfaceThemeType::InGame,
                 session_theme_name(&interface_settings.in_game_theme),
-            );
+            )
+            .with_font_scale(font_factor);
             let world_theme = WorldTheme::load(session_theme_name(&interface_settings.world_theme));
         });
 

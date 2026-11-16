@@ -25,6 +25,11 @@ pub enum MouseInputMode {
         source: SkillSource,
         skill: LearnableSkill,
     },
+    /// Dragging the Settings → Interface font-scale slider.
+    ///
+    /// Not a grab: the cursor stays normal and releasing it must not drop an
+    /// inventory item.
+    AdjustFontScale,
 }
 
 impl From<MouseInputMode> for MouseMode<ClientState> {

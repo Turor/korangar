@@ -34,6 +34,7 @@ impl CustomWindow<ClientState> for ContextMenuWindow {
             title: client_state().context_menu().title(),
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
+            // No colour override: opaque window background plus the theme frame.
             closable: true,
             minimum_width: 180.0,
             elements: (

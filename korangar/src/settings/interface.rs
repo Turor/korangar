@@ -7,6 +7,7 @@ use ron::ser::PrettyConfig;
 use rust_state::RustState;
 use serde::{Deserialize, Serialize};
 
+use crate::interface::font_scale::FontScaleSetting;
 use crate::interface::windows::MenuBarLayout;
 use crate::loaders::Scaling;
 use crate::state::localization::Language;
@@ -128,6 +129,10 @@ pub struct InterfaceSettings {
     #[serde(default)]
     #[hidden_element]
     pub menu_bar_layout: MenuBarLayout,
+    /// UI font scale, 80–150%. Older files have no entry and stay at 100%.
+    #[serde(default)]
+    #[hidden_element]
+    pub font_scale: FontScaleSetting,
 }
 
 impl Default for InterfaceSettings {
@@ -139,6 +144,7 @@ impl Default for InterfaceSettings {
             in_game_theme: VERDANT_RUNE_THEME_NAME.to_string(),
             world_theme: VERDANT_RUNE_THEME_NAME.to_string(),
             menu_bar_layout: MenuBarLayout::default(),
+            font_scale: FontScaleSetting::default(),
         }
     }
 }
@@ -147,12 +153,19 @@ impl InterfaceSettings {
     const FILE_NAME: &'static str = "client/interface_settings.ron";
 
     pub fn new() -> Self {
-        Self::load().unwrap_or_else(|| {
+        let mut settings = Self::load().unwrap_or_else(|| {
             #[cfg(feature = "debug")]
             print_debug!("failed to load interface settings from {}", Self::FILE_NAME.magenta());
 
             Default::default()
-        })
+        });
+        // Once at load. Normalising every frame would wipe a half-typed percent.
+        settings.font_scale.normalize();
+        settings
+    }
+
+    pub fn font_scale_factor(&self) -> f32 {
+        crate::interface::font_scale::font_scale_factor(self.font_scale.percent)
     }
 
     pub fn load() -> Option<Self> {
@@ -369,6 +382,8 @@ mod interface_settings_theme_tests {
         let old = r#"(language: English, scaling: 1.0, menu_theme: "a", in_game_theme: "b", world_theme: "c")"#;
         let settings: InterfaceSettings = ron::from_str(old).expect("old settings file");
         assert_eq!(settings.menu_bar_layout, MenuBarLayout::Auto);
+        assert_eq!(settings.font_scale.percent, 100);
+        assert_eq!(settings.font_scale.draft, "100");
         let settings = std::mem::ManuallyDrop::new(settings);
 
         let mut changed = InterfaceSettings::clone(&settings);
@@ -394,6 +409,7 @@ mod interface_settings_theme_tests {
             in_game_theme: TURORAN_DARK_THEME_NAME.to_string(),
             world_theme: DEFAULT_THEME_NAME.to_string(),
             menu_bar_layout: MenuBarLayout::default(),
+            font_scale: crate::interface::font_scale::FontScaleSetting::default(),
         });
 
         let encoded = ron::ser::to_string_pretty(&*settings, ron::ser::PrettyConfig::new()).expect("serialize settings");
