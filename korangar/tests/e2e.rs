@@ -21,6 +21,8 @@ mod release;
 mod social;
 #[path = "e2e/status_icons.rs"]
 mod status_icons;
+#[path = "e2e/weather.rs"]
+mod weather;
 
 use std::path::PathBuf;
 

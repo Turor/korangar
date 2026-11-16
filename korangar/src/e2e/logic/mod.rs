@@ -136,6 +136,8 @@ pub struct LogicSession {
     pub(super) headgear: crate::e2e::HeadgearScene,
     /// Item reform and laphine windows driven by injected packets and events.
     pub(super) workshop: crate::e2e::item_workshop::ItemWorkshopSession,
+    /// Weather, zone badge, and gat cells for the map the session is on.
+    pub(crate) map_world: crate::e2e::weather::MapWorld,
 }
 
 impl LogicSession {
@@ -177,7 +179,12 @@ impl LogicSession {
             status_strip: crate::e2e::StatusStrip::default(),
             headgear: crate::e2e::HeadgearScene::default(),
             workshop: crate::e2e::item_workshop::ItemWorkshopSession::default(),
+            map_world: crate::e2e::weather::MapWorld::default(),
         }
+    }
+
+    pub fn map_name(&self) -> &str {
+        &self.map_name
     }
 
     pub fn phase(&self) -> Phase {
