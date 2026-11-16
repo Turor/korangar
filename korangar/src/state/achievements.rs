@@ -7,17 +7,103 @@ use rust_state::RustState;
 
 use crate::graphics::Texture;
 use crate::state::{ClientState, ClientStatePathExt, client_state};
-use crate::world::{AchievementCatalog, AchievementInfo, AttendanceTable, Library};
+use crate::world::{
+    AchievementCatalog, AchievementInfo, AchievementReward, AttendanceTable, ItemName, ItemNameKey, Library, SkillListInformation, Table,
+};
 
 /// Share the library's achievement, attendance and navigation tables with
 /// the window state once at startup. Logout keeps them.
 pub fn attach_library_tables(state: &mut rust_state::State<ClientState>, library: &Library) {
-    state
-        .follow_mut(client_state().achievements())
-        .attach_tables(library.achievement_catalog(), library.attendance_table());
+    let catalog = library.achievement_catalog();
+    let names = RewardNames::resolve(
+        &catalog,
+        |item_id| {
+            ItemName::try_get(library, ItemNameKey {
+                item_id: ragnarok_packets::ItemId(item_id),
+                is_identified: true,
+            })
+            .map(|name| name.to_string())
+        },
+        |title_id| library.title_name(title_id).map(str::to_owned),
+        |skill_id| {
+            let skill_id = u16::try_from(skill_id).ok()?;
+            SkillListInformation::try_get(library, ragnarok_packets::SkillId(skill_id)).map(|skill| skill.name.clone())
+        },
+    );
+    let achievements = state.follow_mut(client_state().achievements());
+    achievements.attach_reward_names(names);
+    achievements.attach_tables(catalog, library.attendance_table());
     state
         .follow_mut(client_state().navigation())
         .attach_navigation_tables(library.navigation_tables());
+}
+
+/// Display names for the reward ids in the achievement table: item names,
+/// `titletable.lub` titles and the skill names roBrowser shows for buffs.
+/// Resolved once from the library; an id without a name shows the id.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RewardNames {
+    pub items: HashMap<u32, String>,
+    pub titles: HashMap<u32, String>,
+    pub buffs: HashMap<u32, String>,
+}
+
+impl RewardNames {
+    pub fn resolve(
+        catalog: &AchievementCatalog,
+        item: impl Fn(u32) -> Option<String>,
+        title: impl Fn(u32) -> Option<String>,
+        buff: impl Fn(u32) -> Option<String>,
+    ) -> Self {
+        let mut names = Self::default();
+        let named = |name: Option<String>| name.map(|name| name.trim().to_owned()).filter(|name| !name.is_empty());
+        for info in catalog.values() {
+            if let Some(id) = info.reward.item_id
+                && let Some(name) = named(item(id))
+            {
+                names.items.insert(id, name);
+            }
+            if let Some(id) = info.reward.title_id
+                && let Some(name) = named(title(id))
+            {
+                names.titles.insert(id, name);
+            }
+            if let Some(id) = info.reward.buff_id
+                && let Some(name) = named(buff(id))
+            {
+                names.buffs.insert(id, name);
+            }
+        }
+        names
+    }
+}
+
+/// The detail panel's reward line.
+pub fn reward_line(reward: &AchievementReward, names: &RewardNames) -> String {
+    let mut parts = Vec::new();
+    if let Some(id) = reward.item_id {
+        parts.push(match names.items.get(&id) {
+            Some(name) => format!("{name} (item)"),
+            None => format!("item {id}"),
+        });
+    }
+    if let Some(id) = reward.title_id {
+        parts.push(match names.titles.get(&id) {
+            Some(name) => format!("title \"{name}\""),
+            None => format!("title {id}"),
+        });
+    }
+    if let Some(id) = reward.buff_id {
+        parts.push(match names.buffs.get(&id) {
+            Some(name) => format!("buff {name}"),
+            None => format!("buff {id}"),
+        });
+    }
+    if parts.is_empty() {
+        "Reward: none".to_owned()
+    } else {
+        format!("Reward: {}", parts.join(", "))
+    }
 }
 
 /// One achievement row for the list window.
@@ -266,9 +352,21 @@ pub struct Achievements {
     tables: AchievementTables,
     #[hidden_element]
     item_icons: HashMap<u32, Arc<Texture>>,
+    #[hidden_element]
+    reward_names: RewardNames,
 }
 
 impl Achievements {
+    pub fn attach_reward_names(&mut self, names: RewardNames) {
+        self.reward_names = names;
+        self.rebuild_lines();
+    }
+
+    /// Item reward of the selected achievement, for the detail icon.
+    pub fn selected_reward_item(&self) -> Option<u32> {
+        self.info(self.selected?)?.reward.item_id.filter(|item_id| *item_id != 0)
+    }
+
     pub fn attach_tables(&mut self, catalog: Arc<AchievementCatalog>, attendance: Arc<AttendanceTable>) {
         self.tables = AchievementTables {
             catalog: Some(catalog),
@@ -515,12 +613,14 @@ impl Achievements {
         &self.attendance_cells
     }
 
-    /// Reward items whose icons the calendar still needs.
-    pub fn missing_attendance_icons(&self) -> Vec<u32> {
+    /// Reward items whose icons the calendar or the selected achievement's
+    /// detail panel still needs.
+    pub fn missing_item_icons(&self) -> Vec<u32> {
         let mut missing: Vec<u32> = self
             .attendance_cells
             .iter()
             .map(|cell| cell.item_id)
+            .chain(self.selected_reward_item())
             .filter(|item_id| *item_id != 0 && !self.item_icons.contains_key(item_id))
             .collect();
         missing.sort_unstable();
@@ -529,7 +629,7 @@ impl Achievements {
     }
 
     pub fn note_item_texture(&mut self, item_id: u32, texture: Arc<Texture>) {
-        if self.attendance_cells.iter().any(|cell| cell.item_id == item_id) {
+        if self.attendance_cells.iter().any(|cell| cell.item_id == item_id) || self.selected_reward_item() == Some(item_id) {
             self.item_icons.insert(item_id, texture);
         }
     }
@@ -650,21 +750,7 @@ impl Achievements {
                     lines.push(info.summary.clone());
                 }
                 lines.extend(info.goals.iter().map(|goal| format!("• {goal}")));
-                let mut rewards = Vec::new();
-                if let Some(item) = info.reward.item_id {
-                    rewards.push(format!("item {item}"));
-                }
-                if let Some(title) = info.reward.title_id {
-                    rewards.push(format!("title {title}"));
-                }
-                if let Some(buff) = info.reward.buff_id {
-                    rewards.push(format!("buff {buff}"));
-                }
-                lines.push(if rewards.is_empty() {
-                    "Reward: none".to_owned()
-                } else {
-                    format!("Reward: {}", rewards.join(", "))
-                });
+                lines.push(reward_line(&info.reward, &self.reward_names));
             }
             None => lines.push(format!("Achievement #{id}")),
         }
@@ -867,6 +953,65 @@ mod tests {
         assert_eq!(log.attendance_cells()[0].label, "Day 1\nItem 601 x1");
         assert_eq!(log.attendance_cells()[0].item_id, 601);
         assert_eq!(log.attendance_cells()[0].state, AttendanceCellState::Today);
-        assert_eq!(log.missing_attendance_icons().len(), 20);
+        assert_eq!(log.missing_item_icons().len(), 20);
+    }
+
+    #[test]
+    fn reward_line_names_items_titles_and_buffs_or_falls_back_to_ids() {
+        use super::{RewardNames, reward_line};
+
+        let mut catalog = AchievementCatalog::new();
+        catalog.insert(1, AchievementInfo {
+            reward: AchievementReward {
+                item_id: Some(501),
+                title_id: Some(1000),
+                buff_id: Some(34),
+            },
+            ..AchievementInfo::default()
+        });
+        catalog.insert(2, AchievementInfo {
+            reward: AchievementReward {
+                item_id: Some(9999),
+                ..AchievementReward::default()
+            },
+            ..AchievementInfo::default()
+        });
+        let names = RewardNames::resolve(
+            &catalog,
+            |id| match id {
+                501 => Some("Red Potion".to_owned()),
+                9999 => Some("  ".to_owned()),
+                _ => None,
+            },
+            |id| (id == 1000).then(|| "Novice Adventurer".to_owned()),
+            |id| (id == 34).then(|| "Blessing".to_owned()),
+        );
+        assert_eq!(
+            reward_line(&catalog[&1].reward, &names),
+            "Reward: Red Potion (item), title \"Novice Adventurer\", buff Blessing"
+        );
+        // A blank name counts as missing.
+        assert_eq!(reward_line(&catalog[&2].reward, &names), "Reward: item 9999");
+        assert_eq!(reward_line(&AchievementReward::default(), &names), "Reward: none");
+    }
+
+    #[test]
+    fn selected_reward_item_asks_for_its_icon_once() {
+        let mut catalog = AchievementCatalog::new();
+        catalog.insert(7, AchievementInfo {
+            title: "Seven".into(),
+            reward: AchievementReward {
+                item_id: Some(22876),
+                ..AchievementReward::default()
+            },
+            ..AchievementInfo::default()
+        });
+        let mut log = Achievements::default();
+        log.attach_tables(Arc::new(catalog), Arc::new(AttendanceTable::default()));
+        assert!(log.missing_item_icons().is_empty());
+        log.select_achievement(7);
+        assert_eq!(log.selected_reward_item(), Some(22876));
+        assert_eq!(log.missing_item_icons(), vec![22876]);
+        assert_eq!(log.detail().iter().filter(|line| line.starts_with("Reward:")).count(), 1);
     }
 }

@@ -98,6 +98,9 @@ pub struct MarkerPaint {
     pub stroke_width: f32,
 }
 
+/// Appended to a square's hover caption.
+pub const ROUTE_HINT: &str = "Right-click to route here.";
+
 /// Alpha of the accent wash on an unlocked square.
 pub const UNLOCKED_WASH_ALPHA: f32 = 0.3;
 /// Alpha of the panel color over a locked square.

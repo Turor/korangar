@@ -3549,7 +3549,7 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().achievements())
                         .open_attendance(days_attended, claimed_today, &item_name);
-                    interface::windows::request_attendance_icons(&mut self.client_state, &self.library, &self.async_loader);
+                    interface::windows::request_achievement_item_icons(&mut self.client_state, &self.library, &self.async_loader);
                     if !self.interface.is_window_with_class_open(WindowClass::Attendance) {
                         self.interface.open_window(AttendanceWindow);
                     }
@@ -5465,14 +5465,26 @@ impl Client {
                     self.client_state.follow_mut(client_state().navigation()).choose_route_target(index)
                 }
                 InputEvent::ClearNavigationRoute => self.client_state.follow_mut(client_state().navigation()).clear_route(),
+                InputEvent::NavigateToMap { map_id, name } => {
+                    self.client_state
+                        .follow_mut(client_state().navigation())
+                        .route_to_map(&map_id, &name);
+                    if self.client_state.try_follow(this_entity()).is_some()
+                        && !self.interface.is_window_with_class_open(WindowClass::Navigation)
+                    {
+                        self.interface.open_window(NavigationWindow::new(client_state().navigation()));
+                    }
+                }
                 InputEvent::SelectAchievementCategory { major, minor } => self
                     .client_state
                     .follow_mut(client_state().achievements())
                     .select_category(major, minor),
-                InputEvent::SelectAchievement { achievement_id } => self
-                    .client_state
-                    .follow_mut(client_state().achievements())
-                    .select_achievement(achievement_id),
+                InputEvent::SelectAchievement { achievement_id } => {
+                    self.client_state
+                        .follow_mut(client_state().achievements())
+                        .select_achievement(achievement_id);
+                    interface::windows::request_achievement_item_icons(&mut self.client_state, &self.library, &self.async_loader);
+                }
                 InputEvent::ToggleNavigationWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::Navigation) {

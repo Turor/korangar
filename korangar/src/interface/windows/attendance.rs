@@ -30,8 +30,10 @@ const ICON_SIZE: f32 = 24.0;
 
 /// Ask for the reward icons the calendar still lacks. Icons already in the
 /// texture cache land at once; the rest arrive with the item sprite event.
-pub fn request_attendance_icons(state: &mut State<ClientState>, library: &Library, loader: &AsyncLoader) {
-    let missing = state.follow(client_state().achievements()).missing_attendance_icons();
+/// Loads the attendance calendar and achievement reward item icons that are
+/// not cached yet. Icons that finish later arrive via `note_item_texture`.
+pub fn request_achievement_item_icons(state: &mut State<ClientState>, library: &Library, loader: &AsyncLoader) {
+    let missing = state.follow(client_state().achievements()).missing_item_icons();
     for item_id in missing {
         let item = ItemId(item_id);
         let Some(resource) = ItemResource::try_get(library, ItemResourceKey {

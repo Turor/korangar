@@ -11,6 +11,8 @@ mod headgear;
 mod mail;
 #[path = "e2e/minimap.rs"]
 mod minimap;
+#[path = "e2e/navigation_followups.rs"]
+mod navigation_followups;
 #[path = "e2e/release.rs"]
 mod release;
 #[path = "e2e/social.rs"]

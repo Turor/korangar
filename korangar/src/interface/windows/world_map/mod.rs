@@ -5,7 +5,7 @@
 mod data;
 mod logic;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
@@ -366,6 +366,7 @@ struct MapLayout {
 
 struct WorldMapView<W> {
     click: Cell<ClickTarget>,
+    route_click: RouteClick,
     world_map: W,
 }
 
@@ -373,9 +374,34 @@ impl<W> WorldMapView<W> {
     fn new(world_map: W) -> Self {
         Self {
             click: Cell::new(ClickTarget::None),
+            route_click: RouteClick::default(),
             world_map,
         }
     }
+}
+
+/// Right-click on a map square routes Navigation to that map. Locked Warpra
+/// squares can still be walked to, so every square takes it.
+#[derive(Default)]
+struct RouteClick {
+    /// `(map id, label)` of the hovered square.
+    target: RefCell<Option<(String, String)>>,
+}
+
+impl ClickHandler<ClientState> for RouteClick {
+    fn handle_click(&self, _: &State<ClientState>, queue: &mut EventQueue<ClientState>) {
+        if let Some(event) = route_event(self.target.borrow().as_ref()) {
+            queue.queue(event);
+        }
+    }
+}
+
+fn route_event(target: Option<&(String, String)>) -> Option<InputEvent> {
+    let (map_id, name) = target?;
+    (!map_id.is_empty()).then(|| InputEvent::NavigateToMap {
+        map_id: map_id.clone(),
+        name: name.clone(),
+    })
 }
 
 impl<W> ClickHandler<ClientState> for WorldMapView<W> {
@@ -533,6 +559,7 @@ where
         };
 
         let mut click = ClickTarget::None;
+        let mut route_target: Option<(String, String)> = None;
         // Rectangles draw before textures inside one layer, so the markers need
         // their own layer or the region art covers them.
         layout.with_layer(|layout| {
@@ -594,8 +621,15 @@ where
                 }
                 if hovered {
                     let catalog_name = entry_for_map(entries, section.id).map(|entry| entry.name.as_str());
-                    let caption = hover_caption(&section_views[index], class, catalog_name, player_level);
+                    let caption = format!(
+                        "{} {}",
+                        hover_caption(&section_views[index], class, catalog_name, player_level),
+                        logic::ROUTE_HINT
+                    );
                     let map_id = logic::normalize_map_id(section.id);
+                    if !window.show_floors {
+                        route_target = Some((map_id.clone(), section.name.to_owned()));
+                    }
                     if state.get(&self.world_map.hover_caption()) != &caption {
                         state.update_value(self.world_map.hover_caption(), caption);
                     }
@@ -693,6 +727,11 @@ where
         self.click.set(click);
         if click != ClickTarget::None {
             layout.register_click_handler(MouseButton::Left, self);
+        }
+        let routable = route_target.is_some();
+        *self.route_click.target.borrow_mut() = route_target;
+        if routable {
+            layout.register_click_handler(MouseButton::Right, &self.route_click);
         }
     }
 }
@@ -1010,6 +1049,20 @@ mod tests {
     fn paint_picker<'a>(layout: &mut WindowLayout<'a, ClientState>, map: Area, window: &'a WorldMapWindowState) -> ClickTarget {
         let border = Color::rgb_u8(20, 30, 24);
         layout_floor_picker(layout, map, window, border, border, border, border, border, ClickTarget::None)
+    }
+
+    #[test]
+    fn right_click_routes_to_the_hovered_square() {
+        let target = ("prt_fild08".to_owned(), "Prontera Field".to_owned());
+        match super::route_event(Some(&target)) {
+            Some(crate::input::InputEvent::NavigateToMap { map_id, name }) => {
+                assert_eq!(map_id, "prt_fild08");
+                assert_eq!(name, "Prontera Field");
+            }
+            _ => panic!("expected NavigateToMap"),
+        }
+        assert!(super::route_event(None).is_none());
+        assert!(super::route_event(Some(&(String::new(), "x".to_owned()))).is_none());
     }
 
     #[test]

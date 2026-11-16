@@ -18,6 +18,7 @@ mod skill_requirements;
 mod skill_tree;
 mod status_icon;
 mod status_icon_builtin;
+mod title_table;
 
 use std::hash::Hash;
 use std::sync::Arc;
@@ -28,9 +29,11 @@ use mlua::{ErrorContext, Lua};
 use ragnarok_packets::{ItemId, JobId, SkillId};
 
 pub use self::accessory_name::parse_accessory_names;
-pub use self::achievement_table::{AchievementCatalog, AchievementInfo, AttendanceTable, merge_achievement_table, parse_attendance_chunk};
 #[cfg(test)]
-pub use self::achievement_table::{AchievementReward, AttendanceTableReward};
+pub use self::achievement_table::AttendanceTableReward;
+pub use self::achievement_table::{
+    AchievementCatalog, AchievementInfo, AchievementReward, AttendanceTable, merge_achievement_table, parse_attendance_chunk,
+};
 pub use self::baby_job::IsBabyJob;
 pub use self::item_info::ItemInfo;
 pub use self::item_name::{ItemName, ItemNameKey};
@@ -53,6 +56,7 @@ pub use self::skill_description::{JobParents, compose_skill_description, shown_s
 use self::skill_description::{filter_job_prefixed_lines, load_skill_text};
 pub use self::skill_tree::SkillTreeLayout;
 pub use self::status_icon::{StatusIconInfo, parse_status_icons, with_builtin_icons};
+pub use self::title_table::parse_title_table;
 use crate::loaders::GameFileLoader;
 pub use crate::world::library::skill_information::SkillListInformation;
 pub use crate::world::library::skill_requirements::{SkillListKey, SkillListRequirements};
@@ -76,6 +80,7 @@ pub struct Library {
     attendance_table: Arc<AttendanceTable>,
     navigation_tables: Arc<NavigationTables>,
     status_icons: HashMap<u16, StatusIconInfo>,
+    title_names: HashMap<u32, String>,
 }
 
 impl Library {
@@ -102,6 +107,7 @@ impl Library {
         navigation_table::apply_monster_names(&mut navigation_tables, &monster_names);
         let navigation_tables = Arc::new(navigation_tables);
         let status_icons = status_icon::load_status_icons(game_file_loader);
+        let title_names = title_table::load_title_table(game_file_loader);
 
         Ok(Self {
             job_identity_table,
@@ -122,6 +128,7 @@ impl Library {
             attendance_table,
             navigation_tables,
             status_icons,
+            title_names,
         })
     }
 
@@ -135,6 +142,11 @@ impl Library {
     /// `AccNameTable` suffix for a headgear view id, such as `_고글`.
     pub fn accessory_sprite_suffix(&self, view_id: u16) -> Option<&str> {
         self.accessory_names.get(&view_id).map(String::as_str)
+    }
+
+    /// `titletable.lub` name for an achievement title reward.
+    pub fn title_name(&self, title_id: u32) -> Option<&str> {
+        self.title_names.get(&title_id).map(String::as_str)
     }
 
     pub fn achievement_catalog(&self) -> Arc<AchievementCatalog> {

@@ -236,6 +236,11 @@ pub enum InputEvent {
     },
     /// Navigation window: drop the route and the server target.
     ClearNavigationRoute,
+    /// World map right-click: route Navigation to that map and open it.
+    NavigateToMap {
+        map_id: String,
+        name: String,
+    },
     /// Achievement window tab. `minor: None` shows the whole major tab.
     SelectAchievementCategory {
         major: u8,

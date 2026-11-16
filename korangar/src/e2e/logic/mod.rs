@@ -209,6 +209,15 @@ impl LogicSession {
         &self.headgear
     }
 
+    /// Map name and cell from the last `ChangeMap` / walk.
+    pub fn player_map_cell(&self) -> Option<(String, u16, u16)> {
+        let map = crate::state::navigation::normalize_map_name(&self.map_name);
+        match (map.is_empty(), self.player_x, self.player_y) {
+            (false, Some(x), Some(y)) => Some((map, x, y)),
+            _ => None,
+        }
+    }
+
     pub fn outbound(&self) -> &[Outbound] {
         &self.outbound
     }
