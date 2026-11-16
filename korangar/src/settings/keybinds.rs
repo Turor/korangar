@@ -4,8 +4,11 @@
 //! Defaults follow the official bar: F1–F9 are hotbar row 1, Alt+F1–F9 row 2,
 //! Ctrl+F1–F9 row 3, Shift+F1–F9 row 4. Window toggles use the roBrowser chords
 //! (Alt+E inventory, Alt+Q equip, Alt+S skills, Alt+A stats, Alt+Z friends,
-//! Alt+G guild, Insert sit). Escape is never a bind. The existing Ctrl+debug
-//! keys stay hard-coded in the input system and are not listed here.
+//! Alt+G guild, Insert sit). Ctrl+H is "Hide interface" (`show-interface`): it
+//! toggles every interface window, including the minimap, without closing them.
+//! Press it again to restore the same windows. Escape is never a bind. The
+//! existing Ctrl+debug keys stay hard-coded in the input system and are not
+//! listed here.
 
 #[cfg(feature = "debug")]
 use korangar_debug::logging::{Colorize, print_debug};
@@ -421,7 +424,7 @@ fn default_actions() -> Vec<ActionDef> {
         ),
         (
             "show-interface",
-            "Show interface",
+            "Hide interface",
             KeyName::H,
             false,
             true,
@@ -949,6 +952,11 @@ mod tests {
         }]));
         let sit = map.poll(None, 0, 0, &edges(Some(KeyName::Insert), false, false, false));
         assert!(matches!(sit.events.as_slice(), [InputEvent::ToggleSit]));
+        let hide = map.poll(None, 0, 0, &edges(Some(KeyName::H), false, true, false));
+        assert!(matches!(hide.events.as_slice(), [InputEvent::ToggleShowInterface]));
+        let hide_index = map.index_of("show-interface").unwrap();
+        assert!(map.editor_label(hide_index).starts_with("Hide interface"));
+        assert_eq!(map.chord(hide_index), Chord::new(KeyName::H, false, true, false));
         let inventory = map.poll(None, 0, 0, &edges(Some(KeyName::E), true, false, false));
         assert!(matches!(inventory.events.as_slice(), [InputEvent::ToggleInventoryWindow]));
 

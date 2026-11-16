@@ -221,11 +221,10 @@ pub fn menu_bar_entries() -> &'static [MenuBarEntry] {
 fn menu_bar_entry_list() -> Vec<MenuBarEntry> {
     use InputEvent::{
         OpenEden, OpenWarpra, ToggleCartWindow, ToggleChatWindow, ToggleEmotesWindow, ToggleHotbarWindow, ToggleInventoryWindow,
-        ToggleItemFinderWindow, ToggleMenuWindow, ToggleMvpMinimap, ToggleNavigationWindow, ToggleSkillTreeWindow, ToggleStatusPanelWindow,
-        ToggleWorldMap,
+        ToggleItemFinderWindow, ToggleMenuWindow, ToggleNavigationWindow, ToggleSkillTreeWindow, ToggleStatusPanelWindow, ToggleWorldMap,
     };
     use WindowClass::{
-        Cart, Chat, Eden, Emotes, Hotbar, Inventory, ItemFinder, Menu, MvpMinimap, Navigation, SkillTree, StatusPanel, Warpra, WorldMap,
+        Cart, Chat, Eden, Emotes, Hotbar, Inventory, ItemFinder, Menu, Navigation, SkillTree, StatusPanel, Warpra, WorldMap,
     };
 
     let icon = |name: &'static str| Some(name);
@@ -251,7 +250,7 @@ fn menu_bar_entry_list() -> Vec<MenuBarEntry> {
         MenuBarEntry::group("Quests", icon("menu_icon\\bt_quest.bmp"), WindowGroup::Journal),
         MenuBarEntry::group("Social", icon("menu_icon\\bt_party.bmp"), WindowGroup::Social),
         MenuBarEntry::group("Services", None, WindowGroup::Services),
-        MenuBarEntry::toggle("Minimap", "Map", None, None, MvpMinimap, ToggleMvpMinimap),
+        // The minimap stays open and has no close button, so it is not on the bar.
         MenuBarEntry::toggle(
             "World Map",
             "World",

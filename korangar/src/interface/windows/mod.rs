@@ -53,8 +53,8 @@ mod mail;
 mod maps;
 mod menu;
 mod menu_bar;
+pub(crate) mod minimap;
 mod misc_info;
-mod mvp_minimap;
 mod navigation;
 #[cfg(feature = "debug")]
 mod packet_inspector;
@@ -153,10 +153,10 @@ pub use self::menu_bar::{
     MenuBarIcons, MenuBarLayout, MenuBarPress, MenuBarWindow, docked_menu_bar_window, menu_bar_open_bits, next_distinct_layout,
     press_menu_bar,
 };
+pub use self::minimap::{MvpMinimapState, MvpMinimapWindow};
 pub use self::misc_info::{
     BattlegroundWindow, ItemObtainWindow, MemorialDungeonWindow, MiscInfoState, ReputationWindow, SenseWindow, now_unix,
 };
-pub use self::mvp_minimap::{MvpMinimapState, MvpMinimapWindow};
 pub use self::navigation::NavigationWindow;
 #[cfg(feature = "debug")]
 pub use self::packet_inspector::PacketInspectorWindow;

@@ -1325,6 +1325,10 @@ impl Entity {
         self.get_common().tile_position
     }
 
+    pub fn get_direction(&self) -> Direction {
+        self.get_common().direction
+    }
+
     pub fn screen_bounds(&self, camera: &dyn Camera, screen_size: crate::graphics::ScreenSize) -> Option<super::entity_pick::ScreenBounds> {
         self.get_common().screen_bounds(camera, screen_size)
     }

@@ -133,6 +133,10 @@ pub struct InterfaceSettings {
     #[serde(default)]
     #[hidden_element]
     pub font_scale: FontScaleSetting,
+    /// Minimap zoom. 0 is the full map. Older files stay at 0.
+    #[serde(default)]
+    #[hidden_element]
+    pub minimap_zoom: u8,
 }
 
 impl Default for InterfaceSettings {
@@ -145,6 +149,7 @@ impl Default for InterfaceSettings {
             world_theme: VERDANT_RUNE_THEME_NAME.to_string(),
             menu_bar_layout: MenuBarLayout::default(),
             font_scale: FontScaleSetting::default(),
+            minimap_zoom: 0,
         }
     }
 }
@@ -384,14 +389,17 @@ mod interface_settings_theme_tests {
         assert_eq!(settings.menu_bar_layout, MenuBarLayout::Auto);
         assert_eq!(settings.font_scale.percent, 100);
         assert_eq!(settings.font_scale.draft, "100");
+        assert_eq!(settings.minimap_zoom, 0);
         let settings = std::mem::ManuallyDrop::new(settings);
 
         let mut changed = InterfaceSettings::clone(&settings);
         changed.menu_bar_layout = MenuBarLayout::Vertical;
+        changed.minimap_zoom = 3;
         let changed = std::mem::ManuallyDrop::new(changed);
         let text = ron::to_string(&*changed).expect("serialize");
         let again: InterfaceSettings = ron::from_str(&text).expect("round trip");
         assert_eq!(again.menu_bar_layout, MenuBarLayout::Vertical);
+        assert_eq!(again.minimap_zoom, 3);
         let _ = std::mem::ManuallyDrop::new(again);
     }
 
@@ -410,6 +418,7 @@ mod interface_settings_theme_tests {
             world_theme: DEFAULT_THEME_NAME.to_string(),
             menu_bar_layout: MenuBarLayout::default(),
             font_scale: crate::interface::font_scale::FontScaleSetting::default(),
+            minimap_zoom: 0,
         });
 
         let encoded = ron::ser::to_string_pretty(&*settings, ron::ser::PrettyConfig::new()).expect("serialize settings");
