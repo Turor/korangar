@@ -8,10 +8,12 @@
 
 use ragnarok_packets::handler::{DuplicateHandlerError, PacketCallback, PacketHandler};
 use ragnarok_packets::{
-    ElementalInitPacket, ElementalParameterPacket, HomunculusPropertyPacket, MercenaryInitPacket, MercenaryParameterPacket,
-    MercenaryPropertyPacket, PetPropertyPacket, PetStatePacket,
+    ElementalInitPacket, ElementalParameterPacket, HomunculusPropertyPacket, HomunculusSkillListPacket, HomunculusSkillUpdatePacket,
+    HomunculusStatePacket, MercenaryInitPacket, MercenaryParameterPacket, MercenaryPropertyPacket, MercenarySkillListPacket,
+    MercenarySkillUpdatePacket, PetEggListPacket, PetPropertyPacket, PetStatePacket, StartCapturePacket, TryCaptureResultPacket,
 };
 
+use crate::companions::{CompanionNotice, skill_snapshot};
 use crate::event::{NetworkEvent, NetworkEventList};
 
 pub const PET_ACT_FEED: u8 = 1;
@@ -22,7 +24,8 @@ pub const PET_ACT_UNEQUIP: u8 = 4;
 pub const HOM_ACT_FEED: u16 = 1;
 pub const HOM_ACT_DELETE: u16 = 2;
 
-pub const MERC_ACT_DISMISS: u8 = 1;
+/// `CZ_MER_COMMAND` delete. `1` only requests mercenary information.
+pub const MERC_ACT_DISMISS: u8 = 2;
 
 pub const MERC_VAR_ATTACK: u16 = 0;
 pub const MERC_VAR_MAGIC_ATTACK: u16 = 1;
@@ -175,17 +178,111 @@ where
         variable: packet.variable,
         value: packet.value,
     })?;
+    packet_handler.register(|_packet: StartCapturePacket| NetworkEvent::CompanionNotice(CompanionNotice::StartCapture))?;
+    packet_handler.register(|packet: TryCaptureResultPacket| {
+        NetworkEvent::CompanionNotice(CompanionNotice::CaptureResult {
+            success: packet.result != 0,
+        })
+    })?;
+    packet_handler.register(|packet: PetEggListPacket| {
+        NetworkEvent::CompanionNotice(CompanionNotice::PetEggs {
+            indices: packet.indices.into_iter().map(|entry| entry.index).collect(),
+        })
+    })?;
+    packet_handler.register(|packet: HomunculusStatePacket| {
+        NetworkEvent::CompanionNotice(CompanionNotice::HomunculusState {
+            kind: packet.state,
+            entity_id: packet.entity_id,
+            value: packet.value,
+        })
+    })?;
+    packet_handler.register(|packet: HomunculusSkillListPacket| {
+        NetworkEvent::CompanionNotice(CompanionNotice::HomunculusSkills {
+            skills: packet
+                .skills
+                .into_iter()
+                .map(|skill| {
+                    skill_snapshot(
+                        skill.skill_id,
+                        skill.skill_type,
+                        skill.level,
+                        skill.sp_cost,
+                        skill.attack_range,
+                        skill.name,
+                        skill.upgradable,
+                    )
+                })
+                .collect(),
+        })
+    })?;
+    packet_handler.register(|packet: HomunculusSkillUpdatePacket| {
+        NetworkEvent::CompanionNotice(CompanionNotice::HomunculusSkillUpdate {
+            skill_id: packet.skill_id,
+            level: packet.level,
+            sp_cost: packet.sp_cost,
+            attack_range: packet.attack_range,
+            upgradable: packet.upgradable != 0,
+        })
+    })?;
+    packet_handler.register(|packet: MercenarySkillListPacket| {
+        NetworkEvent::CompanionNotice(CompanionNotice::MercenarySkills {
+            skills: packet
+                .skills
+                .into_iter()
+                .map(|skill| {
+                    skill_snapshot(
+                        skill.skill_id,
+                        skill.skill_type,
+                        skill.level,
+                        skill.sp_cost,
+                        skill.attack_range,
+                        skill.name,
+                        skill.upgradable,
+                    )
+                })
+                .collect(),
+        })
+    })?;
+    packet_handler.register(|packet: MercenarySkillUpdatePacket| {
+        NetworkEvent::CompanionNotice(CompanionNotice::MercenarySkillUpdate {
+            skill_id: packet.skill_id,
+            level: packet.level,
+            sp_cost: packet.sp_cost,
+            attack_range: packet.attack_range,
+            upgradable: packet.upgradable != 0,
+        })
+    })?;
     Ok(())
 }
 
+/// roBrowser `PetInformations.setIntimacy` / `HomunInformations.setIntimacy`.
+/// Bands are messages 672, 673, 669, 674, and 675.
 pub fn intimacy_label(intimacy: i32) -> &'static str {
-    match intimacy {
-        ..100 => "Awkward",
-        100..250 => "Shy",
-        250..750 => "Neutral",
-        750..910 => "Cordial",
-        910..1000 => "Loyal",
-        _ => "Devoted",
+    if intimacy < 100 {
+        "Awkward"
+    } else if intimacy < 250 {
+        "Shy"
+    } else if intimacy < 600 {
+        "Neutral"
+    } else if intimacy < 900 {
+        "Cordial"
+    } else {
+        "Loyal"
+    }
+}
+
+/// roBrowser `PetInformations.setHunger` (messages 667–671).
+pub fn hunger_label(hunger: i32) -> &'static str {
+    if hunger < 10 {
+        "Very Hungry"
+    } else if hunger < 25 {
+        "Hungry"
+    } else if hunger < 75 {
+        "Normal"
+    } else if hunger < 90 {
+        "Satisfied"
+    } else {
+        "Stuffed"
     }
 }
 
@@ -362,7 +459,23 @@ mod tests {
     #[test]
     fn labels_and_flags() {
         assert_eq!(intimacy_label(50), "Awkward");
-        assert_eq!(intimacy_label(1000), "Devoted");
+        assert_eq!(intimacy_label(100), "Shy");
+        assert_eq!(intimacy_label(250), "Neutral");
+        assert_eq!(intimacy_label(500), "Neutral");
+        assert_eq!(intimacy_label(600), "Cordial");
+        assert_eq!(intimacy_label(900), "Loyal");
+        assert_eq!(intimacy_label(910), "Loyal");
+        assert_eq!(intimacy_label(1000), "Loyal");
+        assert_eq!(hunger_label(0), "Very Hungry");
+        assert_eq!(hunger_label(9), "Very Hungry");
+        assert_eq!(hunger_label(10), "Hungry");
+        assert_eq!(hunger_label(24), "Hungry");
+        assert_eq!(hunger_label(25), "Normal");
+        assert_eq!(hunger_label(74), "Normal");
+        assert_eq!(hunger_label(75), "Satisfied");
+        assert_eq!(hunger_label(89), "Satisfied");
+        assert_eq!(hunger_label(90), "Stuffed");
+        assert_eq!(hunger_label(100), "Stuffed");
         assert_eq!(format_homunculus_flags(0x01), "renamed, out, alive");
         assert_eq!(format_homunculus_flags(0x07), "renamed, resting, down");
         assert_eq!(elemental_name(2114), "Agni");

@@ -2,6 +2,7 @@
 #![cfg_attr(feature = "interface", feature(negative_impls))]
 
 mod chat_room;
+mod companions;
 mod entity;
 mod equip_switch;
 mod event;
@@ -35,6 +36,11 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 
+pub use self::companions::{
+    CAPTURE_ARMED, CAPTURE_FAILED, CAPTURE_IDLE, CAPTURE_SUCCEEDED, COMPANION_NAME_BYTES, CompanionNotice, CompanionSkillSnapshot,
+    HOM_STATE_HUNGER, HOM_STATE_INTIMACY, append_name_character, capture_arm, capture_cancel, capture_click, capture_is_armed,
+    capture_result, egg_inventory_index, homunculus_skill_up_bytes, mercenary_remaining, skill_snapshot, validate_companion_name,
+};
 pub use self::entity::EntityData;
 #[cfg(feature = "interface")]
 pub use self::equip_switch::EquipSwitchSlotPathExt;
@@ -54,7 +60,7 @@ pub use self::packet_versions::companions::{
     MERC_VAR_ATTACK_SPEED, MERC_VAR_CRITICAL, MERC_VAR_DEFENSE, MERC_VAR_FAITH, MERC_VAR_FLEE, MERC_VAR_HIT, MERC_VAR_HP, MERC_VAR_KILLS,
     MERC_VAR_MAGIC_ATTACK, MERC_VAR_MAGIC_DEFENSE, MERC_VAR_MAX_HP, MERC_VAR_MAX_SP, MERC_VAR_SP, PET_ACT_FEED, PET_ACT_PERFORMANCE,
     PET_ACT_RETURN, PET_ACT_UNEQUIP, PET_KIND_ACCESSORY, PET_KIND_HUNGER, PET_KIND_INTIMACY, elemental_variable_name, format_elemental,
-    format_homunculus_flags, format_pet, intimacy_label, mercenary_variable_name,
+    format_homunculus_flags, format_pet, hunger_label, intimacy_label, mercenary_variable_name,
 };
 pub use self::packet_versions::eden::{
     EDEN_ACTION_ABANDON, EDEN_ACTION_ACCEPT, EDEN_ACTION_BUY, EDEN_ACTION_COMPLETE, EDEN_ACTION_LIST, EdenButton, eden_button_packets,
@@ -1297,6 +1303,64 @@ where
             SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
                 self.send_map_server_packet(MercenaryCommandPacket { command })
             }
+        }
+    }
+
+    /// `CZ_TRYCAPTURE_MONSTER` (`0x019F`).
+    pub fn try_capture_monster(&mut self, target_id: u32) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(TryCaptureMonsterPacket { target_id })
+            }
+        }
+    }
+
+    /// `CZ_RENAME_PET` (`0x01A5`).
+    pub fn rename_pet(&mut self, name: String) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(RenamePetPacket { name })
+            }
+        }
+    }
+
+    /// `CZ_SELECT_PETEGG` (`0x01A7`). `index` is the wire value from the egg
+    /// list.
+    pub fn select_pet_egg(&mut self, index: u16) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(SelectPetEggPacket { index })
+            }
+        }
+    }
+
+    /// `CZ_RENAME_MER` (`0x0231`).
+    pub fn rename_homunculus(&mut self, name: String) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(RenameHomunculusPacket { name })
+            }
+        }
+    }
+
+    /// `CZ_REQUEST_MOVETOOWNER` (`0x0234`).
+    pub fn companion_follow(&mut self, entity_id: u32) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => {
+                self.send_map_server_packet(MoveToOwnerPacket { entity_id })
+            }
+        }
+    }
+
+    /// `CZ_REQUEST_ACTNPC` (`0x0233`). `action` is 0.
+    pub fn companion_attack(&mut self, entity_id: u32, target_id: u32) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(ActNpcPacket {
+                    entity_id,
+                    target_id,
+                    action: 0,
+                }),
         }
     }
 
