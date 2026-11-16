@@ -77,6 +77,9 @@ fn sign(args: &[String]) -> Result<(), String> {
         return Err("build must be a positive monotonic counter or timestamp".into());
     }
     let out = PathBuf::from(flag(args, "--out")?);
+    if !args.windows(2).any(|pair| pair[0] == "--file") {
+        return Err("refusing an empty manifest: sign requires at least one --file REL=SOURCE".into());
+    }
     let seed = load_seed(args)?;
     let mut files = Vec::new();
     let mut index = 0;

@@ -3,8 +3,8 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::{fs, thread};
 
-use korangar_update::manifest::{self, ReleaseFile, ReleaseManifest};
-use korangar_update::{StartupOutcome, StartupRequest, should_attempt};
+use korangar_update::manifest::{self, ReleaseFile, ReleaseManifest, UpdatePlatform};
+use korangar_update::{StartupOutcome, StartupRequest, platform_skip_line, should_attempt};
 
 const SEED: [u8; 32] = [7u8; 32];
 
@@ -186,6 +186,7 @@ fn skip_env_and_unset_key_fail_closed() {
         public_key: &[0u8; 32],
         relaunch_args: &[],
         spawn_relaunch: false,
+        platform: UpdatePlatform::Linux,
     })
     .unwrap_err();
     assert!(error.contains("unset"), "{error}");
@@ -487,6 +488,14 @@ fn request<'a>(install: &'a Path, exe: &'a Path, url: &'a str, version: &'a str)
         public_key: public_key(),
         relaunch_args: &[],
         spawn_relaunch: false,
+        platform: UpdatePlatform::Linux,
+    }
+}
+
+fn request_platform<'a>(install: &'a Path, exe: &'a Path, url: &'a str, version: &'a str, platform: UpdatePlatform) -> StartupRequest<'a> {
+    StartupRequest {
+        platform,
+        ..request(install, exe, url, version)
     }
 }
 
@@ -634,5 +643,447 @@ fn published_platform_binary_replaces_the_running_executable() {
     assert_eq!(outcome, StartupOutcome::Skipped);
     assert_eq!(fs::read(&exe).unwrap(), linux_bytes);
     assert_eq!(fs::read_to_string(install.join("updates/applied.build")).unwrap().trim(), "300");
+    let _ = fs::remove_dir_all(&root);
+}
+
+fn shell_script() -> &'static [u8] {
+    b"#!/bin/sh\nif [ \"$1\" = \"--update-self-check\" ]; then echo update-self-check-ok; exit 0; fi\necho applied\n"
+}
+
+struct HitServer {
+    port: u16,
+    hits: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    done: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    join: Option<thread::JoinHandle<()>>,
+}
+
+impl HitServer {
+    fn start(files: std::collections::HashMap<String, Vec<u8>>) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let hits = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let hits_thread = hits.clone();
+        let done_thread = done.clone();
+        let join = thread::spawn(move || {
+            use std::sync::atomic::Ordering;
+            while !done_thread.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((mut socket, _)) => {
+                        let _ = socket.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+                        let mut buffer = [0u8; 2048];
+                        let size = socket.read(&mut buffer).unwrap_or(0);
+                        let request = String::from_utf8_lossy(&buffer[..size]);
+                        let path = request.split_whitespace().nth(1).unwrap_or("/").to_string();
+                        hits_thread.lock().unwrap().push(path.clone());
+                        let body = files.get(&path).cloned();
+                        let (status, bytes) = match body {
+                            Some(bytes) => ("200 OK", bytes),
+                            None => ("404 Not Found", Vec::new()),
+                        };
+                        let header = format!(
+                            "HTTP/1.0 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            bytes.len()
+                        );
+                        let _ = socket.write_all(header.as_bytes());
+                        let _ = socket.write_all(&bytes);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        Self {
+            port,
+            hits,
+            done,
+            join: Some(join),
+        }
+    }
+
+    fn paths(&self) -> Vec<String> {
+        self.hits.lock().unwrap().clone()
+    }
+}
+
+impl Drop for HitServer {
+    fn drop(&mut self) {
+        self.done.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
+}
+
+#[test]
+fn empty_manifest_is_refused_and_platforms_are_listed() {
+    let empty = ReleaseManifest {
+        version: "1.0.0".into(),
+        build: 1,
+        files: Vec::new(),
+    };
+    let error = manifest::canonical_payload(&empty).unwrap_err();
+    assert!(error.contains("no files"), "{error}");
+    assert!(empty.platforms().is_empty());
+    assert!(!empty.has_platform(UpdatePlatform::Linux));
+    assert!(!empty.has_platform(UpdatePlatform::Windows));
+
+    let sha = "703c76c37929e49b363f1e2f712cb80212a0d3d2";
+    let linux_only = ReleaseManifest {
+        version: "main-linux".into(),
+        build: 2,
+        files: vec![file_entry(
+            &format!("korangar-linux-{sha}"),
+            b"linux",
+            &format!("korangar-linux-{sha}"),
+        )],
+    };
+    assert_eq!(linux_only.platforms(), vec![UpdatePlatform::Linux]);
+    assert!(linux_only.has_platform(UpdatePlatform::Linux));
+    assert!(!linux_only.has_platform(UpdatePlatform::Windows));
+    let windows_only = ReleaseManifest {
+        version: "main-windows".into(),
+        build: 3,
+        files: vec![file_entry(
+            &format!("korangar-windows-{sha}.exe"),
+            b"win",
+            &format!("korangar-windows-{sha}.exe"),
+        )],
+    };
+    assert_eq!(windows_only.platforms(), vec![UpdatePlatform::Windows]);
+    assert!(!windows_only.has_platform(UpdatePlatform::Linux));
+    assert!(windows_only.has_platform(UpdatePlatform::Windows));
+    let both = ReleaseManifest {
+        version: "main-both".into(),
+        build: 4,
+        files: vec![windows_only.files[0].clone(), linux_only.files[0].clone()],
+    };
+    assert_eq!(both.platforms(), vec![UpdatePlatform::Linux, UpdatePlatform::Windows]);
+    assert_eq!(
+        platform_skip_line("main-windows", UpdatePlatform::Linux, "0.1.1"),
+        "release main-windows has no linux build; staying on 0.1.1"
+    );
+    assert_eq!(
+        platform_skip_line("main-linux", UpdatePlatform::Windows, "0.1.1"),
+        "release main-linux has no windows build; staying on 0.1.1"
+    );
+
+    let root = temp_dir();
+    let refused = korangar_update::cli::dispatch([
+        "sign".into(),
+        "--version".into(),
+        "1.0.0".into(),
+        "--build".into(),
+        "1".into(),
+        "--out".into(),
+        root.join("empty.krup").display().to_string(),
+        "--private-key".into(),
+        root.join("missing-seed").display().to_string(),
+    ]);
+    let message = refused.expect_err("sign with no files must fail");
+    assert!(
+        message.contains("at least one") || message.contains("no files") || message.contains("--file"),
+        "{message}"
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn either_platform_ships_alone_without_downloading_the_other_or_looping() {
+    let sha = "703c76c37929e49b363f1e2f712cb80212a0d3d2";
+    let linux_name = format!("korangar-linux-{sha}");
+    let windows_name = format!("korangar-windows-{sha}.exe");
+    let linux_bytes = shell_script();
+    let windows_bytes = shell_script();
+    let mut files = std::collections::HashMap::new();
+    let both = manifest_for_build("main-both", 10, vec![
+        file_entry(&linux_name, linux_bytes, &linux_name),
+        file_entry(&windows_name, windows_bytes, &windows_name),
+    ]);
+    let windows_only = manifest_for_build("main-windows", 11, vec![file_entry(
+        &windows_name,
+        windows_bytes,
+        &windows_name,
+    )]);
+    let linux_next = manifest_for_build("main-linux-next", 12, vec![file_entry(&linux_name, linux_bytes, &linux_name)]);
+    let linux_only = manifest_for_build("main-linux", 20, vec![file_entry(&linux_name, linux_bytes, &linux_name)]);
+    let windows_next = manifest_for_build("main-windows-next", 21, vec![file_entry(
+        &windows_name,
+        windows_bytes,
+        &windows_name,
+    )]);
+    let linux_later = manifest_for_build("main-linux-later", 22, vec![file_entry(&linux_name, linux_bytes, &linux_name)]);
+    files.insert("/both.krup".into(), both.into_bytes());
+    files.insert("/windows-only.krup".into(), windows_only.into_bytes());
+    files.insert("/linux-next.krup".into(), linux_next.into_bytes());
+    files.insert("/linux-only.krup".into(), linux_only.into_bytes());
+    files.insert("/windows-next.krup".into(), windows_next.into_bytes());
+    files.insert("/linux-later.krup".into(), linux_later.into_bytes());
+    files.insert(format!("/{linux_name}"), linux_bytes.to_vec());
+    files.insert(format!("/{windows_name}"), windows_bytes.to_vec());
+    let server = HitServer::start(files);
+
+    let root = temp_dir();
+    let install = root.join("install");
+    fs::create_dir_all(install.join("bin")).unwrap();
+    let exe = install.join("bin/korangar");
+    write_script(&exe, true);
+    let base = format!("http://127.0.0.1:{}", server.port);
+    let outcome = korangar_update::run_startup_update(&request(&install, &exe, &format!("{base}/both.krup"), "0.1.1")).unwrap();
+    assert_eq!(outcome, StartupOutcome::Applied { relaunched: false });
+    assert_eq!(fs::read(&exe).unwrap(), linux_bytes);
+    assert_eq!(fs::read_to_string(install.join("updates/applied.build")).unwrap().trim(), "10");
+    let after_both = server.paths();
+    assert!(after_both.iter().any(|path| path == "/both.krup"));
+    assert!(after_both.iter().any(|path| path == &format!("/{linux_name}")));
+    assert!(
+        !after_both.iter().any(|path| path.contains("korangar-windows-")),
+        "linux client downloaded the windows binary: {after_both:?}"
+    );
+
+    let before = fs::read(&exe).unwrap();
+    let skipped = korangar_update::run_startup_update(&request(&install, &exe, &format!("{base}/windows-only.krup"), "0.1.1")).unwrap();
+    assert_eq!(skipped, StartupOutcome::Skipped);
+    assert_eq!(fs::read(&exe).unwrap(), before);
+    assert_eq!(fs::read_to_string(install.join("updates/applied.build")).unwrap().trim(), "10");
+    assert!(
+        !server.paths().iter().any(|path| path.contains("korangar-windows-")),
+        "skipped release still downloaded windows: {:?}",
+        server.paths()
+    );
+    let again = korangar_update::run_startup_update(&request(&install, &exe, &format!("{base}/windows-only.krup"), "0.1.1")).unwrap();
+    assert_eq!(again, StartupOutcome::Skipped);
+    assert_eq!(fs::read(&exe).unwrap(), before);
+    assert_eq!(fs::read_to_string(install.join("updates/applied.build")).unwrap().trim(), "10");
+    assert!(!install.join("updates/staging/main-windows").exists());
+
+    let applied = korangar_update::run_startup_update(&request(&install, &exe, &format!("{base}/linux-next.krup"), "0.1.1")).unwrap();
+    assert_eq!(applied, StartupOutcome::Applied { relaunched: false });
+    assert_eq!(fs::read_to_string(install.join("updates/applied.build")).unwrap().trim(), "12");
+    let repeat = korangar_update::run_startup_update(&request(&install, &exe, &format!("{base}/linux-next.krup"), "0.1.1")).unwrap();
+    assert_eq!(repeat, StartupOutcome::UpToDate);
+
+    // The other direction: a Windows client skips a Linux-only release.
+    let win_install = root.join("win-install");
+    fs::create_dir_all(&win_install).unwrap();
+    let win_exe = win_install.join("korangar.exe");
+    write_script(&win_exe, true);
+    let original = fs::read(&win_exe).unwrap();
+    let skipped_linux = korangar_update::run_startup_update(&request_platform(
+        &win_install,
+        &win_exe,
+        &format!("{base}/linux-only.krup"),
+        "0.1.1",
+        UpdatePlatform::Windows,
+    ))
+    .unwrap();
+    assert_eq!(skipped_linux, StartupOutcome::Skipped);
+    assert_eq!(fs::read(&win_exe).unwrap(), original);
+    assert!(!win_install.join("updates/applied.build").exists());
+    let win_hits = server.paths();
+    let linux_fetches = win_hits.iter().filter(|path| *path == &format!("/{linux_name}")).count();
+    assert_eq!(
+        linux_fetches, 2,
+        "windows client fetched the linux binary while skipping: {win_hits:?}"
+    );
+    let win_applied = korangar_update::run_startup_update(&request_platform(
+        &win_install,
+        &win_exe,
+        &format!("{base}/windows-next.krup"),
+        "0.1.1",
+        UpdatePlatform::Windows,
+    ))
+    .unwrap();
+    assert_eq!(win_applied, StartupOutcome::Applied { relaunched: false });
+    assert_eq!(fs::read(&win_exe).unwrap(), windows_bytes);
+    assert_eq!(
+        fs::read_to_string(win_install.join("updates/applied.build")).unwrap().trim(),
+        "21"
+    );
+    let win_again = korangar_update::run_startup_update(&request_platform(
+        &win_install,
+        &win_exe,
+        &format!("{base}/windows-next.krup"),
+        "0.1.1",
+        UpdatePlatform::Windows,
+    ))
+    .unwrap();
+    assert_eq!(win_again, StartupOutcome::UpToDate);
+    let stayed = fs::read(&win_exe).unwrap();
+    let skipped_later = korangar_update::run_startup_update(&request_platform(
+        &win_install,
+        &win_exe,
+        &format!("{base}/linux-later.krup"),
+        "0.1.1",
+        UpdatePlatform::Windows,
+    ))
+    .unwrap();
+    assert_eq!(skipped_later, StartupOutcome::Skipped);
+    assert_eq!(fs::read(&win_exe).unwrap(), stayed);
+    assert_eq!(
+        fs::read_to_string(win_install.join("updates/applied.build")).unwrap().trim(),
+        "21"
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn sign_and_publish_scripts_dry_run_either_platform_and_refuse_empty() {
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    let sign = repo.join("scripts/sign-korangar-release.sh");
+    let publish = repo.join("scripts/publish-korangar-main-channel.sh");
+    let root = temp_dir();
+    let linux = root.join("linux.bin");
+    let windows = root.join("windows.exe");
+    fs::write(&linux, b"linux-bytes").unwrap();
+    fs::write(&windows, b"windows-bytes").unwrap();
+    let sha = "abc1234";
+    let seed_hex = "ab".repeat(32);
+
+    let linux_only = std::process::Command::new("bash")
+        .arg(&sign)
+        .args([
+            "--dry-run",
+            "--sha",
+            sha,
+            "--version",
+            "main-abc",
+            "--build",
+            "1",
+            "--out",
+            "/tmp/ignored.krup",
+        ])
+        .arg("--linux")
+        .arg(&linux)
+        .env("KORANGAR_UPDATE_SIGNING_KEY", &seed_hex)
+        .output()
+        .unwrap();
+    assert!(linux_only.status.success(), "{}", String::from_utf8_lossy(&linux_only.stderr));
+    let text = String::from_utf8(linux_only.stdout).unwrap();
+    assert!(text.contains("dry-run"), "{text}");
+    assert!(text.contains("korangar-linux-abc1234"), "{text}");
+    assert!(text.contains("(env seed, not printed)"), "{text}");
+    assert!(!text.contains(&seed_hex), "dry-run printed key material");
+
+    let windows_only = std::process::Command::new("bash")
+        .arg(&sign)
+        .args(["--dry-run", "--private-key", "/secure/korangar-update.seed", "--sha", sha])
+        .arg("--windows")
+        .arg(&windows)
+        .output()
+        .unwrap();
+    assert!(
+        windows_only.status.success(),
+        "{}",
+        String::from_utf8_lossy(&windows_only.stderr)
+    );
+    let text = String::from_utf8(windows_only.stdout).unwrap();
+    assert!(text.contains("key: /secure/korangar-update.seed"), "{text}");
+    assert!(text.contains("korangar-windows-abc1234.exe"), "{text}");
+    assert!(!text.contains("korangar-linux-"), "{text}");
+
+    let both = std::process::Command::new("bash")
+        .arg(&sign)
+        .args(["--dry-run", "--sha", sha, "--private-key", "/secure/korangar-update.seed"])
+        .arg("--linux")
+        .arg(&linux)
+        .arg("--windows")
+        .arg(&windows)
+        .output()
+        .unwrap();
+    assert!(both.status.success(), "{}", String::from_utf8_lossy(&both.stderr));
+    let text = String::from_utf8(both.stdout).unwrap();
+    assert!(
+        text.contains("korangar-linux-abc1234") && text.contains("korangar-windows-abc1234.exe"),
+        "{text}"
+    );
+
+    let empty = std::process::Command::new("bash").arg(&sign).arg("--dry-run").output().unwrap();
+    assert!(!empty.status.success());
+    let err = String::from_utf8_lossy(&empty.stderr);
+    assert!(err.contains("empty manifest"), "{err}");
+
+    let neither = std::process::Command::new("bash")
+        .arg(&sign)
+        .args(["--dry-run", "--file", &format!("runtime/note.txt={}", linux.display())])
+        .output()
+        .unwrap();
+    assert!(!neither.status.success());
+    assert!(String::from_utf8_lossy(&neither.stderr).contains("neither a linux nor a windows"));
+
+    let linux_manifest = root.join("linux.jsonup");
+    fs::write(
+        &linux_manifest,
+        manifest_for_build("main-abc1234", 9, vec![file_entry(
+            "korangar-linux-abc1234",
+            b"linux-bytes",
+            "korangar-linux-abc1234",
+        )]),
+    )
+    .unwrap();
+    let published = std::process::Command::new("bash")
+        .arg(&publish)
+        .args(["--dry-run", "--sha", sha, "--manifest"])
+        .arg(&linux_manifest)
+        .arg("--linux")
+        .arg(&linux)
+        .output()
+        .unwrap();
+    assert!(published.status.success(), "{}", String::from_utf8_lossy(&published.stderr));
+    let text = String::from_utf8(published.stdout).unwrap();
+    assert!(text.contains("files:"), "{text}");
+    assert!(text.contains("korangar-linux-abc1234"), "{text}");
+    assert!(text.contains("main/korangar-linux-abc1234"), "{text}");
+    assert!(text.contains("main/manifest.jsonup"), "{text}");
+    assert!(!text.contains("korangar-windows-"), "{text}");
+    assert!(!text.contains("AWS_") && !text.contains("SECRET"), "{text}");
+
+    let windows_manifest = root.join("windows.jsonup");
+    fs::write(
+        &windows_manifest,
+        manifest_for_build("main-abc1234", 9, vec![file_entry(
+            "korangar-windows-abc1234.exe",
+            b"windows-bytes",
+            "korangar-windows-abc1234.exe",
+        )]),
+    )
+    .unwrap();
+    let published = std::process::Command::new("bash")
+        .arg(&publish)
+        .args(["--dry-run", "--sha", sha, "--manifest"])
+        .arg(&windows_manifest)
+        .arg("--windows")
+        .arg(&windows)
+        .output()
+        .unwrap();
+    assert!(published.status.success(), "{}", String::from_utf8_lossy(&published.stderr));
+    let text = String::from_utf8(published.stdout).unwrap();
+    assert!(text.contains("main/korangar-windows-abc1234.exe"), "{text}");
+    assert!(!text.contains("main/korangar-linux-"), "{text}");
+
+    let empty_manifest = root.join("empty.jsonup");
+    fs::write(&empty_manifest, "KRUP1SIG\n001122\nKRUP1\n1.0.0\n1\n0\n").unwrap();
+    let refused = std::process::Command::new("bash")
+        .arg(&publish)
+        .args(["--dry-run", "--sha", sha, "--manifest"])
+        .arg(&empty_manifest)
+        .arg("--linux")
+        .arg(&linux)
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("empty manifest"));
+
+    let missing_side = std::process::Command::new("bash")
+        .arg(&publish)
+        .args(["--dry-run", "--sha", sha, "--manifest"])
+        .arg(&linux_manifest)
+        .output()
+        .unwrap();
+    assert!(!missing_side.status.success());
+    assert!(String::from_utf8_lossy(&missing_side.stderr).contains("empty manifest"));
     let _ = fs::remove_dir_all(&root);
 }
