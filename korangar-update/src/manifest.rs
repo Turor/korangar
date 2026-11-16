@@ -189,6 +189,82 @@ pub fn is_newer_build(incoming: u64, installed: u64) -> bool {
     incoming > installed
 }
 
+/// One side of the shared main channel. A release may carry either side, or
+/// both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdatePlatform {
+    Linux,
+    Windows,
+}
+
+impl UpdatePlatform {
+    pub fn current() -> Self {
+        if cfg!(windows) { Self::Windows } else { Self::Linux }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Linux => "linux",
+            Self::Windows => "windows",
+        }
+    }
+}
+
+/// `korangar-linux-<sha>` or `korangar-windows-<sha>.exe`. Other paths are not
+/// platform release binaries.
+pub fn release_file_platform(path: &str) -> Option<UpdatePlatform> {
+    if let Some(rest) = path.strip_prefix("korangar-linux-")
+        && is_release_sha(rest)
+    {
+        return Some(UpdatePlatform::Linux);
+    }
+    if let Some(rest) = path.strip_prefix("korangar-windows-")
+        && rest.strip_suffix(".exe").is_some_and(is_release_sha)
+    {
+        return Some(UpdatePlatform::Windows);
+    }
+    None
+}
+
+pub(crate) fn is_release_sha(value: &str) -> bool {
+    let length = value.len();
+    (7..=64).contains(&length) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+impl ReleaseManifest {
+    /// Release binaries present in this manifest, Linux then Windows.
+    /// Companion files that install on every platform are not listed.
+    pub fn platforms(&self) -> Vec<UpdatePlatform> {
+        let mut found = Vec::new();
+        for file in &self.files {
+            if let Some(platform) = release_file_platform(&file.path)
+                && !found.contains(&platform)
+            {
+                found.push(platform);
+            }
+        }
+        found.sort_by_key(|platform| match platform {
+            UpdatePlatform::Linux => 0,
+            UpdatePlatform::Windows => 1,
+        });
+        found
+    }
+
+    /// True when this manifest has something to install on `platform`: its
+    /// release binary, or a companion file that is not tied to the other side.
+    pub fn has_platform(&self, platform: UpdatePlatform) -> bool {
+        self.files.iter().any(|file| match release_file_platform(&file.path) {
+            Some(found) => found == platform,
+            None => true,
+        })
+    }
+}
+
+/// Log line when a signed release has no binary for the running platform.
+pub fn platform_skip_line(version: &str, platform: UpdatePlatform, current: &str) -> String {
+    format!("release {version} has no {} build; staying on {current}", platform.label())
+}
+
 fn validate_token(label: &str, value: &str) -> Result<(), String> {
     if value.is_empty() || value.len() > 512 || value.chars().any(|char| char.is_control() || char == ' ') {
         return Err(format!("unsafe {label}"));

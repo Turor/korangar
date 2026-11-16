@@ -53,12 +53,20 @@ The client already embeds the controller's public key. Re-print it with `koranga
 scripts/sign-korangar-release.sh \
   --private-key /secure/korangar-update.seed \
   --version 0.1.2 \
+  --build "$(date +%s)" \
+  --sha "$(git rev-parse HEAD)" \
   --out /secure/manifest.krup \
-  --file korangar.exe=/path/to/korangar.exe \
-  --file runtime/note.txt=/path/to/note.txt --url runtime/note.txt
+  --linux /path/to/korangar \
+  --windows /path/to/korangar.exe
 ```
 
-`--private-key` may be omitted when `KORANGAR_UPDATE_SIGNING_KEY` is set. The script runs `korangar-sign-release` from `KORANGAR_SIGN_BIN` or `PATH`, otherwise `cargo run -p korangar-update --bin korangar-sign-release`. On the shared dev host, build through `/root/Work/korangar-parity-swarm-20261109/cargo-run.sh` and point `KORANGAR_SIGN_BIN` at that binary.
+`--linux` and `--windows` are each optional. At least one is required (a `--file` whose name is `korangar-linux-*` or `korangar-windows-*.exe` counts). Omitting both refuses an empty manifest. `--dry-run` prints the file list and the key path and does not read the seed or write a signature:
+
+```bash
+scripts/sign-korangar-release.sh --dry-run --sha "$(git rev-parse HEAD)" --linux /path/to/korangar
+```
+
+`--private-key` may be omitted when `KORANGAR_UPDATE_SIGNING_KEY` is set. The script runs `korangar-sign-release` from `KORANGAR_SIGN_BIN` or `PATH`, otherwise `cargo run -p korangar-update --bin korangar-sign-release`. On the shared dev host, build through the gap-swarm `cargo-run.sh` and point `KORANGAR_SIGN_BIN` at that binary. Never print the seed; dry-run prints only the key path (a raw 64-hex env value is reported as not printed).
 
 The same arguments work if you call `korangar-sign-release sign` directly.
 
@@ -82,7 +90,9 @@ main/korangar-linux-<gitsha>
 main/korangar-windows-<gitsha>.exe
 ```
 
-Release binaries keep their bucket object names in the manifest (`korangar-linux-<gitsha>`, `korangar-windows-<gitsha>.exe`) so remoteclient2 can allowlist and presign them. On apply, the client installs the binary for its own platform over the running executable (`bin/korangar`, `korangar.exe`, wherever it was started from) and skips the other platform's file without downloading it. A manifest with nothing for this platform is skipped and `applied.build` is left unchanged.
+Release binaries keep their bucket object names in the manifest (`korangar-linux-<gitsha>`, `korangar-windows-<gitsha>.exe`) so remoteclient2 can allowlist and presign them. On apply, the client installs the binary for its own platform over the running executable (`bin/korangar`, `korangar.exe`, wherever it was started from) and skips the other platform's file without downloading it.
+
+Linux and Windows share one main channel, and either platform may ship alone. A manifest with no file for the running platform is skipped: `updates/applied.build` stays unchanged, the other platform's file is not downloaded, and the next startup of that same manifest skips again (it does not reinstall). The client logs `release <version> has no <platform> build; staying on <current>`. A later release that includes this platform applies once, then reports up to date. Rollback protection is unchanged: a signed manifest whose build is not strictly newer than `applied.build` is still rejected. An empty manifest (no file entries) is refused by the signer and by publish.
 
 The last three published SHAs are kept; older binaries are deleted after a successful publish.
 
@@ -111,10 +121,27 @@ merge → build Linux (gha-elastic, unsigned) → controller poller
 
 ### Failures and manual publishes
 
-- A failed Windows build does not hold back Linux: the poller publishes a Linux-only manifest (`--windows` is optional in `scripts/publish-korangar-main-channel.sh`) and logs it. Windows clients skip a release with no Windows binary.
+- Either platform can ship alone. A failed Windows build does not hold back Linux, and a failed Linux run does not hold back Windows when that Windows build succeeded. `scripts/publish-korangar-main-channel.sh` takes `--linux` and `--windows` as optional flags and requires at least one. It refuses an empty manifest and a manifest that names a platform binary that is not being uploaded.
+- `--dry-run` prints the manifest file list and the object keys (`main/korangar-linux-<sha>`, `main/korangar-windows-<sha>.exe`, `main/manifest.jsonup`) and does not contact Garage.
+- Clients of the missing platform skip that release, log `release <version> has no <platform> build; staying on <current>`, and keep their current `applied.build`. They do not download the other platform's file.
 - Each sha gets 3 publish attempts; the poller then ignores it until `~/Work/korangar-release-publisher/failures/<sha>` is deleted.
-- Manual Linux-only publish of the newest successful run: `SKIP_WINDOWS=1 ~/Work/korangar-release-publisher/poll-and-publish.sh`.
-- `main-release` cancels a superseded in-progress run on `main`; the poller always takes the newest successful run.
+- Manual Linux-only publish: `SKIP_WINDOWS=1 ~/Work/korangar-release-publisher/poll-and-publish.sh`. Manual Windows-only publish (Linux run failed, Windows build succeeded): `SKIP_LINUX=1 ~/Work/korangar-release-publisher/poll-and-publish.sh`. The poller logs which platform is behind.
+- `main-release` stays Linux-only on GitHub. It does not sign or upload. Windows is built by the controller poller on win11-build. A cancelled or failed Linux job is not a reason to add signing to Actions.
+
+### Platform behind
+
+When one platform's clients do not move and the other's do:
+
+1. Read the client log for `release <version> has no linux build; staying on <current>` or the same line with `windows`. That client is healthy and still on its previous build.
+2. Confirm the channel manifest lists only the other platform (`korangar-linux-<sha>` or `korangar-windows-<sha>.exe`). Dry-run the publish script against the signed manifest to print that list without uploading.
+3. Do not republish the same build number with the missing binary added. Rollback protection treats an equal build as already current on clients that did apply it, and clients that skipped did not record the build. Ship a new monotonic `--build` that contains the missing platform (alone, or with the other side).
+4. The skipped client applies that newer build once. A second startup of the same manifest is up to date and does not swap again.
+5. On the controller, a Windows-only publish is the case where the GitHub Linux run failed and the win11-build binary succeeded. The poller should log `platform behind: linux` and upload only the Windows object. The reverse log line is `platform behind: windows`.
+
+### Follow-ups (operator tasks, not code)
+
+- Move the signing seed from `~/Work/korangar-signing/update.seed` on the controller into Bitwarden. Scripts and the embedded public key stay as they are.
+- Enable auto-update on omarchy installs after a signed build is installed there (clear `KORANGAR_SKIP_UPDATE`). Not part of this change.
 
 ### What stays offline
 
@@ -126,6 +153,16 @@ merge → build Linux (gha-elastic, unsigned) → controller poller
 
 ```bash
 # on the controller, after artifacts are in /tmp/korangar-release-work
-./scripts/sign-korangar-release.sh   --private-key "$HOME/Work/korangar-signing/update.seed"   --version "main-$(git rev-parse --short=12 HEAD)"   --build "$(date +%s)"   --out /tmp/manifest.jsonup   --file korangar-linux-<sha>=<linux-bin>   --file korangar-windows-<sha>.exe=<windows-exe>
-# then scripts/publish-korangar-main-channel.sh copies objects to Garage
+# either --linux or --windows may be omitted; at least one is required
+./scripts/sign-korangar-release.sh --dry-run --sha "<sha>" --linux <linux-bin> --windows <windows-exe>
+./scripts/sign-korangar-release.sh \
+  --private-key "$HOME/Work/korangar-signing/update.seed" \
+  --version "main-$(git rev-parse --short=12 HEAD)" \
+  --build "$(date +%s)" \
+  --sha "<sha>" \
+  --out /tmp/manifest.jsonup \
+  --linux <linux-bin> \
+  --windows <windows-exe>
+./scripts/publish-korangar-main-channel.sh --dry-run --sha "<sha>" --manifest /tmp/manifest.jsonup --linux <linux-bin> --windows <windows-exe>
+# then the same command without --dry-run copies objects to Garage
 ```

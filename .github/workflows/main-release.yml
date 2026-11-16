@@ -1,6 +1,10 @@
 # Unsigned Linux build for the main auto-update channel.
 # Signing and Garage publish happen on the controller, never in this job.
-# Windows is built on win11-build VM 118 by the controller poller.
+# This workflow stays Linux-only: do not add a Windows job, signing, upload,
+# or repository secrets. Windows is built on win11-build VM 118 by the
+# controller poller. If this Linux run fails and the Windows build succeeded,
+# the poller publishes Windows alone. Clients of the missing platform skip
+# that release and stay on their current build.
 name: main-release
 
 on:

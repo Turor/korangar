@@ -53,8 +53,8 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-pub use manifest::EMBEDDED_UPDATE_PUBLIC_KEY as UPDATE_PUBLIC_KEY;
 use manifest::ReleaseManifest;
+pub use manifest::{EMBEDDED_UPDATE_PUBLIC_KEY as UPDATE_PUBLIC_KEY, UpdatePlatform, generate_seed, platform_skip_line};
 use serde::Deserialize;
 
 /// Public main-channel catalog. remoteclient2 issues short-lived presigned GET
@@ -84,6 +84,9 @@ pub struct StartupRequest<'a> {
     /// When false, a successful swap is not followed by a process spawn
     /// (tests).
     pub spawn_relaunch: bool,
+    /// Platform this process installs. The binary passes
+    /// [`UpdatePlatform::current`].
+    pub platform: UpdatePlatform,
 }
 
 /// True when an update attempt should run. `KORANGAR_SKIP_UPDATE=1` or an empty
@@ -158,6 +161,14 @@ fn apply_manifest(
         .map_err(|_| "current executable is outside the install root")?
         .to_string_lossy()
         .replace('\\', "/");
+    if !manifest.has_platform(request.platform) {
+        // No file for this platform: do not download the other side, do not
+        // touch applied.build, and do not swap. The next release that carries
+        // this platform still applies, because the skipped build was not recorded.
+        let line = manifest::platform_skip_line(&manifest.version, request.platform, request.current_version);
+        eprintln!("{line}");
+        return Ok(StartupOutcome::Skipped);
+    }
     let staging = request.install_root.join("updates").join("staging").join(&manifest.version);
     if staging.exists() {
         fs::remove_dir_all(&staging).map_err(|error| error.to_string())?;
@@ -168,7 +179,7 @@ fn apply_manifest(
     for file in &manifest.files {
         // Release binaries are published as `korangar-<platform>-<sha>`; install the
         // one for this platform over the running executable and skip the others.
-        let Some(destination_rel) = install_destination(&file.path, &exe_rel, cfg!(windows)) else {
+        let Some(destination_rel) = install_destination(&file.path, &exe_rel, request.platform) else {
             continue;
         };
         let relative = safe_relative(&destination_rel)?;
@@ -186,12 +197,6 @@ fn apply_manifest(
         }
         write_full(&destination, &bytes)?;
         staged.push((relative, destination));
-    }
-
-    if staged.is_empty() {
-        // Nothing in this release targets this platform; keep the current build.
-        let _ = fs::remove_dir_all(&staging);
-        return Ok(StartupOutcome::Skipped);
     }
 
     let exe_changed = staged.iter().any(|(relative, _)| relative_string(relative) == exe_rel);
@@ -509,10 +514,10 @@ fn allowed_release_object_name(name: &str) -> bool {
         return true;
     }
     if let Some(rest) = name.strip_prefix("korangar-linux-") {
-        return is_hex_sha(rest);
+        return manifest::is_release_sha(rest);
     }
     if let Some(rest) = name.strip_prefix("korangar-windows-") {
-        return rest.strip_suffix(".exe").is_some_and(is_hex_sha);
+        return rest.strip_suffix(".exe").is_some_and(manifest::is_release_sha);
     }
     false
 }
@@ -524,23 +529,12 @@ fn allowed_release_object_name(name: &str) -> bool {
 /// The binary for the running platform replaces the current executable
 /// (`exe_rel`); the other platform's binary is skipped (`None`). Any other path
 /// is installed as-is.
-fn install_destination(path: &str, exe_rel: &str, windows: bool) -> Option<String> {
-    if let Some(rest) = path.strip_prefix("korangar-linux-")
-        && is_hex_sha(rest)
-    {
-        return (!windows).then(|| exe_rel.to_string());
+fn install_destination(path: &str, exe_rel: &str, platform: UpdatePlatform) -> Option<String> {
+    match manifest::release_file_platform(path) {
+        Some(file_platform) if file_platform == platform => Some(exe_rel.to_string()),
+        Some(_) => None,
+        None => Some(path.to_string()),
     }
-    if let Some(rest) = path.strip_prefix("korangar-windows-")
-        && rest.strip_suffix(".exe").is_some_and(is_hex_sha)
-    {
-        return windows.then(|| exe_rel.to_string());
-    }
-    Some(path.to_string())
-}
-
-fn is_hex_sha(s: &str) -> bool {
-    let n = s.len();
-    (7..=64).contains(&n) && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 fn looks_like_json(bytes: &[u8]) -> bool {
@@ -760,31 +754,34 @@ fn relative_string(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{install_destination, install_rustls_crypto};
+    use super::{UpdatePlatform, install_destination, install_rustls_crypto};
 
     #[test]
     fn release_binaries_map_to_the_running_executable_per_platform() {
         let sha = "703c76c37929e49b363f1e2f712cb80212a0d3d2";
         let linux = format!("korangar-linux-{sha}");
         let windows = format!("korangar-windows-{sha}.exe");
-        assert_eq!(install_destination(&linux, "korangar", false).as_deref(), Some("korangar"));
-        assert_eq!(install_destination(&windows, "korangar", false), None);
         assert_eq!(
-            install_destination(&windows, "korangar.exe", true).as_deref(),
+            install_destination(&linux, "korangar", UpdatePlatform::Linux).as_deref(),
+            Some("korangar")
+        );
+        assert_eq!(install_destination(&windows, "korangar", UpdatePlatform::Linux), None);
+        assert_eq!(
+            install_destination(&windows, "korangar.exe", UpdatePlatform::Windows).as_deref(),
             Some("korangar.exe")
         );
-        assert_eq!(install_destination(&linux, "korangar.exe", true), None);
+        assert_eq!(install_destination(&linux, "korangar.exe", UpdatePlatform::Windows), None);
         assert_eq!(
-            install_destination(&linux, "bin/korangar", false).as_deref(),
+            install_destination(&linux, "bin/korangar", UpdatePlatform::Linux).as_deref(),
             Some("bin/korangar")
         );
         // Non-release names (and malformed shas) are installed as written.
         assert_eq!(
-            install_destination("runtime.dat", "korangar", false).as_deref(),
+            install_destination("runtime.dat", "korangar", UpdatePlatform::Linux).as_deref(),
             Some("runtime.dat")
         );
         assert_eq!(
-            install_destination("korangar-linux-nothex", "korangar", false).as_deref(),
+            install_destination("korangar-linux-nothex", "korangar", UpdatePlatform::Linux).as_deref(),
             Some("korangar-linux-nothex")
         );
     }

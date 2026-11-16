@@ -75,19 +75,12 @@ fn startup_update() -> Result<(), String> {
     let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let install_root = current_exe.parent().ok_or("executable has no directory")?.to_path_buf();
     let relaunch_args: Vec<String> = std::env::args().skip(1).collect();
-    let skip = std::env::var("KORANGAR_SKIP_UPDATE").ok();
-    let manifest = std::env::var("KORANGAR_UPDATE_MANIFEST_URL")
-        .ok()
-        .filter(|value| !value.trim().is_empty());
-    let default = korangar_update::DEFAULT_UPDATE_MANIFEST_URL;
-    let manifest_url = manifest.as_deref().unwrap_or(default);
-    let outcome = korangar_update::run_startup_update(&korangar_update::StartupRequest {
-        skip_env: skip.as_deref(),
-        manifest_url: Some(manifest_url),
-        current_version: env!("CARGO_PKG_VERSION"),
+    let outcome = korangar::e2e::drive_startup_update(&korangar::e2e::ClientStartup {
         install_root: &install_root,
         current_exe: &current_exe,
         public_key: &korangar_update::manifest::EMBEDDED_UPDATE_PUBLIC_KEY,
+        platform: korangar_update::UpdatePlatform::current(),
+        current_version: env!("CARGO_PKG_VERSION"),
         relaunch_args: &relaunch_args,
         spawn_relaunch: true,
     })?;
