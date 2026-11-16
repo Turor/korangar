@@ -30,6 +30,9 @@ pub struct OfflineStorageReport {
     pub send_time: Vec<Option<u16>>,
     /// Tracked ammo index after `ZC_EQUIP_ARROW` for 5, then its unequip.
     pub ammo_tracking: (Option<u16>, Option<u16>),
+    /// Login order: `ZC_EQUIP_ARROW` on an empty list, then the list
+    /// arrives; then the arrow row is used up; then a map change.
+    pub ammo_login: Vec<Option<u16>>,
     pub deposit_status: String,
     /// Saved searches for Alice and Bob after a save/load through a file.
     pub alice: Vec<String>,
@@ -104,10 +107,23 @@ pub fn offline_storage_tools(scratch: &std::path::Path) -> Result<OfflineStorage
     let deposit_status = tools.status().to_owned();
 
     let mut tracked = Inventory::from_items(all_items.clone());
-    tracked.update_equipped_position(InventoryIndex(5), EquipPosition::AMMO);
+    tracked.set_equipped_ammo(InventoryIndex(5));
     let equipped = tracked.equipped_ammo().map(|index| index.0);
     tracked.update_equipped_position(InventoryIndex(5), EquipPosition::NONE);
     let ammo_tracking = (equipped, tracked.equipped_ammo().map(|index| index.0));
+
+    let mut login = Inventory::default();
+    login.set_equipped_ammo(InventoryIndex(5));
+    let mut ammo_login = vec![login.equipped_ammo().map(|index| index.0)];
+    let mut login = Inventory::from_items(all_items.clone());
+    login.set_equipped_ammo(InventoryIndex(5));
+    ammo_login.push(login.equipped_ammo().map(|index| index.0));
+    login.remove_item(InventoryIndex(5), 500);
+    ammo_login.push(login.equipped_ammo().map(|index| index.0));
+    let mut next_character = Inventory::from_items(all_items.clone());
+    next_character.set_equipped_ammo(InventoryIndex(5));
+    next_character.clear_equipped_ammo();
+    ammo_login.push(next_character.equipped_ammo().map(|index| index.0));
 
     let mut live = all_items.clone();
     let jellopy = InventoryIndex(6);
@@ -148,6 +164,7 @@ pub fn offline_storage_tools(scratch: &std::path::Path) -> Result<OfflineStorage
         throttled,
         send_time,
         ammo_tracking,
+        ammo_login,
         deposit_status,
         alice: alice_again.saved().to_vec(),
         bob: bob.saved().to_vec(),

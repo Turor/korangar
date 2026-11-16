@@ -46,8 +46,25 @@ impl Inventory {
         self.capacity = Some(maximum);
     }
 
+    /// The equipped ammo stack, while that row is in the list. Hercules
+    /// sends `ZC_EQUIP_ARROW` before the inventory list ends, so the index is
+    /// kept even when the row has not arrived yet.
     pub fn equipped_ammo(&self) -> Option<InventoryIndex> {
-        self.equipped_ammo
+        self.equipped_ammo.filter(|index| {
+            self.items
+                .iter()
+                .any(|item| item.index == *index && matches!(item.details, InventoryItemDetails::Regular { .. }))
+        })
+    }
+
+    /// `ZC_EQUIP_ARROW`. No row lookup: the list may still be loading.
+    pub fn set_equipped_ammo(&mut self, index: InventoryIndex) {
+        self.equipped_ammo = Some(index);
+    }
+
+    /// Map server left: the next character starts without equipped ammo.
+    pub fn clear_equipped_ammo(&mut self) {
+        self.equipped_ammo = None;
     }
 
     pub fn view(&self) -> &InventoryView {
@@ -182,6 +199,9 @@ impl Inventory {
             return;
         }
 
+        if self.equipped_ammo == Some(index) {
+            self.equipped_ammo = None;
+        }
         self.items.remove(position);
     }
 

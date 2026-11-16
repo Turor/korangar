@@ -37,6 +37,8 @@ fn storage_tabs_saved_searches_and_deposit_offline() {
     // at all once it is a favorite or gone.
     assert_eq!(report.send_time, [Some(12), Some(10), None, None]);
     assert_eq!(report.ammo_tracking, (Some(5), None));
+    // Not yet in the list, in the list, used up, after a map change.
+    assert_eq!(report.ammo_login, [None, Some(5), None, None]);
     assert_eq!(report.deposit_status, "Deposited 2 stacks");
 
     assert_eq!(report.alice, ["card", "ore"]);

@@ -1459,6 +1459,7 @@ impl Client {
                 }
                 NetworkEvent::MapServerDisconnected { reason } => {
                     self.clear_chat_rooms();
+                    self.client_state.follow_mut(client_state().inventory()).clear_equipped_ammo();
                     if reason != DisconnectReason::ClosedByClient {
                         // TODO: Make this an on-screen popup.
                         #[cfg(feature = "debug")]
@@ -2895,9 +2896,7 @@ impl Client {
                     self.client_state.follow_mut(client_state().misc_info()).set_reputation(text);
                 }
                 NetworkEvent::AmmunitionEquipped { index } => {
-                    self.client_state
-                        .follow_mut(client_state().inventory())
-                        .update_equipped_position(index, EquipPosition::AMMO);
+                    self.client_state.follow_mut(client_state().inventory()).set_equipped_ammo(index);
                 }
                 NetworkEvent::AmmunitionAction { action } => {
                     let color = if korangar_networking::ammunition_is_error(&action) {
