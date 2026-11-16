@@ -10,6 +10,7 @@ pub mod chat;
 pub mod chat_room;
 pub mod clan;
 pub mod context_menu;
+pub mod dressing_room;
 pub mod eden;
 pub mod enchant;
 pub mod enchant_grade;
@@ -112,6 +113,7 @@ use crate::state::achievements::Achievements;
 use crate::state::character_screen::CharacterScreen;
 use crate::state::character_slots::CharacterSlots;
 use crate::state::chat_room::ChatRoomState;
+use crate::state::dressing_room::DressingRoom;
 use crate::state::enchant::EnchantWindowState;
 use crate::state::enchant_grade::EnchantGradeState;
 use crate::state::equip_switch::EquipSwitch;
@@ -394,6 +396,8 @@ pub struct ClientState {
     item_drop: ItemDropPrompt,
     /// Amount typed when a stack moves to or from storage, the cart or a trade.
     item_move: ItemMovePrompt,
+    /// Client-only paperdoll. Trying an item on never sends a packet.
+    dressing_room: DressingRoom,
     /// Chat room boards, the joined room, and its forms.
     chat_room: ChatRoomState,
     /// Kafra or guild storage. Replaced when a storage list arrives.
@@ -646,6 +650,7 @@ impl ClientState {
             let inventory = Inventory::default();
             let item_drop = ItemDropPrompt::default();
             let item_move = ItemMovePrompt::default();
+            let dressing_room = DressingRoom::default();
             let storage = Inventory::default();
             let cart = Inventory::default();
             let skill_tree = SkillTree::default();
@@ -773,6 +778,7 @@ impl ClientState {
             inventory,
             item_drop,
             item_move,
+            dressing_room,
             chat_room: ChatRoomState::default(),
             storage,
             equip_switch: EquipSwitch::default(),
