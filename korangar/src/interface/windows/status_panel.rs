@@ -10,7 +10,6 @@ use korangar_interface::layout::tooltip::TooltipExt;
 use korangar_interface::layout::{Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
-use ragnarok_packets::ClientTick;
 use rust_state::{Path, PathExt, Selector, State};
 
 use super::equipment::paint_portrait;
@@ -18,8 +17,9 @@ use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::interface::windows::WindowClass;
 use crate::interface::windows::basic_info_view::{WeightColor, WeightLabel, ZenyLabel};
 use crate::loaders::{FontSize, OverflowBehavior};
-use crate::state::status_effects::{ActiveStatusEffect, StatusEffects};
-use crate::state::status_names::{status_effect_description, status_effect_name};
+use crate::renderer::LayoutExt;
+use crate::state::status_effects::{CountdownSweep, StatusEffects, countdown_sweep, format_remaining, remaining_ms};
+use crate::state::status_names::status_effect_name;
 use crate::state::theme::{BasicInfoThemePathExt, InterfaceThemePathExt, InterfaceThemeType, ThemeTokens, ThemeTokensPathExt};
 use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 use crate::world::{BasicInfoStatsPathExt, CommonPathExt, Player, PlayerPathExt, exp_bar_ratio, format_exp_pair, format_exp_percent};
@@ -674,13 +674,31 @@ where
 #[allow(dead_code)]
 struct BuffIconTip(u16);
 
-/// Row of active status icons with a remaining-time overlay and a
-/// name/description tooltip.
+/// Icons per row for `width`, at least one.
+fn buff_icons_per_row(width: f32) -> usize {
+    (((width + ICON_GAP) / (ICON_SIDE + ICON_GAP)).floor() as usize).max(1)
+}
+
+/// Height of the buff strip: one row per `icons_per_row` icons, wrapping
+/// instead of hiding the overflow.
+fn buff_row_height(count: usize, icons_per_row: usize) -> f32 {
+    if count == 0 {
+        return 2.0;
+    }
+    let rows = count.div_ceil(icons_per_row.max(1));
+    rows as f32 * (ICON_SIDE + ICON_GAP) - ICON_GAP + 2.0
+}
+
+/// Row of active status icons (art from `stateiconimginfo.lub`, a letter chip
+/// when the client has none), a countdown sweep and time, and a
+/// name/description tooltip. Wraps onto more rows when the panel is full.
 pub struct StatusBuffRow<A> {
     status_effects_path: A,
     marks: Vec<String>,
     times: Vec<String>,
-    tips: Vec<String>,
+    sweeps: Vec<Option<CountdownSweep>>,
+    /// Width seen by the last `lay_out`, used to wrap on the next layout.
+    last_width: Cell<f32>,
 }
 
 impl<A> StatusBuffRow<A> {
@@ -689,28 +707,9 @@ impl<A> StatusBuffRow<A> {
             status_effects_path,
             marks: Vec::new(),
             times: Vec::new(),
-            tips: Vec::new(),
+            sweeps: Vec::new(),
+            last_width: Cell::new(220.0),
         }
-    }
-}
-
-fn remaining_ms(effect: &ActiveStatusEffect, now: ClientTick) -> u32 {
-    if effect.remaining_milliseconds == 0 {
-        return 0;
-    }
-    let elapsed = now.0.saturating_sub(effect.updated_at_tick);
-    effect.remaining_milliseconds.saturating_sub(elapsed)
-}
-
-fn format_remaining(ms: u32) -> String {
-    if ms == 0 {
-        return String::new();
-    }
-    let seconds = ms.div_ceil(1000).max(1);
-    if seconds >= 60 {
-        format!("{}m", seconds / 60)
-    } else {
-        format!("{seconds}s")
     }
 }
 
@@ -730,24 +729,19 @@ where
         let effects = state.get(&self.status_effects_path).effects();
         self.marks.clear();
         self.times.clear();
-        self.tips.clear();
+        self.sweeps.clear();
         for effect in effects {
-            let name = status_effect_name(effect.status_index);
-            let mark = name
+            let mark = status_effect_name(effect.status_index)
                 .chars()
                 .next()
                 .map(|ch| ch.to_uppercase().to_string())
                 .unwrap_or_else(|| "?".into());
             self.marks.push(mark);
-            self.times.push(format_remaining(remaining_ms(effect, now)));
-            let description = status_effect_description(effect.status_index);
-            if description.is_empty() || description == name {
-                self.tips.push(name);
-            } else {
-                self.tips.push(format!("{name}\n{description}"));
-            }
+            let remaining = remaining_ms(effect, now);
+            self.times.push(format_remaining(remaining));
+            self.sweeps.push(countdown_sweep(remaining, effect.total_duration_milliseconds));
         }
-        let height = if effects.is_empty() { 2.0 } else { ICON_SIDE + 2.0 };
+        let height = buff_row_height(effects.len(), buff_icons_per_row(self.last_width.get()));
         with_single_resolver(resolvers, |resolver| korangar_interface::element::BaseLayoutInfo {
             area: resolver.with_height(height),
         })
@@ -760,40 +754,79 @@ where
         layout_info: &'a Self::LayoutInfo,
         layout: &mut WindowLayout<'a, ClientState>,
     ) {
+        self.last_width.set(layout_info.area.width);
         let effects = state.get(&self.status_effects_path).effects();
         if effects.is_empty() {
             return;
         }
         let tokens_path = client_theme().tokens();
         let tokens = state.get(&tokens_path);
-        let mut left = layout_info.area.left;
+        let per_row = buff_icons_per_row(layout_info.area.width);
         for (index, effect) in effects.iter().enumerate() {
-            if left + ICON_SIDE > layout_info.area.left + layout_info.area.width {
-                break;
-            }
+            let column = index % per_row;
+            let row = index / per_row;
             let area = Area {
-                left,
-                top: layout_info.area.top,
+                left: layout_info.area.left + column as f32 * (ICON_SIDE + ICON_GAP),
+                top: layout_info.area.top + row as f32 * (ICON_SIDE + ICON_GAP),
                 width: ICON_SIDE,
                 height: ICON_SIDE,
             };
-            layout.add_rectangle(
-                area,
-                CornerDiameter::uniform(4.0),
-                tokens.raised.with_alpha_u8(230),
-                tokens.border,
-                ShadowPadding::uniform(0.0),
-            );
-            if let Some(mark) = self.marks.get(index) {
-                layout.add_text(
-                    area,
-                    mark,
-                    FontSize(11.0),
-                    tokens.text,
-                    tokens.hover,
-                    HorizontalAlignment::Center { offset: 0.0, border: 0.0 },
-                    VerticalAlignment::Center { offset: -3.0 },
-                    OverflowBehavior::Shrink,
+            if area.top + ICON_SIDE > layout_info.area.top + layout_info.area.height + 0.5 {
+                // The layout was sized for a wider panel last frame; the next
+                // layout adds the row.
+                break;
+            }
+            match effect.icon.as_ref() {
+                Some(icon) => {
+                    layout.add_rectangle(
+                        area,
+                        CornerDiameter::uniform(2.0),
+                        tokens.raised.with_alpha_u8(160),
+                        tokens.border,
+                        ShadowPadding::uniform(0.0),
+                    );
+                    layout.add_texture(area, icon.clone(), Color::WHITE, true);
+                }
+                None => {
+                    layout.add_rectangle(
+                        area,
+                        CornerDiameter::uniform(4.0),
+                        tokens.raised.with_alpha_u8(230),
+                        tokens.border,
+                        ShadowPadding::uniform(0.0),
+                    );
+                    if let Some(mark) = self.marks.get(index) {
+                        layout.add_text(
+                            area,
+                            mark,
+                            FontSize(11.0),
+                            tokens.text,
+                            tokens.hover,
+                            HorizontalAlignment::Center { offset: 0.0, border: 0.0 },
+                            VerticalAlignment::Center { offset: -3.0 },
+                            OverflowBehavior::Shrink,
+                        );
+                    }
+                }
+            }
+            if let Some(Some(sweep)) = self.sweeps.get(index)
+                && sweep.fraction > 0.0
+            {
+                let color = match sweep.urgent {
+                    true => tokens.gold.with_alpha_u8(120),
+                    false => tokens.text.with_alpha_u8(70),
+                };
+                layout.add_rectangle(
+                    Area {
+                        left: area.left,
+                        top: area.top,
+                        width: area.width,
+                        height: area.height * sweep.fraction,
+                    },
+                    CornerDiameter::uniform(2.0),
+                    color,
+                    color,
+                    ShadowPadding::uniform(0.0),
                 );
             }
             if let Some(time) = self.times.get(index).filter(|time| !time.is_empty()) {
@@ -814,12 +847,9 @@ where
                     OverflowBehavior::Shrink,
                 );
             }
-            if area.check().run(layout)
-                && let Some(tip) = self.tips.get(index)
-            {
-                layout.add_tooltip(tip, BuffIconTip(effect.status_index).tooltip_id());
+            if area.check().run(layout) {
+                layout.add_tooltip(effect.tooltip.as_str(), BuffIconTip(effect.status_index).tooltip_id());
             }
-            left += ICON_SIDE + ICON_GAP;
         }
     }
 }
@@ -887,31 +917,25 @@ where
 
 #[cfg(test)]
 mod tests {
-    use ragnarok_packets::ClientTick;
-
     use super::{
-        EXP_BAR_FONT_SIZE, EXP_BAR_HEIGHT, FOOTER_FONT_SIZE, FOOTER_ROW_HEIGHT, PORTRAIT_SIDE, STATUS_PANEL_WINDOW_HEIGHT,
-        economy_row_frames, exp_bar_colors, exp_bar_label, format_remaining, remaining_ms, resource_bar_colors, resource_fill_width,
-        resource_ratio, status_header_frames,
+        EXP_BAR_FONT_SIZE, EXP_BAR_HEIGHT, FOOTER_FONT_SIZE, FOOTER_ROW_HEIGHT, ICON_GAP, ICON_SIDE, PORTRAIT_SIDE,
+        STATUS_PANEL_WINDOW_HEIGHT, buff_icons_per_row, buff_row_height, economy_row_frames, exp_bar_colors, exp_bar_label,
+        resource_bar_colors, resource_fill_width, resource_ratio, status_header_frames,
     };
-    use crate::state::status_effects::ActiveStatusEffect;
     use crate::state::theme::{ThemeTokens, contrast_ratio};
 
     #[test]
-    fn remaining_time_counts_down_from_last_update() {
-        let effect = ActiveStatusEffect {
-            status_index: 10,
-            remaining_milliseconds: 5000,
-            total_duration_milliseconds: 5000,
-            updated_at_tick: 1000,
-            label: "Blessing 5s".into(),
-        };
-        assert_eq!(remaining_ms(&effect, ClientTick(1000)), 5000);
-        assert_eq!(remaining_ms(&effect, ClientTick(3000)), 3000);
-        assert_eq!(remaining_ms(&effect, ClientTick(8000)), 0);
-        assert_eq!(format_remaining(1500), "2s");
-        assert_eq!(format_remaining(60000), "1m");
-        assert_eq!(format_remaining(0), "");
+    fn buff_strip_wraps_instead_of_hiding_icons() {
+        assert_eq!(buff_icons_per_row(0.0), 1);
+        let per_row = buff_icons_per_row(208.0);
+        assert_eq!(per_row, ((208.0 + ICON_GAP) / (ICON_SIDE + ICON_GAP)) as usize);
+        assert!((buff_row_height(0, per_row) - 2.0).abs() < 0.01);
+        let one_row = buff_row_height(per_row, per_row);
+        assert!((one_row - (ICON_SIDE + 2.0)).abs() < 0.01);
+        let two_rows = buff_row_height(per_row + 1, per_row);
+        assert!((two_rows - one_row - (ICON_SIDE + ICON_GAP)).abs() < 0.01);
+        // The panel height reserves exactly one icon row.
+        assert!((one_row - (ICON_SIDE + 2.0)).abs() < 0.01);
     }
 
     #[test]
