@@ -48,6 +48,7 @@ pub mod stable;
 pub mod stable_catalog;
 pub mod status_effects;
 pub mod status_names;
+pub mod storage_tools;
 pub mod styling_catalog;
 pub mod styling_shop;
 pub mod theme;
@@ -132,6 +133,7 @@ use crate::state::refine::RefineState;
 use crate::state::skill_cooldowns::SkillCooldowns;
 use crate::state::skills::SkillTree;
 use crate::state::status_effects::StatusEffects;
+use crate::state::storage_tools::StorageTools;
 use crate::state::styling_shop::StylingShopState;
 use crate::state::theme::WorldTheme;
 use crate::state::trade::TradeState;
@@ -399,6 +401,9 @@ pub struct ClientState {
     item_move: ItemMovePrompt,
     /// Client-only paperdoll. Trying an item on never sends a packet.
     dressing_room: DressingRoom,
+    /// Storage saved searches and the running deposit.
+    #[hidden_element]
+    storage_tools: StorageTools,
     /// Chat room boards, the joined room, and its forms.
     chat_room: ChatRoomState,
     /// Kafra or guild storage. Replaced when a storage list arrives.
@@ -780,6 +785,7 @@ impl ClientState {
             item_drop,
             item_move,
             dressing_room,
+            storage_tools: StorageTools::default(),
             chat_room: ChatRoomState::default(),
             storage,
             equip_switch: EquipSwitch::default(),

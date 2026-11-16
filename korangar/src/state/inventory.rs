@@ -25,6 +25,10 @@ pub struct Inventory {
     /// Tabs, sort and search as drawn (`state::inventory_view`).
     #[hidden_element]
     view: InventoryView,
+    /// Ammo stack named by `ZC_EQUIP_ARROW`. Regular rows carry the item's
+    /// equip slot, not whether it is worn, so this is tracked separately.
+    #[hidden_element]
+    equipped_ammo: Option<InventoryIndex>,
 }
 
 impl Inventory {
@@ -40,6 +44,27 @@ impl Inventory {
 
     pub fn set_capacity(&mut self, maximum: u32) {
         self.capacity = Some(maximum);
+    }
+
+    /// The equipped ammo stack, while that row is in the list. Hercules
+    /// sends `ZC_EQUIP_ARROW` before the inventory list ends, so the index is
+    /// kept even when the row has not arrived yet.
+    pub fn equipped_ammo(&self) -> Option<InventoryIndex> {
+        self.equipped_ammo.filter(|index| {
+            self.items
+                .iter()
+                .any(|item| item.index == *index && matches!(item.details, InventoryItemDetails::Regular { .. }))
+        })
+    }
+
+    /// `ZC_EQUIP_ARROW`. No row lookup: the list may still be loading.
+    pub fn set_equipped_ammo(&mut self, index: InventoryIndex) {
+        self.equipped_ammo = Some(index);
+    }
+
+    /// Map server left: the next character starts without equipped ammo.
+    pub fn clear_equipped_ammo(&mut self) {
+        self.equipped_ammo = None;
     }
 
     pub fn view(&self) -> &InventoryView {
@@ -174,6 +199,9 @@ impl Inventory {
             return;
         }
 
+        if self.equipped_ammo == Some(index) {
+            self.equipped_ammo = None;
+        }
         self.items.remove(position);
     }
 
@@ -303,7 +331,12 @@ impl Inventory {
         let item = self.items.iter_mut().find(|item| item.index == index).unwrap();
 
         let InventoryItemDetails::Equippable { equipped_position, .. } = &mut item.details else {
-            // This can happen for ammunition for example.
+            // Ammunition: remember which stack is equipped.
+            match new_equipped_position.is_empty() {
+                false => self.equipped_ammo = Some(index),
+                true if self.equipped_ammo == Some(index) => self.equipped_ammo = None,
+                true => {}
+            }
             return;
         };
 

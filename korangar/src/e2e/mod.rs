@@ -26,6 +26,7 @@ mod release;
 mod screenshot;
 mod social;
 mod status_icons;
+mod storage_tools;
 mod weather;
 
 pub use korangar_networking::{ItemCapacity, ItemCapacityList};
@@ -47,8 +48,8 @@ pub use self::item_tooltip::{LiveItemTooltipReport, OfflineTooltipReport, offlin
 pub use self::item_workshop::WorkshopView;
 pub use self::job_names::{JobNamesReport, job_names_scenario};
 pub use self::logic::{
-    DialogView, LiveInventoryGridReport, LiveInventoryViewReport, LiveItemMoveReport, LivePartyJobReport, LogicSession, MailRoundTrip,
-    Outbound, Phase, SelectedOption, SentChoice, SettingsView,
+    DialogView, LiveInventoryGridReport, LiveInventoryViewReport, LiveItemMoveReport, LivePartyJobReport, LiveStoragePlanReport,
+    LogicSession, MailRoundTrip, Outbound, Phase, SelectedOption, SentChoice, SettingsView,
 };
 pub use self::mail::{OfflineMailReport, offline_mail_exchange};
 pub use self::minimap::{MinimapHarness, MinimapMarkView, MinimapView};
@@ -62,6 +63,7 @@ pub use self::social::{
     navigation_scenario,
 };
 pub use self::status_icons::{StatusIconView, StatusStrip};
+pub use self::storage_tools::{DEPOSIT_INTERVAL, MAX_SAVED_SEARCHES, OfflineStorageReport, SavedSearchFile, offline_storage_tools};
 pub use self::weather::{MapWorld, WeatherKind};
 pub use crate::interface::components::item_grid::GRID_FULL_CAP_LIMIT;
 pub use crate::state::item_move::{ItemMovePrompt, ItemMoveStep, ItemMoveTarget};

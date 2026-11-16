@@ -33,6 +33,8 @@ mod release;
 mod social;
 #[path = "e2e/status_icons.rs"]
 mod status_icons;
+#[path = "e2e/storage_tools.rs"]
+mod storage_tools;
 #[path = "e2e/weather.rs"]
 mod weather;
 

@@ -18,6 +18,7 @@ pub use self::live::item_move::LiveItemMoveReport;
 pub use self::live::item_tooltip::LiveItemTooltipReport;
 pub use self::live::job_names::LivePartyJobReport;
 pub use self::live::mail::MailRoundTrip;
+pub use self::live::storage_tools::LiveStoragePlanReport;
 pub use self::live::{SelectedOption, SentChoice};
 use crate::autopilot::{ClickKind, Command, parse_command};
 use crate::e2e::actions::{begin_npc_dialog, plan_tab_switch, send_dialog_choice, send_public_chat, send_walk};

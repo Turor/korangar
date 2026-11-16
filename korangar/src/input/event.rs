@@ -134,6 +134,14 @@ pub enum InputEvent {
     /// Ask the server to destroy the current memorial dungeon
     /// (`CZ_MEMORIALDUNGEON_COMMAND` 3).
     DestroyMemorialDungeon,
+    /// Save the storage search box as a chip.
+    SaveStorageSearch,
+    /// Forget a saved storage search.
+    ForgetStorageSearch {
+        query: String,
+    },
+    /// Move every inventory stack the storage tab and search show.
+    DepositMatchingToStorage,
     /// `CZ_INVENTORY_TAB`: move an inventory item into or out of favorites.
     SetItemFavorite {
         index: ragnarok_packets::InventoryIndex,

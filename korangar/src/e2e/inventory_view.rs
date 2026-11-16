@@ -46,7 +46,7 @@ fn metadata(name: &str, description: &str) -> ResourceMetadata {
     }
 }
 
-fn regular(index: u16, item_id: u32, kind: u8, amount: u16, worn: EquipPosition, name: &str) -> InventoryItem<ResourceMetadata> {
+pub(crate) fn regular(index: u16, item_id: u32, kind: u8, amount: u16, worn: EquipPosition, name: &str) -> InventoryItem<ResourceMetadata> {
     InventoryItem {
         metadata: metadata(name, ""),
         index: InventoryIndex(index),
@@ -62,7 +62,7 @@ fn regular(index: u16, item_id: u32, kind: u8, amount: u16, worn: EquipPosition,
     }
 }
 
-fn gear(index: u16, item_id: u32, name: &str, worn: bool, cards: [u32; 4]) -> InventoryItem<ResourceMetadata> {
+pub(crate) fn gear(index: u16, item_id: u32, name: &str, worn: bool, cards: [u32; 4]) -> InventoryItem<ResourceMetadata> {
     let option = || ItemOptions {
         index: 0,
         value: 0,
