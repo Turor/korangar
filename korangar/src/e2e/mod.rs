@@ -53,8 +53,7 @@ pub use self::item_workshop::WorkshopView;
 pub use self::job_names::{JobNamesReport, job_names_scenario};
 pub use self::logic::{
     DialogView, LiveGridNavReport, LiveInventoryGridReport, LiveInventoryViewReport, LiveItemMenuReport, LiveItemMoveReport,
-    LivePartyJobReport,
-    LiveStoragePlanReport, LogicSession, MailRoundTrip, Outbound, Phase, SelectedOption, SentChoice, SettingsView,
+    LivePartyJobReport, LiveStoragePlanReport, LogicSession, MailRoundTrip, Outbound, Phase, SelectedOption, SentChoice, SettingsView,
 };
 pub use self::mail::{OfflineMailReport, offline_mail_exchange};
 pub use self::minimap::{MinimapHarness, MinimapMarkView, MinimapView};

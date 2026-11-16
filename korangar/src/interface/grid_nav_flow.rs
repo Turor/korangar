@@ -12,6 +12,19 @@ use crate::interface::windows::WindowClass;
 use crate::state::grid_nav::{GridFrame, GridKey, grid_frame};
 use crate::state::{ClientState, ClientStatePathExt, client_state};
 
+/// Keys the grid reads itself; anything else disarms Enter.
+const OWN_KEYS: [KeyCode; 9] = [
+    KeyCode::ArrowLeft,
+    KeyCode::ArrowRight,
+    KeyCode::ArrowUp,
+    KeyCode::ArrowDown,
+    KeyCode::Home,
+    KeyCode::End,
+    KeyCode::Enter,
+    KeyCode::NumpadEnter,
+    KeyCode::Escape,
+];
+
 const KEYS: [(KeyCode, GridKey); 6] = [
     (KeyCode::ArrowLeft, GridKey::Left),
     (KeyCode::ArrowRight, GridKey::Right),
@@ -37,8 +50,10 @@ pub(crate) fn handle_inventory_grid_keys(
         inventory_open: interface.is_window_with_class_open(WindowClass::Inventory),
         keys_taken,
         dialog_waiting: dialog.is_awaiting_choice() || dialog.is_awaiting_next() || dialog.is_awaiting_close() || dialog.input_is_open(),
+        menu_open: state.follow(client_state().item_menu()).is_open(),
         mouse_clicked,
         escape: input_system.key_pressed(KeyCode::Escape),
+        other_key: input_system.other_key_pressed(&OWN_KEYS),
         keys: KEYS
             .iter()
             .filter(|(code, _)| input_system.key_pressed(*code))

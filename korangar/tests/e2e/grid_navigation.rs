@@ -49,6 +49,30 @@ fn grid_navigation_offline() {
         assert!(used.is_some() != *chat, "Enter must use a stack or focus chat, never both");
     }
     assert_eq!(report.cursor_after_reopen, None);
+
+    // One Enter, one use: the second Enter goes to chat.
+    assert_eq!(report.enter_twice, [(Some(6), false), (None, true)]);
+    // Any other key (F1, a letter, the hotbar) gives Enter back to chat.
+    assert_eq!(report.other_key_then_enter, (None, true));
+    // The item menu owns the arrows: the grid cursor does not move or arm.
+    assert_eq!(report.arrows_with_menu, (Some(0), Some(0), false));
+
+    // Equipped arrows count as worn: no quick-move, Unequip in the menu,
+    // and no Move / Drop rows.
+    assert_eq!(report.ammo_quick_move, "hint: Unequip it before moving it.");
+    assert!(
+        report.ammo_menu.iter().any(|label| label == "Unequip"),
+        "{:?}",
+        report.ammo_menu
+    );
+    assert!(
+        !report
+            .ammo_menu
+            .iter()
+            .any(|label| label == "Equip" || label == "Drop" || label.starts_with("Move")),
+        "{:?}",
+        report.ammo_menu
+    );
 }
 
 #[test]

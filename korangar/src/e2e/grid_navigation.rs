@@ -6,10 +6,13 @@ use ragnarok_packets::{EquipPosition, InventoryIndex};
 
 use crate::e2e::inventory_view::regular;
 use crate::interface::components::item_grid::{GRID_COLUMNS, tab_cells};
+use crate::interface::item_menu_flow::{SlotReaction, react_to_secondary};
+use crate::interface::resource::ItemSource;
 pub use crate::state::grid_nav::GridKey;
 use crate::state::grid_nav::{GridFrame, enter_free_for_chat, grid_frame, row_fraction, step_cursor};
 use crate::state::inventory::Inventory;
 use crate::state::inventory_view::{InventorySort, InventoryTab, item_type};
+use crate::state::quick_move::QuickMoveWindows;
 
 /// What the offline run observed.
 #[derive(Clone, Debug, PartialEq)]
@@ -33,6 +36,17 @@ pub struct OfflineGridNavReport {
     pub enter_frames: Vec<(Option<u16>, bool)>,
     /// Cursor after the inventory closed and reopened.
     pub cursor_after_reopen: Option<usize>,
+    /// Armed, then two Enter frames: (stack used, chat focused) each.
+    pub enter_twice: Vec<(Option<u16>, bool)>,
+    /// Armed, an F1 / letter press, then Enter.
+    pub other_key_then_enter: (Option<u16>, bool),
+    /// Cursor before and after ArrowRight while the item menu is open,
+    /// and whether that armed Enter.
+    pub arrows_with_menu: (Option<usize>, Option<usize>, bool),
+    /// Equipped arrows with storage open: Alt+right-click result, and the
+    /// right-click menu labels.
+    pub ammo_quick_move: String,
+    pub ammo_menu: Vec<String>,
 }
 
 fn open_frame() -> GridFrame {
@@ -98,6 +112,57 @@ fn grid_enter_frames(inventory: &mut Inventory) -> (Vec<(Option<u16>, bool)>, Op
     (frames, cursor_after_reopen)
 }
 
+/// (stack used, chat focused) for one Enter frame.
+type EnterOutcome = (Option<u16>, bool);
+/// Cursor before / after menu arrows, and whether they armed Enter.
+type MenuArrows = (Option<usize>, Option<usize>, bool);
+
+fn repeat_frames(inventory: &mut Inventory) -> (Vec<EnterOutcome>, EnterOutcome, MenuArrows) {
+    armed(inventory);
+    let enter_twice = vec![enter_frame(inventory, open_frame()), enter_frame(inventory, open_frame())];
+
+    armed(inventory);
+    grid_frame(inventory.view_mut(), &GridFrame {
+        other_key: true,
+        ..open_frame()
+    });
+    let other_key_then_enter = enter_frame(inventory, open_frame());
+
+    inventory.view_mut().clear_cursor();
+    grid_frame(inventory.view_mut(), &GridFrame {
+        keys: vec![GridKey::Home],
+        ..open_frame()
+    });
+    inventory.view_mut().disarm_cursor();
+    let before = inventory.view().cursor();
+    grid_frame(inventory.view_mut(), &GridFrame {
+        keys: vec![GridKey::Right],
+        menu_open: true,
+        ..open_frame()
+    });
+    let after = inventory.view().cursor();
+    let armed_by_menu_arrows = inventory.view().cursor_armed();
+    (enter_twice, other_key_then_enter, (before, after, armed_by_menu_arrows))
+}
+
+fn equipped_ammo_reactions() -> (String, Vec<String>) {
+    let arrows = regular(5, 1750, 10, 300, EquipPosition::AMMO, "Arrow");
+    let windows = QuickMoveWindows {
+        storage: true,
+        ..QuickMoveWindows::default()
+    };
+    let quick = match react_to_secondary(ItemSource::Inventory, &arrows, "Arrow", true, windows, true) {
+        SlotReaction::Hint(text) => format!("hint: {text}"),
+        SlotReaction::Move(_) => "move".to_owned(),
+        _ => "other".to_owned(),
+    };
+    let labels = match react_to_secondary(ItemSource::Inventory, &arrows, "Arrow", false, windows, true) {
+        SlotReaction::OpenMenu { rows, .. } => rows.into_iter().map(|row| row.label).collect(),
+        _ => Vec::new(),
+    };
+    (quick, labels)
+}
+
 pub const KEY_RUN: [GridKey; 10] = [
     GridKey::Right,
     GridKey::Right,
@@ -158,6 +223,8 @@ pub fn offline_grid_navigation() -> Result<OfflineGridNavReport, String> {
     let after_tab = inventory.view().cursor();
 
     let (enter_frames, cursor_after_reopen) = grid_enter_frames(&mut inventory);
+    let (enter_twice, other_key_then_enter, arrows_with_menu) = repeat_frames(&mut inventory);
+    let (ammo_quick_move, ammo_menu) = equipped_ammo_reactions();
 
     let rows = tab_cells(InventoryTab::All, 40, 40, Some(100)) / GRID_COLUMNS;
     let reveal = vec![row_fraction(0, rows), row_fraction(35, rows)];
@@ -171,5 +238,10 @@ pub fn offline_grid_navigation() -> Result<OfflineGridNavReport, String> {
         reveal,
         enter_frames,
         cursor_after_reopen,
+        enter_twice,
+        other_key_then_enter,
+        arrows_with_menu,
+        ammo_quick_move,
+        ammo_menu,
     })
 }

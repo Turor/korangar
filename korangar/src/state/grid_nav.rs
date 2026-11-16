@@ -55,29 +55,38 @@ pub struct GridFrame {
     pub keys_taken: bool,
     /// The NPC dialog waits for Next / Close / a choice / an input.
     pub dialog_waiting: bool,
+    /// The right-click item menu is open; its Up/Down own the arrows.
+    pub menu_open: bool,
     pub mouse_clicked: bool,
     pub escape: bool,
+    /// Any other key went down (letters, F-keys, hotbar, Space, Tab, ...).
+    pub other_key: bool,
     pub keys: Vec<GridKey>,
     pub enter: bool,
 }
 
 /// Whether grid keys apply this frame at all.
-pub fn grid_keys_allowed(inventory_open: bool, keys_taken: bool, dialog_waiting: bool) -> bool {
-    inventory_open && !keys_taken && !dialog_waiting
+pub fn grid_keys_allowed(inventory_open: bool, keys_taken: bool, dialog_waiting: bool, menu_open: bool) -> bool {
+    inventory_open && !keys_taken && !dialog_waiting && !menu_open
 }
 
 /// Applies one frame to the view and returns the stack Enter uses, if any.
 ///
 /// Enter belongs to the grid only while it is armed: a grid key was the
-/// last input. A mouse click, Escape, focus elsewhere or a waiting dialog
-/// disarms it, so a later Enter goes to chat. Closing the inventory also
-/// drops the cursor.
+/// last input. A mouse click, Escape, any other key, focus elsewhere, an
+/// open item menu or a waiting dialog disarms it, and so does using a
+/// stack, so a later Enter goes to chat. Closing the inventory also drops
+/// the cursor.
 pub fn grid_frame(view: &mut InventoryView, frame: &GridFrame) -> Option<InventoryIndex> {
     if !frame.inventory_open {
         view.clear_cursor();
         return None;
     }
-    if frame.mouse_clicked || frame.escape || !grid_keys_allowed(frame.inventory_open, frame.keys_taken, frame.dialog_waiting) {
+    if frame.mouse_clicked
+        || frame.escape
+        || frame.other_key
+        || !grid_keys_allowed(frame.inventory_open, frame.keys_taken, frame.dialog_waiting, frame.menu_open)
+    {
         view.disarm_cursor();
         return None;
     }
@@ -85,7 +94,10 @@ pub fn grid_frame(view: &mut InventoryView, frame: &GridFrame) -> Option<Invento
         view.move_cursor(*key);
     }
     if frame.enter && frame.keys.is_empty() && view.cursor_armed() {
-        return view.cursor_item().map(|item| item.index);
+        let used = view.cursor_item().map(|item| item.index);
+        // One Enter, one use: the next Enter goes to chat again.
+        view.disarm_cursor();
+        return used;
     }
     None
 }
@@ -137,10 +149,11 @@ mod tests {
 
     #[test]
     fn keys_are_ignored_when_closed_focused_or_in_a_dialog() {
-        assert!(grid_keys_allowed(true, false, false));
-        assert!(!grid_keys_allowed(false, false, false));
-        assert!(!grid_keys_allowed(true, true, false));
-        assert!(!grid_keys_allowed(true, false, true));
+        assert!(grid_keys_allowed(true, false, false, false));
+        assert!(!grid_keys_allowed(false, false, false, false));
+        assert!(!grid_keys_allowed(true, true, false, false));
+        assert!(!grid_keys_allowed(true, false, true, false));
+        assert!(!grid_keys_allowed(true, false, false, true));
         assert!(enter_free_for_chat(false, false));
         assert!(!enter_free_for_chat(true, false));
         assert!(!enter_free_for_chat(false, true));

@@ -328,6 +328,24 @@ impl InputSystem {
         self.get_key(key_code).pressed()
     }
 
+    /// A key outside `except` (and the modifiers) went down this frame.
+    pub fn other_key_pressed(&self, except: &[KeyCode]) -> bool {
+        const MODIFIERS: [KeyCode; 8] = [
+            KeyCode::ShiftLeft,
+            KeyCode::ShiftRight,
+            KeyCode::ControlLeft,
+            KeyCode::ControlRight,
+            KeyCode::AltLeft,
+            KeyCode::AltRight,
+            KeyCode::SuperLeft,
+            KeyCode::SuperRight,
+        ];
+        self.keys
+            .iter()
+            .enumerate()
+            .any(|(code, key)| key.pressed() && !except.iter().chain(MODIFIERS.iter()).any(|skip| *skip as usize == code))
+    }
+
     pub fn key_released(&self, key_code: KeyCode) -> bool {
         self.get_key(key_code).released()
     }
