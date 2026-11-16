@@ -6,6 +6,7 @@
 mod actions;
 pub mod archives;
 mod chat;
+mod companions;
 mod credentials;
 mod headgear;
 mod inject;
@@ -24,6 +25,7 @@ mod weather;
 
 pub(crate) use self::actions::{apply_choose_dialog_option, apply_switch_window_tab, begin_npc_dialog, send_public_chat, send_walk};
 pub use self::chat::{ChatSession, ChatView};
+pub use self::companions::{CompanionNote, CompanionSession};
 pub use self::credentials::{Credentials, LiveConnect, TEST_HOST, TEST_PORT};
 pub use self::headgear::{HeadgearScene, LookedPlayer};
 pub use self::inject::input_path_parity;

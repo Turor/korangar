@@ -140,6 +140,8 @@ pub struct LogicSession {
     pub(super) workshop: crate::e2e::item_workshop::ItemWorkshopSession,
     /// Weather, zone badge, and gat cells for the map the session is on.
     pub(crate) map_world: crate::e2e::weather::MapWorld,
+    /// Companion packets seen on the live map connection.
+    pub(super) companion_note: crate::e2e::companions::CompanionNote,
 }
 
 impl LogicSession {
@@ -182,6 +184,7 @@ impl LogicSession {
             headgear: crate::e2e::HeadgearScene::default(),
             workshop: crate::e2e::item_workshop::ItemWorkshopSession::default(),
             map_world: crate::e2e::weather::MapWorld::default(),
+            companion_note: crate::e2e::companions::CompanionNote::default(),
         }
     }
 
@@ -228,6 +231,10 @@ impl LogicSession {
             (false, Some(x), Some(y)) => Some((map, x, y)),
             _ => None,
         }
+    }
+
+    pub fn companion_note(&self) -> &crate::e2e::companions::CompanionNote {
+        &self.companion_note
     }
 
     pub fn outbound(&self) -> &[Outbound] {
