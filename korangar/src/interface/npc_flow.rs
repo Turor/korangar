@@ -155,8 +155,12 @@ where
         )
     };
 
-    if input_open && !interface.is_window_with_class_open(WindowClass::NpcInput) {
+    // The field lives in the dialog band. Closing that window is Cancel, and
+    // the rest of the script stays hidden the way Escape hides it.
+    if input_open && !interface.is_window_with_class_open(WindowClass::Dialog) {
         reply_npc_input(state, interface, networking, true);
+        dismiss_npc_dialog_ui(state, interface);
+        return Some(npc_id);
     }
 
     if interface.is_window_with_class_open(WindowClass::Dialog) {

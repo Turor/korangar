@@ -4,7 +4,7 @@ use korangar_interface::element::store::ElementStoreMut;
 use korangar_interface::element::{Element, ElementBox, ErasedElement, StateElement};
 use korangar_interface::layout::area::{Area, PartialArea};
 use korangar_interface::layout::{Resolver, Resolvers, with_single_resolver};
-use korangar_interface::prelude::{ButtonThemePathExt, WindowThemePathExt};
+use korangar_interface::prelude::{ButtonThemePathExt, TextBoxThemePathExt, WindowThemePathExt};
 use korangar_interface::window::{CustomWindow, Window};
 use ragnarok_packets::EntityId;
 use rust_state::{Path, RustState, State};
@@ -12,10 +12,40 @@ use rust_state::{Path, RustState, State};
 use super::WindowClass;
 use crate::graphics::{Color, ShadowPadding};
 use crate::input::InputEvent;
+use crate::loaders::OverflowBehavior;
 use crate::state::localization::LocalizationPathExt;
 use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
-use crate::state::vn_dialog::{self, ChoiceKeys, advance_reveal, choice_grid, choice_key_outcome};
+use crate::state::vn_dialog::{self, ChoiceKeys, FooterMetrics, advance_reveal, choice_key_outcome, dialog_footer_layout};
 use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
+
+/// Byte cap for one NPC input. Hercules copies at most `CHATBOX_SIZE` bytes.
+const NPC_INPUT_LIMIT: usize = 240;
+
+/// Child id for the inline input row. Option buttons use their own indices.
+const INPUT_ROW_ID: u64 = u64::MAX;
+
+/// Focus id for the NPC input box. One type so the frame can focus it by id.
+pub struct NpcInputBox;
+
+/// OK and Cancel on the inline input. Same events the standalone window sent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NpcInputButton {
+    Ok,
+    Cancel,
+}
+
+pub(crate) fn npc_input_button_event(button: NpcInputButton) -> InputEvent {
+    match button {
+        NpcInputButton::Ok => InputEvent::SubmitNpcInput,
+        NpcInputButton::Cancel => InputEvent::CancelNpcInput,
+    }
+}
+
+fn queue_npc_input(button: NpcInputButton) -> impl Fn(&State<ClientState>, &mut korangar_interface::event::EventQueue<ClientState>) {
+    move |_state, queue| {
+        queue.queue(npc_input_button_event(button));
+    }
+}
 
 /// A small wrapper struct that serves two purposes:
 /// - Making the elements nicer to construct by putting the [`UnsafeCell::new`]
@@ -342,9 +372,10 @@ impl DialogWindowState {
         let npc_id = self.npc_id;
 
         choices.into_iter().enumerate().for_each(|(index, text)| {
+            let label = vn_dialog::choice_hint_label(index, &text);
             self.elements.push(DialogElement::new(
                 button! {
-                    text: text,
+                    text: label,
                     event: move |_: &State<ClientState>, queue: &mut EventQueue<ClientState>| {
                         queue.queue(InputEvent::ChooseDialogOption { npc_id, option: index as i8 + 1 });
                     },
@@ -401,18 +432,26 @@ impl Default for DialogWindowState {
     }
 }
 
-/// Wrapper struct for collecting all [`DialogElement::element`]s into a single
-/// element.
+/// What the footer laid out this frame.
+struct FooterFrame {
+    /// Keyboard focus ring of an open menu.
+    focus_area: Option<Area>,
+    /// The input row was given a layout, so [`lay_out`] must draw it.
+    show_input: bool,
+}
+
+/// Option buttons in a reserved two-row block, with the number or text field
+/// directly above that block while an NPC input is open.
 struct InnerElement<A> {
     window_state_path: A,
+    input_row: ElementBox<ClientState>,
 }
 
 impl<A> Element<ClientState> for InnerElement<A>
 where
     A: Path<ClientState, DialogWindowState>,
 {
-    /// The keyboard focus ring of an open menu.
-    type LayoutInfo = Option<Area>;
+    type LayoutInfo = FooterFrame;
 
     fn create_layout_info(
         &mut self,
@@ -421,47 +460,66 @@ where
         resolvers: &mut dyn Resolvers<ClientState>,
     ) -> Self::LayoutInfo {
         with_single_resolver(resolvers, |resolver| {
-            let dialog = state.get(&self.window_state_path);
-
-            // Next, Close and menu options all sit in rows along the bottom
-            // of the band. Anything else (number or text input) keeps the
-            // plain stacked layout.
-            let bottom_row = (dialog.awaiting_choice || dialog.awaiting_next || dialog.awaiting_close) && !dialog.input_open;
-            if !bottom_row || dialog.elements.is_empty() {
-                dialog.elements.iter().enumerate().for_each(|(index, dialog_element)| {
-                    // We only create this mutable reference for the lifetime of this scope, and
-                    // since nothing is captured from the element this is safe.
-                    let element = unsafe { &mut *dialog_element.element.get() };
-
-                    element.create_layout_info(state, store.child_store(index as u64), resolver)
-                });
-                return None;
-            }
-
-            let (columns, rows) = choice_grid(dialog.elements.len());
             let button_height: f32 = *state.get(&client_theme().button().height());
+            let input_height = (*state.get(&client_theme().text_box().height())).max(button_height);
             let gaps: f32 = *state.get(&client_theme().window().gaps());
             let border: f32 = *state.get(&client_theme().window().border());
-            let rows_height = rows as f32 * button_height + rows.saturating_sub(1) as f32 * gaps;
+
+            let (window_bottom, count, input_open, awaiting_choice, focus) = {
+                let dialog = state.get(&self.window_state_path);
+                (
+                    dialog.window_bottom,
+                    dialog.elements.len(),
+                    dialog.input_open,
+                    dialog.awaiting_choice,
+                    dialog.choice_focus,
+                )
+            };
 
             let available = resolver.push_available_area();
-            let spacer = (dialog.window_bottom - border - rows_height - available.top).max(0.0);
-            let row_top = available.top + spacer;
-            let cell_width = (available.width - gaps * columns.saturating_sub(1) as f32) / columns as f32;
-            let focus = dialog.choice_focus.min(dialog.elements.len() - 1);
-            let mut focus_area = None;
+            let footer = dialog_footer_layout(
+                available.left,
+                window_bottom - border,
+                available.width,
+                count,
+                input_open,
+                FooterMetrics {
+                    button_height,
+                    input_height,
+                    gap: gaps,
+                },
+            );
 
+            if input_open && let Some(input) = footer.input {
+                let mut cell = Resolver::new(
+                    PartialArea {
+                        left: input.left,
+                        top: input.top,
+                        width: input.width,
+                        height: Some(input.height),
+                    },
+                    gaps,
+                    resolver.get_text_layouter(),
+                );
+                self.input_row.create_layout_info(state, store.child_store(INPUT_ROW_ID), &mut cell);
+            }
+
+            let focus_index = focus.min(count.saturating_sub(1));
+            let mut focus_area = None;
             {
                 let text_layouter = resolver.get_text_layouter();
+                let dialog = state.get(&self.window_state_path);
                 dialog.elements.iter().enumerate().for_each(|(index, dialog_element)| {
-                    let area = Area {
-                        left: available.left + (index % columns) as f32 * (cell_width + gaps),
-                        top: row_top + (index / columns) as f32 * (button_height + gaps),
-                        width: cell_width,
-                        height: button_height,
+                    let Some(area) = footer.button_rect(index) else {
+                        return;
                     };
-                    if dialog.awaiting_choice && index == focus {
-                        focus_area = Some(area);
+                    if awaiting_choice && index == focus_index {
+                        focus_area = Some(Area {
+                            left: area.left,
+                            top: area.top,
+                            width: area.width,
+                            height: area.height,
+                        });
                     }
 
                     let mut cell = Resolver::new(
@@ -474,14 +532,22 @@ where
                         gaps,
                         text_layouter,
                     );
-                    // Same safety argument as above.
+                    // We only create this mutable reference for the lifetime of this scope, and
+                    // since nothing is captured from the element this is safe.
                     let element = unsafe { &mut *dialog_element.element.get() };
                     element.create_layout_info(state, store.child_store(index as u64), &mut cell);
                 });
             }
 
-            resolver.commit_used_height(spacer + rows_height);
-            focus_area
+            let footer_top = footer.input.map(|input| input.top).unwrap_or(footer.option_block.top);
+            let spacer = (footer_top - available.top).max(0.0);
+            let footer_height = (window_bottom - border - footer_top).max(footer.option_block.height);
+            resolver.commit_used_height(spacer + footer_height);
+
+            FooterFrame {
+                focus_area,
+                show_input: input_open,
+            }
         })
     }
 
@@ -489,10 +555,14 @@ where
         &'a self,
         state: &'a State<ClientState>,
         store: korangar_interface::element::store::ElementStore<'a>,
-        focus_area: &'a Self::LayoutInfo,
+        frame: &'a Self::LayoutInfo,
         layout: &mut korangar_interface::layout::WindowLayout<'a, ClientState>,
     ) {
-        if let Some(area) = focus_area {
+        if frame.show_input {
+            self.input_row.lay_out(state, store.child_store(INPUT_ROW_ID), &(), layout);
+        }
+
+        if let Some(area) = frame.focus_area {
             // A ring in the theme accent, drawn under the button so its fill
             // leaves only the edge showing.
             let ring = 2.0;
@@ -523,6 +593,60 @@ where
                 element.lay_out(state, store.child_store(index as u64), &(), layout)
             });
     }
+}
+
+/// Number or text field, with the same OK, Cancel, and step buttons the
+/// standalone input window used. Enter in the field submits.
+fn npc_input_row() -> ElementBox<ClientState> {
+    use korangar_interface::components::text_box::DefaultHandler;
+    use korangar_interface::prelude::*;
+    use korangar_networking::step_number;
+
+    let text_path = client_state().dialog_window().input_text();
+    let step_up = move |state: &State<ClientState>, _queue: &mut EventQueue<ClientState>| {
+        state.update_value_with(text_path, |current| {
+            *current = step_number(current, 1);
+        });
+    };
+    let step_down = move |state: &State<ClientState>, _queue: &mut EventQueue<ClientState>| {
+        state.update_value_with(text_path, |current| {
+            *current = step_number(current, -1);
+        });
+    };
+
+    ErasedElement::new(either! {
+        selector: client_state().dialog_window().input_number(),
+        on_true: split! {
+            gaps: theme().window().gaps(),
+            children: (
+                text_box! {
+                    ghost_text: "Number",
+                    state: text_path,
+                    input_handler: DefaultHandler::<_, _, NPC_INPUT_LIMIT>::new(text_path, queue_npc_input(NpcInputButton::Ok)),
+                    focus_id: NpcInputBox,
+                    overflow_behavior: OverflowBehavior::Shrink,
+                },
+                button! { text: "Up", event: step_up },
+                button! { text: "Down", event: step_down },
+                button! { text: "OK", event: queue_npc_input(NpcInputButton::Ok) },
+                button! { text: "Cancel", event: queue_npc_input(NpcInputButton::Cancel) },
+            ),
+        },
+        on_false: split! {
+            gaps: theme().window().gaps(),
+            children: (
+                text_box! {
+                    ghost_text: "Text",
+                    state: text_path,
+                    input_handler: DefaultHandler::<_, _, NPC_INPUT_LIMIT>::new(text_path, queue_npc_input(NpcInputButton::Ok)),
+                    focus_id: NpcInputBox,
+                    overflow_behavior: OverflowBehavior::Shrink,
+                },
+                button! { text: "OK", event: queue_npc_input(NpcInputButton::Ok) },
+                button! { text: "Cancel", event: queue_npc_input(NpcInputButton::Cancel) },
+            ),
+        },
+    })
 }
 
 /// A window representing a dialog with an NPC.
@@ -569,6 +693,7 @@ where
                 },
                 InnerElement {
                     window_state_path: self.window_state_path,
+                    input_row: npc_input_row(),
                 },
             ),
         }
@@ -579,7 +704,9 @@ where
 mod tests {
     use ragnarok_packets::EntityId;
 
-    use super::DialogWindowState;
+    use super::{DialogWindowState, NpcInputButton, npc_input_button_event};
+    use crate::input::InputEvent;
+    use crate::state::vn_dialog::ChoiceKeys;
 
     #[test]
     fn next_page_clears_keyboard_flags_until_the_next_button() {
@@ -648,5 +775,32 @@ mod tests {
         dialog.prompt_blocks = true;
         dialog.awaiting_choice = false;
         assert!(dialog.blocks_advance(false));
+    }
+
+    #[test]
+    fn inline_input_uses_the_old_submit_and_cancel_events() {
+        assert!(matches!(npc_input_button_event(NpcInputButton::Ok), InputEvent::SubmitNpcInput));
+        assert!(matches!(
+            npc_input_button_event(NpcInputButton::Cancel),
+            InputEvent::CancelNpcInput
+        ));
+    }
+
+    #[test]
+    fn hinted_choices_still_send_a_one_based_index() {
+        let mut dialog = DialogWindowState::default();
+        dialog.initialize(EntityId(3));
+        dialog.add_choice_buttons((1..=9).map(|number| format!("opt{number}")).collect());
+        assert!(dialog.is_awaiting_choice());
+        let ninth = ChoiceKeys {
+            digit: Some(9),
+            ..ChoiceKeys::default()
+        };
+        assert_eq!(dialog.apply_choice_keys(ninth), Some(9));
+        let first = ChoiceKeys {
+            digit: Some(1),
+            ..ChoiceKeys::default()
+        };
+        assert_eq!(dialog.apply_choice_keys(first), Some(1));
     }
 }
