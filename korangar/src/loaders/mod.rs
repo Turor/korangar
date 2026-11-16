@@ -1,6 +1,6 @@
 mod action;
 mod animation;
-mod archive;
+pub(crate) mod archive;
 mod color;
 pub(crate) use self::color::premultiply_alpha;
 mod rectangle;

@@ -393,6 +393,18 @@ impl PersistentAssets {
             .is_some_and(|p| self.entries.contains_key(&p) || self.loose_entries.lock().is_ok_and(|entries| entries.contains_key(&p)))
     }
 
+    /// True when the verified bytes for `path` are already in the cache.
+    /// A manifest or loose-index listing without the object file is not a hit.
+    pub fn is_cached_locally(&self, path: &str) -> bool {
+        let Some(path) = canonical_path(path) else {
+            return false;
+        };
+        if let Some(entry) = self.entries.get(&path) {
+            return self.local(entry).is_ok();
+        }
+        self.cached_loose(&path).is_some()
+    }
+
     fn local(&self, e: &AssetEntry) -> io::Result<Vec<u8>> {
         let bytes = read_bounded(&self.config.cache_dir.join("objects").join(&e.sha256), e.size)?;
         if bytes.len() as u64 != e.size || digest(&bytes) != e.sha256 {
@@ -756,6 +768,27 @@ mod tests {
         assert_eq!(hits.load(Ordering::SeqCst), 2);
         assert!(dir.path().join("loose-index.json").is_file());
         assert!(assets.contains(path));
+    }
+
+    #[test]
+    fn cached_locally_requires_object_bytes() {
+        let body = b"remote-bytes";
+        let sha = digest(body);
+        // A second listing that shares the present digest would still be a local hit.
+        let absent_sha = "a".repeat(64);
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("objects")).unwrap();
+        fs::write(dir.path().join("objects").join(&sha), body).unwrap();
+        let index = format!(
+            r#"{{"files":[{{"path":"data/e2e/present.txt","size":12,"sha256":"{sha}"}},{{"path":"data/e2e/absent.txt","size":12,"sha256":"{absent_sha}"}}]}}"#
+        );
+        fs::write(dir.path().join("loose-index.json"), index).unwrap();
+        let mut config = config("https://example.invalid/client/".into(), dir.path());
+        config.offline = true;
+        let assets = PersistentAssets::open(config).unwrap();
+        assert!(assets.is_cached_locally(r"data\e2e\present.txt"));
+        assert!(!assets.is_cached_locally("data/e2e/absent.txt"));
+        assert!(assets.contains("data/e2e/absent.txt"));
     }
 
     #[test]
