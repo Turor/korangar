@@ -25,6 +25,7 @@ pub mod item_compare;
 pub mod item_drop;
 pub mod item_finder;
 pub mod item_link;
+pub mod item_menu;
 pub mod item_move;
 pub mod item_skill_selection;
 pub mod item_workshop;
@@ -41,6 +42,7 @@ pub mod picker;
 pub mod pincode;
 pub mod player_shops;
 pub mod quest_log;
+pub mod quick_move;
 pub mod refine;
 pub mod skill_cooldowns;
 pub mod skills;
@@ -90,6 +92,7 @@ use self::friends::FriendListEntry;
 use self::guild::GuildState;
 use self::item_compare::ItemCompareState;
 use self::item_finder::ItemFinderState;
+use self::item_menu::ItemMenuState;
 use self::party::PartyState;
 use self::player_shops::{ShopReportState, ShopSearchState, ShopSetupState};
 use self::view_equip::ViewEquipState;
@@ -418,6 +421,8 @@ pub struct ClientState {
     trade: TradeState,
     /// Right-click menu for a player.
     context_menu: ContextMenuState,
+    /// Right-click menu for an item slot, and the Alt modifier for quick-move.
+    item_menu: ItemMenuState,
     /// Equipment of another player opened from the context menu.
     viewed_equipment: ViewEquipState,
     /// NPC refine UI.
@@ -663,6 +668,7 @@ impl ClientState {
             let skill_tree_window = SkillTreeWindowState::default();
             let trade = TradeState::default();
             let context_menu = ContextMenuState::default();
+            let item_menu = ItemMenuState::default();
             let viewed_equipment = ViewEquipState::default();
             let refine = RefineState::default();
             let item_skill_selection = ItemSkillSelectionState::default();
@@ -793,6 +799,7 @@ impl ClientState {
             skill_tree,
             trade,
             context_menu,
+            item_menu,
             viewed_equipment,
             refine,
             item_skill_selection,
