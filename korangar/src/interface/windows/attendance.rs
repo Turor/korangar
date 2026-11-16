@@ -8,10 +8,11 @@ use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
 use rust_state::State;
 
+use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
-use crate::state::achievements::AttendanceCellState;
+use crate::state::achievements::{AchievementsPathExt, AttendanceCellState};
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 
@@ -24,6 +25,16 @@ struct AttendanceGrid;
 
 struct AttendanceGridLayout {
     area: Area,
+    cells: Vec<crate::state::achievements::AttendanceCell>,
+    corner: CornerDiameter,
+    shadow: Color,
+    shadow_padding: ShadowPadding,
+    accent: Color,
+    gold: Color,
+    raised: Color,
+    bg: Color,
+    text: Color,
+    highlight: Color,
 }
 
 impl Element<ClientState> for AttendanceGrid {
@@ -36,29 +47,49 @@ impl Element<ClientState> for AttendanceGrid {
         resolvers: &mut dyn Resolvers<ClientState>,
     ) -> Self::LayoutInfo {
         with_single_resolver(resolvers, |resolver| {
-            let cells = state.get(&client_state().achievements()).attendance_cells().len().max(1);
-            let rows = cells.div_ceil(ATTENDANCE_COLUMNS);
+            let client = client_state();
+            let achievements_path = client.achievements();
+            let cells = state.get(&achievements_path).attendance_cells().to_vec();
+            let rows = cells.len().max(1).div_ceil(ATTENDANCE_COLUMNS);
             let area = resolver.with_height(rows as f32 * (CELL_HEIGHT + CELL_GAP));
-            AttendanceGridLayout { area }
+            let theme_path = client_theme();
+            let theme = state.get(&theme_path);
+            AttendanceGridLayout {
+                area,
+                cells,
+                corner: theme.button.corner_diameter,
+                shadow: theme.button.shadow_color,
+                shadow_padding: theme.button.shadow_padding,
+                accent: theme.tokens.accent,
+                gold: theme.tokens.gold,
+                raised: theme.tokens.raised,
+                bg: theme.tokens.bg,
+                text: theme.tokens.text,
+                highlight: theme.button.highlight_color,
+            }
         })
     }
 
     fn lay_out<'a>(
         &'a self,
-        state: &'a State<ClientState>,
+        _: &'a State<ClientState>,
         _: ElementStore<'a>,
         layout_info: &'a Self::LayoutInfo,
         layout: &mut WindowLayout<'a, ClientState>,
     ) {
-        let theme = state.get(&client_theme());
-        let cells = state.get(&client_state().achievements()).attendance_cells();
         let area = layout_info.area;
         let width = (area.width - CELL_GAP * (ATTENDANCE_COLUMNS as f32 - 1.0)) / ATTENDANCE_COLUMNS as f32;
-        let corner = theme.button.corner_diameter;
-        let shadow = theme.button.shadow_color;
-        let shadow_padding = theme.button.shadow_padding;
+        let corner = layout_info.corner;
+        let shadow = layout_info.shadow;
+        let shadow_padding = layout_info.shadow_padding;
+        let accent = layout_info.accent;
+        let gold = layout_info.gold;
+        let raised = layout_info.raised;
+        let bg = layout_info.bg;
+        let text = layout_info.text;
+        let highlight = layout_info.highlight;
 
-        for (index, cell) in cells.iter().enumerate() {
+        for (index, cell) in layout_info.cells.iter().enumerate() {
             let column = index % ATTENDANCE_COLUMNS;
             let row = index / ATTENDANCE_COLUMNS;
             let cell_area = Area {
@@ -70,9 +101,9 @@ impl Element<ClientState> for AttendanceGrid {
             // Claimed days use the accent fill, today the gold fill, later days
             // the raised panel color. All three are theme keys.
             let (background, foreground) = match cell.state {
-                AttendanceCellState::Claimed => (theme.tokens.accent, theme.tokens.bg),
-                AttendanceCellState::Today => (theme.tokens.gold, theme.tokens.bg),
-                AttendanceCellState::Upcoming => (theme.tokens.raised, theme.tokens.text),
+                AttendanceCellState::Claimed => (accent, bg),
+                AttendanceCellState::Today => (gold, bg),
+                AttendanceCellState::Upcoming => (raised, text),
             };
             layout.add_rectangle(cell_area, corner, background, shadow, shadow_padding);
             layout.add_text(
@@ -80,7 +111,7 @@ impl Element<ClientState> for AttendanceGrid {
                 cell.label.as_str(),
                 FontSize(11.0),
                 foreground,
-                theme.button.highlight_color,
+                highlight,
                 HorizontalAlignment::Center { offset: 0.0, border: 2.0 },
                 VerticalAlignment::Center { offset: 0.0 },
                 OverflowBehavior::Shrink,
