@@ -9132,11 +9132,13 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
                 .iter()
                 .find(|entity| entity.get_entity_id() == entity_id)
         {
-            entity.render_status(
+            let in_party = self.client_state.follow(client_state().party()).contains_entity(entity_id);
+            entity.render_focused_overhead(
                 self.middle_interface_renderer,
                 self.current_camera,
                 self.client_state.follow(client_state().world_theme()),
                 self.screen_size,
+                in_party,
             );
         }
 
@@ -9206,11 +9208,13 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
                             .buffered_action
                             .is_some_and(|buffered_action| buffered_action.is_attack_entity(entity_id))
                         {
-                            entity.render_status(
+                            let in_party = self.client_state.follow(client_state().party()).contains_entity(entity_id);
+                            entity.render_focused_overhead(
                                 self.middle_interface_renderer,
                                 self.current_camera,
                                 self.client_state.follow(client_state().world_theme()),
                                 self.screen_size,
+                                in_party,
                             );
                         }
 
