@@ -8,6 +8,7 @@ mod companion_actions;
 mod equip_window;
 pub mod guild_actions;
 pub mod handler;
+mod item_capacity;
 mod item_skill_selection;
 mod item_use;
 mod map_properties;
@@ -54,6 +55,7 @@ pub use self::guild_actions::{
     GuildRelationsPacket, GuildSkillListPacket, GuildSkillRow, LeaveGuildPacket, LegacyChangeGuildPacket, LegacyGuildEmblemImagePacket,
     RequestGuildEmblemPacket, UploadGuildEmblemPacket,
 };
+pub use self::item_capacity::{CartItemCountPacket, StorageItemCountPacket};
 pub use self::item_skill_selection::{
     AutoSpellListFixedPacket, AutoSpellListPacket, ItemCompositionAckPacket, ItemCompositionListPacket, ItemIdentifyAckPacket,
     ItemIdentifyListPacket, MakableItemEntry, MakableItemListPacket, MakingArrowListPacket, MakingItemListPacket, MapName16,
@@ -415,9 +417,10 @@ pub struct LoginPincodePacket {
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0B18)]
 pub struct Packet0b18 {
-    /// Possibly inventory related
+    /// `ZC_EXTEND_BODYITEM_SIZE`: inventory slots beyond Hercules'
+    /// `FIXED_INVENTORY_SIZE` (100). Turoran sends 500 for 600 slots.
     #[new_default]
-    pub unknown: u16,
+    pub expansion_size: u16,
 }
 
 #[derive(Debug, Clone, ByteConvertable)]

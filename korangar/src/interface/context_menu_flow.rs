@@ -6,7 +6,6 @@ use ragnarok_packets::{AccountId, ClientTick, EntityId};
 use crate::Client;
 use crate::interface::windows::{ChatWindow, ContextMenuWindow, InventoryWindow, ViewEquipWindow, WindowClass};
 use crate::state::context_menu::ContextMenuFacts;
-use crate::state::inventory::InventoryPathExt;
 use crate::state::view_equip::ViewedEquipItem;
 use crate::state::{ClientStatePathExt, client_state, this_entity};
 use crate::world::EntityType;
@@ -198,7 +197,7 @@ impl Client {
 
     pub(crate) fn open_inventory_for_trade(&mut self) {
         if !self.interface.is_window_with_class_open(WindowClass::Inventory) {
-            self.interface.open_window(InventoryWindow::new(client_state().inventory().items()));
+            self.interface.open_window(InventoryWindow::new(client_state().inventory()));
         }
     }
 }

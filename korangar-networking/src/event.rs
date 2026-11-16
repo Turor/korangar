@@ -418,6 +418,8 @@ pub enum NetworkEvent {
     SetStorage {
         items: Vec<InventoryItem<NoMetadata>>,
     },
+    /// Slot cap for the inventory, storage or cart.
+    ItemCapacity(crate::packet_versions::item_capacity::ItemCapacity),
     /// Full cart snapshot. Distinct from [`Self::SetInventory`].
     SetCart {
         items: Vec<InventoryItem<NoMetadata>>,
