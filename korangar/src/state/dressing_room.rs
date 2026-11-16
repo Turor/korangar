@@ -16,9 +16,11 @@ use korangar_networking::{InventoryItem, InventoryItemDetails};
 use ragnarok_packets::{EquipPosition, JobId, Sex};
 
 use super::view_names::{shield_file_name, static_robe_name, weapon_file_suffix};
-use super::vn_dialog::{head_palette_file, headgear_sprite_candidates};
+use super::vn_dialog::headgear_sprite_candidates;
 use crate::graphics::Texture;
-use crate::world::{AnimationData, Player, PlayerLook, player_look_part_files, weapon_job_sprite_name};
+use crate::world::{
+    AnimationData, Player, PlayerLook, hair_palette_grf_path, hair_palette_id, is_doram_job, player_look_part_files, weapon_job_sprite_name,
+};
 
 pub const NO_PREVIEW: &str = "No preview for this item";
 
@@ -505,6 +507,9 @@ impl DressingRoom {
     }
 
     /// Sprite and palette paths for the head, when the colour is not 0.
+    ///
+    /// The sprite file uses the style index. The palette uses `HairIndexTable`
+    /// (`hair_palette_id`), which is not that index. Style 0 is looked up as 0.
     pub fn head_dye_request(&self) -> Option<HeadDyeRequest> {
         if self.hair_color == 0 {
             return None;
@@ -513,10 +518,11 @@ impl DressingRoom {
         if head.is_empty() || head.starts_with('?') {
             return None;
         }
-        let palette = head_palette_file(head, self.hair_color)?;
+        let doram = is_doram_job(JobId(self.job_id));
+        let palette_id = hair_palette_id(self.sex(), doram, Some(usize::from(self.hair_style)));
         Some(HeadDyeRequest {
             sprite: format!("{head}.spr"),
-            palette,
+            palette: hair_palette_grf_path(doram, self.female, palette_id, self.hair_color),
         })
     }
 
@@ -1093,8 +1099,19 @@ mod tests {
         room.apply_view(&colored, ItemView::only(Some(PreviewSlot::HeadTop), 8), suffix, exists);
         let request = room.head_dye_request().expect("palette");
         assert!(request.sprite.ends_with("2_여.spr"), "{}", request.sprite);
-        assert!(request.palette.ends_with("머리2_여_4.pal"), "{}", request.palette);
-        assert!(request.palette.starts_with("data\\palette\\머리\\"));
+        assert_eq!(request.palette, "data\\palette\\머리\\머리4_여_4.pal");
+
+        let doram = WornLook {
+            job_id: 4218,
+            female: true,
+            hair_style: 3,
+            hair_color: 1,
+            ..WornLook::default()
+        };
+        room.apply_view(&doram, ItemView::only(Some(PreviewSlot::HeadTop), 8), suffix, exists);
+        let request = room.head_dye_request().expect("doram palette");
+        assert!(request.sprite.ends_with("3_여.spr"), "{}", request.sprite);
+        assert_eq!(request.palette, "data\\palette\\도람족\\머리\\머리3_여_1.pal");
 
         let plain = WornLook { hair_color: 0, ..colored };
         room.apply_view(&plain, ItemView::only(Some(PreviewSlot::HeadTop), 8), suffix, exists);
