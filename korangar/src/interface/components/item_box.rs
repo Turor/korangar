@@ -59,6 +59,10 @@ where
         // Unwrapping here is fine since we only register the handler if the slot has a
         // item.
         let item = state.try_get(&self.item_path).unwrap().clone();
+        if crate::state::item_link::shift_links() {
+            queue.queue(InputEvent::LinkItemInChat { item });
+            return;
+        }
 
         queue.queue(Event::SetMouseMode {
             mouse_mode: MouseMode::Custom {

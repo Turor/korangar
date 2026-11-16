@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use korangar_interface::application::Size;
+use korangar_interface::application::{Size, TextLayouter};
 use korangar_interface::components::text_box::DefaultHandler;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut, Persistent, PersistentExt};
 use korangar_interface::element::{Element, StateElement};
@@ -15,16 +15,20 @@ use rust_state::{Path, RustState, State};
 use super::WindowClass;
 use crate::graphics::Color;
 use crate::input::InputEvent;
+use crate::interface::components::chat_item_link::{self, LaidChatLine};
 use crate::loaders::OverflowBehavior;
 use crate::state::chat::{
     CHAT_LINE_SPACING, ChannelMaskPathExt, ChatChannel, ChatFilterState, ChatFilterStatePathExt, ChatTab, ChatTabSlot, FIXED_CHAT_TABS,
     ListScroll, MAX_PARTNER_TABS, format_unread_badge, scroll_list, stacked_content_height, sync_list_scroll,
 };
+use crate::state::item_link::{self, CHAT_DRAFT_LIMIT};
 use crate::state::localization::LocalizationPathExt;
 use crate::state::theme::{ChatThemePathExt, InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
 use crate::state::{ChatMessage, ClientState, ClientStatePathExt, client_state, client_theme};
 
-const MAXIMUM_CHAT_MESSAGE_LENGTH: usize = 80;
+/// Left inset the old single `add_text` got from `offset: 5.0` plus `border:
+/// 3.0`.
+const CHAT_TEXT_INSET: f32 = 8.0;
 const MAXIMUM_WHISPER_NAME_LENGTH: usize = 23;
 
 fn ensure_readable(color: Color, panel: Color, text: Color) -> Color {
@@ -65,6 +69,22 @@ fn themed_message_color(state: &State<ClientState>, color: MessageColor) -> Colo
 /// focus the chat when pressing enter.
 pub struct ChatTextBox;
 
+/// Append an item link at the end of the chat draft. The text box has no caret.
+/// Chat draft. The path trait for `current_text` is private to this module.
+pub(crate) fn current_chat_draft(state: &State<ClientState>) -> String {
+    state.get(&client_state().chat_window().current_text()).clone()
+}
+
+pub(crate) fn insert_chat_item_link(
+    state: &mut State<ClientState>,
+    item: &korangar_networking::InventoryItem<crate::world::ResourceMetadata>,
+) {
+    let next = item_link::append_link_text(state.get(&client_state().chat_window().current_text()), item);
+    state.update_value_with(client_state().chat_window().current_text(), move |draft| {
+        draft.clone_from(&next);
+    });
+}
+
 /// Focus id for the whisper-target name box. Enter leaves the field.
 struct WhisperTargetTextBox;
 
@@ -72,7 +92,7 @@ struct ChatLayoutInfo {
     area: Area,
     offset: f32,
     // TODO: Don't allocate this every frame.
-    message_heights: Vec<f32>,
+    lines: Vec<LaidChatLine>,
 }
 
 struct MessageListScrollData {
@@ -142,25 +162,33 @@ where
             let chat_messages = visible_messages(state, &self.chat_messages_path, &self.chat_window_state);
             let font_size = *state.get(&client_theme().text().font_size());
             let highlight = *state.get(&client_theme().text().highlight_color());
-
-            let message_heights: Vec<f32> = chat_messages
-                .iter()
-                .map(|chat_message| {
-                    let color = themed_message_color(state, chat_message.color);
-                    let (size, _) = resolver.get_text_dimensions(
-                        &chat_message.text,
-                        color,
-                        highlight,
-                        font_size,
-                        HorizontalAlignment::Left { offset: 5.0, border: 3.0 },
-                        OverflowBehavior::LineBreak,
-                    );
-                    size.height()
-                })
-                .collect();
+            let gold = *state.get(&client_theme().tokens().gold());
+            let available = resolver.push_available_area();
+            let content_width = (available.width - CHAT_TEXT_INSET).max(0.0);
+            let lines: Vec<LaidChatLine> = {
+                let layouter = resolver.get_text_layouter();
+                chat_messages
+                    .iter()
+                    .map(|chat_message| {
+                        let color = themed_message_color(state, chat_message.color);
+                        let measure = |text: &str| {
+                            let (size, _) =
+                                layouter.get_text_dimensions(text, color, highlight, font_size, 1_000_000.0, OverflowBehavior::Shrink);
+                            (size.width(), size.height())
+                        };
+                        chat_item_link::lay_out_chat_line(
+                            &chat_message.text,
+                            content_width,
+                            gold,
+                            |item_id| item_link::identity_for(state, item_id),
+                            measure,
+                        )
+                    })
+                    .collect()
+            };
+            let message_heights: Vec<f32> = lines.iter().map(|line| line.height).collect();
 
             let content_height = stacked_content_height(&message_heights, CHAT_LINE_SPACING);
-            let available = resolver.push_available_area();
             let viewport = match available.height {
                 Some(height) => height.max(0.0),
                 None => content_height,
@@ -183,11 +211,7 @@ where
             };
             resolver.commit_used_height(viewport);
 
-            Self::LayoutInfo {
-                area,
-                offset,
-                message_heights,
-            }
+            Self::LayoutInfo { area, offset, lines }
         })
     }
 
@@ -206,40 +230,30 @@ where
         let chat_messages = visible_messages(state, &self.chat_messages_path, &self.chat_window_state);
         let font_size = *state.get(&client_theme().text().font_size());
         let highlight = *state.get(&client_theme().text().highlight_color());
+        let accent = *state.get(&client_theme().tokens().accent());
         let scroll_offset = layout_info.offset;
 
         layout.with_clip(layout_info.area, |layout| {
             let mut line_top = 0.0;
-            chat_messages
-                .iter()
-                .zip(layout_info.message_heights.iter())
-                .for_each(|(chat_message, message_height)| {
-                    let color = themed_message_color(state, chat_message.color);
+            chat_messages.iter().zip(layout_info.lines.iter()).for_each(|(chat_message, line)| {
+                let plain = themed_message_color(state, chat_message.color);
 
-                    if line_top != 0.0 {
-                        line_top += CHAT_LINE_SPACING;
-                    }
+                if line_top != 0.0 {
+                    line_top += CHAT_LINE_SPACING;
+                }
 
-                    let text_area = Area {
-                        left: layout_info.area.left,
-                        top: layout_info.area.top + line_top - scroll_offset,
-                        width: layout_info.area.width,
-                        height: *message_height,
-                    };
-
-                    layout.add_text(
-                        text_area,
-                        &chat_message.text,
-                        font_size,
-                        color,
-                        highlight,
-                        HorizontalAlignment::Left { offset: 5.0, border: 3.0 },
-                        VerticalAlignment::Center { offset: 0.0 },
-                        OverflowBehavior::LineBreak,
-                    );
-
-                    line_top += message_height;
+                chat_item_link::paint_chat_line(layout, chat_item_link::ChatPaint {
+                    line,
+                    left: layout_info.area.left + CHAT_TEXT_INSET,
+                    top: layout_info.area.top + line_top - scroll_offset,
+                    font_size,
+                    plain,
+                    accent,
+                    highlight,
                 });
+
+                line_top += line.height;
+            });
         });
     }
 }
@@ -724,7 +738,7 @@ impl ChatWindowState {
             self.current_text.pop();
             return None;
         }
-        if !character.is_control() && self.current_text.len().saturating_add(character.len_utf8()) <= MAXIMUM_CHAT_MESSAGE_LENGTH {
+        if !character.is_control() && self.current_text.len().saturating_add(character.len_utf8()) <= CHAT_DRAFT_LIMIT {
             self.current_text.push(character);
         }
         None
@@ -906,7 +920,7 @@ where
                         text_box! {
                             ghost_text: client_state().localization().chat_text_box_message(),
                             state: current_text_path,
-                            input_handler: DefaultHandler::<_, _, MAXIMUM_CHAT_MESSAGE_LENGTH>::new(current_text_path, send_action),
+                            input_handler: DefaultHandler::<_, _, CHAT_DRAFT_LIMIT>::new(current_text_path, send_action),
                             background_color: client_theme().chat().text_box_background_color(),
                             focused_background_color: client_theme().text_box().focused_background_color(),
                             focus_id: ChatTextBox,

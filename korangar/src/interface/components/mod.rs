@@ -1,3 +1,4 @@
+pub mod chat_item_link;
 pub mod hotbar_grid;
 pub mod inventory_controls;
 pub mod item_box;

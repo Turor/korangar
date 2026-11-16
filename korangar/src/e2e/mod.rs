@@ -12,6 +12,7 @@ mod headgear;
 mod inject;
 mod inventory_grid;
 mod inventory_view;
+mod item_link;
 mod item_move;
 mod item_tooltip;
 mod item_workshop;
@@ -38,6 +39,7 @@ pub use self::inventory_grid::{GridView, OfflineInventoryGridReport, TURORAN_CAP
 pub use self::inventory_view::{
     DrawnIndexes, FAVORITE_ACK_BYTES, InventorySort, InventoryTab, OfflineInventoryViewReport, offline_inventory_view,
 };
+pub use self::item_link::{OfflineItemLinkReport, offline_item_link};
 pub use self::item_move::{ItemMoveCase, OfflineItemMoveReport, item_move_request, offline_item_moves};
 pub use self::item_tooltip::{LiveItemTooltipReport, OfflineTooltipReport, offline_tooltip_view};
 pub use self::item_workshop::WorkshopView;

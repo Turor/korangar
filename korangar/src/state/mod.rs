@@ -23,6 +23,7 @@ pub mod inventory_view;
 pub mod item_compare;
 pub mod item_drop;
 pub mod item_finder;
+pub mod item_link;
 pub mod item_move;
 pub mod item_skill_selection;
 pub mod item_workshop;

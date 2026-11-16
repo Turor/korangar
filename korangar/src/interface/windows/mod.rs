@@ -115,6 +115,7 @@ pub use self::character_overview::CharacterOverviewWindow;
 pub(crate) use self::character_preview::{sync_preview, take_preview_animation};
 pub use self::character_selection::CharacterSelectionWindow;
 pub use self::chat::{ChatTextBox, ChatWindow, ChatWindowState};
+pub(crate) use self::chat::{current_chat_draft, insert_chat_item_link};
 pub use self::chat_room::{ChatRoomCreateWindow, ChatRoomPasswordWindow, ChatRoomTitleBox, ChatRoomWindow};
 pub use self::clan::ClanWindow;
 #[cfg(feature = "debug")]

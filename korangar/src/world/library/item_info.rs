@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::sync::OnceLock;
 
 use hashbrown::HashMap;
 use korangar_loaders::FileLoader;
@@ -41,6 +42,65 @@ const ENGLISH_ITEM_TABLE: &str = "System\\iteminfo.english.v1.txt";
 /// Same bytes as the archive file, so a runtime that does not mount this
 /// checkout's `archive/` (the TEST headless profile) still has English names.
 const EMBEDDED_ENGLISH_ITEM_TABLE_GZ: &[u8] = include_bytes!("../../../archive/System/iteminfo.english.v1.txt.gz");
+
+/// Identified English name, slot count, and description for one item id.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct EnglishItemIdentity {
+    pub(crate) name: String,
+    pub(crate) slots: u8,
+    pub(crate) description: String,
+}
+
+/// Identified name from the merged `ItemInfo` table, including the Turoran
+/// overlay.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CatalogItemIdentity {
+    pub(crate) name: String,
+    pub(crate) slots: u8,
+    pub(crate) description: String,
+}
+
+/// Name, slot count, and description from the loaded item table.
+///
+/// `ItemInfo::load` applies the Turoran overlay last, so this sees a rename or
+/// `slotCount` that the embedded English snapshot does not.
+pub(crate) fn catalog_item_identity(library: &Library, item_id: u32) -> Option<CatalogItemIdentity> {
+    let info = ItemInfo::try_get(library, ItemId(item_id))?;
+    if info.identified_name.is_placeholder() {
+        return None;
+    }
+    Some(CatalogItemIdentity {
+        name: info.identified_name.as_str().to_owned(),
+        slots: info.slot_count().unwrap_or(0),
+        description: info.identified_description().join("\n"),
+    })
+}
+
+/// Cached identified row from the shipped English item table.
+pub(crate) fn english_item_identity(item_id: u32) -> Option<EnglishItemIdentity> {
+    static TABLE: OnceLock<HashMap<u32, EnglishItemIdentity>> = OnceLock::new();
+    let table = TABLE.get_or_init(|| {
+        let Ok(bytes) = decode_gzip(EMBEDDED_ENGLISH_ITEM_TABLE_GZ) else {
+            return HashMap::new();
+        };
+        let Ok(text) = String::from_utf8(bytes) else {
+            return HashMap::new();
+        };
+        let Ok(rows) = parse_english_table(&text) else {
+            return HashMap::new();
+        };
+        rows.into_iter()
+            .map(|row| {
+                (row.id, EnglishItemIdentity {
+                    name: row.identified_name,
+                    slots: row.slot_count,
+                    description: row.identified_description.join("\n"),
+                })
+            })
+            .collect()
+    });
+    table.get(&item_id).cloned()
+}
 
 #[cfg_attr(test, allow(dead_code))]
 const SAMPLE_ITEM_IDS: &[u32] = &[500, 501, 1201, 4001];
