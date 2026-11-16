@@ -2,6 +2,8 @@
 //! and minor category tabs, a summary page with per-tab gauges, a clickable
 //! list with progress and points, and a detail panel with goals and rewards.
 
+use std::sync::Arc;
+
 use korangar_interface::element::Element;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::event::{ClickHandler, EventQueue};
@@ -11,10 +13,11 @@ use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
 use rust_state::{Path, State};
 
-use crate::graphics::{Color, CornerDiameter, ShadowPadding};
+use crate::graphics::{Color, CornerDiameter, ShadowPadding, Texture};
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
+use crate::renderer::LayoutExt;
 use crate::state::achievements::{ACHIEVEMENT_MAJORS, AchievementRow, Achievements, CategoryProgress, OBJECTIVE_SLOTS};
 use crate::state::theme::{InterfaceThemePathExt, InterfaceThemeType, ThemeTokensPathExt};
 use crate::state::{ClientState, client_theme};
@@ -441,6 +444,8 @@ struct AchievementDetail<A> {
 struct AchievementDetailLayout {
     area: Area,
     lines: Vec<String>,
+    /// Item reward icon and the index of the reward line it sits on.
+    reward_icon: Option<(usize, Arc<Texture>)>,
 }
 
 impl<A> Element<ClientState> for AchievementDetail<A>
@@ -456,10 +461,16 @@ where
         resolvers: &mut dyn Resolvers<ClientState>,
     ) -> Self::LayoutInfo {
         with_single_resolver(resolvers, |resolver| {
-            let lines = state.get(&self.path).detail().to_vec();
+            let achievements = state.get(&self.path);
+            let lines = achievements.detail().to_vec();
+            let reward_icon = achievements
+                .selected_reward_item()
+                .and_then(|item_id| achievements.item_icon(item_id))
+                .and_then(|texture| Some((lines.iter().position(|line| line.starts_with("Reward:"))?, texture)));
             AchievementDetailLayout {
                 area: resolver.with_height(LINE_HEIGHT * lines.len().max(1) as f32 + 6.0),
                 lines,
+                reward_icon,
             }
         })
     }
@@ -478,17 +489,34 @@ where
             Color::TRANSPARENT,
             ShadowPadding::uniform(0.0),
         );
+        let icon_line = layout_info.reward_icon.as_ref().map(|(index, _)| *index);
         for (index, line) in layout_info.lines.iter().enumerate() {
             let color = if index == 0 {
                 *state.get(&client_theme().tokens().gold())
             } else {
                 *state.get(&client_theme().tokens().text())
             };
+            let top = layout_info.area.top + 3.0 + LINE_HEIGHT * index as f32;
+            // The reward line leaves room for the item icon on its right.
+            let icon_room = if icon_line == Some(index) { LINE_HEIGHT + 6.0 } else { 0.0 };
+            if let Some((_, texture)) = layout_info.reward_icon.as_ref().filter(|_| icon_line == Some(index)) {
+                layout.add_texture(
+                    Area {
+                        left: layout_info.area.left + layout_info.area.width - LINE_HEIGHT - 4.0,
+                        top,
+                        width: LINE_HEIGHT,
+                        height: LINE_HEIGHT,
+                    },
+                    texture.clone(),
+                    Color::WHITE,
+                    false,
+                );
+            }
             layout.add_text(
                 Area {
                     left: layout_info.area.left,
-                    top: layout_info.area.top + 3.0 + LINE_HEIGHT * index as f32,
-                    width: layout_info.area.width,
+                    top,
+                    width: layout_info.area.width - icon_room,
                     height: LINE_HEIGHT,
                 },
                 line,

@@ -82,6 +82,8 @@ pub struct RouteDestination {
     pub y: u16,
     pub has_cell: bool,
     pub name: String,
+    /// Picked on the world map: reaching the map is the whole goal.
+    pub whole_map: bool,
 }
 
 pub fn cell_distance(from: (u16, u16), to: (u16, u16)) -> u32 {
@@ -188,7 +190,9 @@ fn link_verb(link: &NaviLink) -> String {
 }
 
 fn final_step(destination: &RouteDestination) -> RouteStep {
-    let label = if destination.has_cell {
+    let label = if destination.whole_map {
+        format!("{}: arrive in {}", destination.map, destination.name)
+    } else if destination.has_cell {
         format!(
             "{}: {} at {},{}",
             destination.map, destination.name, destination.x, destination.y
@@ -445,6 +449,30 @@ impl Navigation {
             y: hit.y,
             has_cell: hit.has_cell,
             name: hit.name,
+            whole_map: false,
+        });
+        self.refresh_route();
+    }
+
+    /// World map right-click: route to `map` itself, arriving anywhere on it.
+    /// `name` is the world map's label for the square (`Prontera`).
+    pub fn route_to_map(&mut self, map: &str, name: &str) {
+        let map = normalize_map_name(map);
+        if map.is_empty() {
+            return;
+        }
+        let name = if name.trim().is_empty() {
+            map.clone()
+        } else {
+            name.trim().to_owned()
+        };
+        self.route.destination = Some(RouteDestination {
+            map,
+            x: 0,
+            y: 0,
+            has_cell: false,
+            name,
+            whole_map: true,
         });
         self.refresh_route();
     }
@@ -476,6 +504,7 @@ impl Navigation {
             y: target.y,
             has_cell,
             name,
+            whole_map: false,
         });
         self.refresh_route();
     }
@@ -528,6 +557,9 @@ impl Navigation {
         self.route.guide = match next {
             None if self.route.steps.is_empty() => String::new(),
             None => format!("Off route on {}; head back to {}", self.map_name, self.route.steps[0].map),
+            Some(step) if !step.has_cell && self.route.destination.as_ref().is_some_and(|destination| destination.whole_map) => {
+                format!("Arrived: {} ({})", final_name(&self.route), step.map)
+            }
             Some(step) if !step.has_cell => format!("You are on {}. Look for {}.", step.map, final_name(&self.route)),
             Some(step) => {
                 let distance = cell_distance(player, (step.x, step.y));
@@ -615,6 +647,7 @@ mod tests {
             y,
             has_cell: true,
             name: "target".into(),
+            whole_map: false,
         }
     }
 
@@ -715,5 +748,30 @@ mod tests {
         navigation.clear_route();
         assert!(navigation.target().is_none());
         assert!(navigation.route().steps().is_empty());
+    }
+
+    #[test]
+    fn world_map_route_reaches_the_map_and_then_arrives() {
+        let mut navigation = Navigation::default();
+        navigation.attach_navigation_tables(Arc::new(tables()));
+        navigation.on_map_change("prontera", 150, 150);
+        navigation.route_to_map("IZLUDE.gat", " Izlude ");
+        let destination = navigation.route().destination().unwrap().clone();
+        assert_eq!(destination.map, "izlude");
+        assert_eq!(destination.name, "Izlude");
+        assert!(destination.whole_map && !destination.has_cell);
+        assert_eq!(navigation.route().steps().len(), 3);
+        assert!(navigation.route().status.contains("2 warps to izlude"));
+        assert_eq!(navigation.route().steps().last().unwrap().label, "izlude: arrive in Izlude");
+        assert!(navigation.route().guide.starts_with("Next: warp at 156,22 to prt_fild08"));
+
+        navigation.on_map_change("izlude", 128, 200);
+        assert_eq!(navigation.route().guide, "Arrived: Izlude (izlude)");
+
+        // An empty map id is ignored; a blank label falls back to the id.
+        navigation.route_to_map("  ", "Nowhere");
+        assert_eq!(navigation.route().destination().unwrap().map, "izlude");
+        navigation.route_to_map("prt_fild08", "");
+        assert_eq!(navigation.route().destination().unwrap().name, "prt_fild08");
     }
 }
