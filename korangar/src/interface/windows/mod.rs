@@ -54,7 +54,6 @@ mod menu_bar;
 mod misc_info;
 mod mvp_minimap;
 mod navigation;
-mod npc_input;
 #[cfg(feature = "debug")]
 mod packet_inspector;
 mod party;
@@ -117,7 +116,7 @@ pub use self::clan::ClanWindow;
 pub use self::commands::CommandsWindow;
 pub use self::companions::{CompanionWindow, CompanionWindowState, MercenaryPanel, PetPanel};
 pub use self::context_menu::ContextMenuWindow;
-pub use self::dialog::{DialogWindow, DialogWindowState};
+pub use self::dialog::{DialogWindow, DialogWindowState, NpcInputBox};
 pub use self::eden::EdenWindow;
 pub use self::emotes::EmotesWindow;
 pub use self::enchant::EnchantWindow;
@@ -156,7 +155,6 @@ pub use self::misc_info::{
 };
 pub use self::mvp_minimap::{MvpMinimapState, MvpMinimapWindow};
 pub use self::navigation::NavigationWindow;
-pub use self::npc_input::{NpcInputBox, NpcInputWindow};
 #[cfg(feature = "debug")]
 pub use self::packet_inspector::PacketInspectorWindow;
 pub use self::party_invite::PartyInviteWindow;

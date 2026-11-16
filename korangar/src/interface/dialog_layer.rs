@@ -1,19 +1,20 @@
 //! Keeps an open NPC dialog in front of the HUD.
 //!
-//! While a dialog is open its band (and an NPC input box) sits above every HUD
-//! window, and the bottom menu bar is hidden. The band spans the bottom of the
-//! screen where the bar docks, and a click anywhere advances the dialog, so a
-//! bar peeking out from under the band would only be a dead target. The bar
-//! comes back where it was (its anchor is in the window cache) as soon as the
-//! dialog closes.
+//! While a dialog is open its band sits above every HUD window, and the bottom
+//! menu bar is hidden. Number and text input live in that band, above the
+//! option rows. The band spans the bottom of the screen where the bar docks,
+//! and a click anywhere advances the dialog, so a bar peeking out from under
+//! the band would only be a dead target. The bar comes back where it was (its
+//! anchor is in the window cache) as soon as the dialog closes.
 
 use korangar_interface::Interface;
 
 use crate::interface::windows::{MenuBarWindow, WindowClass};
 use crate::state::ClientState;
 
-/// Front-to-back order of the dialog windows: the input box above the band.
-pub const DIALOG_STACK: [WindowClass; 2] = [WindowClass::Dialog, WindowClass::NpcInput];
+/// The dialog band is the only script window. Input is inline, not a second
+/// window.
+pub const DIALOG_STACK: [WindowClass; 1] = [WindowClass::Dialog];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuBarAction {
@@ -89,9 +90,7 @@ mod tests {
     }
 
     #[test]
-    fn the_input_box_stays_above_the_band() {
-        let dialog = DIALOG_STACK.iter().position(|class| *class == WindowClass::Dialog);
-        let input = DIALOG_STACK.iter().position(|class| *class == WindowClass::NpcInput);
-        assert!(dialog < input);
+    fn the_dialog_band_is_the_only_script_window() {
+        assert_eq!(DIALOG_STACK, [WindowClass::Dialog]);
     }
 }

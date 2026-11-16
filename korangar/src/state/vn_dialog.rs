@@ -372,6 +372,10 @@ pub fn place_portrait_part(
 /// Options per row before the menu wraps to another row.
 pub const CHOICES_PER_ROW: usize = 5;
 
+/// The option block always keeps this many rows, so the band does not jump
+/// when a menu appears or the option count changes. Nine options fill both.
+pub const RESERVED_OPTION_ROWS: usize = 2;
+
 /// `(columns, rows)` for `count` options laid out side by side.
 pub fn choice_grid(count: usize) -> (usize, usize) {
     if count == 0 {
@@ -379,6 +383,127 @@ pub fn choice_grid(count: usize) -> (usize, usize) {
     }
     let columns = count.min(CHOICES_PER_ROW);
     (columns, count.div_ceil(columns))
+}
+
+/// Columns that fit `count` options inside [`RESERVED_OPTION_ROWS`].
+fn option_columns(count: usize) -> usize {
+    if count == 0 {
+        return 0;
+    }
+    let (columns, rows) = choice_grid(count);
+    if rows > RESERVED_OPTION_ROWS {
+        count.div_ceil(RESERVED_OPTION_ROWS).max(1)
+    } else {
+        columns.max(1)
+    }
+}
+
+/// Visible key on option `index` (zero based). Only 1–9 are hinted.
+pub fn choice_hint_digit(index: usize) -> Option<u8> {
+    (index < 9).then_some(index as u8 + 1)
+}
+
+/// Button label with the 1–9 hint in front of the menu text.
+pub fn choice_hint_label(index: usize, text: &str) -> String {
+    match choice_hint_digit(index) {
+        Some(digit) => format!("{digit}. {text}"),
+        None => text.to_owned(),
+    }
+}
+
+/// Height of the two option rows, including the gap between them.
+pub fn reserved_option_height(button_height: f32, gap: f32) -> f32 {
+    let rows = RESERVED_OPTION_ROWS as f32;
+    rows * button_height + (RESERVED_OPTION_ROWS - 1) as f32 * gap
+}
+
+/// Theme sizes the footer layout needs.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FooterMetrics {
+    pub button_height: f32,
+    pub input_height: f32,
+    pub gap: f32,
+}
+
+/// One rectangle in interface coordinates.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FooterRect {
+    pub left: f32,
+    pub top: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+/// Input row (when the NPC is asking) and the reserved option block under it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DialogFooterLayout {
+    pub input: Option<FooterRect>,
+    pub option_block: FooterRect,
+    pub columns: usize,
+    pub button_count: usize,
+    pub button_height: f32,
+    pub gap: f32,
+}
+
+impl DialogFooterLayout {
+    /// Option `index` inside the reserved block. `None` past the last button
+    /// or past the second row.
+    pub fn button_rect(&self, index: usize) -> Option<FooterRect> {
+        if self.columns == 0 || index >= self.button_count {
+            return None;
+        }
+        let row = index / self.columns;
+        if row >= RESERVED_OPTION_ROWS {
+            return None;
+        }
+        let column = index % self.columns;
+        let gaps = self.gap * self.columns.saturating_sub(1) as f32;
+        let cell_width = ((self.option_block.width - gaps) / self.columns as f32).max(0.0);
+        Some(FooterRect {
+            left: self.option_block.left + column as f32 * (cell_width + self.gap),
+            top: self.option_block.top + row as f32 * (self.button_height + self.gap),
+            width: cell_width,
+            height: self.button_height,
+        })
+    }
+}
+
+/// Footer anchored to `bottom`. The option block height does not depend on
+/// `option_count`. An open input sits in the gap directly above that block.
+pub fn dialog_footer_layout(
+    left: f32,
+    bottom: f32,
+    width: f32,
+    option_count: usize,
+    input_open: bool,
+    metrics: FooterMetrics,
+) -> DialogFooterLayout {
+    let FooterMetrics {
+        button_height,
+        input_height,
+        gap,
+    } = metrics;
+    let options_height = reserved_option_height(button_height, gap);
+    let option_block = FooterRect {
+        left,
+        top: bottom - options_height,
+        width,
+        height: options_height,
+    };
+    let input = input_open.then_some(FooterRect {
+        left,
+        top: option_block.top - gap - input_height,
+        width,
+        height: input_height,
+    });
+    DialogFooterLayout {
+        input,
+        option_block,
+        columns: option_columns(option_count),
+        button_count: option_count,
+        button_height,
+        gap,
+    }
 }
 
 /// Keys that act on an open menu this frame.
@@ -745,6 +870,74 @@ mod tests {
         assert_eq!(choice_grid(2), (2, 1));
         assert_eq!(choice_grid(5), (5, 1));
         assert_eq!(choice_grid(9), (5, 2));
+    }
+
+    #[test]
+    fn choice_hints_are_one_through_nine() {
+        let labels: Vec<_> = (0..9).map(|index| choice_hint_label(index, "Talk")).collect();
+        assert_eq!(labels, vec![
+            "1. Talk".to_owned(),
+            "2. Talk".to_owned(),
+            "3. Talk".to_owned(),
+            "4. Talk".to_owned(),
+            "5. Talk".to_owned(),
+            "6. Talk".to_owned(),
+            "7. Talk".to_owned(),
+            "8. Talk".to_owned(),
+            "9. Talk".to_owned(),
+        ]);
+        assert_eq!(choice_hint_digit(0), Some(1));
+        assert_eq!(choice_hint_digit(8), Some(9));
+        assert_eq!(choice_hint_digit(9), None);
+        assert_eq!(choice_hint_label(9, "More"), "More");
+    }
+
+    #[test]
+    fn option_rows_stay_reserved_for_zero_two_and_nine() {
+        let metrics = FooterMetrics {
+            button_height: 22.0,
+            input_height: 26.0,
+            gap: 4.0,
+        };
+        let layout = |count| dialog_footer_layout(8.0, 400.0, 640.0, count, false, metrics);
+        let none = layout(0);
+        let two = layout(2);
+        let nine = layout(9);
+
+        assert_eq!(none.option_block, two.option_block);
+        assert_eq!(two.option_block, nine.option_block);
+        assert_eq!(none.option_block.height, reserved_option_height(22.0, 4.0));
+        assert!(none.button_rect(0).is_none());
+
+        let first = two.button_rect(0).expect("first");
+        let second = two.button_rect(1).expect("second");
+        assert_eq!(first.top, two.option_block.top);
+        assert_eq!(second.top, two.option_block.top);
+        assert!(two.button_rect(2).is_none());
+        // The empty second row is still inside the block.
+        assert!(first.top + first.height < two.option_block.top + two.option_block.height);
+
+        let lower = nine.button_rect(5).expect("sixth option");
+        assert!(lower.top > nine.option_block.top);
+        assert!(lower.top + lower.height <= nine.option_block.top + nine.option_block.height + 0.01);
+        assert!(nine.button_rect(9).is_none());
+    }
+
+    #[test]
+    fn input_sits_above_the_reserved_option_rows() {
+        for count in [0, 2, 9] {
+            let metrics = FooterMetrics {
+                button_height: 20.0,
+                input_height: 30.0,
+                gap: 5.0,
+            };
+            let plain = dialog_footer_layout(0.0, 500.0, 700.0, count, false, metrics);
+            let with_input = dialog_footer_layout(0.0, 500.0, 700.0, count, true, metrics);
+            assert_eq!(with_input.option_block, plain.option_block);
+            let input = with_input.input.expect("input row");
+            assert!((input.top + input.height + 5.0 - with_input.option_block.top).abs() < 0.001);
+            assert!(input.top + input.height <= with_input.option_block.top + 0.001);
+        }
     }
 
     #[test]

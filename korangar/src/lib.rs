@@ -2912,7 +2912,8 @@ impl Client {
                         .follow_mut(client_state().dialog_window())
                         .initialize(npc_id)
                         .open_number_input();
-                    self.interface.open_window(NpcInputWindow::new());
+                    self.interface.close_window_with_class(WindowClass::NpcInput);
+                    self.interface.open_window(DialogWindow::new(client_state().dialog_window()));
                 }
                 NetworkEvent::NpcTextInput { npc_id } => {
                     if let Some(reply) =
@@ -2926,7 +2927,8 @@ impl Client {
                         .follow_mut(client_state().dialog_window())
                         .initialize(npc_id)
                         .open_text_input();
-                    self.interface.open_window(NpcInputWindow::new());
+                    self.interface.close_window_with_class(WindowClass::NpcInput);
+                    self.interface.open_window(DialogWindow::new(client_state().dialog_window()));
                 }
                 NetworkEvent::NpcCutin { image_name, location } => {
                     if let Some(reply) = self
