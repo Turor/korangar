@@ -4,6 +4,7 @@
 mod barter;
 pub mod character_select;
 mod chat_room;
+mod companion_actions;
 mod equip_window;
 pub mod guild_actions;
 pub mod handler;
@@ -42,6 +43,7 @@ pub use self::character_select::{
     ReserveDeleteCharacterPacket, ReserveDeleteCharacterResultPacket,
 };
 pub use self::chat_room::*;
+pub use self::companion_actions::*;
 pub use self::equip_window::{CONFIG_OPEN_EQUIPMENT_WINDOW, RequestViewPlayerEquipPacket, SetConfigurationPacket};
 pub use self::guild_actions::{
     BreakGuildRelationPacket, ChangeGuildMemberPositionsPacket, ChangeGuildPacket, ChangeGuildPositionsPacket, CreateGuildPacket,
@@ -4905,8 +4907,8 @@ pub struct HomunculusPropertyPacket {
     pub attack_range: u16,
 }
 
-/// Mercenary menu (`CZ_MER_COMMAND`, `0x029F`, 3 bytes). `1` dismisses the
-/// mercenary.
+/// Mercenary menu (`CZ_MER_COMMAND`, `0x029F`, 3 bytes). `1` requests
+/// information. `2` dismisses the mercenary.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x029F)]
