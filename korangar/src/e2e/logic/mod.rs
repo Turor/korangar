@@ -15,6 +15,7 @@ use self::live::SentHeaders;
 pub use self::live::inventory_grid::LiveInventoryGridReport;
 pub use self::live::inventory_view::LiveInventoryViewReport;
 pub use self::live::item_move::LiveItemMoveReport;
+pub use self::live::item_tooltip::LiveItemTooltipReport;
 pub use self::live::job_names::LivePartyJobReport;
 pub use self::live::mail::MailRoundTrip;
 pub use self::live::{SelectedOption, SentChoice};
