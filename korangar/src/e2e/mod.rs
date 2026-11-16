@@ -12,6 +12,7 @@ mod logic;
 mod release;
 mod screenshot;
 mod social;
+mod status_icons;
 
 pub(crate) use self::actions::{apply_choose_dialog_option, apply_switch_window_tab, begin_npc_dialog, send_public_chat, send_walk};
 pub use self::chat::{ChatSession, ChatView};
@@ -26,3 +27,4 @@ pub use self::social::{
     AchievementReport, NavigationReport, achievement_scenario, attendance_scenario, clan_chat_scenario, navigation_follow,
     navigation_scenario,
 };
+pub use self::status_icons::{StatusIconView, StatusStrip};

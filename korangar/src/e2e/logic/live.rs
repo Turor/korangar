@@ -124,6 +124,18 @@ impl LogicSession {
         Ok(view)
     }
 
+    /// Log in, enter the map, and keep reading packets for `watch` so the
+    /// status strip sees the statuses the server sends on map entry. The
+    /// session tick for [`crate::e2e::StatusStrip::view`] is returned too.
+    pub fn enter_world_and_watch_statuses(&mut self, watch: Duration) -> Result<u32, String> {
+        self.login_to_character_select()?;
+        self.enter_world()?;
+        self.pump_for(watch)?;
+        let tick = session_tick();
+        self.status_strip.expire(tick);
+        Ok(tick)
+    }
+
     pub fn enter_world_and_choose_npc_option(&mut self) -> Result<SelectedOption, String> {
         self.login_to_character_select()?;
         self.enter_world()?;
@@ -392,6 +404,7 @@ impl LogicSession {
                     return Ok(());
                 }
                 self.login_data = Some(login_data);
+                self.status_strip.set_local_entity(login_data.account_id.0);
                 self.servers = character_servers;
                 self.outbound.push(Outbound::SelectServer);
                 let Some(net) = self.net.as_mut() else {
@@ -504,6 +517,28 @@ impl LogicSession {
             NetworkEvent::AddNextButton { npc_id } => self.mark_next(npc_id.0),
             NetworkEvent::AddCloseButton { npc_id } => self.mark_close(npc_id.0),
             NetworkEvent::AddChoiceButtons { choices, npc_id } => self.show_choices(npc_id.0, choices),
+            NetworkEvent::StatusChange {
+                status_index,
+                entity_id,
+                state,
+                total_duration_milliseconds,
+                remaining_milliseconds,
+                ..
+            } => self.status_strip.on_status_change(
+                entity_id.0,
+                status_index,
+                state,
+                remaining_milliseconds,
+                total_duration_milliseconds,
+                session_tick(),
+            ),
+            NetworkEvent::StatusChangeSequence {
+                status_index,
+                entity_id,
+                state,
+            } => self
+                .status_strip
+                .on_status_change(entity_id.0, status_index, state, 0, 0, session_tick()),
             NetworkEvent::MapServerDisconnected { reason } => {
                 if reason != korangar_networking::DisconnectReason::ClosedByClient {
                     self.fail(format!("map disconnected ({reason:?})"));
@@ -547,6 +582,14 @@ impl LogicSession {
             self.npcs.len()
         )
     }
+}
+
+/// Milliseconds since the first live status packet path ran; the logic
+/// session's stand-in for the client tick.
+fn session_tick() -> u32 {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    let start = START.get_or_init(Instant::now);
+    u32::try_from(start.elapsed().as_millis()).unwrap_or(u32::MAX)
 }
 
 fn ipv4(address: ragnarok_packets::ServerAddress) -> String {

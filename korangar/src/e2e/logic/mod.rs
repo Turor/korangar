@@ -129,6 +129,8 @@ pub struct LogicSession {
     last_selected: Option<usize>,
     trace: Vec<String>,
     lock: Option<std::fs::File>,
+    /// HUD status icons fed from live `StatusChange` packets.
+    pub(super) status_strip: crate::e2e::StatusStrip,
 }
 
 impl LogicSession {
@@ -167,6 +169,7 @@ impl LogicSession {
             last_selected: None,
             trace: Vec::new(),
             lock: None,
+            status_strip: crate::e2e::StatusStrip::default(),
         }
     }
 
@@ -192,6 +195,10 @@ impl LogicSession {
 
     pub fn last_selected(&self) -> Option<usize> {
         self.last_selected
+    }
+
+    pub fn status_strip(&self) -> &crate::e2e::StatusStrip {
+        &self.status_strip
     }
 
     pub fn outbound(&self) -> &[Outbound] {

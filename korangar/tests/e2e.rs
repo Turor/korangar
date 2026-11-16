@@ -9,6 +9,8 @@ mod archives;
 mod release;
 #[path = "e2e/social.rs"]
 mod social;
+#[path = "e2e/status_icons.rs"]
+mod status_icons;
 
 use std::path::PathBuf;
 

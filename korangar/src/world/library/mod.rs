@@ -16,6 +16,8 @@ mod skill_description;
 mod skill_information;
 mod skill_requirements;
 mod skill_tree;
+mod status_icon;
+mod status_icon_builtin;
 
 use std::hash::Hash;
 use std::sync::Arc;
@@ -49,6 +51,7 @@ pub use self::signboard::MapSignboards;
 pub use self::skill_description::{JobParents, compose_skill_description, shown_skill_level};
 use self::skill_description::{filter_job_prefixed_lines, load_skill_text};
 pub use self::skill_tree::SkillTreeLayout;
+pub use self::status_icon::{StatusIconInfo, parse_status_icons, with_builtin_icons};
 use crate::loaders::GameFileLoader;
 pub use crate::world::library::skill_information::SkillListInformation;
 pub use crate::world::library::skill_requirements::{SkillListKey, SkillListRequirements};
@@ -71,6 +74,7 @@ pub struct Library {
     achievement_catalog: Arc<AchievementCatalog>,
     attendance_table: Arc<AttendanceTable>,
     navigation_tables: Arc<NavigationTables>,
+    status_icons: HashMap<u16, StatusIconInfo>,
 }
 
 impl Library {
@@ -96,6 +100,7 @@ impl Library {
         let mut navigation_tables = navigation_table::load_navigation_tables(game_file_loader);
         navigation_table::apply_monster_names(&mut navigation_tables, &monster_names);
         let navigation_tables = Arc::new(navigation_tables);
+        let status_icons = status_icon::load_status_icons(game_file_loader);
 
         Ok(Self {
             job_identity_table,
@@ -115,6 +120,7 @@ impl Library {
             achievement_catalog,
             attendance_table,
             navigation_tables,
+            status_icons,
         })
     }
 
@@ -140,6 +146,12 @@ impl Library {
 
     pub fn navigation_tables(&self) -> Arc<NavigationTables> {
         Arc::clone(&self.navigation_tables)
+    }
+
+    /// Icon file and tooltip for an EFST id from `stateicon/*.lub`, with the
+    /// built-in icon files for older statuses.
+    pub fn status_icon(&self, status_index: u16) -> Option<&StatusIconInfo> {
+        self.status_icons.get(&status_index)
     }
 
     pub fn map_display_name(&self, internal: &str) -> String {
