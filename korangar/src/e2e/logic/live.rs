@@ -3,6 +3,7 @@
 //!
 //! No swapchain. Passwords stay out of errors.
 
+pub(super) mod job_names;
 pub(super) mod mail;
 
 use std::fs::OpenOptions;

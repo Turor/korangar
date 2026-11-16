@@ -9,6 +9,8 @@ mod archives;
 mod headgear;
 #[path = "e2e/item_workshop.rs"]
 mod item_workshop;
+#[path = "e2e/job_names.rs"]
+mod job_names;
 #[path = "e2e/mail.rs"]
 mod mail;
 #[path = "e2e/minimap.rs"]

@@ -23,6 +23,7 @@ pub mod item_drop;
 pub mod item_finder;
 pub mod item_skill_selection;
 pub mod item_workshop;
+pub mod job_names;
 pub mod localization;
 pub mod mail_attach;
 pub mod mail_compose;
