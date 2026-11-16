@@ -70,16 +70,22 @@ fn minimap_is_open_on_test_with_the_current_map() {
     };
     session.enter_world_for_minimap().expect("enter world");
     let view = session.minimap_view();
+    let cell = session.character_cell().expect("character cell");
     assert!(view.open, "minimap opens after entering the world");
     assert!(!view.closable);
     assert!(!view.map_key.is_empty());
     let caption = view.caption.to_ascii_lowercase();
     let key = view.map_key.to_ascii_lowercase();
     assert!(
-        caption.contains(&key) || view.title.to_ascii_lowercase().contains(&key),
+        caption.contains(&key),
         "caption {:?} should name {}",
         view.caption,
         view.map_key
     );
-    assert_eq!(session.character_cell(), Some((view.player_x, view.player_y)));
+    assert!(
+        view.caption.contains(&format!("({}, {})", cell.0, cell.1)),
+        "caption {:?} should include the server cell {cell:?}",
+        view.caption
+    );
+    assert_eq!((view.player_x, view.player_y), cell);
 }

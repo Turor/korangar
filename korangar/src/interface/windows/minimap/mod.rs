@@ -36,9 +36,34 @@ pub(crate) const MINIMAP_SIZE: f32 = 180.0;
 const DOT: f32 = 6.0;
 const BUTTON: f32 = 16.0;
 
-/// The `window!` macro only accepts a literal here. This constant is the same
-/// value so tests can see that Escape and the menu bar must not close it.
+/// Passed to `window!` as `closable` and to `escape_action`. One flag, so
+/// flipping it to `true` makes Escape close the minimap.
 pub const MINIMAP_CLOSABLE: bool = false;
+const _: () = assert!(!MINIMAP_CLOSABLE);
+
+/// A player in the world opens the minimap. Without a player the previous
+/// bit stays. `Client::ensure_mvp_minimap_open` uses this and nothing else.
+pub(crate) fn minimap_open_after_map_entry(player_in_world: bool, already_open: bool) -> bool {
+    player_in_world || already_open
+}
+
+/// Escape closes a window only when `escape_action` says so. Focus is clear.
+pub(crate) fn escape_closes_minimap(closable: bool) -> bool {
+    matches!(
+        crate::input::escape_action(false, closable),
+        crate::input::EscapeAction::CloseTop
+    )
+}
+
+/// Ctrl+H flips interface visibility and does not close windows.
+pub(crate) fn toggle_show_interface(show_interface: bool) -> bool {
+    !show_interface
+}
+
+/// The write `ClickHandler::handle_click` performs for a zoom button.
+pub(crate) fn write_minimap_zoom(settings: &mut crate::settings::InterfaceSettings, delta: i8) {
+    settings.minimap_zoom = step_zoom(settings.minimap_zoom, delta);
+}
 
 /// Last `0x0EF5` snapshot, the loaded map, and the minimap image.
 #[derive(Clone, Debug, RustState, StateElement)]
@@ -265,7 +290,7 @@ impl<A> ClickHandler<ClientState> for MvpMinimapView<A> {
             return;
         }
         state.update_value_with(client_state().interface_settings(), move |settings| {
-            settings.minimap_zoom = step_zoom(settings.minimap_zoom, delta);
+            write_minimap_zoom(settings, delta);
         });
     }
 }
@@ -491,16 +516,7 @@ fn centered(canvas: Area, x: f32, y: f32, size: f32) -> Area {
     }
 }
 
-fn paint_zoom_buttons<'a, A>(
-    layout: &mut WindowLayout<'a, ClientState>,
-    canvas: Area,
-    zoom: u8,
-    colors: &MarkerColors,
-    zoom_delta: &Cell<i8>,
-    handler: &'a MvpMinimapView<A>,
-) where
-    A: Path<ClientState, MvpMinimapState>,
-{
+pub(crate) fn zoom_button_areas(canvas: Area) -> (Area, Area) {
     let plus = Area {
         left: canvas.left + canvas.width - BUTTON - 4.0,
         top: canvas.top + canvas.height - BUTTON - 4.0,
@@ -513,24 +529,59 @@ fn paint_zoom_buttons<'a, A>(
         width: BUTTON,
         height: BUTTON,
     };
-    let minus_enabled = zoom > 0;
-    let plus_enabled = zoom + 1 < logic::ZOOM_LEVEL_COUNT;
-    let minus_hover = minus.check().run(layout);
-    let plus_hover = plus.check().run(layout);
-    let delta = if minus_hover && minus_enabled {
+    (minus, plus)
+}
+
+fn area_contains(area: Area, x: f32, y: f32) -> bool {
+    x >= area.left && y >= area.top && x < area.left + area.width && y < area.top + area.height
+}
+
+fn zoom_minus_enabled(zoom: u8) -> bool {
+    zoom > 0
+}
+
+fn zoom_plus_enabled(zoom: u8) -> bool {
+    zoom + 1 < logic::ZOOM_LEVEL_COUNT
+}
+
+/// Minus wins when both are hovered, matching the button paint order.
+pub(crate) fn zoom_button_delta(minus_hover: bool, plus_hover: bool, zoom: u8) -> i8 {
+    if minus_hover && zoom_minus_enabled(zoom) {
         -1
-    } else if plus_hover && plus_enabled {
+    } else if plus_hover && zoom_plus_enabled(zoom) {
         1
     } else {
         0
-    };
+    }
+}
+
+/// Zoom step for a click on the minimap canvas. Anywhere except +/- is 0.
+pub(crate) fn zoom_delta_at(canvas: Area, zoom: u8, x: f32, y: f32) -> i8 {
+    let (minus, plus) = zoom_button_areas(canvas);
+    zoom_button_delta(area_contains(minus, x, y), area_contains(plus, x, y), zoom)
+}
+
+fn paint_zoom_buttons<'a, A>(
+    layout: &mut WindowLayout<'a, ClientState>,
+    canvas: Area,
+    zoom: u8,
+    colors: &MarkerColors,
+    zoom_delta: &Cell<i8>,
+    handler: &'a MvpMinimapView<A>,
+) where
+    A: Path<ClientState, MvpMinimapState>,
+{
+    let (minus, plus) = zoom_button_areas(canvas);
+    let minus_hover = minus.check().run(layout);
+    let plus_hover = plus.check().run(layout);
+    let delta = zoom_button_delta(minus_hover, plus_hover, zoom);
     zoom_delta.set(delta);
     if delta != 0 {
         layout.register_click_handler(MouseButton::Left, handler);
     }
     let font = FontSize(from_theme_body(colors.font_size, 12.0));
-    paint_zoom_button(layout, minus, minus_hover, minus_enabled, "-", colors, font);
-    paint_zoom_button(layout, plus, plus_hover, plus_enabled, "+", colors, font);
+    paint_zoom_button(layout, minus, minus_hover, zoom_minus_enabled(zoom), "-", colors, font);
+    paint_zoom_button(layout, plus, plus_hover, zoom_plus_enabled(zoom), "+", colors, font);
 }
 
 fn paint_zoom_button<'a>(
@@ -632,7 +683,7 @@ impl CustomWindow<ClientState> for MvpMinimapWindow {
             title: client_state().mvp_minimap().title(),
             class: Self::window_class(),
             theme: crate::state::theme::InterfaceThemeType::InGame,
-            closable: false,
+            closable: MINIMAP_CLOSABLE,
             minimum_width: 220.0,
             elements: (
                 MvpMinimapView::new(client_state().mvp_minimap()),
@@ -643,9 +694,13 @@ impl CustomWindow<ClientState> for MvpMinimapWindow {
 
 #[cfg(test)]
 mod tests {
+    use korangar_interface::layout::area::Area;
     use ragnarok_packets::AccountId;
 
-    use super::{MvpMinimapState, party_minimap_dots};
+    use super::{
+        MINIMAP_CLOSABLE, MINIMAP_SIZE, MvpMinimapState, escape_closes_minimap, minimap_open_after_map_entry, party_minimap_dots,
+        toggle_show_interface, write_minimap_zoom, zoom_button_areas, zoom_delta_at,
+    };
 
     #[test]
     fn party_cells_map_onto_the_canvas() {
@@ -697,5 +752,48 @@ mod tests {
         board.set_player_cell(132, 98);
         assert_eq!(board.caption(), "Prontera (132, 98)");
         assert_eq!(board.player_cell(), (132, 98));
+    }
+
+    #[test]
+    fn map_entry_opens_only_when_a_player_is_in_the_world() {
+        assert!(!minimap_open_after_map_entry(false, false));
+        assert!(minimap_open_after_map_entry(false, true));
+        assert!(minimap_open_after_map_entry(true, false));
+    }
+
+    #[test]
+    fn escape_uses_the_window_closable_flag() {
+        assert!(!escape_closes_minimap(MINIMAP_CLOSABLE));
+        assert!(escape_closes_minimap(true));
+    }
+
+    #[test]
+    fn hide_toggles_visibility_without_a_second_meaning() {
+        assert!(!toggle_show_interface(true));
+        assert!(toggle_show_interface(false));
+    }
+
+    #[test]
+    fn only_the_zoom_in_button_steps_the_settings_field() {
+        let canvas = Area {
+            left: 0.0,
+            top: 0.0,
+            width: MINIMAP_SIZE,
+            height: MINIMAP_SIZE,
+        };
+        let (_minus, plus) = zoom_button_areas(canvas);
+        let x = plus.left + plus.width / 2.0;
+        let y = plus.top + plus.height / 2.0;
+        assert_eq!(zoom_delta_at(canvas, 0, x, y), 1);
+        assert_eq!(zoom_delta_at(canvas, 0, 24.0, 24.0), 0);
+
+        let mut settings = std::mem::ManuallyDrop::new(crate::settings::InterfaceSettings::default());
+        assert_eq!(settings.minimap_zoom, 0);
+        let zoom_in = zoom_delta_at(canvas, settings.minimap_zoom, x, y);
+        write_minimap_zoom(&mut settings, zoom_in);
+        assert_eq!(settings.minimap_zoom, 1);
+        let miss = zoom_delta_at(canvas, settings.minimap_zoom, 24.0, 24.0);
+        write_minimap_zoom(&mut settings, miss);
+        assert_eq!(settings.minimap_zoom, 1);
     }
 }

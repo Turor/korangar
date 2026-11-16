@@ -4772,10 +4772,9 @@ impl Client {
 
     /// The minimap has no close button. Open it once a player is in the world.
     fn ensure_mvp_minimap_open(&mut self) {
-        if self.client_state.try_follow(this_entity()).is_none() {
-            return;
-        }
-        if !self.interface.is_window_with_class_open(WindowClass::MvpMinimap) {
+        let player_in_world = self.client_state.try_follow(this_entity()).is_some();
+        let already_open = self.interface.is_window_with_class_open(WindowClass::MvpMinimap);
+        if crate::interface::windows::minimap::minimap_open_after_map_entry(player_in_world, already_open) && !already_open {
             self.interface.open_window(MvpMinimapWindow);
         }
     }
@@ -5708,7 +5707,9 @@ impl Client {
                 InputEvent::OpenItemDetails { key, title, body } => {
                     self.interface.open_or_raise_instance(key, ItemDetailsWindow { title, body });
                 }
-                InputEvent::ToggleShowInterface => self.show_interface = !self.show_interface,
+                InputEvent::ToggleShowInterface => {
+                    self.show_interface = crate::interface::windows::minimap::toggle_show_interface(self.show_interface);
+                }
                 InputEvent::SelectCharacter { slot } => {
                     if self.client_state.follow(client_state().pincode_window()).allows_select() {
                         let _ = self.networking_system.select_character(slot);

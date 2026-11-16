@@ -1,17 +1,20 @@
 //! Minimap harness for logic-mode and live scenarios.
 //!
-//! The offline path uses the real input system, navigation marks, keybind map,
-//! and zoom step. It does not open a swapchain.
+//! Open, Escape, zoom, and hide go through the same helpers the client calls.
+//! The harness does not open a swapchain and does not drop `InterfaceSettings`
+//! (that type writes `client/interface_settings.ron` on drop).
 
+use std::mem::ManuallyDrop;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
+use korangar_interface::layout::area::Area;
 use ragnarok_packets::ClientTick;
 use winit::keyboard::KeyCode;
 
 use crate::input::{InputEvent, InputSystem};
 use crate::interface::windows::minimap::{self, MINIMAP_CLOSABLE, MINIMAP_SIZE, MvpMinimapState};
-use crate::settings::{KeybindMap, edges_from_transitions};
+use crate::settings::{InterfaceSettings, KeybindMap, edges_from_transitions};
 use crate::state::navigation::{MinimapMarkUpdate, Navigation};
 use crate::world::display_name_from_table;
 
@@ -39,16 +42,18 @@ pub struct MinimapView {
     pub texture_missing: bool,
 }
 
-/// Offline stand-in for the always-on minimap. `open` stays true across Escape,
-/// the menu bar, and hide. `hidden` is the interface-visibility flag.
+/// Offline stand-in for the always-on minimap. `open` follows
+/// [`minimap::minimap_open_after_map_entry`]. Hide flips `show_interface`
+/// and leaves the window open.
 pub struct MinimapHarness {
     input: InputSystem,
     tick: u32,
     board: MvpMinimapState,
     navigation: Navigation,
-    zoom: u8,
+    /// Not dropped: `InterfaceSettings::drop` would rewrite the settings file.
+    settings: ManuallyDrop<InterfaceSettings>,
     open: bool,
-    hidden: bool,
+    show_interface: bool,
 }
 
 impl MinimapHarness {
@@ -58,9 +63,9 @@ impl MinimapHarness {
             tick: 0,
             board: MvpMinimapState::default(),
             navigation: Navigation::default(),
-            zoom: 0,
+            settings: ManuallyDrop::new(InterfaceSettings::default()),
             open: false,
-            hidden: false,
+            show_interface: true,
         }
     }
 
@@ -71,7 +76,9 @@ impl MinimapHarness {
         self.board.set_map_id(map_name);
         self.board.set_player_cell(x, y);
         self.board.set_map_size(300, 300);
-        self.open = true;
+        // A map entry in logic mode is a player in the world, the same bit
+        // `ensure_mvp_minimap_open` reads before it opens the window.
+        self.open = minimap::minimap_open_after_map_entry(true, self.open);
     }
 
     pub fn feed_mark(&mut self, kind: u8, slot: u8, x: u32, y: u32, color: (u8, u8, u8)) {
@@ -94,7 +101,7 @@ impl MinimapHarness {
         self.input.synthesize_key(KeyCode::Escape, false, false, false);
         let (_report, events) = self.finish_frame();
         let saw = events.iter().any(|event| matches!(event, InputEvent::Escape));
-        if saw && MINIMAP_CLOSABLE {
+        if saw && minimap::escape_closes_minimap(MINIMAP_CLOSABLE) {
             self.open = false;
         }
         saw
@@ -108,20 +115,26 @@ impl MinimapHarness {
         }
     }
 
-    /// Injected left click, then the same zoom step the +/- buttons use.
+    /// Injected left click on the + button. Any other click leaves zoom alone.
+    /// The write is `write_minimap_zoom`, the same helper the click handler
+    /// uses.
     pub fn click_zoom_in(&mut self) -> bool {
+        let canvas = minimap_canvas();
+        let (_minus, plus) = minimap::zoom_button_areas(canvas);
+        let x = plus.left + plus.width / 2.0;
+        let y = plus.top + plus.height / 2.0;
         self.input.expire_synthesized();
-        self.input
-            .synthesize_click(24.0, 24.0, korangar_interface::layout::MouseButton::Left);
+        self.input.synthesize_click(x, y, korangar_interface::layout::MouseButton::Left);
         let (report, _) = self.finish_frame();
         let clicked = matches!(
             report.mouse_click,
             Some(korangar_interface::layout::MouseButton::Left | korangar_interface::layout::MouseButton::DoubleLeft)
         );
-        if clicked {
-            self.zoom = minimap::step_zoom(self.zoom, 1);
+        let delta = minimap::zoom_delta_at(canvas, self.settings.minimap_zoom, x, y);
+        if clicked && delta == 1 {
+            minimap::write_minimap_zoom(&mut self.settings, delta);
         }
-        clicked
+        clicked && delta == 1
     }
 
     /// Ctrl+H through the default keybind map. The window stays open.
@@ -140,7 +153,7 @@ impl MinimapHarness {
         let outcome = KeybindMap::default().poll(None, 0, 0, &edges);
         let toggled = outcome.events.iter().any(|event| matches!(event, InputEvent::ToggleShowInterface));
         if toggled {
-            self.hidden = !self.hidden;
+            self.show_interface = minimap::toggle_show_interface(self.show_interface);
         }
         toggled
     }
@@ -148,7 +161,7 @@ impl MinimapHarness {
     pub fn view(&self) -> MinimapView {
         let (map_width, map_height) = self.board.map_size();
         let (player_x, player_y) = self.board.player_cell();
-        let window = minimap::map_window(self.zoom, map_width, map_height, player_x, player_y);
+        let window = minimap::map_window(self.settings.minimap_zoom, map_width, map_height, player_x, player_y);
         let marks = minimap::plot_marks(self.navigation.marks(), window, map_width, map_height, MINIMAP_SIZE)
             .into_iter()
             .map(|mark| MinimapMarkView {
@@ -162,13 +175,13 @@ impl MinimapHarness {
         MinimapView {
             open: self.open,
             closable: MINIMAP_CLOSABLE,
-            hidden: self.hidden,
+            hidden: !self.show_interface,
             title: self.board.title().to_owned(),
             caption: self.board.caption().to_owned(),
             map_key,
             player_x,
             player_y,
-            zoom: self.zoom,
+            zoom: self.settings.minimap_zoom,
             marks,
             texture_missing: self.board.texture_missing(),
         }
@@ -196,27 +209,40 @@ impl Default for MinimapHarness {
     }
 }
 
-/// Live view from the session's map and cell. No GRF and no display-name table.
+fn minimap_canvas() -> Area {
+    Area {
+        left: 0.0,
+        top: 0.0,
+        width: MINIMAP_SIZE,
+        height: MINIMAP_SIZE,
+    }
+}
+
+/// Live view from the session's map and cell. The caption is
+/// `MvpMinimapState::caption` after the same setters ChangeMap uses.
+/// `open` is [`minimap::minimap_open_after_map_entry`]. No GRF.
 pub(crate) fn view_for_session(in_world: bool, map_name: &str, player_x: Option<u16>, player_y: Option<u16>) -> MinimapView {
-    let title = if map_name.is_empty() {
-        "Minimap".to_owned()
-    } else {
-        display_name_from_table(&hashbrown::HashMap::new(), map_name)
-    };
+    let mut board = MvpMinimapState::default();
     let map_key = display_name_from_table(&hashbrown::HashMap::new(), map_name);
-    let player_x = player_x.unwrap_or(0);
-    let player_y = player_y.unwrap_or(0);
+    if !map_name.trim().is_empty() {
+        board.set_display_name(map_key.clone());
+        board.set_map_id(map_name);
+    }
+    if let (Some(x), Some(y)) = (player_x, player_y) {
+        board.set_player_cell(x, y);
+    }
+    let (board_x, board_y) = board.player_cell();
     MinimapView {
-        open: in_world && !map_name.trim().is_empty(),
+        open: minimap::minimap_open_after_map_entry(in_world, false),
         closable: MINIMAP_CLOSABLE,
         hidden: false,
-        caption: format!("{title} ({player_x}, {player_y})"),
-        title,
+        caption: board.caption().to_owned(),
+        title: board.title().to_owned(),
         map_key,
-        player_x,
-        player_y,
+        player_x: board_x,
+        player_y: board_y,
         zoom: 0,
         marks: Vec::new(),
-        texture_missing: false,
+        texture_missing: board.texture_missing(),
     }
 }
