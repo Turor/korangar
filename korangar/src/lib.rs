@@ -31,6 +31,7 @@ macro_rules! time_phase {
 
 mod autopilot;
 pub mod deployment;
+pub mod e2e;
 mod graphics;
 mod input;
 mod state;

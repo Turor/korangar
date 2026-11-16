@@ -25,7 +25,7 @@ use serde::Deserialize;
 use winit::keyboard::KeyCode;
 
 pub use self::command::{ClickKind, DumpPath};
-use self::command::{Command, parse_command};
+pub(crate) use self::command::{Command, parse_command};
 use crate::input::InputEvent;
 use crate::interface::windows::WindowClass;
 
