@@ -5,7 +5,6 @@ mod mixcrypt;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use std::ops::Deref;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -124,8 +123,16 @@ impl Archive for NativeArchive {
     }
 
     fn hash(&self, hasher: &mut Hasher) {
-        let file = self.file_handle.lock().unwrap();
-        if let Err(_err) = hasher.update_reader(file.deref()) {
+        let mut file = self.file_handle.lock().unwrap();
+        // `from_path` leaves the cursor after the file table. Hashing from
+        // there ignores the GRF body, so a replacement at the same path would
+        // keep the old `cache.7z` key.
+        let hashed = (|| -> std::io::Result<()> {
+            file.seek(SeekFrom::Start(0))?;
+            hasher.update_reader(&mut *file)?;
+            Ok(())
+        })();
+        if let Err(_err) = hashed {
             #[cfg(feature = "debug")]
             print_debug!("Can't hash native archive: {:?}", _err);
         }

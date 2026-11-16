@@ -851,6 +851,39 @@ mod archive_config_tests {
     }
 
     #[test]
+    fn replaced_grf_changes_the_archive_hash() {
+        let install = temp_install("grf-hash");
+        let grf = install.join("patch.grf");
+        write_grf(&grf, b"first-bytes");
+        fs::write(install.join("client/game_archives.ron"), r#"(archives: ["patch.grf"])"#).unwrap();
+
+        let first = GameFileLoader::default();
+        first.load_from_install(&install).unwrap();
+        let hash_first = first.calculate_hash();
+        drop(first);
+
+        write_grf(&grf, b"second-bytes-differ");
+        let second = GameFileLoader::default();
+        second.load_from_install(&install).unwrap();
+        assert_ne!(
+            second.calculate_hash(),
+            hash_first,
+            "a replaced GRF at the same path must not reuse the cache key"
+        );
+        assert_eq!(second.get(r"data\e2e\body.txt").unwrap(), b"second-bytes-differ");
+        let _ = fs::remove_dir_all(install);
+    }
+
+    fn write_grf(path: &Path, body: &[u8]) {
+        use crate::loaders::archive::native::builder::NativeArchiveBuilder;
+        use crate::loaders::archive::{Compression, Writable};
+
+        let mut builder = NativeArchiveBuilder::from_path(path);
+        builder.add_file(r"data\e2e\body.txt", body.to_vec(), Compression::Default);
+        builder.finish().unwrap();
+    }
+
+    #[test]
     fn remote_cache_is_below_local_overlays() {
         let install = temp_install("remote");
         write_virtual(&install.join("overlay"), r"data\e2e\shared.txt", b"from-overlay");

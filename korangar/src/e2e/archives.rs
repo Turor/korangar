@@ -97,6 +97,9 @@ pub fn probe_offline_archives() -> Result<OfflineArchiveReport, String> {
     })
 }
 
+/// Loads the overlay on its own [`GameFileLoader`]. Logic mode has no archive
+/// loader and `start_live` cannot be pointed at this temp install, so the
+/// session only proves that TEST login still reaches character select.
 pub fn start_live_with_overlay() -> LiveConnect<LiveOverlaySession> {
     let loaded = match load_fixture("live") {
         Ok(loaded) => loaded,

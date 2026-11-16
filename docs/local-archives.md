@@ -55,7 +55,10 @@ Highest priority first:
 
 Remote mode still mounts overlays and configured GRFs when the config file
 exists. A missing required entry logs one warning that names the resolved
-path. The client still starts. An optional miss is silent.
+path. Startup continues when another archive, `archive/`, or remote mode is
+present. An optional miss is silent. If the config was read but nothing
+could be mounted and remote mode is off, startup still stops with
+"No game assets configured".
 
 The derived `cache.7z` key includes each mounted archive's role, resolved
 path, and bytes, plus the remote snapshot revision. A different overlay set

@@ -26,10 +26,12 @@ The actual game `GameFileLoader` searches local sources first, then the
 permanent verified cache, then fetches missing assets. Local priority is
 overlays, then configured archives, then Korangar's `archive/` directory.
 See `docs/local-archives.md` for the operator file, path rules, and missing
-entries. A missing non-optional archive logs a warning and does not block
-startup. Lua discovery includes manifest paths. The pinned snapshot revision
-and the mounted archive set, including overlay paths, feed the derived cache
-hash, so a different overlay set does not reuse `cache.7z`.
+entries. A missing non-optional archive logs a warning. Startup continues
+when another archive, `archive/`, or remote mode is present. The hard error
+is only the empty offline case, where nothing was mounted. Lua discovery
+includes manifest paths. The pinned snapshot revision and the mounted
+archive set, including overlay paths and GRF bytes, feed the derived cache
+hash, so a different overlay set or a replaced GRF does not reuse `cache.7z`.
 
 An initial manifest is downloaded once. After that the local manifest pins the
 snapshot; startup does not contact the server to check for updates. The manifest

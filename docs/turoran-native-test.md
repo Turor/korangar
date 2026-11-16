@@ -29,7 +29,9 @@ window, GPU or login. It does not prove rendering, complete assets or gameplay.
 Remote mode defaults to no proprietary local GRFs when game_archives.ron is
 absent. When that file exists, overlays and configured GRFs are searched
 before the remote cache (see `docs/local-archives.md`). A missing non-optional
-entry logs a warning and startup continues. Malformed archive settings and
+entry logs a warning. Startup continues when another archive, `archive/`, or
+remote mode is present, and stops only when nothing was mounted offline.
+Malformed archive settings and
 unavailable/invalid manifests fail with diagnostics; missing defaults no
 longer trigger a native archive panic. Existing pinned cache revisions are
 not silently updated. Use a fresh runtime/cache per revision.
