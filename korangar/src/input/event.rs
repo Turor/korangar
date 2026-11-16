@@ -280,6 +280,10 @@ pub enum InputEvent {
         title: String,
         body: String,
     },
+    /// Shift+click an item into the chat draft as an `<ITEML>` link.
+    LinkItemInChat {
+        item: InventoryItem<ResourceMetadata>,
+    },
     /// Toggle if the user interface should be rendered or not.
     ToggleShowInterface,
     /// Press one location on the shuffled PIN pad. The digit is the label

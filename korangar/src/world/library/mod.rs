@@ -36,6 +36,7 @@ pub use self::achievement_table::{
 };
 pub use self::baby_job::IsBabyJob;
 pub use self::item_info::ItemInfo;
+pub(crate) use self::item_info::{EnglishItemIdentity, english_item_identity};
 pub use self::item_name::{ItemName, ItemNameKey};
 pub use self::item_resource::{ItemResource, ItemResourceKey, classify_item_icon_failure, inventory_icon_texture_path};
 pub use self::job_identity::JobIdentity;

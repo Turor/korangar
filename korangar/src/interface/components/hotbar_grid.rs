@@ -97,6 +97,10 @@ where
         } else if let Some(item_id) = cell_item_id(cell)
             && let Some(item) = state.get(&self.inventory_path).find_by_item_id(item_id).cloned()
         {
+            if crate::state::item_link::shift_links() {
+                queue.queue(InputEvent::LinkItemInChat { item });
+                return;
+            }
             queue.queue(Event::SetMouseMode {
                 mouse_mode: MouseMode::Custom {
                     mode: MouseInputMode::MoveItem {

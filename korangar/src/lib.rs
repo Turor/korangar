@@ -5898,6 +5898,9 @@ impl Client {
                 InputEvent::OpenItemDetails { key, title, body } => {
                     self.interface.open_or_raise_instance(key, ItemDetailsWindow { title, body });
                 }
+                InputEvent::LinkItemInChat { item } => {
+                    crate::state::item_link::link_item_in_chat(&mut self.client_state, &mut self.interface, item);
+                }
                 InputEvent::ToggleShowInterface => {
                     self.show_interface = crate::interface::windows::minimap::toggle_show_interface(self.show_interface);
                 }
@@ -8583,6 +8586,9 @@ impl Client {
             };
             self.mouse_cursor.set_state(cursor_state, client_tick);
 
+            crate::state::item_link::set_shift_held(
+                self.input_system.key_down(KeyCode::ShiftLeft) || self.input_system.key_down(KeyCode::ShiftRight),
+            );
             if let Some(mouse_button) = input_report.mouse_click {
                 match vn_click {
                     crate::interface::npc_flow::VnPrimaryClick::Consume => {}
