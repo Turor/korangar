@@ -1,4 +1,5 @@
 //! A GRF file containing game assets.
+pub(crate) mod builder;
 mod mixcrypt;
 
 use std::collections::HashMap;
