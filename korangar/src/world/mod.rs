@@ -38,7 +38,7 @@ pub use self::entity::*;
 pub use self::fade_state::*;
 pub use self::ground_item::*;
 pub use self::library::*;
-pub(crate) use self::library::{EnglishItemIdentity, english_item_identity, execute_lua_chunk};
+pub(crate) use self::library::{CatalogItemIdentity, EnglishItemIdentity, catalog_item_identity, english_item_identity, execute_lua_chunk};
 pub use self::light::*;
 pub use self::map::*;
 pub use self::model::*;

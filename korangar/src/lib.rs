@@ -713,6 +713,7 @@ impl Client {
                     return None;
                 }
             };
+            crate::state::item_link::install_item_catalog(Arc::clone(&library));
 
             if sync_cache {
                 sync_cache_archive(&game_file_loader, texture_loader, game_file_hash);

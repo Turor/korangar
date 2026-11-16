@@ -8,7 +8,8 @@
 //! and view stay so the tag still parses. If that minimum does not fit,
 //! nothing is inserted.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::sync::Arc;
 
 use korangar_interface::Interface;
 use korangar_networking::{InventoryItem, InventoryItemDetails};
@@ -28,8 +29,29 @@ const ALPHABET: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRST
 const OPEN_TAG: &str = "<ITEML>";
 const CLOSE_TAG: &str = "</ITEML>";
 
+type ItemCatalog = Arc<dyn Fn(u32) -> Option<ItemIdentity>>;
+
 thread_local! {
     static SHIFT_HELD: Cell<bool> = const { Cell::new(false) };
+    static ITEM_CATALOG: RefCell<Option<ItemCatalog>> = const { RefCell::new(None) };
+}
+
+/// Remember the merged item table so chat links see overlay names and slot
+/// counts.
+pub fn install_item_catalog(library: Arc<crate::world::Library>) {
+    let lookup: ItemCatalog = Arc::new(move |item_id: u32| {
+        let row: crate::world::CatalogItemIdentity = crate::world::catalog_item_identity(&library, item_id)?;
+        Some(ItemIdentity {
+            name: row.name,
+            slots: row.slots,
+            description: row.description,
+        })
+    });
+    ITEM_CATALOG.with(|slot| *slot.borrow_mut() = Some(lookup));
+}
+
+fn catalog_identity(item_id: u32) -> Option<ItemIdentity> {
+    ITEM_CATALOG.with(|slot| slot.borrow().as_ref().and_then(|lookup| lookup(item_id)))
 }
 
 /// Record Shift for the click that is about to be dispatched.
@@ -105,18 +127,31 @@ struct LinkParts {
     options: Vec<ParsedOption>,
 }
 
-/// English table first, then a name already on the inventory, storage, or cart.
+/// Merged `ItemInfo` first, then a stack the player is holding, then the
+/// English snapshot.
 pub fn identity_for(state: &State<ClientState>, item_id: u32) -> Option<ItemIdentity> {
-    if let Some(row) = crate::world::english_item_identity(item_id)
-        && !row.name.is_empty()
-    {
-        let row: crate::world::EnglishItemIdentity = row;
-        return Some(ItemIdentity {
-            name: row.name,
-            slots: row.slots,
-            description: row.description,
-        });
+    resolve_named_item(item_id, catalog_identity(item_id), stack_identity(state, item_id))
+}
+
+/// Catalog and stack beat the embedded snapshot. An empty name is a miss.
+pub(crate) fn resolve_named_item(item_id: u32, catalog: Option<ItemIdentity>, stack: Option<ItemIdentity>) -> Option<ItemIdentity> {
+    for candidate in [catalog, stack] {
+        if let Some(identity) = candidate.filter(|identity| !identity.name.is_empty()) {
+            return Some(identity);
+        }
     }
+    let row: crate::world::EnglishItemIdentity = crate::world::english_item_identity(item_id)?;
+    if row.name.is_empty() {
+        return None;
+    }
+    Some(ItemIdentity {
+        name: row.name,
+        slots: row.slots,
+        description: row.description,
+    })
+}
+
+fn stack_identity(state: &State<ClientState>, item_id: u32) -> Option<ItemIdentity> {
     let id = ItemId(item_id);
     for found in [
         state.follow(client_state().inventory()).find_by_item_id(id),
@@ -164,17 +199,25 @@ pub fn append_link_text<Meta>(draft: &str, item: &InventoryItem<Meta>) -> String
     out
 }
 
-/// Open the chat window when it is closed and append the link to the draft.
-pub fn link_item_in_chat(
-    state: &mut State<ClientState>,
-    interface: &mut Interface<'static, ClientState>,
-    item: InventoryItem<ResourceMetadata>,
-) {
-    insert_chat_item_link(state, &item);
-    if !interface.is_window_with_class_open(WindowClass::Chat) {
-        interface.open_window(ChatWindow::new(client_state().chat_window(), client_state().chat_messages()));
+/// Opens and focuses chat. The real interface does that; tests can record the
+/// call.
+pub trait ChatInputHost {
+    fn open_chat_input(&mut self);
+}
+
+impl ChatInputHost for Interface<'static, ClientState> {
+    fn open_chat_input(&mut self) {
+        if !self.is_window_with_class_open(WindowClass::Chat) {
+            self.open_window(ChatWindow::new(client_state().chat_window(), client_state().chat_messages()));
+        }
+        self.request_focus(ChatTextBox);
     }
-    interface.request_focus(ChatTextBox);
+}
+
+/// Append the link to the chat draft, then open and focus the chat input.
+pub fn link_item_in_chat(state: &mut State<ClientState>, host: &mut impl ChatInputHost, item: InventoryItem<ResourceMetadata>) {
+    insert_chat_item_link(state, &item);
+    host.open_chat_input();
 }
 
 /// Split a chat line into plain runs and item links. Malformed tags stay plain.
@@ -341,6 +384,13 @@ fn zero_option() -> ItemOptions {
     }
 }
 
+fn cards_through_last(slots: [u32; 4]) -> Vec<u32> {
+    match slots.iter().rposition(|card| *card > 0) {
+        Some(last) => slots[..=last].to_vec(),
+        None => Vec::new(),
+    }
+}
+
 fn parts_from_item<Meta>(item: &InventoryItem<Meta>) -> LinkParts {
     let (location, refine, view, grade, options) = match &item.details {
         InventoryItemDetails::Regular { equipped_position, .. } => (equipped_position.bits(), 0, 0, None, Vec::new()),
@@ -377,7 +427,9 @@ fn parts_from_item<Meta>(item: &InventoryItem<Meta>) -> LinkParts {
         refine,
         view,
         grade,
-        cards: item.slot.into_iter().filter(|card| *card > 0).collect(),
+        // Keep empty holes up to the last real card so slot 2 stays slot 2.
+        // Trailing zeros are omitted; the parser fills the rest with 0.
+        cards: cards_through_last(item.slot),
         options,
     }
 }
@@ -392,6 +444,9 @@ fn link_that_fits(mut parts: LinkParts, budget: usize) -> Option<String> {
             continue;
         }
         if parts.cards.pop().is_some() {
+            while parts.cards.last().is_some_and(|card| *card == 0) {
+                parts.cards.pop();
+            }
             continue;
         }
         if parts.grade.take().is_some() {
@@ -417,9 +472,6 @@ fn encode_parts(parts: &LinkParts) -> String {
         data.push_str(&pad(grade, 2));
     }
     for card in &parts.cards {
-        if *card == 0 {
-            continue;
-        }
         data.push(')');
         data.push_str(&pad(*card, 2));
     }
@@ -713,6 +765,52 @@ mod tests {
         let lower = parse_item_link("<iteml>000020jn%07&00)01</iteml>").unwrap();
         assert_eq!(lower.item_id, 1201);
         assert_eq!(lower.refine, 7);
+    }
+
+    #[test]
+    fn card_in_slot_two_keeps_its_index() {
+        let item = gear(1201, 0, 0, 0, 0, 0, [0, 0, 1, 0], [
+            zero_option(),
+            zero_option(),
+            zero_option(),
+            zero_option(),
+            zero_option(),
+        ]);
+        let encoded = encode_item_link(&item);
+        assert!(encoded.contains(")00)00)01"), "{encoded}");
+        assert!(!encoded.contains(")01)00"), "{encoded}");
+        let parsed = parse_item_link(&encoded).unwrap();
+        assert_eq!(parsed.cards, [0, 0, 1, 0]);
+    }
+
+    #[test]
+    fn catalog_and_stack_beat_the_english_snapshot() {
+        let overlay = ItemIdentity {
+            name: "Overlay Knife".to_owned(),
+            slots: 9,
+            description: "from the overlay".to_owned(),
+        };
+        let stack = ItemIdentity {
+            name: "Held Knife".to_owned(),
+            slots: 0,
+            description: "from the bag".to_owned(),
+        };
+        let picked = resolve_named_item(1201, Some(overlay), Some(stack.clone())).unwrap();
+        assert_eq!(picked.name, "Overlay Knife");
+        assert_eq!(picked.slots, 9);
+        let picked = resolve_named_item(1201, None, Some(stack)).unwrap();
+        assert_eq!(picked.name, "Held Knife");
+        let picked = resolve_named_item(1201, None, None).unwrap();
+        assert_eq!(picked.name, "Knife");
+        assert!(picked.slots > 0);
+        assert!(resolve_named_item(999_999, None, None).is_none());
+        let blank = ItemIdentity {
+            name: String::new(),
+            slots: 3,
+            description: String::new(),
+        };
+        let picked = resolve_named_item(1201, Some(blank), None).unwrap();
+        assert_eq!(picked.name, "Knife");
     }
 
     #[test]

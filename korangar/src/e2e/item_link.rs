@@ -11,10 +11,15 @@ use std::sync::atomic::AtomicU64;
 use ragnarok_bytes::ByteWriter;
 use ragnarok_packets::version_20190530::GlobalMessagePacket;
 use ragnarok_packets::{ClientTick, PacketExt};
+use rust_state::State;
 use winit::keyboard::KeyCode;
 
 use crate::graphics::Color;
 use crate::input::{InputEvent, InputSystem};
+use crate::interface::windows::current_chat_draft;
+use crate::loaders::GameFileLoader;
+use crate::settings::GraphicsSettings;
+use crate::state::ClientState;
 use crate::state::item_link::{self, CHAT_DRAFT_LIMIT, ItemIdentity};
 
 const PINNED_ID: u32 = 1201;
@@ -109,15 +114,45 @@ fn encode_chat(message: String) -> Result<Vec<u8>, String> {
     Ok(writer.into_inner())
 }
 
+struct RecordingHost {
+    opened: bool,
+}
+
+impl item_link::ChatInputHost for RecordingHost {
+    fn open_chat_input(&mut self) {
+        self.opened = true;
+    }
+}
+
+fn draft_state() -> Result<State<ClientState>, String> {
+    let loader = GameFileLoader::default();
+    loader
+        .load_archives_from_settings()
+        .map_err(|error| format!("game archives: {error}"))?;
+    Ok(State::new(ClientState::new(
+        &loader,
+        GraphicsSettings::new(),
+        #[cfg(feature = "debug")]
+        crate::networking::PacketHistory::new().0,
+    )))
+}
+
 /// Shift+click path, outbound `0x00F3` bytes, and inbound link segments.
 pub fn offline_item_link() -> Result<OfflineItemLinkReport, String> {
     let (shift_links, plain_click_drags) = shift_click_state();
     let item = knife();
     let event = InputEvent::LinkItemInChat { item: owned_knife() };
-    let draft = match event {
-        InputEvent::LinkItemInChat { item } => item_link::append_link_text("", &item),
+    let mut state = draft_state()?;
+    let mut host = RecordingHost { opened: false };
+    match event {
+        InputEvent::LinkItemInChat { item } => item_link::link_item_in_chat(&mut state, &mut host, item),
         _ => return Err("link event was not LinkItemInChat".to_owned()),
-    };
+    }
+    state.apply().map_err(|_| "chat draft update did not apply".to_owned())?;
+    if !host.opened {
+        return Err("link did not open the chat input".to_owned());
+    }
+    let draft = current_chat_draft(&state);
     let payload = item_link::encode_item_link(&item);
     if item_link::parse_item_link(&payload).is_none() {
         return Err("encoded link did not parse".to_owned());

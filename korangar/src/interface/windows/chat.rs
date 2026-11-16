@@ -70,6 +70,11 @@ fn themed_message_color(state: &State<ClientState>, color: MessageColor) -> Colo
 pub struct ChatTextBox;
 
 /// Append an item link at the end of the chat draft. The text box has no caret.
+/// Chat draft. The path trait for `current_text` is private to this module.
+pub(crate) fn current_chat_draft(state: &State<ClientState>) -> String {
+    state.get(&client_state().chat_window().current_text()).clone()
+}
+
 pub(crate) fn insert_chat_item_link(
     state: &mut State<ClientState>,
     item: &korangar_networking::InventoryItem<crate::world::ResourceMetadata>,

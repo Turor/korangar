@@ -9,7 +9,7 @@ fn item_link_shift_click_roundtrip_offline() {
     let report = offline_item_link().unwrap();
     assert!(report.shift_links, "shift+click should link");
     assert!(report.plain_click_drags, "a click without shift should still drag");
-    assert!(report.draft.contains(&report.payload));
+    assert!(report.draft.contains(&report.payload), "chat draft should hold the link");
     assert!(report.draft.contains("<ITEML>"));
     assert!(report.packet.windows(2).any(|header| header == [0xF3, 0x00]));
     assert!(

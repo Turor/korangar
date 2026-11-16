@@ -51,6 +51,31 @@ pub(crate) struct EnglishItemIdentity {
     pub(crate) description: String,
 }
 
+/// Identified name from the merged `ItemInfo` table, including the Turoran
+/// overlay.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CatalogItemIdentity {
+    pub(crate) name: String,
+    pub(crate) slots: u8,
+    pub(crate) description: String,
+}
+
+/// Name, slot count, and description from the loaded item table.
+///
+/// `ItemInfo::load` applies the Turoran overlay last, so this sees a rename or
+/// `slotCount` that the embedded English snapshot does not.
+pub(crate) fn catalog_item_identity(library: &Library, item_id: u32) -> Option<CatalogItemIdentity> {
+    let info = ItemInfo::try_get(library, ItemId(item_id))?;
+    if info.identified_name.is_placeholder() {
+        return None;
+    }
+    Some(CatalogItemIdentity {
+        name: info.identified_name.as_str().to_owned(),
+        slots: info.slot_count().unwrap_or(0),
+        description: info.identified_description().join("\n"),
+    })
+}
+
 /// Cached identified row from the shipped English item table.
 pub(crate) fn english_item_identity(item_id: u32) -> Option<EnglishItemIdentity> {
     static TABLE: OnceLock<HashMap<u32, EnglishItemIdentity>> = OnceLock::new();
