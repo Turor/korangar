@@ -16,6 +16,7 @@ pub mod enchant;
 pub mod enchant_grade;
 pub mod equip_switch;
 pub mod friends;
+pub mod grid_nav;
 pub mod guild;
 pub mod guild_emblem;
 pub mod hotbar;

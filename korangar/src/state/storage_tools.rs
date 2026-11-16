@@ -188,7 +188,8 @@ impl StorageTools {
         self.pending = plan.into();
         self.sent = 0;
         self.skipped = 0;
-        self.last_sent = None;
+        // `last_sent` is kept: clicking again right after a send still waits
+        // out DEPOSIT_INTERVAL.
         self.status = match self.planned {
             0 => "Nothing to deposit".to_owned(),
             planned => format!("Depositing 0 / {planned}"),
@@ -272,6 +273,18 @@ mod tests {
         tools.mark_sent(start + DEPOSIT_INTERVAL);
         assert_eq!(tools.status(), "Deposited 2 stacks, 1 skipped");
         assert!(!tools.is_depositing());
+    }
+
+    #[test]
+    fn restarting_keeps_the_interval() {
+        let mut tools = StorageTools::default();
+        let start = Instant::now();
+        tools.start_deposit(vec![InventoryIndex(2), InventoryIndex(3)]);
+        assert_eq!(tools.pop_due(start), Some(InventoryIndex(2)));
+        tools.mark_sent(start);
+        tools.start_deposit(vec![InventoryIndex(3)]);
+        assert_eq!(tools.pop_due(start + Duration::from_millis(50)), None);
+        assert_eq!(tools.pop_due(start + DEPOSIT_INTERVAL), Some(InventoryIndex(3)));
     }
 
     #[test]

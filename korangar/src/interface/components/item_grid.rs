@@ -115,6 +115,9 @@ where
                             dim: Some(Box::new(move |state: &State<ClientState>| {
                                 state.get(&inventory_path).view().is_search_miss(position)
                             })),
+                            focused: Some(Box::new(move |state: &State<ClientState>| {
+                                state.get(&inventory_path).view().cursor() == Some(position)
+                            })),
                         }
                     }),
                 }));
@@ -172,6 +175,53 @@ where
             self.last.set(Some(key));
         }
         unsafe { Some(self.text.as_ref_unchecked()) }
+    }
+}
+
+/// `scroll_view!` reveal for the keyboard cursor: the cursor row, once per
+/// cursor move, so mouse scrolling still works between key presses.
+pub struct CursorReveal<P> {
+    inventory_path: P,
+    fallback_capacity: Option<u32>,
+    last: Cell<Option<(usize, usize)>>,
+    value: UnsafeCell<Option<(f32, f32)>>,
+}
+
+impl<P> CursorReveal<P> {
+    pub fn new(inventory_path: P, fallback_capacity: Option<u32>) -> Self {
+        Self {
+            inventory_path,
+            fallback_capacity,
+            last: Cell::default(),
+            value: UnsafeCell::default(),
+        }
+    }
+}
+
+impl<P> Selector<ClientState, Option<(f32, f32)>> for CursorReveal<P>
+where
+    P: Path<ClientState, Inventory>,
+{
+    fn select<'a>(&'a self, state: &'a ClientState) -> Option<&'a Option<(f32, f32)>> {
+        let inventory = self.inventory_path.follow_safe(state);
+        let view = inventory.view();
+        let capacity = inventory.capacity().or(self.fallback_capacity);
+        let rows = tab_cells(view.tab(), inventory.item_count(), view.len(), capacity) / GRID_COLUMNS;
+        let value = match view.cursor() {
+            Some(cursor) if self.last.get() != Some((cursor, rows)) => {
+                self.last.set(Some((cursor, rows)));
+                crate::state::grid_nav::row_fraction(cursor, rows)
+            }
+            Some(_) => None,
+            None => {
+                self.last.set(None);
+                None
+            }
+        };
+        unsafe {
+            *self.value.get() = value;
+            Some(self.value.as_ref_unchecked())
+        }
     }
 }
 

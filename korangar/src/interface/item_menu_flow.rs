@@ -16,7 +16,8 @@ use crate::interface::windows::{ItemMenuWindow, WindowClass, item_details_key};
 use crate::state::inventory::{InventoryPathExt, item_activation};
 use crate::state::inventory_view::{is_favorite, is_worn};
 use crate::state::item_menu::{
-    ItemMenuEffect, ItemMenuFacts, ItemMenuRow, MenuOrigin, build_item_menu, effect_of, handle_extension, pending_link_event,
+    ItemMenuEffect, ItemMenuFacts, ItemMenuRow, MenuOrigin, build_item_menu, effect_of, handle_extension, menu_target_current,
+    pending_link_event,
 };
 use crate::state::item_move::ItemMoveTarget;
 use crate::state::quick_move::{
@@ -61,23 +62,26 @@ pub(crate) fn react_to_secondary<Meta>(
     name: &str,
     alt: bool,
     windows: QuickMoveWindows,
+    equipped_ammo: bool,
 ) -> SlotReaction {
     let origin = menu_origin(source);
+    // The equipped arrow stack counts as worn, like Deposit matching does.
+    let worn_row = is_worn(item) || equipped_ammo;
     match classify_secondary(true, alt) {
         SlotSecondary::Ignore => SlotReaction::Ignored,
         SlotSecondary::QuickMove => {
             let Some(quick_source) = origin.quick_source() else {
-                let hint = if is_worn(item) { QUICK_MOVE_WORN } else { QUICK_MOVE_NO_TARGET };
+                let hint = if worn_row { QUICK_MOVE_WORN } else { QUICK_MOVE_NO_TARGET };
                 return SlotReaction::Hint(hint);
             };
-            match decide_quick_move(quick_source, windows, item_is_locked(item), is_worn(item)) {
+            match decide_quick_move(quick_source, windows, item_is_locked(item), worn_row) {
                 QuickMoveDecision::Move(target) => SlotReaction::Move(target),
                 QuickMoveDecision::Mail => SlotReaction::Mail { index: item.index.0 },
                 QuickMoveDecision::Hint(text) => SlotReaction::Hint(text),
             }
         }
         SlotSecondary::OpenMenu => {
-            let worn = is_worn(item) || matches!(origin, MenuOrigin::Equipment { .. });
+            let worn = worn_row || matches!(origin, MenuOrigin::Equipment { .. });
             let facts = ItemMenuFacts {
                 origin,
                 activation: item_activation(item),
@@ -148,7 +152,9 @@ impl Client {
         let Some(item) = self.item_for_slot(source, index) else {
             return;
         };
-        let reaction = react_to_secondary(source, &item, &item.metadata.name, alt, self.transfer_windows());
+        let equipped_ammo = !matches!(source, ItemSource::Storage | ItemSource::Cart)
+            && self.client_state.follow(client_state().inventory()).equipped_ammo() == Some(item.index);
+        let reaction = react_to_secondary(source, &item, &item.metadata.name, alt, self.transfer_windows(), equipped_ammo);
         match reaction {
             SlotReaction::Ignored => {}
             SlotReaction::Hint(text) => self.item_menu_hint(text),
@@ -161,7 +167,10 @@ impl Client {
                 origin,
                 index,
                 rows,
-            } => self.present_item_menu(title, origin, index, rows),
+            } => {
+                self.present_item_menu(title, origin, index, rows);
+                self.client_state.follow_mut(client_state().item_menu()).set_item_id(item.item_id.0);
+            }
         }
     }
 
@@ -185,13 +194,21 @@ impl Client {
     }
 
     pub(crate) fn pick_item_menu(&mut self, index: usize) {
-        let (entry, origin, item_index) = {
+        let (entry, origin, item_index, item_id) = {
             let menu = self.client_state.follow(client_state().item_menu());
             let Some(entry) = menu.entry_at(index) else {
                 return;
             };
-            (entry, menu.origin(), menu.index())
+            (entry, menu.origin(), menu.index(), menu.item_id())
         };
+        // The slot may have been used up and reused while the menu was open.
+        let current = self
+            .item_for_slot(source_of(origin), InventoryIndex(item_index))
+            .map(|item| item.item_id.0);
+        if !menu_target_current(item_id, current) {
+            self.dismiss_item_menu();
+            return;
+        }
         if handle_extension(entry, item_index) {
             self.dismiss_item_menu();
             return;

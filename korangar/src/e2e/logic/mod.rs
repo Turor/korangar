@@ -13,6 +13,7 @@ use ragnarok_packets::ClientTick;
 use winit::keyboard::KeyCode;
 
 use self::live::SentHeaders;
+pub use self::live::grid_navigation::LiveGridNavReport;
 pub use self::live::inventory_grid::LiveInventoryGridReport;
 pub use self::live::inventory_view::LiveInventoryViewReport;
 pub use self::live::item_menu::LiveItemMenuReport;

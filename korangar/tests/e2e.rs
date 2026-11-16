@@ -5,6 +5,8 @@
 
 #[path = "e2e/archives.rs"]
 mod archives;
+#[path = "e2e/grid_navigation.rs"]
+mod grid_navigation;
 #[path = "e2e/headgear.rs"]
 mod headgear;
 #[path = "e2e/inventory_grid.rs"]

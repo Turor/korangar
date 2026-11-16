@@ -65,27 +65,45 @@ pub struct ScrollViewLayoutInfo<L> {
     children: L,
 }
 
-pub struct ScrollView<A, Children> {
+pub struct ScrollView<A, B, Children> {
     follow: A,
+    /// Content range to bring into view, as fractions of the children's
+    /// height. A selector should return `Some` once per change so the user
+    /// can still scroll away afterwards.
+    reveal: B,
     children: Children,
 }
 
-impl<A, Children> ScrollView<A, Children> {
+impl<A, B, Children> ScrollView<A, B, Children> {
     /// This function is supposed to be called from a component macro and not
     /// intended to be called manually.
     #[inline(always)]
-    pub fn component_new(follow: A, children: Children) -> Self {
-        Self { follow, children }
+    pub fn component_new(follow: A, reveal: B, children: Children) -> Self {
+        Self { follow, reveal, children }
     }
 }
 
-impl<A, Children> Persistent for ScrollView<A, Children> {
+/// Scroll that shows `top..bottom` (content pixels) in a viewport of
+/// `height`, moving as little as possible.
+pub fn reveal_scroll(scroll: f32, height: f32, top: f32, bottom: f32, maximum_scroll: f32) -> f32 {
+    let target = if top < scroll {
+        top
+    } else if bottom > scroll + height {
+        bottom - height
+    } else {
+        scroll
+    };
+    target.clamp(0.0, maximum_scroll)
+}
+
+impl<A, B, Children> Persistent for ScrollView<A, B, Children> {
     type Data = PersistentData;
 }
 
-impl<App, A, Children> Element<App> for ScrollView<A, Children>
+impl<App, A, B, Children> Element<App> for ScrollView<A, B, Children>
 where
     A: Selector<App, bool>,
+    B: Selector<App, Option<(f32, f32)>>,
     App: Application,
     Children: Element<App>,
 {
@@ -121,6 +139,21 @@ where
                 let mut inner = persistent.inner.borrow_mut();
 
                 let maximum_scroll = (children_height - area.height).max(0.0);
+
+                if let Some((top, bottom)) = *state.get(&self.reveal) {
+                    let target = reveal_scroll(
+                        inner.scroll,
+                        area.height,
+                        top * children_height,
+                        bottom * children_height,
+                        maximum_scroll,
+                    );
+                    if (target - inner.scroll).abs() > 0.5 {
+                        inner.scroll = target;
+                        inner.actively_following = false;
+                        continue;
+                    }
+                }
 
                 // Check if the scroll is in bounds. If it is, we can just return, otherwise we
                 // need to adjust it and create the layout again.
@@ -166,5 +199,19 @@ where
                 self.children.lay_out(state, store.child_store(0), &layout_info.children, layout);
             });
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reveal_scroll;
+
+    #[test]
+    fn reveal_moves_as_little_as_possible() {
+        // Viewport 100 high over 400 of content.
+        assert_eq!(reveal_scroll(0.0, 100.0, 20.0, 60.0, 300.0), 0.0);
+        assert_eq!(reveal_scroll(0.0, 100.0, 150.0, 190.0, 300.0), 90.0);
+        assert_eq!(reveal_scroll(200.0, 100.0, 40.0, 80.0, 300.0), 40.0);
+        assert_eq!(reveal_scroll(0.0, 100.0, 390.0, 430.0, 300.0), 300.0);
     }
 }

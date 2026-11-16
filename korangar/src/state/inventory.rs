@@ -199,10 +199,15 @@ impl Inventory {
             return;
         }
 
-        if self.equipped_ammo == Some(index) {
+        self.remove_row(position);
+    }
+
+    /// Drops a whole row. The equipped-ammo index goes with it.
+    fn remove_row(&mut self, position: usize) {
+        let removed = self.items.remove(position);
+        if self.equipped_ammo == Some(removed.index) {
             self.equipped_ammo = None;
         }
-        self.items.remove(position);
     }
 
     pub fn mark_identified(&mut self, index: InventoryIndex) -> Option<ItemId> {
@@ -351,7 +356,7 @@ impl Inventory {
         };
 
         if remaining == 0 {
-            self.items.remove(position);
+            self.remove_row(position);
             return true;
         }
 
@@ -380,7 +385,7 @@ impl Inventory {
             return ThrowUpdate::Updated;
         }
 
-        self.items.remove(position);
+        self.remove_row(position);
         ThrowUpdate::Updated
     }
 }
@@ -722,5 +727,40 @@ mod tests {
         inventory.replace_seen([ItemId(502)]);
         assert!(inventory.known_amount(ItemId(501)).is_none());
         assert_eq!(inventory.known_amount(ItemId(502)), Some(0));
+    }
+
+    fn arrows(index: u16) -> InventoryItem<ResourceMetadata> {
+        InventoryItem {
+            metadata: ResourceMetadata {
+                texture: None,
+                name: String::new(),
+                description: String::new(),
+            },
+            index: InventoryIndex(index),
+            item_id: ItemId(1750),
+            item_type: 10,
+            slot: [0; 4],
+            hire_expiration_date: 0,
+            details: InventoryItemDetails::Regular {
+                amount: 2,
+                equipped_position: EquipPosition::AMMO,
+                flags: RegularItemFlags::IDENTIFIED,
+            },
+        }
+    }
+
+    #[test]
+    fn used_or_thrown_ammo_rows_clear_the_ammo_index() {
+        let mut inventory = Inventory::from_items(vec![arrows(5)]);
+        inventory.set_equipped_ammo(InventoryIndex(5));
+        assert!(inventory.apply_use_ack(InventoryIndex(5), 0));
+        assert_eq!(inventory.equipped_ammo, None);
+
+        let mut inventory = Inventory::from_items(vec![arrows(5)]);
+        inventory.set_equipped_ammo(InventoryIndex(5));
+        assert_eq!(inventory.apply_throw_ack(InventoryIndex(5), 1), ThrowUpdate::Updated);
+        assert_eq!(inventory.equipped_ammo, Some(InventoryIndex(5)));
+        assert_eq!(inventory.apply_throw_ack(InventoryIndex(5), 1), ThrowUpdate::Updated);
+        assert_eq!(inventory.equipped_ammo, None);
     }
 }

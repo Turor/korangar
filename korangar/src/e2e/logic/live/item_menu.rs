@@ -75,7 +75,7 @@ impl LogicSession {
         if classify_secondary(right, alt_down) != SlotSecondary::OpenMenu {
             return Err("right-click did not open the menu".to_owned());
         }
-        let reaction = react_to_secondary(ItemSource::Inventory, &item, "Item", false, QuickMoveWindows::default());
+        let reaction = react_to_secondary(ItemSource::Inventory, &item, "Item", false, QuickMoveWindows::default(), false);
         let SlotReaction::OpenMenu { rows, .. } = reaction else {
             return Err("right-click did not build a menu".to_owned());
         };
@@ -91,7 +91,14 @@ impl LogicSession {
             return Err("Alt+right-click did not quick-move".to_owned());
         }
         let sent_before = self.sent_header_count();
-        let reaction = react_to_secondary(ItemSource::Inventory, quick_item, "Item", true, QuickMoveWindows::default());
+        let reaction = react_to_secondary(
+            ItemSource::Inventory,
+            quick_item,
+            "Item",
+            true,
+            QuickMoveWindows::default(),
+            false,
+        );
         let quick_move_hint = match reaction {
             SlotReaction::Hint(text) => text.to_owned(),
             SlotReaction::Move(target) => {

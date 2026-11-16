@@ -208,6 +208,7 @@ pub fn split(token_stream: TokenStream) -> TokenStream {
 pub fn scroll_view(token_stream: TokenStream) -> TokenStream {
     create_component_macro!(korangar_interface::components::scroll_view::ScrollView, {
         follow: { false },
+        reveal: { None::<(f32, f32)> },
         children: !,
     });
 

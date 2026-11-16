@@ -243,6 +243,10 @@ pub struct InventoryView {
     lookups: HashMap<u32, Lookup>,
     lookup_catalog_len: usize,
     key: Option<u64>,
+    /// Keyboard cursor: a drawn position (`state::grid_nav`).
+    cursor: Option<usize>,
+    /// A grid key was the last input, so Enter belongs to the grid.
+    cursor_armed: bool,
 }
 
 impl InventoryView {
@@ -259,6 +263,10 @@ impl InventoryView {
     }
 
     pub fn set_tab(&mut self, tab: InventoryTab) {
+        if self.tab != tab {
+            // A cursor position means nothing on another tab.
+            self.clear_cursor();
+        }
         self.tab = tab;
     }
 
@@ -268,6 +276,34 @@ impl InventoryView {
 
     pub fn set_sort(&mut self, sort: InventorySort) {
         self.sort = sort;
+    }
+
+    pub fn cursor(&self) -> Option<usize> {
+        self.cursor
+    }
+
+    pub fn move_cursor(&mut self, key: crate::state::grid_nav::GridKey) {
+        self.cursor = crate::state::grid_nav::step_cursor(self.cursor, self.items.len(), key);
+        self.cursor_armed = self.cursor.is_some();
+    }
+
+    pub fn clear_cursor(&mut self) {
+        self.cursor = None;
+        self.cursor_armed = false;
+    }
+
+    pub fn cursor_armed(&self) -> bool {
+        self.cursor_armed && self.cursor.is_some()
+    }
+
+    /// Keeps the highlighted cell but gives Enter back to chat.
+    pub fn disarm_cursor(&mut self) {
+        self.cursor_armed = false;
+    }
+
+    /// The stack under the keyboard cursor.
+    pub fn cursor_item(&self) -> Option<&InventoryItem<ResourceMetadata>> {
+        self.cursor.and_then(|cursor| self.items.get(cursor))
     }
 
     pub fn search(&self) -> &str {
@@ -329,6 +365,10 @@ impl InventoryView {
             .map(|&position| !search_matches(&items[position], &query, card_name))
             .collect();
         self.items = order.into_iter().map(|position| items[position].clone()).collect();
+        self.cursor = match self.items.len() {
+            0 => None,
+            len => self.cursor.map(|cursor| cursor.min(len - 1)),
+        };
     }
 
     fn key_for(&self, items: &[InventoryItem<ResourceMetadata>]) -> u64 {

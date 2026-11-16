@@ -160,7 +160,7 @@ impl Fixture {
             SlotSecondary::OpenMenu => false,
             SlotSecondary::Ignore => return Ok(kind),
         };
-        let reaction = react_to_secondary(ItemSource::Inventory, &item, &item.metadata.name, alt, self.windows);
+        let reaction = react_to_secondary(ItemSource::Inventory, &item, &item.metadata.name, alt, self.windows, false);
         self.apply_reaction(reaction, &item)?;
         Ok(kind)
     }

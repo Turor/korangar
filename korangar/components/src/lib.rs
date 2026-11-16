@@ -10,6 +10,7 @@ pub fn item_box(token_stream: TokenStream) -> TokenStream {
         icon_side: { 0.0 },
         tooltip: { "" },
         dim: { None },
+        focused: { None },
     });
 
     macro_impl(token_stream.into()).into()

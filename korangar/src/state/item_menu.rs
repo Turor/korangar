@@ -239,6 +239,15 @@ pub fn build_item_menu(facts: &ItemMenuFacts) -> Vec<ItemMenuRow> {
     entries.into_iter().map(row).collect()
 }
 
+/// A pick still targets the row the menu opened on: same item id at that
+/// index. A menu opened without an id (tests) is trusted.
+pub fn menu_target_current(stored: Option<u32>, current: Option<u32>) -> bool {
+    match stored {
+        Some(stored) => current == Some(stored),
+        None => current.is_some(),
+    }
+}
+
 /// Popup state. `alt_held` is the modifier for the click that is about to land.
 #[derive(Clone, Default, RustState, StateElement)]
 pub struct ItemMenuState {
@@ -251,6 +260,9 @@ pub struct ItemMenuState {
     origin: MenuOrigin,
     #[hidden_element]
     index: u16,
+    /// Item id of the row the menu opened on, re-checked at pick time.
+    #[hidden_element]
+    item_id: Option<u32>,
     /// Alt is down. The item slot reads this when it handles right-click.
     pub alt_held: bool,
     #[hidden_element]
@@ -282,6 +294,14 @@ impl ItemMenuState {
         self.index
     }
 
+    pub fn item_id(&self) -> Option<u32> {
+        self.item_id
+    }
+
+    pub fn set_item_id(&mut self, item_id: u32) {
+        self.item_id = Some(item_id);
+    }
+
     pub fn entry_at(&self, index: usize) -> Option<ItemMenuEntry> {
         self.entries.get(index).map(|row| row.entry)
     }
@@ -291,6 +311,7 @@ impl ItemMenuState {
         self.title = title;
         self.origin = origin;
         self.index = index;
+        self.item_id = None;
         self.entries = entries;
         self.focus = 0;
     }
@@ -301,6 +322,7 @@ impl ItemMenuState {
         self.entries.clear();
         self.focus = 0;
         self.index = 0;
+        self.item_id = None;
         self.origin = MenuOrigin::Inventory;
     }
 
@@ -481,5 +503,14 @@ mod tests {
             })
             .is_none()
         );
+    }
+
+    #[test]
+    fn a_pick_on_a_reused_slot_is_dropped() {
+        use super::menu_target_current;
+        assert!(menu_target_current(Some(501), Some(501)));
+        assert!(!menu_target_current(Some(501), Some(909)));
+        assert!(!menu_target_current(Some(501), None));
+        assert!(!menu_target_current(None, None));
     }
 }

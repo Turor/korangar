@@ -148,6 +148,8 @@ pub struct ItemBox<A> {
     compare_text: String,
     /// Search miss: the icon is drawn faded (inventory search).
     dim: Option<ItemBoxDim>,
+    /// Keyboard cursor cell (inventory grid navigation).
+    focused: Option<ItemBoxDim>,
 }
 
 /// Returns `true` when the item in this cell should be drawn faded.
@@ -167,6 +169,7 @@ where
         icon_side: f32,
         tooltip: &'static str,
         dim: Option<ItemBoxDim>,
+        focused: Option<ItemBoxDim>,
     ) -> Self {
         Self {
             item_path,
@@ -180,6 +183,7 @@ where
             tooltip_text: String::new(),
             compare_text: String::new(),
             dim,
+            focused,
         }
     }
 }
@@ -309,7 +313,9 @@ where
             layout_info.area.check().run(layout)
         };
 
-        let (border, fill) = slot_border_and_fill(state, is_hovered, is_move_mode);
+        // The keyboard cursor (grid navigation) draws like a hover.
+        let is_focused = self.focused.as_ref().is_some_and(|focused| focused(state));
+        let (border, fill) = slot_border_and_fill(state, is_hovered || is_focused, is_move_mode);
         let corner = if self.side > 0.0 { 4.0 } else { 20.0 };
         paint_item_slot(state, layout, layout_info.area, border, fill, corner, self.side > 0.0);
 

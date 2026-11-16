@@ -8512,6 +8512,15 @@ impl Client {
             (None, false)
         };
 
+        let grid_keys_taken = interface_has_focus || dialog_ate_confirm || dialog_key.is_some();
+        let grid_took_enter = crate::interface::grid_nav_flow::handle_inventory_grid_keys(
+            &self.input_system,
+            &self.interface,
+            &mut self.client_state,
+            &mut self.input_event_buffer,
+            grid_keys_taken,
+            input_report.mouse_click.is_some(),
+        );
         crate::interface::npc_flow::prepare_vn_dialog(&mut self.client_state, &mut self.interface, screen_size, client_tick.0);
         self.dialog_layer.sync(&mut self.interface);
 
@@ -8769,7 +8778,7 @@ impl Client {
                     DialogHotkey::Close => InputEvent::CloseDialog { npc_id: dialog_npc_id },
                 };
                 self.input_event_buffer.push(event);
-            } else if !dialog_ate_confirm
+            } else if crate::state::grid_nav::enter_free_for_chat(grid_took_enter, dialog_ate_confirm)
                 && (!interface_has_focus || !interface_frame.input_characters(&self.client_state, &input_report.characters))
                 && input_report.characters.contains(&'\x0d')
                 && is_chat_open
