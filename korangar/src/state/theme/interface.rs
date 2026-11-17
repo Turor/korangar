@@ -674,7 +674,7 @@ impl InterfaceTheme {
                 closest_anchor_color: Color::rgb_u8(255, 175, 30),
                 frame_color: Color::rgb_u8(130, 105, 160),
                 frame_width: 2.0,
-                accent_color: Some(Color::rgb_u8(255, 160, 60)),
+                accent_color: Some(crate::state::theme::ThemeTokens::default().accent),
                 accent_width: 2.0,
             },
             text: TextTheme {
@@ -903,7 +903,7 @@ impl InterfaceTheme {
                 closest_anchor_color: Color::rgb_u8(255, 175, 30),
                 frame_color: Color::rgb_u8(140, 105, 130),
                 frame_width: 2.0,
-                accent_color: Some(Color::rgb_u8(255, 160, 60)),
+                accent_color: Some(crate::state::theme::ThemeTokens::default().accent),
                 accent_width: 2.0,
             },
             text: TextTheme {
