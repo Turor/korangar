@@ -9,6 +9,8 @@ mod archives;
 mod grid_navigation;
 #[path = "e2e/headgear.rs"]
 mod headgear;
+#[path = "e2e/hotbar.rs"]
+mod hotbar;
 #[path = "e2e/inventory_grid.rs"]
 mod inventory_grid;
 #[path = "e2e/inventory_view.rs"]

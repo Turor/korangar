@@ -533,6 +533,7 @@ where
             {
                 layout.add_sprite(sprite_area, actions, sprite, &skill.animation_state, color, 1.3);
             }
+            crate::interface::components::cooldown_overlay::add_skill_cooldown(layout, state, sprite_area, skill.skill_id);
 
             let committed_skill = *state.get(&self.window_state_path.description_skill());
             let dismissed_skill = *state.get(&self.window_state_path.description_dismissed());

@@ -13,6 +13,13 @@
 
 use super::equipment::{GEAR_WINDOW_HEIGHT, GEAR_WINDOW_WIDTH};
 use super::status_panel::STATUS_PANEL_WINDOW_HEIGHT;
+pub use crate::interface::components::hotbar_layout::HOTBAR_DEFAULT_HEIGHT;
+use crate::interface::components::hotbar_layout::HOTBAR_WINDOW_MINIMUM_HEIGHT;
+/// First-open hotbar height on screens shorter than
+/// [`HOTBAR_COMPACT_SCREEN_HEIGHT`] (the old bar height).
+pub const HOTBAR_COMPACT_HEIGHT: f32 = 96.0;
+/// Screens shorter than this open the compact hotbar.
+pub const HOTBAR_COMPACT_SCREEN_HEIGHT: f32 = 900.0;
 
 /// One window rectangle in screen pixels. Origin is the top-left of the client.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -170,11 +177,19 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
         width: (340.0 * scale).min(gear.width),
         height: chat_bottom - chat_top,
     };
+    // Tall enough for the buttons, one row of 40px slots and their name
+    // labels (Matthew t274u). Screens up to 720p keep the old 96px so the
+    // social stack above still fits; the slots shrink to the height they get
+    // and the player can drag the bar taller.
+    let hotbar_height = match screen_height < HOTBAR_COMPACT_SCREEN_HEIGHT {
+        true => HOTBAR_COMPACT_HEIGHT,
+        false => HOTBAR_DEFAULT_HEIGHT,
+    } * scale;
     let mut hotbar = HudFrame {
         left: 0.0,
-        top: screen_height - 96.0 * scale - margin,
+        top: screen_height - hotbar_height - margin,
         width: 420.0 * scale,
-        height: 96.0 * scale,
+        height: hotbar_height,
     };
     hotbar.left = (screen_width - hotbar.width) / 2.0;
 
@@ -262,14 +277,19 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
     }
     if hotbar.top < chat.top && frames_overlap_x(hotbar, chat) {
         hotbar.top = chat.top;
-        hotbar.height = (screen_height - margin - hotbar.top).max(32.0);
+        hotbar.height = (screen_height - margin - hotbar.top).max(HOTBAR_WINDOW_MINIMUM_HEIGHT * scale);
+        hotbar.top = hotbar.top.min(screen_height - margin - hotbar.height);
     }
     // Gear keeps its 500px reference height. On a 1024x576 screen that reaches
     // the bottom-center hotbar, so the bar sits under Gear instead of covering it.
-    // Taller screens still open the bar at 96px.
+    // Taller screens still open the bar at its default height.
     if frames_overlap_x(hotbar, gear) && hotbar.top < gear.bottom() {
         hotbar.top = gear.bottom();
-        hotbar.height = (screen_height - margin - hotbar.top).max(32.0);
+        hotbar.height = (screen_height - margin - hotbar.top).max(HOTBAR_WINDOW_MINIMUM_HEIGHT * scale);
+        // Under 96px fits under Gear on 1024x576: the window keeps its
+        // minimum, so the frame says so and overlaps Gear's bottom edge (Gear
+        // opens closed) rather than claiming a 32px bar (review-1).
+        hotbar.top = hotbar.top.min(screen_height - margin - hotbar.height);
     }
 
     let social_width = (420.0 * scale).min(screen_width - gear.right() - margin * 2.0);
@@ -331,11 +351,12 @@ mod tests {
         assert!(frame.top >= -0.5, "top {}", frame.top);
         assert!(frame.right() <= width + 0.5, "right {}", frame.right());
         assert!(frame.bottom() <= height + 0.5, "bottom {}", frame.bottom());
-        assert!(frame.width > 40.0 && frame.height > 24.0);
+        assert!(frame.width > 40.0 && frame.height > 24.0, "{frame:?} at {width}x{height}");
     }
 
     fn assert_layout(width: f32, height: f32) {
         let hud = first_open_hud(width, height);
+        let scale = (width / REFERENCE_SCREEN_WIDTH).min(height / REFERENCE_SCREEN_HEIGHT);
         let frames = [
             hud.status_panel,
             hud.gear,
@@ -356,8 +377,15 @@ mod tests {
         }
         on_screen(hud.skill_tree, width, height);
 
+        // The hotbar may only overlap Gear when its window minimum cannot fit
+        // under Gear on this screen.
+        let hotbar_fits_under_gear = hud.gear.bottom() + (super::HOTBAR_WINDOW_MINIMUM_HEIGHT + 8.0) * scale <= height + 0.5;
         for (index, frame) in frames.iter().copied().enumerate() {
             for other in frames.iter().copied().skip(index + 1) {
+                let gear_and_hotbar = (frame == hud.gear && other == hud.hotbar) || (frame == hud.hotbar && other == hud.gear);
+                if gear_and_hotbar && !hotbar_fits_under_gear {
+                    continue;
+                }
                 assert!(!frames_overlap(frame, other), "overlap {frame:?} {other:?}");
             }
         }
@@ -371,6 +399,11 @@ mod tests {
         assert!((hud.gear.height - super::GEAR_WINDOW_HEIGHT).abs() < 0.5);
         assert!(hud.quest.left >= hud.gear.right() - 0.5);
         assert!(hud.hotbar.left + hud.hotbar.width / 2.0 - width / 2.0 < 1.0);
+        assert!(
+            hud.hotbar.height >= super::HOTBAR_WINDOW_MINIMUM_HEIGHT * scale - 0.5,
+            "hotbar {:?} below its window minimum at {width}x{height}",
+            hud.hotbar
+        );
         let skill_center_x = hud.skill_tree.left + hud.skill_tree.width / 2.0;
         let skill_center_y = hud.skill_tree.top + hud.skill_tree.height / 2.0;
         assert!((skill_center_x - width / 2.0).abs() < 1.0);
@@ -390,6 +423,10 @@ mod tests {
         assert_layout(REFERENCE_SCREEN_WIDTH, REFERENCE_SCREEN_HEIGHT);
         assert_layout(1920.0, 1080.0);
         let small = first_open_hud(1024.0, 576.0);
+        // 1024x576: less than the 96px window minimum fits under Gear, so the
+        // frame keeps the minimum on screen over Gear's bottom edge.
+        assert!(small.hotbar.top < small.gear.bottom(), "{:?}", small.hotbar);
+        assert!(small.hotbar.bottom() <= 576.0 + 0.5, "{:?}", small.hotbar);
         let mid = first_open_hud(REFERENCE_SCREEN_WIDTH, REFERENCE_SCREEN_HEIGHT);
         let large = first_open_hud(1920.0, 1080.0);
         assert!((small.gear.width - mid.gear.width).abs() < 0.5);

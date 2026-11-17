@@ -59,6 +59,11 @@ pub struct ThemeTokens {
     /// Defaults to 1.0 (opaque).
     #[serde(default = "default_window_alpha")]
     pub window_alpha: f32,
+    /// `hotbar_alpha`: extra opacity multiplier for the hotbar window
+    /// background only (Matthew t274u), 0.0–1.0. Defaults to 0.75. Other
+    /// windows, tooltips and menus keep `window_alpha`.
+    #[serde(default = "default_hotbar_alpha")]
+    pub hotbar_alpha: f32,
     /// Chat channel colors. Party defaults to `#E6D7C8` when a file omits it.
     #[serde(default = "default_chat_colors")]
     pub chat: ChatChannelColors,
@@ -188,6 +193,7 @@ impl ThemeTokens {
             status_base_exp_bar: Color::rgb_u8(255, 152, 48),
             status_job_exp_bar: Color::rgb_u8(198, 64, 88),
             window_alpha: 1.0,
+            hotbar_alpha: default_hotbar_alpha(),
             chat: ChatChannelColors::derived(
                 Color::rgb_u8(235, 236, 240),
                 Color::rgb_u8(255, 152, 48),
@@ -243,6 +249,9 @@ pub struct ThemeFile {
     /// Window and chat background opacity (1.0 = opaque).
     #[serde(default = "default_window_alpha")]
     pub window_alpha: f32,
+    /// Hotbar-only background opacity multiplier.
+    #[serde(default = "default_hotbar_alpha")]
+    pub hotbar_alpha: f32,
     /// Optional `status: (...)` block (TOML: `[status]` or `status.key`).
     #[serde(default)]
     pub status: StatusThemeFile,
@@ -304,6 +313,9 @@ fn default_font_size() -> f32 {
 }
 fn default_window_alpha() -> f32 {
     1.0
+}
+fn default_hotbar_alpha() -> f32 {
+    0.75
 }
 
 impl ThemeTokens {
@@ -390,6 +402,7 @@ impl ThemeFile {
             status_base_exp_bar,
             status_job_exp_bar,
             window_alpha: self.window_alpha.clamp(0.0, 1.0),
+            hotbar_alpha: self.hotbar_alpha.clamp(0.0, 1.0),
             chat,
             slot_shadow,
             item_new_glow,
@@ -461,6 +474,7 @@ fn parse_theme_toml(source: &str) -> Option<ThemeFile> {
         corner_radius: nums.get("corner_radius").copied().unwrap_or(8.0),
         font_size: nums.get("font_size").copied().unwrap_or(13.0),
         window_alpha: nums.get("window_alpha").copied().unwrap_or(1.0),
+        hotbar_alpha: nums.get("hotbar_alpha").copied().unwrap_or_else(default_hotbar_alpha),
         status: StatusThemeFile {
             hp_bar: strings.remove("status.hp_bar"),
             sp_bar: strings.remove("status.sp_bar"),
@@ -599,6 +613,7 @@ impl WorldTheme {
                 activity_point_height: 5.0,
                 border_size: ScreenSize { width: 3.0, height: 2.0 },
                 gap: 2.0,
+                after_cast_color: tokens.muted,
             },
             indicator: super::IndicatorTheme {
                 walking: tokens.accent.with_alpha_u8(180),
@@ -884,6 +899,7 @@ job_exp_bar = "#445566"
         ] {
             assert_eq!(tokens.window_alpha, 1.0, "{}", tokens.name);
             assert_eq!(tokens.window_alpha_u8(), 255);
+            assert_eq!(tokens.hotbar_alpha, 0.75, "{}", tokens.name);
         }
         let toml = "name = \"T\"\nbg = \"#000000\"\npanel = \"#000000\"\nraised = \"#000000\"\nborder = \"#000000\"\ntext = \
                     \"#FFFFFF\"\nmuted = \"#888888\"\naccent = \"#FF0000\"\naccent2 = \"#00FF00\"\nhover = \"#FFFF00\"\nhp = \
