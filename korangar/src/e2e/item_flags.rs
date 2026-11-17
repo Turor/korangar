@@ -256,7 +256,10 @@ pub fn offline_item_flags() -> Result<OfflineItemFlagsReport, String> {
     shop.flags.assign_character(4);
     let previous = "(characters: [(character_id: 9, items: [(item_id: 700, refine: 0, cards: (0, 0, 0, 0), junk: true, locked: false, \
                     is_new: false)])])";
-    let text = shop.flags.save_ron(previous);
+    let text = shop
+        .flags
+        .save_ron(previous)
+        .ok_or_else(|| "previous flag file should parse".to_owned())?;
     let mut loaded = ItemFlags::default();
     loaded.load_ron(4, &text);
     let mut other = ItemFlags::default();

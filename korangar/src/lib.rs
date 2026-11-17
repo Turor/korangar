@@ -1458,6 +1458,7 @@ impl Client {
                     }
                 }
                 NetworkEvent::MapServerDisconnected { reason } => {
+                    self.flush_item_flags();
                     self.clear_chat_rooms();
                     self.client_state.follow_mut(client_state().inventory()).clear_equipped_ammo();
                     if reason != DisconnectReason::ClosedByClient {
@@ -3367,6 +3368,7 @@ impl Client {
                     );
                 }
                 NetworkEvent::LoggedOut => {
+                    self.flush_item_flags();
                     self.client_state.follow_mut(client_state().party()).clear();
                     self.networking_system.disconnect_from_map_server();
                 }
@@ -8215,6 +8217,7 @@ impl Client {
         self.tick_misc_windows();
 
         if SHUTDOWN_SIGNAL.load(Ordering::SeqCst) {
+            self.flush_item_flags();
             event_loop.exit();
             return;
         }
@@ -9122,6 +9125,7 @@ impl ApplicationHandler for Client {
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => {
+                self.flush_item_flags();
                 event_loop.exit();
             }
             WindowEvent::Resized(screen_size) => {

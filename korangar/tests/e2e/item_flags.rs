@@ -25,7 +25,10 @@ fn item_flags_glow_junk_and_lock_offline() {
     assert!(report.followed_locked);
     assert!(report.reloaded_junk);
     assert!(report.reloaded_locked);
-    assert!(report.reloaded_new);
+    assert!(
+        !report.reloaded_new,
+        "the new-item glow is not saved, so the login list never glows"
+    );
     assert!(report.other_character_kept);
 }
 
