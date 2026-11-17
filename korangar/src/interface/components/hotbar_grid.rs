@@ -405,17 +405,22 @@ where
                     layout.register_click_handler(MouseButton::Right, &self.clears[visual as usize]);
                 }
             }
-            if !self.hints[visual as usize].is_empty() {
-                layout.add_text(
-                    area,
-                    self.hints[visual as usize].as_str(),
-                    hint_font,
-                    hint_color,
-                    hint_color,
-                    HorizontalAlignment::Left { offset: 2.0, border: 2.0 },
-                    VerticalAlignment::Top { offset: 1.0 },
-                    OverflowBehavior::Shrink,
-                );
+            // Hint and level/amount go on the layer above the icon (with the
+            // cooldown sweep), or the opaque icon hides them.
+            let hint = self.hints[visual as usize].as_str();
+            if !hint.is_empty() {
+                layout.with_layer(|layout| {
+                    layout.add_text(
+                        area,
+                        hint,
+                        hint_font,
+                        hint_color,
+                        hint_color,
+                        HorizontalAlignment::Left { offset: 2.0, border: 2.0 },
+                        VerticalAlignment::Top { offset: 1.0 },
+                        OverflowBehavior::Shrink,
+                    );
+                });
             }
             let Some(cell) = cell else {
                 continue;
@@ -447,17 +452,22 @@ where
                     layout.add_tooltip(cell.item_name.as_str(), HotbarTooltip.tooltip_id());
                 }
             }
-            if !self.labels[visual as usize].is_empty() {
-                layout.add_text(
-                    area,
-                    self.labels[visual as usize].as_str(),
-                    amount_font,
-                    *state.get(&client_theme().text().color()),
-                    *state.get(&client_theme().text().highlight_color()),
-                    HorizontalAlignment::Right { offset: 2.0, border: 2.0 },
-                    VerticalAlignment::Bottom { offset: 1.0 },
-                    OverflowBehavior::Shrink,
-                );
+            let amount = self.labels[visual as usize].as_str();
+            if !amount.is_empty() {
+                let amount_color = *state.get(&client_theme().text().color());
+                let amount_highlight = *state.get(&client_theme().text().highlight_color());
+                layout.with_layer(|layout| {
+                    layout.add_text(
+                        area,
+                        amount,
+                        amount_font,
+                        amount_color,
+                        amount_highlight,
+                        HorizontalAlignment::Right { offset: 2.0, border: 2.0 },
+                        VerticalAlignment::Bottom { offset: 1.0 },
+                        OverflowBehavior::Shrink,
+                    );
+                });
             }
             let name = self.names[visual as usize].shown.as_str();
             if occupied && !name.is_empty() {
