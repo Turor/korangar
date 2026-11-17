@@ -99,6 +99,23 @@ pub fn inventory_hint(item: &InventoryItem<ResourceMetadata>) -> InventoryHint {
     }
 }
 
+/// Where the hotbar row count is kept between starts.
+pub const HOTBAR_ROWS_FILE: &str = "client/hotbar_rows.ron";
+
+/// Row count after `+` (`add`) or `-` from `rows`, within 1..=4.
+pub fn next_row_count(rows: u8, add: bool) -> u8 {
+    let rows = rows.clamp(1, HOTBAR_ROWS as u8);
+    match add {
+        true => (rows + 1).min(HOTBAR_ROWS as u8),
+        false => rows.saturating_sub(1).max(1),
+    }
+}
+
+/// Row count from [`HOTBAR_ROWS_FILE`]; anything unreadable is one row.
+pub fn parse_saved_rows(text: &str) -> u8 {
+    text.trim().parse::<u8>().unwrap_or(1).clamp(1, HOTBAR_ROWS as u8)
+}
+
 /// Map a visual row (what F1 / Alt+F1 / Ctrl+F1 / Shift+F1 hit) through the
 /// server row shift onto a stored slot in the active tab.
 pub fn stored_slot(visual: u16, row_shift: u8) -> u16 {
@@ -187,6 +204,37 @@ impl Hotbar {
 
     pub fn switch_tab(&mut self) {
         self.active_tab = if self.active_tab == 0 { 1 } else { 0 };
+    }
+
+    /// `+` on the bar (Matthew t280u): show the next row above (number
+    /// keys, then Q, then A). Returns whether a row was added.
+    pub fn add_row(&mut self) -> bool {
+        let rows = self.visible_rows();
+        self.visible_rows = next_row_count(rows, true);
+        self.visible_rows != rows
+    }
+
+    /// `-` on the bar: hide the row added last (the F-key row stays).
+    /// Stored hotkeys in the hidden row are kept. Returns whether a row was
+    /// removed.
+    pub fn remove_row(&mut self) -> bool {
+        let rows = self.visible_rows();
+        self.visible_rows = next_row_count(rows, false);
+        self.visible_rows != rows
+    }
+
+    /// The hotbar with the row count saved by [`Self::save_rows`].
+    pub fn with_saved_rows() -> Self {
+        let mut hotbar = Self::default();
+        if let Ok(text) = std::fs::read_to_string(HOTBAR_ROWS_FILE) {
+            hotbar.visible_rows = parse_saved_rows(&text);
+        }
+        hotbar
+    }
+
+    /// Remember the row count for the next start.
+    pub fn save_rows(&self) {
+        let _ = std::fs::write(HOTBAR_ROWS_FILE, self.visible_rows().to_string());
     }
 
     pub fn cycle_visible_rows(&mut self) {
@@ -321,20 +369,35 @@ impl Hotbar {
     ) where
         Callback: PacketCallback + Send,
     {
-        let Some(source) = self.index(source_tab, source_slot) else {
-            return;
-        };
-        let Some(destination) = self.index(destination_tab, destination_slot) else {
-            return;
-        };
+        for (tab, slot, data) in self
+            .swap_local(source_tab, source_slot, destination_tab, destination_slot)
+            .into_iter()
+            .flatten()
+        {
+            let _ = networking_system.set_hotkey_data(tab, slot, data);
+        }
+    }
+
+    /// Swap two cells locally and return the hotkey updates to send,
+    /// destination first. `None` when either slot is invalid or both are the
+    /// same slot.
+    pub fn swap_local(
+        &mut self,
+        source_tab: HotbarTab,
+        source_slot: HotbarSlot,
+        destination_tab: HotbarTab,
+        destination_slot: HotbarSlot,
+    ) -> Option<[(HotbarTab, HotbarSlot, HotkeyData); 2]> {
+        let source = self.index(source_tab, source_slot)?;
+        let destination = self.index(destination_tab, destination_slot)?;
         if source == destination {
-            return;
+            return None;
         }
         self.cells.swap(source, destination);
-        let first = self.cells[destination].to_hotkey();
-        let second = self.cells[source].to_hotkey();
-        let _ = networking_system.set_hotkey_data(destination_tab, destination_slot, first);
-        let _ = networking_system.set_hotkey_data(source_tab, source_slot, second);
+        Some([
+            (destination_tab, destination_slot, self.cells[destination].to_hotkey()),
+            (source_tab, source_slot, self.cells[source].to_hotkey()),
+        ])
     }
 
     pub fn apply_skill_sprite(&mut self, skill_id: SkillId, sprite: Arc<Sprite>) {
@@ -535,6 +598,45 @@ mod tests {
         assert_eq!(inventory_hint(&regular_stack(10, true)), InventoryHint::Unequipped);
         assert_eq!(inventory_hint(&regular_stack(10, false)), InventoryHint::Inactive);
         assert_eq!(inventory_hint(&regular_stack(0, true)), InventoryHint::Consumable);
+    }
+
+    #[test]
+    fn plus_adds_rows_up_to_four_and_minus_removes_the_last_added() {
+        let mut hotbar = Hotbar::default();
+        assert_eq!(hotbar.visible_rows(), 1);
+        assert!(!hotbar.remove_row(), "the F-key row stays");
+        assert!(hotbar.add_row());
+        assert!(hotbar.add_row());
+        assert!(hotbar.add_row());
+        assert_eq!(hotbar.visible_rows(), 4);
+        assert!(!hotbar.add_row());
+        assert!(hotbar.remove_row());
+        assert_eq!(hotbar.visible_rows(), 3);
+        assert_eq!(next_row_count(0, true), 2);
+        assert_eq!(next_row_count(9, false), 3);
+    }
+
+    #[test]
+    fn saved_row_counts_are_clamped() {
+        assert_eq!(parse_saved_rows("3\n"), 3);
+        assert_eq!(parse_saved_rows("0"), 1);
+        assert_eq!(parse_saved_rows("12"), 4);
+        assert_eq!(parse_saved_rows("junk"), 1);
+    }
+
+    #[test]
+    fn visual_rows_keep_their_server_hotkey_indices() {
+        // F row, number row, Q row, A row are stored rows 0..=3 (hotkeys
+        // 0-8, 9-17, 18-26, 27-35 of the tab), so rows saved before the
+        // redesign stay where they were. The row shift still applies.
+        for (visual, stored) in [(0, 0), (8, 8), (9, 9), (17, 17), (18, 18), (27, 27), (35, 35)] {
+            assert_eq!(stored_slot(visual, 0), stored);
+        }
+        assert_eq!(stored_slot(9, 1), 18);
+        assert_eq!(stored_slot(27, 1), 0);
+        // Quick slots are not drawn but keep their own indices.
+        assert_eq!(stored_slot(36, 2), 36);
+        assert_eq!(stored_slot(37, 0), 37);
     }
 
     #[test]

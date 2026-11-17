@@ -85,6 +85,15 @@ impl<App: Application> EventQueue<App> {
         self.events.push(event.into());
     }
 
+    /// Number of queued events.
+    pub fn len(&self) -> usize {
+        self.events.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Event<App>> {
         self.events.iter_mut()
     }

@@ -663,7 +663,7 @@ impl ClientState {
             let shop_report = ShopReportState::default();
             let player_name = String::new();
             let player_character_id = CharacterId(0);
-            let hotbar = Hotbar::default();
+            let hotbar = Hotbar::with_saved_rows();
             let inventory = Inventory::default();
             let item_flags = ItemFlags::default();
             let item_drop = ItemDropPrompt::default();

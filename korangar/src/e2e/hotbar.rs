@@ -3,15 +3,16 @@
 //! [`offline_hotbar_scenario`] opens the hotbar at its first-open size,
 //! drags its top-right corner in (narrower, taller) with the scripted input
 //! path and the same [`resize_window_area`] the interface uses, and sizes the
-//! slot grid for each region with [`hotbar_metrics`]: the one-row bar wraps
-//! onto more rows. It saves and reloads the size through `window_cache.ron`
-//! and checks a reset forgets it. It then plays the cooldown and cast
-//! timeline the client builds from `0x0B1A`, `0x043D` and `EFST_POSTDELAY`
-//! through [`SkillCooldowns`] and [`CastBars`].
+//! slot grid for each region with [`hotbar_metrics`]: rows never wrap
+//! (Matthew t280u), extra height becomes padding, and laying the window out
+//! again does not change its height. It saves and reloads the size through
+//! `window_cache.ron` and checks a reset forgets it. It then plays the cooldown
+//! and cast timeline the client builds from `0x0B1A`, `0x043D` and
+//! `EFST_POSTDELAY` through [`SkillCooldowns`] and [`CastBars`].
 //!
-//! Review-1 added two sizes: 18 slots (two rows shown) in the smallest window
-//! the limits allow, and the first-open bar at the largest global font scale.
-//! Both must keep the grid inside the window width.
+//! Two more sizes: two rows in the smallest window the limits allow, and the
+//! first-open bar at the largest global font scale. Both must keep the grid
+//! inside the window width.
 
 use std::mem::ManuallyDrop;
 use std::path::Path;
@@ -25,8 +26,9 @@ use ragnarok_packets::{ClientTick, SkillId};
 use super::resizable_windows::{RESIZE_SCREEN, scripted_drag};
 use crate::graphics::{ScreenPosition, ScreenSize};
 use crate::interface::components::hotbar_layout::{
-    HOTBAR_DEFAULT_HEIGHT, HOTBAR_LABEL_FONT_PX, HOTBAR_WINDOW_MAXIMUM_HEIGHT, HOTBAR_WINDOW_MAXIMUM_WIDTH, HOTBAR_WINDOW_MINIMUM_HEIGHT,
-    HOTBAR_WINDOW_MINIMUM_WIDTH, HotbarMetrics, hotbar_metrics,
+    HOTBAR_DEFAULT_HEIGHT, HOTBAR_GRAB_HEIGHT, HOTBAR_HINT_FONT_PX, HOTBAR_WINDOW_BORDER, HOTBAR_WINDOW_MAXIMUM_HEIGHT,
+    HOTBAR_WINDOW_MAXIMUM_WIDTH, HOTBAR_WINDOW_MINIMUM_HEIGHT, HOTBAR_WINDOW_MINIMUM_WIDTH, HotbarMetrics, hint_strip_height,
+    hotbar_metrics, laid_out_window_height,
 };
 use crate::interface::font_scale::{FONT_SCALE_MAX, font_scale_factor, from_theme_body};
 use crate::interface::windows::{WindowCache, WindowClass};
@@ -46,6 +48,8 @@ pub struct HotbarSnapshot {
     pub region_width: f32,
     /// Window height after the grid grew it (never below `height`).
     pub laid_out_height: f32,
+    /// Height after 100 more layout passes, each fed the last result.
+    pub settled_height: f32,
     pub metrics: HotbarMetrics,
 }
 
@@ -68,9 +72,9 @@ pub struct OfflineHotbarReport {
     pub narrowed: HotbarSnapshot,
     pub reloaded: HotbarSnapshot,
     pub reset_forgets: bool,
-    /// 18 slots in the minimum 180x96 window.
-    pub minimum_18: HotbarSnapshot,
-    /// First-open 420x124 bar at the largest font scale.
+    /// Two rows in the minimum window.
+    pub minimum_two_rows: HotbarSnapshot,
+    /// First-open bar at the largest font scale.
     pub font_scaled: HotbarSnapshot,
     /// Same bar at the default font scale, for comparison.
     pub font_default: HotbarSnapshot,
@@ -87,34 +91,36 @@ pub fn hotbar_limits() -> ResizeLimits {
     )
 }
 
-/// Grid for a hotbar window of this size: the window border on both sides,
-/// the title and the button row above, one row of nine slots shown.
+/// Grid for a hotbar window of this size with one row shown: the grab strip
+/// above, the window border on the sides and below.
 pub fn hotbar_window_grid(width: f32, height: f32) -> HotbarMetrics {
-    hotbar_window_snapshot(9, width, height, 1.0).metrics
+    hotbar_window_snapshot(1, width, height, 1.0).metrics
 }
 
-/// `slots` drawn in a window of this size with the global font scale at
-/// `font_factor`, as `hotbar_grid.rs` lays it out (label line
-/// `ceil(font * factor) + 2`, the grid may grow the window downwards).
-pub fn hotbar_window_snapshot(slots: usize, width: f32, height: f32, font_factor: f32) -> HotbarSnapshot {
+/// `rows` rows drawn in a window of this size with the global font scale at
+/// `font_factor`, as `hotbar_grid.rs` lays it out.
+pub fn hotbar_window_snapshot(rows: usize, width: f32, height: f32, font_factor: f32) -> HotbarSnapshot {
     let theme = InterfaceTheme::turoran_dark();
-    let window = &theme.window;
-    let chrome = window.title_height + window.title_gap + window.border + theme.button.height + window.gaps;
-    let region_width = width - window.border * 2.0;
-    let grid_height = height - chrome;
-    let label_height = (from_theme_body(theme.tokens.font_size, HOTBAR_LABEL_FONT_PX) * font_factor).ceil() + 2.0;
-    let metrics = hotbar_metrics(slots, region_width, Some(grid_height), label_height);
+    let chrome = HOTBAR_GRAB_HEIGHT + HOTBAR_WINDOW_BORDER;
+    let region_width = width - HOTBAR_WINDOW_BORDER * 2.0;
+    let hint_height = hint_strip_height(from_theme_body(theme.tokens.font_size, HOTBAR_HINT_FONT_PX) * font_factor);
+    let metrics = hotbar_metrics(rows, region_width, Some(height - chrome), hint_height);
+    let laid_out_height = laid_out_window_height(height, rows, width, hint_height).max(height);
+    let settled_height = (0..100).fold(laid_out_height, |window, _| {
+        laid_out_window_height(window, rows, width, hint_height)
+    });
     HotbarSnapshot {
         width,
         height,
         region_width,
-        laid_out_height: (chrome + metrics.grid_height().max(grid_height)).clamp(height, HOTBAR_WINDOW_MAXIMUM_HEIGHT),
+        laid_out_height: laid_out_height.min(HOTBAR_WINDOW_MAXIMUM_HEIGHT),
+        settled_height,
         metrics,
     }
 }
 
 fn snapshot(area: Area) -> HotbarSnapshot {
-    hotbar_window_snapshot(9, area.width, area.height, 1.0)
+    hotbar_window_snapshot(1, area.width, area.height, 1.0)
 }
 
 fn save(cache: &mut WindowCache, area: Area) {
@@ -233,9 +239,195 @@ pub fn offline_hotbar_scenario(directory: &Path) -> Result<OfflineHotbarReport, 
         narrowed,
         reloaded,
         reset_forgets,
-        minimum_18: hotbar_window_snapshot(18, HOTBAR_WINDOW_MINIMUM_WIDTH, HOTBAR_WINDOW_MINIMUM_HEIGHT, 1.0),
-        font_scaled: hotbar_window_snapshot(9, 420.0, HOTBAR_DEFAULT_HEIGHT, font_scale_factor(FONT_SCALE_MAX)),
-        font_default: hotbar_window_snapshot(9, 420.0, HOTBAR_DEFAULT_HEIGHT, 1.0),
+        minimum_two_rows: hotbar_window_snapshot(2, HOTBAR_WINDOW_MINIMUM_WIDTH, HOTBAR_WINDOW_MINIMUM_HEIGHT, 1.0),
+        font_scaled: hotbar_window_snapshot(1, 420.0, HOTBAR_DEFAULT_HEIGHT, font_scale_factor(FONT_SCALE_MAX)),
+        font_default: hotbar_window_snapshot(1, 420.0, HOTBAR_DEFAULT_HEIGHT, 1.0),
         timeline: cooldown_timeline(),
     })
+}
+
+/// Pointer flow on a two-slot hotbar (Matthew t278u): right-click each slot,
+/// drag the skill onto the item's slot (swap), cancel a drag with Escape,
+/// then drag each one off the bar (world, then a window that ignores it).
+#[derive(Clone, Debug, PartialEq)]
+pub struct HotbarPointerReport {
+    /// Title of the window each right-click opens, in order: skill, item,
+    /// empty slot.
+    pub right_click_titles: Vec<Option<String>>,
+    /// Right-click opened the skill description and the item details.
+    pub right_click_kinds: Vec<&'static str>,
+    /// Slot kinds after the right-clicks (they must not clear).
+    pub after_right_click: [u8; 2],
+    /// Slot kinds after dropping the skill on the item's slot.
+    pub after_swap: [u8; 2],
+    /// Hotkey updates the swap sends: (slot, is_skill).
+    pub swap_updates: Vec<(u16, bool)>,
+    /// Escape cancelled the drag, and releasing afterwards cleared nothing.
+    pub escape_cancels: bool,
+    pub cleared_after_escape: bool,
+    /// Slots cleared by dropping on the world and on a window that ignores
+    /// the drag.
+    pub cleared_off_bar: Vec<u16>,
+    /// Slot kinds at the end.
+    pub after_drag_off: [u8; 2],
+}
+
+/// Run [`HotbarPointerReport`] offline.
+pub fn offline_hotbar_pointer() -> HotbarPointerReport {
+    use korangar_interface::MouseMode;
+    use korangar_networking::{InventoryItem, InventoryItemDetails};
+    use ragnarok_packets::{EquipPosition, HotbarSlot, HotbarTab, InventoryIndex, ItemId, RegularItemFlags, SkillLevel};
+
+    use crate::input::{InputEvent, MouseInputMode};
+    use crate::interface::components::hotbar_actions::{
+        DragRelease, escape_cancels_drag, hotbar_drag_source, hotbar_info_event, hotbar_item, slot_to_clear_on_release,
+    };
+    use crate::interface::components::item_tooltip::ItemTooltipText;
+    use crate::interface::resource::{ItemSource, SkillSource};
+    use crate::state::hotbar::Hotbar;
+    use crate::state::skills::{LearnableSkill, SkillAcquisition};
+    use crate::world::{ResourceMetadata, SpriteAnimationState};
+
+    const TAB: HotbarTab = HotbarTab(0);
+    const SKILL: HotbarSlot = HotbarSlot(0);
+    const ITEM: HotbarSlot = HotbarSlot(1);
+    let endure = LearnableSkill {
+        skill_id: SkillId(8),
+        maximum_level: SkillLevel(1),
+        file_name: "sm_endure".to_owned(),
+        skill_name: "Endure".to_owned(),
+        description: "Keep moving while hit.".to_owned(),
+        spell_point_costs: vec![10],
+        can_select_level: false,
+        acquisition: SkillAcquisition::Job,
+        required_skills: Default::default(),
+        required_for_skills: Default::default(),
+        sprite: None,
+        actions: None,
+        animation_state: SpriteAnimationState::new(ClientTick(0)),
+    };
+    let potion = InventoryItem {
+        metadata: ResourceMetadata {
+            texture: None,
+            name: "Red Potion".to_owned(),
+            description: String::new(),
+        },
+        index: InventoryIndex(2),
+        item_id: ItemId(501),
+        item_type: 0,
+        slot: [0; 4],
+        hire_expiration_date: 0,
+        details: InventoryItemDetails::Regular {
+            amount: 7,
+            equipped_position: EquipPosition::empty(),
+            flags: RegularItemFlags::IDENTIFIED,
+        },
+    };
+    let inventory = [potion.clone()];
+    let held = |item_id: ItemId| inventory.iter().find(|item| item.item_id == item_id).cloned();
+    let text = |item: &InventoryItem<ResourceMetadata>| ItemTooltipText {
+        body: format!("{} (inventory text)", item.metadata.name),
+        compare: String::new(),
+    };
+
+    let mut hotbar = Hotbar::default();
+    hotbar.set_skill_local(TAB, SKILL, endure);
+    hotbar.set_item_local(TAB, ITEM, 501, 7);
+    let kinds = |hotbar: &Hotbar| [SKILL, ITEM].map(|slot| hotbar.cell(TAB, slot).map(|cell| cell.kind).unwrap_or(u8::MAX));
+
+    let mut right_click_titles = Vec::new();
+    let mut right_click_kinds = Vec::new();
+    for slot in [SKILL, ITEM, HotbarSlot(5)] {
+        let cell = hotbar.cell(TAB, slot).filter(|cell| cell.kind != crate::state::hotbar::CELL_EMPTY);
+        match hotbar_info_event(cell, held, text) {
+            Some(InputEvent::ToggleSkillDescription { title, .. }) => {
+                right_click_titles.push(Some(title));
+                right_click_kinds.push("skill description");
+            }
+            Some(InputEvent::OpenItemDetails { title, .. }) => {
+                right_click_titles.push(Some(title));
+                right_click_kinds.push("item details");
+            }
+            Some(_) => right_click_kinds.push("other"),
+            None => right_click_titles.push(None),
+        }
+    }
+    let after_right_click = kinds(&hotbar);
+
+    // Drag the skill onto the item's slot: the slot's drop handler queues
+    // MoveSkill Hotbar -> Hotbar, which swaps.
+    let swap_updates = hotbar
+        .swap_local(TAB, SKILL, TAB, ITEM)
+        .map(|updates| updates.iter().map(|(_, slot, data)| (slot.0, data.is_skill())).collect())
+        .unwrap_or_default();
+    let after_swap = kinds(&hotbar);
+
+    // Pick up the item (now in SKILL) and press Escape.
+    let item_cell = hotbar.cell(TAB, SKILL).cloned();
+    let item = item_cell
+        .as_ref()
+        .and_then(|cell| hotbar_item(cell, held(ItemId(cell.item_id)).as_ref()));
+    let mut mouse_mode: MouseMode<crate::state::ClientState> = MouseMode::Custom {
+        mode: MouseInputMode::MoveItem {
+            item: item.unwrap_or(potion),
+            source: ItemSource::Hotbar { tab: TAB, slot: SKILL },
+        },
+    };
+    let escape_cancels = escape_cancels_drag(&mouse_mode);
+    if escape_cancels {
+        mouse_mode = MouseMode::Default;
+    }
+    let off_bar = DragRelease {
+        over_interface: false,
+        over_hotbar: false,
+        accepted: false,
+    };
+    let cleared_after_escape = slot_to_clear_on_release(hotbar_drag_source(&mouse_mode), off_bar).is_some();
+
+    // Drag the item off onto the world, then the skill onto a window that
+    // ignores it (for example chat).
+    let mut cleared_off_bar = Vec::new();
+    let skill = hotbar.cell(TAB, ITEM).and_then(|cell| cell.skill.clone());
+    let drags = [
+        (
+            MouseMode::Custom {
+                mode: MouseInputMode::MoveItem {
+                    item: hotbar_item(hotbar.cell(TAB, SKILL).unwrap(), None).unwrap(),
+                    source: ItemSource::Hotbar { tab: TAB, slot: SKILL },
+                },
+            },
+            off_bar,
+        ),
+        (
+            MouseMode::Custom {
+                mode: MouseInputMode::MoveSkill {
+                    skill: skill.expect("the swapped skill"),
+                    source: SkillSource::Hotbar { tab: TAB, slot: ITEM },
+                },
+            },
+            DragRelease {
+                over_interface: true,
+                over_hotbar: false,
+                accepted: false,
+            },
+        ),
+    ];
+    for (mode, release) in drags {
+        if let Some((tab, slot)) = slot_to_clear_on_release(hotbar_drag_source(&mode), release) {
+            hotbar.clear_local(tab, slot);
+            cleared_off_bar.push(slot.0);
+        }
+    }
+
+    HotbarPointerReport {
+        right_click_titles,
+        right_click_kinds,
+        after_right_click,
+        after_swap,
+        swap_updates,
+        escape_cancels,
+        cleared_after_escape,
+        cleared_off_bar,
+        after_drag_off: kinds(&hotbar),
+    }
 }

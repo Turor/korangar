@@ -718,6 +718,10 @@ pub enum InputEvent {
     },
     /// Show the next hotbar row count (1 through 4).
     CycleHotbarRows,
+    /// `+` on the hotbar: show the next row above (number, Q, then A keys).
+    AddHotbarRow,
+    /// `-` on the hotbar: hide the row added last.
+    RemoveHotbarRow,
     /// Rotate which stored row the F-keys hit and send `0x0B22`.
     RotateHotbar,
     /// Switch between the two Hercules hotkey tabs.

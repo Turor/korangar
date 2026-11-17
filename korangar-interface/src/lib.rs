@@ -448,6 +448,12 @@ where
         &self.mouse_mode
     }
 
+    /// Drop whatever the pointer holds without dropping it anywhere (Escape
+    /// during a drag).
+    pub fn cancel_mouse_mode(&mut self) {
+        self.mouse_mode = MouseMode::Default;
+    }
+
     /// Queue a focus request. The next interface frame resolves it once the
     /// target has been laid out.
     pub fn request_focus(&mut self, focus_id: impl element::id::FocusIdExt) {
@@ -1061,11 +1067,15 @@ impl<App: Application> InterfaceFrame<'_, App> {
         }
     }
 
+    /// End a drag. Returns whether a drop handler under the pointer took it
+    /// (queued an event), so the client can tell a drop on a window that
+    /// accepts the drag from one on a window that ignores it.
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
-    pub fn drop(&mut self, state: &State<App>) {
+    pub fn drop(&mut self, state: &State<App>) -> bool {
         self.event_queue.queue(Event::SetMouseMode {
             mouse_mode: MouseMode::Default,
         });
+        let queued = self.event_queue.len();
 
         if let Some(layout) = &self.overlay_layout {
             layout.handle_drop(state, self.event_queue, self.mouse_mode);
@@ -1076,6 +1086,8 @@ impl<App: Application> InterfaceFrame<'_, App> {
 
             layout.handle_drop(state, self.event_queue, self.mouse_mode);
         }
+
+        self.event_queue.len() > queued
     }
 
     #[cfg_attr(feature = "debug", korangar_debug::profile)]
