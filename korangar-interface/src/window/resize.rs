@@ -10,8 +10,69 @@ use crate::layout::area::Area;
 
 /// Thickness of the edge grab strips, in interface units.
 pub const RESIZE_EDGE: f32 = 5.0;
-/// Side of the corner grab squares, in interface units.
+/// Largest side of the corner grab squares, in interface units. The squares
+/// are as large as the window border (at least [`RESIZE_EDGE`]), so they stay
+/// out of the content: slots, buttons and the title close button.
 pub const RESIZE_CORNER: f32 = 14.0;
+
+/// Side of the corner grab squares for a window with this border.
+pub fn corner_side(border: f32) -> f32 {
+    let border = if border.is_finite() { border } else { 0.0 };
+    border.clamp(RESIZE_EDGE, RESIZE_CORNER)
+}
+
+/// What a click on the window frame does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameTarget {
+    /// The title-bar close button.
+    Close,
+    /// A resize handle; `index` is its place in [`resize_handle_areas`].
+    Resize { index: usize, mode: ResizeMode },
+    /// The title bar: move the window.
+    Move,
+}
+
+/// Where the title-bar close button is drawn (window theme
+/// `close_button_size`, inset by the border from the right edge).
+pub fn close_button_area(title_area: Area, button_width: f32, button_height: f32, border: f32) -> Area {
+    let offset = title_area.height - button_height;
+    Area {
+        left: title_area.left + title_area.width - button_width - border,
+        top: title_area.top + offset / 2.0,
+        width: button_width,
+        height: title_area.height - offset,
+    }
+}
+
+/// Frame click targets in priority order: the close button first, then the
+/// resize handles the window allows (corners before edges), then the title
+/// bar. The window layout checks them in this order and the first area
+/// under the pointer takes the click.
+pub fn frame_targets(
+    area: Area,
+    title_area: Area,
+    close_button: Option<Area>,
+    border: f32,
+    horizontal: bool,
+    vertical: bool,
+) -> Vec<(FrameTarget, Area)> {
+    let mut targets = Vec::with_capacity(10);
+    if let Some(close_button) = close_button {
+        targets.push((FrameTarget::Close, close_button));
+    }
+    for (index, (mode, handle)) in resize_handle_areas(area, border).into_iter().enumerate() {
+        if mode.restricted(horizontal, vertical).is_some() {
+            targets.push((FrameTarget::Resize { index, mode }, handle));
+        }
+    }
+    targets.push((FrameTarget::Move, title_area));
+    targets
+}
+
+/// The target a click at `(x, y)` lands on, see [`frame_targets`].
+pub fn frame_hit(targets: &[(FrameTarget, Area)], x: f32, y: f32) -> Option<FrameTarget> {
+    targets.iter().find(|(_, area)| contains(*area, x, y)).map(|(target, _)| *target)
+}
 
 /// Size limits of one window, in interface units.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -59,8 +120,9 @@ impl ResizeLimits {
 /// The eight grab areas of a window: corners first so they win where they
 /// overlap the edges. `area` is the window as laid out (interface units
 /// relative to its screen position, like every [`Area`] in a window layout).
-pub fn resize_handle_areas(area: Area) -> [(ResizeMode, Area); 8] {
-    let corner = RESIZE_CORNER.min(area.width / 2.0).min(area.height / 2.0).max(0.0);
+/// Corner squares are [`corner_side`] of `border`.
+pub fn resize_handle_areas(area: Area, border: f32) -> [(ResizeMode, Area); 8] {
+    let corner = corner_side(border).min(area.width / 2.0).min(area.height / 2.0).max(0.0);
     let edge = RESIZE_EDGE.min(corner).max(0.0);
     let right = area.left + area.width;
     let bottom = area.top + area.height;
@@ -111,8 +173,8 @@ fn contains(area: Area, x: f32, y: f32) -> bool {
 /// The handle under `(x, y)` (layout coordinates), restricted to the axes
 /// the window allows. Corners of a window that only grows one way resize
 /// that axis.
-pub fn resize_handle_at(area: Area, x: f32, y: f32, horizontal: bool, vertical: bool) -> Option<ResizeMode> {
-    resize_handle_areas(area)
+pub fn resize_handle_at(area: Area, border: f32, x: f32, y: f32, horizontal: bool, vertical: bool) -> Option<ResizeMode> {
+    resize_handle_areas(area, border)
         .into_iter()
         .filter(|(_, handle)| contains(*handle, x, y))
         .find_map(|(mode, _)| mode.restricted(horizontal, vertical))
@@ -319,7 +381,7 @@ mod tests {
     #[test]
     fn every_corner_and_edge_has_a_handle() {
         let area = window();
-        let hit = |x: f32, y: f32| resize_handle_at(area, x, y, true, true);
+        let hit = |x: f32, y: f32| resize_handle_at(area, 14.0, x, y, true, true);
         assert_eq!(hit(401.0, 201.0), Some(ResizeMode::TOP_LEFT));
         assert_eq!(hit(699.0, 201.0), Some(ResizeMode::TOP_RIGHT));
         assert_eq!(hit(401.0, 459.0), Some(ResizeMode::BOTTOM_LEFT));
@@ -337,11 +399,92 @@ mod tests {
         let area = window();
         // Fixed width, growing height: corners only resize vertically, side edges do
         // nothing.
-        assert_eq!(resize_handle_at(area, 699.0, 459.0, false, true), Some(ResizeMode::BOTTOM));
-        assert_eq!(resize_handle_at(area, 401.0, 201.0, false, true), Some(ResizeMode::TOP));
-        assert_eq!(resize_handle_at(area, 698.0, 330.0, false, true), None);
-        assert_eq!(resize_handle_at(area, 699.0, 459.0, false, false), None);
-        assert_eq!(resize_handle_at(area, 699.0, 459.0, true, false), Some(ResizeMode::RIGHT));
+        assert_eq!(resize_handle_at(area, 8.0, 699.0, 459.0, false, true), Some(ResizeMode::BOTTOM));
+        assert_eq!(resize_handle_at(area, 8.0, 401.0, 201.0, false, true), Some(ResizeMode::TOP));
+        assert_eq!(resize_handle_at(area, 8.0, 698.0, 330.0, false, true), None);
+        assert_eq!(resize_handle_at(area, 8.0, 699.0, 459.0, false, false), None);
+        assert_eq!(resize_handle_at(area, 8.0, 699.0, 459.0, true, false), Some(ResizeMode::RIGHT));
+    }
+
+    /// In-game window theme: border 8, title 22, close button 36x18.
+    fn framed_window() -> (Area, Area, Area) {
+        let area = window();
+        let title = Area {
+            left: area.left,
+            top: area.top,
+            width: area.width,
+            height: 22.0,
+        };
+        let close = close_button_area(title, 36.0, 18.0, 8.0);
+        (area, title, close)
+    }
+
+    #[test]
+    fn a_click_on_the_close_button_closes_rather_than_resizes() {
+        let (area, title, close) = framed_window();
+        let targets = frame_targets(area, title, Some(close), 8.0, true, true);
+        // Every corner of [X], its right edge next to the top-right corner, and the
+        // strip it shares with the top resize edge.
+        for (x, y) in [
+            (close.left, close.top),
+            (close.left + close.width, close.top),
+            (close.left + close.width, close.top + close.height),
+            (close.left + close.width - 0.5, close.top + 1.0),
+            (close.left + close.width / 2.0, close.top + 1.0),
+        ] {
+            assert_eq!(frame_hit(&targets, x, y), Some(FrameTarget::Close), "({x}, {y})");
+        }
+        // Without a close button the same spot is the top edge.
+        let unclosable = frame_targets(area, title, None, 8.0, true, true);
+        assert_eq!(
+            frame_hit(&unclosable, close.left + close.width / 2.0, close.top + 1.0),
+            Some(FrameTarget::Resize {
+                index: 6,
+                mode: ResizeMode::TOP
+            })
+        );
+    }
+
+    #[test]
+    fn corners_stay_inside_the_border_and_off_the_close_button() {
+        let (area, _, close) = framed_window();
+        let border = 8.0;
+        let content = Area {
+            left: area.left + border,
+            top: area.top + 22.0,
+            width: area.width - border * 2.0,
+            height: area.height - 22.0 - border,
+        };
+        let overlaps = |a: Area, b: Area| {
+            a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height && b.top < a.top + a.height
+        };
+        for (mode, handle) in resize_handle_areas(area, border) {
+            assert!(!overlaps(handle, content), "{mode:?} handle reaches into the content");
+            if mode != ResizeMode::TOP {
+                assert!(!overlaps(handle, close), "{mode:?} handle covers the close button");
+            }
+        }
+        assert_eq!(corner_side(8.0), 8.0);
+        assert_eq!(corner_side(30.0), RESIZE_CORNER);
+        assert_eq!(corner_side(0.0), RESIZE_EDGE);
+        assert_eq!(corner_side(f32::NAN), RESIZE_EDGE);
+    }
+
+    #[test]
+    fn the_title_bar_moves_and_the_content_is_not_a_frame_target() {
+        let (area, title, close) = framed_window();
+        let targets = frame_targets(area, title, Some(close), 8.0, true, true);
+        assert_eq!(frame_hit(&targets, 500.0, 212.0), Some(FrameTarget::Move));
+        assert_eq!(frame_hit(&targets, 500.0, 330.0), None);
+        // The bottom-right slot corner (content ends 8 units inside) is content.
+        assert_eq!(frame_hit(&targets, 691.0, 451.0), None);
+        assert_eq!(
+            frame_hit(&targets, 699.0, 459.0),
+            Some(FrameTarget::Resize {
+                index: 3,
+                mode: ResizeMode::BOTTOM_RIGHT
+            })
+        );
     }
 
     #[test]
@@ -352,7 +495,7 @@ mod tests {
             width: 16.0,
             height: 16.0,
         };
-        for (_, handle) in resize_handle_areas(area) {
+        for (_, handle) in resize_handle_areas(area, 8.0) {
             assert!(handle.width >= 0.0 && handle.height >= 0.0);
             assert!(handle.left >= 0.0 && handle.left + handle.width <= 16.0 + f32::EPSILON);
         }

@@ -247,6 +247,9 @@ pub struct InventoryView {
     cursor: Option<usize>,
     /// A grid key was the last input, so Enter belongs to the grid.
     cursor_armed: bool,
+    /// Columns this view's grid drew last frame (`0` before the first
+    /// layout). Written during layout, which only has `&self`.
+    drawn_columns: std::cell::Cell<usize>,
 }
 
 impl InventoryView {
@@ -282,8 +285,25 @@ impl InventoryView {
         self.cursor
     }
 
+    /// Columns the grid drew last frame; [`GRID_COLUMNS`] before the first
+    /// layout.
+    ///
+    /// [`GRID_COLUMNS`]: crate::interface::components::item_grid::GRID_COLUMNS
+    pub fn columns(&self) -> usize {
+        match self.drawn_columns.get() {
+            0 => crate::interface::components::item_grid::GRID_COLUMNS,
+            columns => columns,
+        }
+    }
+
+    /// Record the column count the grid laid out, so arrow keys step by a
+    /// drawn row.
+    pub fn note_columns(&self, columns: usize) {
+        self.drawn_columns.set(columns);
+    }
+
     pub fn move_cursor(&mut self, key: crate::state::grid_nav::GridKey) {
-        self.cursor = crate::state::grid_nav::step_cursor(self.cursor, self.items.len(), key);
+        self.cursor = crate::state::grid_nav::step_cursor_in(self.cursor, self.items.len(), key, self.columns());
         self.cursor_armed = self.cursor.is_some();
     }
 

@@ -164,15 +164,17 @@ pub fn offline_window_resize(directory: &Path) -> Result<OfflineResizeReport, St
     start.height = limits.clamp_height(start.height);
     let before = snapshot(start);
 
+    let border = InterfaceTheme::turoran_dark().window.border;
     let mut grabbed = None;
     let mut drag_frames = 0;
     let mut corner_drag = |area: Area, by: (f32, f32)| -> Result<Area, String> {
-        let (_, corner) = resize_handle_areas(area)
+        let (_, corner) = resize_handle_areas(area, border)
             .into_iter()
             .find(|(mode, _)| *mode == ResizeMode::BOTTOM_RIGHT)
             .ok_or("no bottom-right handle")?;
         let press = center(corner);
-        let mode = resize_handle_at(area, press.0, press.1, limits.allows_width(), true).ok_or("the corner is not a resize handle")?;
+        let mode =
+            resize_handle_at(area, border, press.0, press.1, limits.allows_width(), true).ok_or("the corner is not a resize handle")?;
         grabbed = Some(mode);
         let deltas = scripted_drag(press, (press.0 + by.0, press.1 + by.1));
         drag_frames += deltas.len();

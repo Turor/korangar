@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 
 pub use anchor::{Anchor, AnchorPoint};
 pub use interface_macros::StateWindow;
-pub use resize::{ResizeLimits, resize_handle_areas, resize_handle_at, resize_window_area};
+pub use resize::{FrameTarget, ResizeLimits, frame_hit, frame_targets, resize_handle_areas, resize_handle_at, resize_window_area};
 use rust_state::{Path, RustState, Selector, State};
 use store::WindowStore;
 
@@ -494,64 +494,75 @@ where
             layout.set_hovered();
         }
 
-        // Resize handles are checked before the title and the contents so the
-        // window edge wins where they meet.
+        // Frame targets in priority order (close button, resize handles, title
+        // bar), checked before the contents. The first hovered one takes the
+        // click; see `resize::frame_targets`.
+        let border = *state.get(&self.border);
         let horizontal_resize_available = *state.get(&self.minimum_width) < *state.get(&self.maximum_width);
         let vertical_resize_available = *state.get(&self.resizable);
+        let close_button_area = state.get(&self.closable).then(|| {
+            let close_button_size = *state.get(&self.close_button_size);
+            resize::close_button_area(
+                layout_info.title_area,
+                close_button_size.width(),
+                close_button_size.height(),
+                border,
+            )
+        });
+        let targets = resize::frame_targets(
+            layout_info.area,
+            layout_info.title_area,
+            close_button_area,
+            border,
+            horizontal_resize_available,
+            vertical_resize_available,
+        );
+        let hit = targets
+            .iter()
+            .find(|(_, target_area)| target_area.check().run(layout))
+            .map(|(target, target_area)| (*target, *target_area));
+
         let resizing_mode = match layout.get_mouse_mode() {
             MouseMode::ResizingWindow { resize_mode, window_id } if *window_id == data.id => Some(*resize_mode),
             _ => None,
         };
         let mut highlighted_handle = None;
-        for (index, (mode, handle_area)) in resize_handle_areas(layout_info.area).into_iter().enumerate() {
-            if mode.restricted(horizontal_resize_available, vertical_resize_available).is_none() {
-                continue;
+        let mut is_title_hovered = false;
+        let mut is_close_hovered = false;
+        match hit {
+            Some((resize::FrameTarget::Close, _)) => {
+                layout.register_click_handler(MouseButton::Left, &self.close_click_action);
+                is_close_hovered = true;
             }
-            if handle_area.check().run(layout) {
+            Some((resize::FrameTarget::Resize { index, .. }, handle_area)) => {
                 layout.register_click_handler(MouseButton::Left, &self.resize_click_actions[index]);
                 layout.set_hovered();
                 layout.set_resize_hovered();
                 highlighted_handle = Some(handle_area);
-                break;
             }
-            if resizing_mode == Some(mode) && highlighted_handle.is_none() {
-                highlighted_handle = Some(handle_area);
+            Some((resize::FrameTarget::Move, _)) => {
+                layout.register_click_handler(MouseButton::Left, &self.move_click_action);
+                is_title_hovered = true;
             }
+            None => {}
         }
-        if resizing_mode.is_some() {
+        if let Some(resizing_mode) = resizing_mode {
             layout.set_resize_hovered();
+            if highlighted_handle.is_none() {
+                highlighted_handle = resize_handle_areas(layout_info.area, border)
+                    .into_iter()
+                    .find(|(mode, _)| *mode == resizing_mode)
+                    .map(|(_, handle_area)| handle_area);
+            }
         }
 
-        let close_button = if *state.get(&self.closable) {
-            let close_button_size = *state.get(&self.close_button_size);
-            let offset = layout_info.title_area.height - close_button_size.height();
-
-            let close_button_area = Area {
-                left: layout_info.title_area.left + layout_info.title_area.width - close_button_size.width() - *state.get(&self.border),
-                top: layout_info.title_area.top + offset / 2.0,
-                width: close_button_size.width(),
-                height: layout_info.title_area.height - offset,
-            };
-
-            let close_button_color = match close_button_area.check().run(layout) {
-                true => {
-                    layout.register_click_handler(MouseButton::Left, &self.close_click_action);
-
-                    *state.get(&self.hovered_title_color)
-                }
+        let close_button = close_button_area.map(|close_button_area| {
+            let close_button_color = match is_close_hovered {
+                true => *state.get(&self.hovered_title_color),
                 false => *state.get(&self.title_color),
             };
-
-            Some((close_button_area, close_button_color))
-        } else {
-            None
-        };
-
-        let is_title_hovered = layout_info.title_area.check().run(layout);
-
-        if is_title_hovered {
-            layout.register_click_handler(MouseButton::Left, &self.move_click_action);
-        }
+            (close_button_area, close_button_color)
+        });
 
         layout.with_clip(layout_info.area, |layout| {
             layout.with_layer(|layout| {

@@ -9,7 +9,7 @@
 
 use ragnarok_packets::InventoryIndex;
 
-use crate::interface::components::item_grid::{GRID_COLUMNS, inventory_columns};
+use crate::interface::components::item_grid::GRID_COLUMNS;
 use crate::state::inventory_view::InventoryView;
 
 /// One navigation key.
@@ -26,9 +26,10 @@ pub enum GridKey {
 /// Next cursor position over `len` drawn stacks. The first key press on an
 /// empty cursor lands on the first stack (End on the last). Moves stop at
 /// the edges; Down from a row whose column is past the end goes to the last
-/// stack. Rows are as wide as the inventory grid drew them last frame.
+/// stack. Rows are [`GRID_COLUMNS`] wide; the grid uses [`step_cursor_in`]
+/// with the column count it drew.
 pub fn step_cursor(cursor: Option<usize>, len: usize, key: GridKey) -> Option<usize> {
-    step_cursor_in(cursor, len, key, inventory_columns())
+    step_cursor_in(cursor, len, key, GRID_COLUMNS)
 }
 
 /// [`step_cursor`] over rows of `columns` cells.
@@ -132,6 +133,17 @@ pub fn row_fraction_in(cursor: usize, rows: usize, columns: usize) -> Option<(f3
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_view_keeps_its_own_drawn_column_count() {
+        let inventory = InventoryView::default();
+        let storage = InventoryView::default();
+        assert_eq!(inventory.columns(), GRID_COLUMNS, "before the first layout");
+        inventory.note_columns(7);
+        storage.note_columns(13);
+        assert_eq!((inventory.columns(), storage.columns()), (7, 13));
+        assert_eq!(InventoryView::default().columns(), GRID_COLUMNS, "no process-wide state");
+    }
 
     #[test]
     fn arrows_step_by_the_drawn_column_count() {

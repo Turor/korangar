@@ -12,7 +12,6 @@
 //! squares. Rows scroll.
 
 use std::cell::{Cell, UnsafeCell};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use korangar_components::item_box;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
@@ -83,14 +82,6 @@ pub fn grid_metrics(width: f32, gaps: f32) -> GridMetrics {
     GridMetrics { columns, slot }
 }
 
-/// Columns the inventory grid drew last frame. Arrow keys step by a whole
-/// row of this many.
-static INVENTORY_COLUMNS: AtomicUsize = AtomicUsize::new(GRID_COLUMNS);
-
-/// See [`INVENTORY_COLUMNS`].
-pub fn inventory_columns() -> usize {
-    INVENTORY_COLUMNS.load(Ordering::Relaxed).max(1)
-}
 /// The grid never shrinks below the old 4x10 look.
 pub const GRID_MINIMUM_ROWS: usize = 4;
 /// Caps above this are not drawn in full; the grid shows the used stacks and
@@ -175,9 +166,8 @@ where
 
             let gaps = *state.get(&theme().window().gaps());
             let metrics = grid_metrics(resolver.push_available_area().width, gaps);
-            if matches!(self.source, ItemSource::Inventory) {
-                INVENTORY_COLUMNS.store(metrics.columns, Ordering::Relaxed);
-            }
+            // Arrow keys and the cursor reveal step by the drawn row.
+            inventory.view().note_columns(metrics.columns);
 
             if (self.built_slot - metrics.slot).abs() > f32::EPSILON {
                 self.cells.clear();
@@ -302,7 +292,7 @@ where
         let inventory = self.inventory_path.follow_safe(state);
         let view = inventory.view();
         let capacity = inventory.capacity().or(self.fallback_capacity);
-        let columns = inventory_columns();
+        let columns = view.columns();
         let rows = tab_cells(view.tab(), inventory.item_count(), view.len(), capacity).div_ceil(columns);
         let value = match view.cursor() {
             Some(cursor) if self.last.get() != Some((cursor, rows)) => {
