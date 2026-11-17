@@ -124,8 +124,8 @@ fn source_of(origin: MenuOrigin) -> ItemSource {
 impl Client {
     pub(crate) fn transfer_windows(&self) -> QuickMoveWindows {
         QuickMoveWindows {
-            storage: self.interface.is_window_with_class_open(WindowClass::Storage),
-            cart: self.interface.is_window_with_class_open(WindowClass::Cart),
+            storage: self.storage_is_open(),
+            cart: self.cart_pane_is_open(),
             trade: self.interface.is_window_with_class_open(WindowClass::Trade),
             mail: self.interface.is_window_with_class_open(WindowClass::MailCompose),
         }

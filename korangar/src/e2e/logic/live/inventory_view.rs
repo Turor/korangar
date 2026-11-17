@@ -18,7 +18,7 @@ pub struct LiveInventoryViewReport {
     pub inventory_rows: usize,
     pub worn: usize,
     /// Stacks drawn per tab, in [`InventoryTab::ALL`] order.
-    pub tab_counts: [usize; 5],
+    pub tab_counts: [usize; 7],
     /// The stack that was toggled and the acks for set and revert.
     pub toggled: Option<InventoryIndex>,
     pub set_ack: Option<bool>,

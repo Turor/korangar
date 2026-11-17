@@ -435,6 +435,10 @@ pub enum NetworkEvent {
     },
     /// Slot cap for the inventory, storage or cart.
     ItemCapacity(crate::packet_versions::item_capacity::ItemCapacity),
+    /// `ZC_CLOSE_STORE`: storage closed on the server.
+    StorageClosed,
+    /// `ZC_CARTOFF`: the cart was removed.
+    CartRemoved,
     /// Full cart snapshot. Distinct from [`Self::SetInventory`].
     SetCart {
         items: Vec<InventoryItem<NoMetadata>>,

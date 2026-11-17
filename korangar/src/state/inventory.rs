@@ -83,6 +83,24 @@ impl Inventory {
         self.view.refresh(&self.items, catalog_len, resolved);
     }
 
+    /// [`Self::refresh_view`] with NPC sell prices for the Zeny sort.
+    pub fn refresh_view_priced(
+        &mut self,
+        catalog_len: usize,
+        resolved: Vec<(u32, Option<(String, i32)>)>,
+        prices: Vec<(u32, Option<u32>)>,
+    ) {
+        self.view.refresh_priced(&self.items, catalog_len, resolved, prices);
+    }
+
+    /// `ZC_CARTOFF`: the cart is gone, so is its list and cap.
+    pub fn clear_list(&mut self) {
+        self.items.clear();
+        self.seen_item_ids.clear();
+        self.capacity = None;
+        self.equipped_ammo = None;
+    }
+
     /// `ZC_INVENTORY_TAB`: the item moved into or out of favorites.
     pub fn set_favorite(&mut self, index: InventoryIndex, favorite: bool) -> bool {
         let Some(item) = self.items.iter_mut().find(|item| item.index == index) else {

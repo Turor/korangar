@@ -5,10 +5,12 @@
 //!   `FIXED_INVENTORY_SIZE` (100). Turoran sends 500, so 600 in total.
 //! - `0x00F2` `ZC_NOTIFY_STOREITEM_COUNTINFO`: storage stacks and the cap.
 //! - `0x0121` `ZC_NOTIFY_CARTITEM_COUNTINFO`: cart stacks and `MAX_CART`.
+//! - `0x00F8` `ZC_CLOSE_STORE` and `0x012B` `ZC_CARTOFF`: storage closed and
+//!   cart removed, so the inventory drops its storage or cart pane.
 
 use ragnarok_bytes::ByteReader;
 use ragnarok_packets::handler::{DuplicateHandlerError, HandlerResult, NoPacketCallback, PacketCallback, PacketHandler};
-use ragnarok_packets::{CartItemCountPacket, Packet0b18, StorageItemCountPacket};
+use ragnarok_packets::{CartItemCountPacket, CartOffPacket, Packet0b18, StorageClosedPacket, StorageItemCountPacket};
 
 use crate::NetworkEvent;
 use crate::event::NetworkEventList;
@@ -64,7 +66,33 @@ where
             maximum: u32::from(packet.maximum_count),
         })
     })?;
+    packet_handler.register(|_: StorageClosedPacket| NetworkEvent::StorageClosed)?;
+    packet_handler.register(|_: CartOffPacket| NetworkEvent::CartRemoved)?;
     Ok(())
+}
+
+/// Storage-closed and cart-off flags in raw map-server bytes, for the e2e
+/// harness: `(storage_closed, cart_removed)` counts.
+pub fn decode_list_ends(bytes: &[u8]) -> Result<(usize, usize), String> {
+    let mut handler = PacketHandler::<NetworkEventList, NoPacketCallback>::with_callback(NoPacketCallback);
+    register_item_capacity_packets(&mut handler).map_err(|_| "duplicate capacity handler".to_owned())?;
+    let mut reader = ByteReader::without_metadata(bytes);
+    let mut counts = (0, 0);
+    while !reader.is_empty() {
+        match handler.process_one(&mut reader) {
+            HandlerResult::Ok(NetworkEventList(events)) => {
+                for event in events {
+                    match event {
+                        NetworkEvent::StorageClosed => counts.0 += 1,
+                        NetworkEvent::CartRemoved => counts.1 += 1,
+                        _ => {}
+                    }
+                }
+            }
+            _ => return Err("list end packet was not handled".to_owned()),
+        }
+    }
+    Ok(counts)
 }
 
 /// Runs raw map-server bytes through these handlers only. Used by the e2e
@@ -120,5 +148,10 @@ mod tests {
     #[test]
     fn no_expansion_is_the_fixed_hundred() {
         assert_eq!(ItemCapacity::inventory(0).maximum, 100);
+    }
+
+    #[test]
+    fn close_store_and_cart_off_decode() {
+        assert_eq!(super::decode_list_ends(&[0xF8, 0x00, 0x2B, 0x01, 0x2B, 0x01]).unwrap(), (1, 2));
     }
 }

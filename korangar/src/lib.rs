@@ -457,9 +457,11 @@ fn str_effect_light(path: &str) -> (Color, f32) {
 fn load_item_finder(loader: &loaders::GameFileLoader, state: &mut rust_state::State<state::ClientState>) {
     let catalog = korangar_loaders::FileLoader::get(loader, state::item_finder::CATALOG_PATH).ok();
     let sources = korangar_loaders::FileLoader::get(loader, state::item_finder::SOURCES_PATH).ok();
+    let prices = korangar_loaders::FileLoader::get(loader, state::item_finder::PRICES_PATH).ok();
     state
         .follow_mut(client_state().item_finder())
         .load_bytes(catalog.as_deref(), sources.as_deref());
+    state.follow_mut(client_state().item_finder()).load_prices(prices.as_deref());
     let options = state::item_compare::load_option_names(loader);
     state.follow_mut(client_state().item_finder()).set_option_names(options);
 }
@@ -2086,10 +2088,7 @@ impl Client {
                     // Close any remaining dialogs. The new map restores its own BGM.
                     crate::interface::npc_flow::dismiss_npc_dialog_ui(&mut self.client_state, &mut self.interface);
                     self.client_state.follow_mut(client_state().npc_presentation()).clear_map();
-                    if self.interface.is_window_with_class_open(WindowClass::Storage) {
-                        let _ = self.networking_system.close_storage();
-                        self.interface.close_window_with_class(WindowClass::Storage);
-                    }
+                    self.close_storage_pane(true);
                     if self.interface.is_window_with_class_open(WindowClass::Enchant) {
                         let _ = self.networking_system.close_ui_enchant();
                         self.interface.close_window_with_class(WindowClass::Enchant);
@@ -3157,6 +3156,7 @@ impl Client {
                             self.client_state.follow_mut(client_state().storage()).set_capacity(maximum)
                         }
                         korangar_networking::ItemCapacityList::Cart => {
+                            self.note_cart_equipped();
                             self.client_state.follow_mut(client_state().cart()).set_capacity(maximum)
                         }
                     }
@@ -3166,19 +3166,15 @@ impl Client {
                         .follow_mut(client_state().storage())
                         .fill(&self.async_loader, items);
                     self.load_storage_searches();
-                    self.interface.open_window(StorageWindow::new(client_state().storage()));
+                    self.open_storage_pane();
                 }
+                NetworkEvent::StorageClosed => self.close_storage_pane(false),
                 NetworkEvent::SetCart { items } => {
-                    let open_cart = !items.is_empty();
                     self.client_state.follow_mut(client_state().cart()).fill(&self.async_loader, items);
-
-                    if open_cart
-                        && self.client_state.try_follow(this_entity()).is_some()
-                        && !self.interface.is_window_with_class_open(WindowClass::Cart)
-                    {
-                        self.interface.open_window(CartWindow::new(client_state().cart()));
-                    }
+                    // The server only sends a cart list while a cart is on.
+                    self.note_cart_equipped();
                 }
+                NetworkEvent::CartRemoved => self.note_cart_removed(),
                 NetworkEvent::CartItemAdded { item } => {
                     self.note_item_arrival(crate::state::item_flags::ItemKey::from_inventory(&item));
                     let fresh = !self
@@ -5212,6 +5208,7 @@ impl Client {
         on_pet_egg_dismissed(eggs_open, &mut self.client_state, &self.interface);
         self.note_dismissed_workshops(enchant_open, grade_open, reform_open, synthesis_open, upgrade_open);
         self.sync_mail_compose();
+        self.sync_unified_inventory();
         self.sync_item_move();
         self.sync_item_menu();
 
@@ -5487,10 +5484,7 @@ impl Client {
                 }
                 InputEvent::ToggleCartWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
-                        match self.interface.is_window_with_class_open(WindowClass::Cart) {
-                            true => self.interface.close_window_with_class(WindowClass::Cart),
-                            false => self.interface.open_window(CartWindow::new(client_state().cart())),
-                        }
+                        self.toggle_cart_pane();
                     }
                 }
                 InputEvent::ToggleSwitchEquipWindow => {
@@ -6353,12 +6347,7 @@ impl Client {
                         self.interface.open_window(DressingRoomWindow::new());
                     }
                 }
-                InputEvent::CloseStorage => {
-                    if self.interface.is_window_with_class_open(WindowClass::Storage) {
-                        let _ = self.networking_system.close_storage();
-                        self.interface.close_window_with_class(WindowClass::Storage);
-                    }
-                }
+                InputEvent::CloseStorage => self.close_storage_pane(true),
                 InputEvent::EnchantSelectItem { index } => {
                     self.client_state.follow_mut(client_state().enchant_window()).select(index);
                 }

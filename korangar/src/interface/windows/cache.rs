@@ -25,6 +25,11 @@ impl WindowState {
     }
 }
 
+/// Classes that no longer open a window of their own. The cart and storage
+/// are panes of the Inventory window now (Matthew t275u), so their old saved
+/// sizes are dropped on load and never written back.
+pub const RETIRED_CLASSES: [WindowClass; 2] = [WindowClass::Cart, WindowClass::Storage];
+
 #[derive(Default, Serialize, Deserialize)]
 pub struct WindowCache {
     entries: HashMap<WindowClass, WindowState>,
@@ -51,8 +56,11 @@ impl WindowCache {
     pub fn load_from(path: &std::path::Path) -> Option<Self> {
         std::fs::read_to_string(path)
             .ok()
-            .and_then(|data| ron::from_str(&data).ok())
-            .map(|entries| Self { entries })
+            .and_then(|data| ron::from_str::<HashMap<WindowClass, WindowState>>(&data).ok())
+            .map(|mut entries| {
+                entries.retain(|class, _| !RETIRED_CLASSES.contains(class));
+                Self { entries }
+            })
     }
 
     fn save(&self) {
@@ -226,7 +234,29 @@ impl Drop for WindowCache {
 
 #[cfg(test)]
 mod tests {
-    use super::{WindowState, resolve_window_state};
+    use super::{WindowCache, WindowState, resolve_window_state};
+
+    #[test]
+    fn retired_cart_and_storage_entries_are_dropped_on_load() {
+        let screen = ScreenSize {
+            width: 1280.0,
+            height: 720.0,
+        };
+        let (anchor, size) = resolve_window_state(None, WindowClass::Inventory, screen).expect("inventory preset");
+        let mut entries = std::collections::HashMap::new();
+        for class in [WindowClass::Inventory, WindowClass::Cart, WindowClass::Storage] {
+            entries.insert(class, WindowState::new(anchor, size));
+        }
+        let directory = std::env::temp_dir().join(format!("korangar-window-cache-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("window_cache.ron");
+        std::fs::write(&path, ron::to_string(&entries).unwrap()).unwrap();
+        let cache = WindowCache::load_from(&path).expect("cache loads");
+        assert!(cache.saved(WindowClass::Inventory).is_some());
+        assert!(cache.saved(WindowClass::Cart).is_none());
+        assert!(cache.saved(WindowClass::Storage).is_none());
+        let _ = std::fs::remove_dir_all(&directory);
+    }
     use crate::graphics::{ScreenPosition, ScreenSize};
     use crate::interface::windows::WindowClass;
 

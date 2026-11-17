@@ -6,7 +6,6 @@ use std::path::Path;
 use std::time::Instant;
 
 use crate::Client;
-use crate::interface::windows::WindowClass;
 use crate::state::inventory::InventoryPathExt;
 use crate::state::storage_tools::{SAVED_SEARCHES_FILE, SavedSearchFile, deposit_plan, live_deposit_amount};
 use crate::state::{ClientStatePathExt, client_state};
@@ -69,7 +68,7 @@ impl Client {
         if !self.client_state.follow(client_state().storage_tools()).is_depositing() {
             return;
         }
-        if !self.interface.is_window_with_class_open(WindowClass::Storage) {
+        if !self.storage_is_open() {
             self.client_state.follow_mut(client_state().storage_tools()).cancel_deposit();
             return;
         }

@@ -15,7 +15,10 @@ fn storage_tabs_saved_searches_and_deposit_offline() {
         (InventoryTab::All, vec![0, 1, 2]),
         (InventoryTab::Usable, vec![2]),
         (InventoryTab::Equip, vec![1]),
+        (InventoryTab::Ammo, vec![]),
         (InventoryTab::Etc, vec![0]),
+        (InventoryTab::Cards, vec![]),
+        (InventoryTab::Favorites, vec![]),
     ]);
 
     // Worn knife 3 and favorite card 7 never move. Arrows 5 carry the ammo
@@ -25,8 +28,10 @@ fn storage_tabs_saved_searches_and_deposit_offline() {
         (InventoryTab::All, "", None, vec![2, 4, 5, 6, 8]),
         (InventoryTab::All, "", Some(5), vec![2, 4, 6, 8]),
         (InventoryTab::Usable, "", None, vec![2, 8]),
-        (InventoryTab::Etc, "", None, vec![5, 6]),
-        (InventoryTab::Etc, "", Some(5), vec![6]),
+        // Arrows are on the Ammo tab now; equipped ones stay put.
+        (InventoryTab::Ammo, "", None, vec![5]),
+        (InventoryTab::Ammo, "", Some(5), vec![]),
+        (InventoryTab::Etc, "", None, vec![6]),
         // The knife holds a Poring Card; the card itself is a favorite.
         (InventoryTab::All, "poring", None, vec![4]),
         (InventoryTab::Favorites, "", None, vec![]),
