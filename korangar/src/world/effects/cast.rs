@@ -139,6 +139,16 @@ impl CastBars {
         if delay_ms == 0 {
             return;
         }
+        // Keep a longer after-cast that is still running, like
+        // `SkillCooldowns::start_after_cast` does for the slots.
+        let longer_running = self.bars.iter().any(|bar| {
+            bar.entity_id == entity_id
+                && bar.phase == CastPhase::AfterCast
+                && bar.delay_ms.saturating_sub(now_ms.wrapping_sub(bar.started_at_ms)) > delay_ms
+        });
+        if longer_running {
+            return;
+        }
         self.cancel(entity_id);
         self.bars.push(CastBar {
             entity_id,
@@ -219,6 +229,24 @@ mod tests {
         let bar_top = player_cast_bar_offset(&theme);
         assert!(bar_top - theme.border_size.height > status_bottom, "frames must not overlap");
         assert!((bar_top - theme.border_size.height - status_bottom - CAST_BAR_GAP).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn a_shorter_after_cast_does_not_replace_a_longer_running_one() {
+        let mut bars = CastBars::default();
+        bars.begin_after_cast(7, 3_000, 0);
+        // 1 s in, 2 s remain; a 500 ms after-cast must not cut it short.
+        bars.begin_after_cast(7, 500, 1_000);
+        let bar = bars.iter_visible(2_000).next().expect("the long after-cast still shows");
+        assert_eq!(bar.phase, CastPhase::AfterCast);
+        assert!((bar.progress - 2.0 / 3.0).abs() < 1e-6, "{}", bar.progress);
+        // A longer one does replace it.
+        bars.begin_after_cast(7, 4_000, 2_000);
+        let bar = bars.iter_visible(4_000).next().unwrap();
+        assert!((bar.progress - 0.5).abs() < 1e-6, "{}", bar.progress);
+        // Another entity is independent.
+        bars.begin_after_cast(8, 100, 4_000);
+        assert_eq!(bars.iter_visible(4_050).count(), 2);
     }
 
     #[test]

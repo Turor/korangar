@@ -78,6 +78,11 @@ fn finite_or_zero(value: f32) -> f32 {
 /// The largest slot wins; on a tie the layout with more columns wins, so a
 /// roomy region keeps the classic one-row bar. The result is floored and
 /// clamped to [`HOTBAR_SLOT_MINIMUM`]..[`HOTBAR_SLOT_MAXIMUM`].
+///
+/// When even the best shape would need slots under the minimum, the slots
+/// stay at the minimum, the grid takes as many columns as fit the width and
+/// wraps onto more rows. The grid is then taller than `height` (the window
+/// grows to fit) but never wider than `width` (review-1 B2).
 pub fn hotbar_metrics(slots: usize, width: f32, height: Option<f32>, label_height: f32) -> HotbarMetrics {
     let slots = slots.max(1);
     let width = finite_or_zero(width);
@@ -97,7 +102,13 @@ pub fn hotbar_metrics(slots: usize, width: f32, height: Option<f32>, label_heigh
             best = Some((slot, columns, rows));
         }
     }
-    let (slot, columns, rows) = best.expect("at least one column count");
+    let (mut slot, mut columns, mut rows) = best.expect("at least one column count");
+    if slot < HOTBAR_SLOT_MINIMUM {
+        let fitting = ((width + HOTBAR_SLOT_GAP) / (HOTBAR_SLOT_MINIMUM + HOTBAR_SLOT_GAP)).floor() as usize;
+        columns = fitting.clamp(1, slots);
+        rows = slots.div_ceil(columns);
+        slot = HOTBAR_SLOT_MINIMUM;
+    }
     HotbarMetrics {
         columns,
         rows,
@@ -204,6 +215,56 @@ mod tests {
         assert!(metrics.grid_height() <= 400.0 + 0.01);
         assert_eq!(metrics.cell_position(0), (0, 0));
         assert_eq!(metrics.cell_position(metrics.columns), (0, 1));
+    }
+
+    /// Review-1 B2: for every slot count the bar can show and every region the
+    /// window can give it, the grid fits the width. When the slots are above
+    /// the minimum it also fits the height; at the minimum it may grow down.
+    #[test]
+    fn grid_always_fits_the_region_width() {
+        // Region = window minus borders, title and buttons; scan wider than
+        // the window limits allow, at every label height the font scale gives.
+        for slots in [9, 18, 38] {
+            for label in [LABEL, 10.0, 17.0] {
+                for width in (150..=1_200).step_by(3).map(|width| width as f32) {
+                    for height in std::iter::once(None).chain((0..=700).step_by(7).map(|height| Some(height as f32))) {
+                        let metrics = hotbar_metrics(slots, width, height, label);
+                        let context = format!("{slots} slots, {width}x{height:?}, label {label}: {metrics:?}");
+                        assert!(metrics.grid_width() <= width + 0.01, "too wide: {context}");
+                        assert!(metrics.columns * metrics.rows >= slots, "too few cells: {context}");
+                        assert!(metrics.columns >= 1 && metrics.columns <= slots, "{context}");
+                        assert!((HOTBAR_SLOT_MINIMUM..=HOTBAR_SLOT_MAXIMUM).contains(&metrics.slot), "{context}");
+                        if let Some(height) = height
+                            && metrics.slot > HOTBAR_SLOT_MINIMUM
+                        {
+                            assert!(metrics.grid_height() <= height + 0.01, "too tall: {context}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn minimum_slots_wrap_instead_of_overflowing() {
+        // The review's cases: 18 or 38 slots in the 420x124 or 96px-tall bar,
+        // and 9 slots in a 180-240 wide, 96 tall bar.
+        for (slots, width, height) in [
+            (18, 410.0, 36.0),
+            (38, 410.0, 36.0),
+            (38, 410.0, 64.0),
+            (9, 170.0, 36.0),
+            (9, 230.0, 36.0),
+        ] {
+            let metrics = hotbar_metrics(slots, width, Some(height), LABEL);
+            assert_eq!(metrics.slot, HOTBAR_SLOT_MINIMUM, "{metrics:?}");
+            assert!(metrics.grid_width() <= width, "{slots} in {width}: {metrics:?}");
+            assert_eq!(
+                metrics.columns,
+                ((width + HOTBAR_SLOT_GAP) / (HOTBAR_SLOT_MINIMUM + HOTBAR_SLOT_GAP)).floor() as usize
+            );
+            assert!(metrics.rows >= 2, "{metrics:?}");
+        }
     }
 
     #[test]

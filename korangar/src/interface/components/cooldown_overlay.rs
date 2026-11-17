@@ -7,6 +7,11 @@
 //! global after-cast delay (`EFST_POSTDELAY`) every skill gets a dimmer sweep
 //! with no number, like roBrowser's `ShortCut.setGlobalSkillDelay`.
 //! Colors come from the `hotbar` theme section.
+//!
+//! Icons are sprites or textures (custom instructions), and inside one layer
+//! every rectangle renders before them, so the sweep goes on its own layer
+//! above the icon (review-1 B1). The digits get a one-pixel outline so they
+//! stay readable over bright icons.
 
 use std::sync::LazyLock;
 
@@ -59,41 +64,85 @@ pub fn sweep_area(area: Area, fraction_remaining: f32) -> Area {
     }
 }
 
-/// Draw the overlay for `delay` over `area`.
+/// Offsets of the digit outline copies, drawn under the digits.
+pub const OUTLINE_OFFSETS: [(f32, f32); 4] = [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)];
+
+/// Colors and font for one overlay.
+#[derive(Clone, Copy, Debug)]
+pub struct OverlayStyle {
+    pub sweep_color: Color,
+    pub text_color: Color,
+    pub outline_color: Color,
+    pub font_size: FontSize,
+}
+
+/// Queue the sweep (and `text`, outlined) on a layer above everything the
+/// caller queued so far for this slot, so it covers the icon.
+pub fn push_overlay(
+    layout: &mut WindowLayout<'_, ClientState>,
+    area: Area,
+    fraction_remaining: f32,
+    text: Option<&'static str>,
+    style: OverlayStyle,
+) {
+    use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
+
+    let sweep = sweep_area(area, fraction_remaining);
+    layout.with_layer(|layout| {
+        if sweep.height > 0.0 {
+            layout.add_rectangle(
+                sweep,
+                CornerDiameter::uniform(0.0),
+                style.sweep_color,
+                Color::TRANSPARENT,
+                ShadowPadding::uniform(0.0),
+            );
+        }
+        let Some(text) = text else {
+            return;
+        };
+        let copies = OUTLINE_OFFSETS
+            .iter()
+            .map(|&(dx, dy)| (dx, dy, style.outline_color))
+            .chain(std::iter::once((0.0, 0.0, style.text_color)));
+        for (dx, dy, color) in copies {
+            layout.add_text(
+                Area {
+                    left: area.left + dx,
+                    top: area.top + dy,
+                    ..area
+                },
+                text,
+                style.font_size,
+                color,
+                color,
+                HorizontalAlignment::Center { offset: 0.0, border: 0.0 },
+                VerticalAlignment::Center { offset: 0.0 },
+                OverflowBehavior::Shrink,
+            );
+        }
+    });
+}
+
+/// Draw the overlay for `delay` over `area`. Call it after the icon.
 pub fn add_delay_overlay<'a>(layout: &mut WindowLayout<'a, ClientState>, state: &'a State<ClientState>, area: Area, delay: SlotDelay) {
-    let (color, text) = match delay {
+    let (sweep_color, text) = match delay {
         SlotDelay::Cooldown(view) => (
             *state.get(&client_theme().hotbar().cooldown_color()),
             Some(cooldown_text(view.remaining_seconds())),
         ),
         SlotDelay::AfterCast(_) => (*state.get(&client_theme().hotbar().after_cast_color()), None),
     };
-    let sweep = sweep_area(area, delay.view().fraction_remaining);
-    if sweep.height > 0.0 {
-        layout.add_rectangle(
-            sweep,
-            CornerDiameter::uniform(0.0),
-            color,
-            Color::TRANSPARENT,
-            ShadowPadding::uniform(0.0),
-        );
-    }
-    if let Some(text) = text {
-        use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
-        layout.add_text(
-            area,
-            text,
-            FontSize(from_theme_body(
-                *state.get(&client_theme().tokens().font_size()),
-                COOLDOWN_FONT_PX,
-            )),
-            *state.get(&client_theme().hotbar().cooldown_text_color()),
-            *state.get(&client_theme().hotbar().cooldown_text_color()),
-            HorizontalAlignment::Center { offset: 0.0, border: 0.0 },
-            VerticalAlignment::Center { offset: 0.0 },
-            OverflowBehavior::Shrink,
-        );
-    }
+    let style = OverlayStyle {
+        sweep_color,
+        text_color: *state.get(&client_theme().hotbar().cooldown_text_color()),
+        outline_color: *state.get(&client_theme().hotbar().cooldown_text_outline_color()),
+        font_size: FontSize(from_theme_body(
+            *state.get(&client_theme().tokens().font_size()),
+            COOLDOWN_FONT_PX,
+        )),
+    };
+    push_overlay(layout, area, delay.view().fraction_remaining, text, style);
 }
 
 /// Overlay for `skill_id` at the current client tick, if it is waiting.
@@ -120,6 +169,81 @@ mod tests {
         assert_eq!(cooldown_text(3_601), "2h");
         assert_eq!(cooldown_text(86_400), "24h");
         assert_eq!(cooldown_text(u32::MAX), "24h+");
+    }
+
+    fn style() -> OverlayStyle {
+        OverlayStyle {
+            sweep_color: Color::BLACK.with_alpha_u8(185),
+            text_color: Color::WHITE,
+            outline_color: Color::BLACK,
+            font_size: FontSize(14.0),
+        }
+    }
+
+    const SLOT: Area = Area {
+        left: 0.0,
+        top: 0.0,
+        width: 40.0,
+        height: 40.0,
+    };
+
+    /// Review-1 B1: the sweep used to be a rectangle on the icon's layer, and
+    /// rectangles render before sprites and textures, so solid icons hid it.
+    /// The overlay must land on a layer above the one holding the icon.
+    #[test]
+    fn overlay_is_queued_above_the_icon() {
+        let mut layout = korangar_interface::layout::WindowLayout::<ClientState>::default();
+        // Stand-in for the slot frame and the icon, queued on the slot's layer
+        // exactly where hotbar_grid and the skill tree queue them.
+        layout.add_rectangle(
+            SLOT,
+            CornerDiameter::uniform(0.0),
+            Color::WHITE,
+            Color::TRANSPARENT,
+            ShadowPadding::uniform(0.0),
+        );
+        let icon_layer = layout.current_layer_index();
+
+        push_overlay(&mut layout, SLOT, 0.5, Some(cooldown_text(7)), style());
+        assert_eq!(layout.current_layer_index(), icon_layer, "the overlay layer is popped again");
+
+        let layers = layout.queued_instructions();
+        let overlay_layer = layers
+            .iter()
+            .position(|layer| layer.texts > 0)
+            .expect("the overlay queued its digits");
+        assert!(
+            overlay_layer > icon_layer,
+            "overlay on layer {overlay_layer}, icon on {icon_layer}: {layers:?}"
+        );
+        assert_eq!(
+            layers[icon_layer].rectangles, 1,
+            "nothing of the overlay is on the icon layer: {layers:?}"
+        );
+        assert_eq!(layers[overlay_layer].rectangles, 1, "{layers:?}");
+        assert_eq!(
+            layers[overlay_layer].texts,
+            OUTLINE_OFFSETS.len() + 1,
+            "outline copies plus the digits"
+        );
+    }
+
+    #[test]
+    fn after_cast_overlay_has_no_digits_and_an_empty_sweep_draws_nothing() {
+        let mut layout = korangar_interface::layout::WindowLayout::<ClientState>::default();
+        push_overlay(&mut layout, SLOT, 0.25, None, style());
+        let layers = layout.queued_instructions();
+        assert_eq!(layers[0], Default::default());
+        assert_eq!((layers[1].rectangles, layers[1].texts), (1, 0));
+
+        let mut layout = korangar_interface::layout::WindowLayout::<ClientState>::default();
+        push_overlay(&mut layout, SLOT, 0.0, None, style());
+        assert!(
+            layout
+                .queued_instructions()
+                .iter()
+                .all(|layer| layer.rectangles == 0 && layer.texts == 0)
+        );
     }
 
     #[test]
