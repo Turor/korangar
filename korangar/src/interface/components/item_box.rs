@@ -381,7 +381,9 @@ where
             state,
             layout,
             layout_info.area,
-            state.try_get(&self.item_path).map(crate::state::item_flags::HoverNote::from_item),
+            state
+                .try_get(&self.item_path)
+                .map(|item| crate::state::item_flags::HoverNote::from_slot(item, self.handler.source)),
             is_hovered,
         );
     }

@@ -131,7 +131,7 @@ impl Client {
         }
     }
 
-    fn item_for_slot(&self, source: ItemSource, index: InventoryIndex) -> Option<InventoryItem<ResourceMetadata>> {
+    pub(crate) fn item_for_slot(&self, source: ItemSource, index: InventoryIndex) -> Option<InventoryItem<ResourceMetadata>> {
         let items = match source {
             ItemSource::Storage => self.client_state.follow(client_state().storage().items()),
             ItemSource::Cart => self.client_state.follow(client_state().cart().items()),
@@ -155,7 +155,7 @@ impl Client {
         };
         let equipped_ammo = !matches!(source, ItemSource::Storage | ItemSource::Cart)
             && self.client_state.follow(client_state().inventory()).equipped_ammo() == Some(item.index);
-        let flags = self.slot_flags(&item);
+        let flags = self.slot_flags(source, &item);
         let reaction = react_to_secondary(
             source,
             &item,
@@ -221,7 +221,7 @@ impl Client {
         }
         if let Some(toggle) = extension_toggle(entry) {
             self.dismiss_item_menu();
-            self.apply_menu_flag(InventoryIndex(item_index), toggle);
+            self.apply_menu_flag(source_of(origin), InventoryIndex(item_index), toggle);
             return;
         }
         let effect = effect_of(entry, origin);

@@ -14,6 +14,7 @@ pub(super) mod item_move;
 pub(super) mod item_tooltip;
 pub(super) mod job_names;
 pub(super) mod mail;
+pub(super) mod server_item_marks;
 pub(super) mod storage_tools;
 
 use std::fs::OpenOptions;

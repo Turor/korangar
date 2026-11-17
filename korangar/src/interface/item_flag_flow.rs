@@ -5,37 +5,100 @@ use korangar_networking::{InventoryItem, MessageColor, SellItem};
 use ragnarok_packets::{InventoryIndex, SoldItemInformation};
 
 use crate::Client;
+use crate::interface::resource::ItemSource;
 use crate::interface::windows::{ItemDropAmountBox, ItemDropWindow, WindowClass};
 use crate::state::inventory::{GroundDrop, InventoryPathExt, ground_drop};
-use crate::state::item_flags::{self, FlagSend, ItemKey, JunkAdd, StackRef};
+use crate::state::item_flags::{self, FlagSend, ItemKey, JunkAdd, MarkPlace, StackRef};
 use crate::state::item_menu::{FlagToggle, ItemSlotFlags};
 use crate::state::{ChatMessage, ClientStatePathExt, client_state};
 use crate::world::ResourceMetadata;
 
 impl Client {
     /// Junk / lock flags of a stack, for the right-click menu.
-    pub(crate) fn slot_flags<Meta>(&self, item: &InventoryItem<Meta>) -> ItemSlotFlags {
+    pub(crate) fn slot_flags<Meta>(&self, source: ItemSource, item: &InventoryItem<Meta>) -> ItemSlotFlags {
         let flags = self.client_state.follow(client_state().item_flags());
         let key = ItemKey::from_inventory(item);
+        let place = MarkPlace::for_source(source, item.index.0);
         ItemSlotFlags {
-            junk: flags.is_junk(key),
-            locked: flags.is_locked(key),
+            junk: flags.junk_at(key, place),
+            locked: flags.locked_at(key, place),
         }
     }
 
     /// A Junk / Lock row picked from the item menu. The row is re-read by
     /// index; a stack that is gone is left alone.
-    pub(crate) fn apply_menu_flag(&mut self, index: InventoryIndex, toggle: FlagToggle) {
-        let Some(key) = self
-            .client_state
-            .follow(client_state().inventory().items())
-            .iter()
-            .find(|item| item.index == index)
-            .map(ItemKey::from_inventory)
-        else {
+    pub(crate) fn apply_menu_flag(&mut self, source: ItemSource, index: InventoryIndex, toggle: FlagToggle) {
+        let Some(key) = self.item_for_slot(source, index).map(|item| ItemKey::from_inventory(&item)) else {
             return;
         };
-        item_flags::apply_toggle(self.client_state.follow_mut(client_state().item_flags()), key, toggle);
+        let place = MarkPlace::for_source(source, index.0);
+        item_flags::apply_toggle_at(self.client_state.follow_mut(client_state().item_flags()), key, place, toggle);
+    }
+
+    /// `0x0EF1` from the map server. Says hello once marks are announced; an
+    /// older server never sends this, so the file stays in use.
+    pub(crate) fn on_turoran_features(&mut self, features: u32) {
+        if features & ragnarok_packets::TURORAN_FEATURE_ITEM_MARKS == 0 {
+            return;
+        }
+        self.client_state.follow_mut(client_state().item_flags()).enable_server_marks();
+        let _ = self.networking_system.send_item_marks_hello();
+    }
+
+    pub(crate) fn on_item_marks_list(&mut self, entries: Vec<korangar_networking::ItemMark>) {
+        self.client_state
+            .follow_mut(client_state().item_flags())
+            .apply_server_list(entries.into_iter().map(|entry| {
+                (
+                    MarkPlace {
+                        location: entry.location,
+                        index: entry.index.0,
+                    },
+                    entry.marks,
+                )
+            }));
+        if self.client_state.follow(client_state().item_flags()).migration_pending() {
+            let mut rows = self
+                .client_state
+                .follow(client_state().inventory().items())
+                .iter()
+                .map(|item| (MarkPlace::inventory(item.index.0), ItemKey::from_inventory(item)))
+                .collect::<Vec<_>>();
+            rows.extend(
+                self.client_state
+                    .follow(client_state().cart().items())
+                    .iter()
+                    .map(|item| (MarkPlace::cart(item.index.0), ItemKey::from_inventory(item))),
+            );
+            self.client_state.follow_mut(client_state().item_flags()).migrate_file_marks(&rows);
+        }
+    }
+
+    pub(crate) fn on_item_mark_result(&mut self, location: u8, index: u16, marks: u8, result: u8) {
+        let outcome =
+            self.client_state
+                .follow_mut(client_state().item_flags())
+                .apply_server_result(MarkPlace { location, index }, marks, result);
+        if outcome == crate::state::item_flags::MarkOutcome::Refused {
+            self.item_flag_notice("Marks cannot be changed right now.".to_owned());
+        }
+    }
+
+    /// Send the `0x0EE1` requests J, L, the item menu, and the file migration
+    /// queued, paced to what the server accepts.
+    pub(crate) fn send_item_mark_requests(&mut self) {
+        let requests = self.client_state.follow_mut(client_state().item_flags()).take_mark_requests();
+        for request in requests {
+            let _ = self
+                .networking_system
+                .set_item_mark(request.place.location, request.place.index, request.mask, request.value);
+        }
+    }
+
+    /// A row that was used up, or filled at a fresh index, has no server marks
+    /// any more. A stack the server moved with its marks is listed again.
+    pub(crate) fn clear_item_marks_at(&mut self, place: MarkPlace) {
+        self.client_state.follow_mut(client_state().item_flags()).clear_place(place);
     }
 
     pub(crate) fn bind_item_flags(&mut self, character_id: u32) {
@@ -87,7 +150,7 @@ impl Client {
     pub(crate) fn locked_inventory_message(&self, index: u16) -> Option<String> {
         let flags = self.client_state.follow(client_state().item_flags());
         let items = self.client_state.follow(client_state().inventory().items());
-        item_flags::refusal_for_index(flags, items, index)
+        item_flags::refusal_for_index(flags, items, index, ragnarok_packets::ITEM_MARK_INVENTORY)
     }
 
     pub(crate) fn on_sell_junk(&mut self) {

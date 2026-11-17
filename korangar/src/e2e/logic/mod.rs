@@ -21,6 +21,7 @@ pub use self::live::item_move::LiveItemMoveReport;
 pub use self::live::item_tooltip::LiveItemTooltipReport;
 pub use self::live::job_names::LivePartyJobReport;
 pub use self::live::mail::MailRoundTrip;
+pub use self::live::server_item_marks::{LiveLockedRow, LiveServerMarksReport, OfflineServerMarksReport, offline_server_item_marks};
 pub use self::live::storage_tools::LiveStoragePlanReport;
 pub use self::live::{SelectedOption, SentChoice};
 use crate::autopilot::{ClickKind, Command, parse_command};

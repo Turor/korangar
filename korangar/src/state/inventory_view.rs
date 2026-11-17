@@ -168,7 +168,7 @@ pub fn view_order(
 ) -> Vec<usize> {
     let mut order: Vec<usize> = (0..items.len()).filter(|&position| shows_in_tab(&items[position], tab)).collect();
     match sort {
-        InventorySort::Server => order.sort_by_key(|&position| items[position].index.0),
+        InventorySort::Server => order.sort_by_key(|&position| items[position].index.server_order()),
         InventorySort::Type => order.sort_by_key(|&position| {
             let item = &items[position];
             (type_rank(item.item_type), item.item_type, item.item_id.0, item.index.0)
