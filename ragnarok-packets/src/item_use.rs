@@ -150,8 +150,10 @@ mod tests {
     }
 
     #[test]
-    fn inventory_index_below_two_is_rejected() {
-        let bytes = [0x39, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00];
+    fn inventory_index_zero_is_rejected() {
+        // Wire 1 is storage row 0 (storage is server index + 1); only wire 0
+        // is never a row.
+        let bytes = [0x39, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
         let mut reader = ByteReader::without_metadata(&bytes);
         assert!(UseItemPacket::packet_from_bytes(&mut reader).is_err());
     }

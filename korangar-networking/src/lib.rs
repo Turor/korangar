@@ -4289,14 +4289,17 @@ mod packet_handlers {
         .unwrap();
         assert_eq!(writer.as_slice(), &list);
 
-        // A storage row 0 (wire 1) has no InventoryIndex; it is skipped, not
-        // a decode error for the whole list.
-        let storage = [0xE8, 0x0E, 14, 0, 1, 0, 2, 1, 0, 1, 2, 3, 0, 2];
+        // Storage row 0 is wire 1, the same index the storage list gives it;
+        // a wire 0 entry is skipped, not a decode error for the whole list.
+        let storage = [0xE8, 0x0E, 18, 0, 1, 0, 2, 1, 0, 1, 2, 3, 0, 2, 0, 0, 0, 1];
         let events = process_one(SupportedPacketVersion::_20250716, &storage);
         assert!(matches!(
             events.as_slice(),
             [NetworkEvent::ItemMarksList { entries }]
-                if entries.as_slice() == [crate::ItemMark { location: 2, index: InventoryIndex(1), marks: ITEM_MARK_JUNK }]
+                if entries.as_slice() == [
+                    crate::ItemMark { location: 2, index: InventoryIndex(u16::MAX), marks: ITEM_MARK_LOCK },
+                    crate::ItemMark { location: 2, index: InventoryIndex(1), marks: ITEM_MARK_JUNK },
+                ]
         ));
 
         let empty = [0xE8, 0x0E, 6, 0, 1, 0];

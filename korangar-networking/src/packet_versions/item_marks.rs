@@ -27,7 +27,7 @@ where
             .filter_map(|entry| {
                 Some(ItemMark {
                     location: entry.location,
-                    index: ragnarok_packets::InventoryIndex(entry.wire_index.checked_sub(2)?),
+                    index: ragnarok_packets::InventoryIndex::from_wire(entry.wire_index)?,
                     marks: entry.marks,
                 })
             })

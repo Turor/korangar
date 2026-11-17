@@ -272,23 +272,44 @@ pub struct ColorRGBA {
     pub alpha: u8,
 }
 
-/// Item index is always actual index + 2.
+/// Item index as the item packets carry it, minus 2.
+///
+/// Inventory and cart send server index + 2. Storage (Kafra and guild) sends
+/// server index + 1, so storage row 0 is wire 1: it decodes as
+/// `InventoryIndex(u16::MAX)` and encodes back to wire 1, and every other
+/// storage row is server index − 1. Use [`Self::server_order`] to sort.
+/// Wire 0 is never a valid row.
 #[derive(Clone, Copy, Debug, FixedByteSize, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct InventoryIndex(pub u16);
 
+impl InventoryIndex {
+    /// The index for a raw wire value; `None` for wire 0.
+    pub fn from_wire(raw: u16) -> Option<Self> {
+        (raw != 0).then(|| Self(raw.wrapping_sub(2)))
+    }
+
+    /// The raw wire value.
+    pub fn wire(self) -> u16 {
+        self.0.wrapping_add(2)
+    }
+
+    /// Sort key in server order; storage row 0 comes first.
+    pub fn server_order(self) -> u16 {
+        self.0.wrapping_add(1)
+    }
+}
+
 impl FromBytes for InventoryIndex {
     fn from_bytes(byte_reader: &mut ByteReader) -> ConversionResult<Self> {
         let raw = u16::from_bytes(byte_reader)?;
-        raw.checked_sub(2)
-            .map(Self)
-            .ok_or_else(|| ConversionError::from_message("invalid inventory index"))
+        Self::from_wire(raw).ok_or_else(|| ConversionError::from_message("invalid inventory index"))
     }
 }
 
 impl ToBytes for InventoryIndex {
     fn to_bytes(&self, byte_writer: &mut ByteWriter) -> ConversionResult<usize> {
-        u16::to_bytes(&(self.0 + 2), byte_writer)
+        u16::to_bytes(&self.wire(), byte_writer)
     }
 }
 
@@ -7065,6 +7086,31 @@ mod hotkey_wire_tests {
     use ragnarok_bytes::{ByteReader, ByteWriter, FromBytes, ToBytes};
 
     use super::*;
+
+    #[test]
+    fn storage_row_zero_index_round_trips() {
+        // Storage row 0 is wire 1; inventory row 0 is wire 2.
+        let mut reader = ByteReader::without_metadata(&[1, 0]);
+        let storage_zero = InventoryIndex::from_bytes(&mut reader).unwrap();
+        assert_eq!(storage_zero, InventoryIndex(u16::MAX));
+        let mut reader = ByteReader::without_metadata(&[2, 0]);
+        assert_eq!(InventoryIndex::from_bytes(&mut reader).unwrap(), InventoryIndex(0));
+        let mut reader = ByteReader::without_metadata(&[0, 0]);
+        assert!(InventoryIndex::from_bytes(&mut reader).is_err());
+        assert!(InventoryIndex(0).server_order() > storage_zero.server_order());
+
+        // Taking storage row 0 out sends wire 1, as Hercules reads it (wire - 1).
+        let mut writer = ByteWriter::new();
+        MoveItemFromStoragePacket::new(storage_zero, 3)
+            .packet_to_bytes(&mut writer)
+            .unwrap();
+        assert_eq!(writer.as_slice(), &[0x65, 0x03, 1, 0, 3, 0, 0, 0]);
+        let mut writer = ByteWriter::new();
+        MoveItemFromStoragePacket::new(InventoryIndex(4), 1)
+            .packet_to_bytes(&mut writer)
+            .unwrap();
+        assert_eq!(writer.as_slice(), &[0x65, 0x03, 6, 0, 1, 0, 0, 0]);
+    }
 
     #[test]
     fn hotkey_is_skill_flag_roundtrips_hercules_layout() {
