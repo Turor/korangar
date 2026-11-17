@@ -3,7 +3,7 @@
 //! cooldown and cast timeline shows casting, then the after-cast delay on
 //! every skill, then the used skill cooling down.
 
-use korangar::e2e::{CastPhaseView, SlotDelayView, offline_hotbar_scenario};
+use korangar::e2e::{CastPhaseView, SlotDelayView, offline_hotbar_pointer, offline_hotbar_scenario};
 use korangar_interface::layout::ResizeMode;
 
 #[test]
@@ -82,4 +82,28 @@ fn hotbar_corner_drag_reflows_and_cooldowns_follow_the_cast_offline() {
     assert!(cooling.other_skill.is_none());
     let ready = &report.timeline[3];
     assert!(ready.used_skill.is_none() && ready.other_skill.is_none());
+}
+
+/// Matthew t278u: right-click opens info and keeps the slot, a drop on a
+/// slot swaps, Escape cancels, a drop off the bar clears.
+#[test]
+fn hotbar_right_click_opens_info_and_dragging_off_clears_offline() {
+    const SKILL: u8 = 1;
+    const ITEM: u8 = 2;
+    const EMPTY: u8 = 0;
+    let report = offline_hotbar_pointer();
+    eprintln!("E2E_HOTBAR_POINTER {report:?}");
+    assert_eq!(report.right_click_titles, [
+        Some("Endure".to_owned()),
+        Some("Red Potion".to_owned()),
+        None
+    ]);
+    assert_eq!(report.right_click_kinds, ["skill description", "item details"]);
+    assert_eq!(report.after_right_click, [SKILL, ITEM], "right-click must not clear");
+    assert_eq!(report.after_swap, [ITEM, SKILL]);
+    assert_eq!(report.swap_updates, [(1, true), (0, false)]);
+    assert!(report.escape_cancels);
+    assert!(!report.cleared_after_escape, "Escape leaves the slot alone");
+    assert_eq!(report.cleared_off_bar, [0, 1]);
+    assert_eq!(report.after_drag_off, [EMPTY, EMPTY]);
 }

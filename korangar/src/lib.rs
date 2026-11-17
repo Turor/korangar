@@ -5940,6 +5940,11 @@ impl Client {
                 }
                 InputEvent::CloseTopWindow => self.on_close_top_window(),
                 InputEvent::Escape => {
+                    if crate::interface::components::hotbar_actions::escape_cancels_drag(self.interface.get_mouse_mode()) {
+                        // Cancel the drag; the slot or stack stays where it was.
+                        self.interface.cancel_mouse_mode();
+                        continue;
+                    }
                     if self.client_state.follow_mut(client_state().companion_window()).cancel_capture() {
                         continue;
                     }
@@ -8613,23 +8618,7 @@ impl Client {
 
             let is_rotating_camera = mouse_mode.is_rotating_camera();
             let is_grabbing = mouse_mode.is_grabbing();
-            let dragged_from_hotbar = match mouse_mode {
-                korangar_interface::MouseMode::Custom {
-                    mode:
-                        MouseInputMode::MoveItem {
-                            source: ItemSource::Hotbar { tab, slot },
-                            ..
-                        },
-                }
-                | korangar_interface::MouseMode::Custom {
-                    mode:
-                        MouseInputMode::MoveSkill {
-                            source: SkillSource::Hotbar { tab, slot },
-                            ..
-                        },
-                } => Some((*tab, *slot)),
-                _ => None,
-            };
+            let dragged_from_hotbar = crate::interface::components::hotbar_actions::hotbar_drag_source(mouse_mode);
             let is_chat_open = self.interface.is_window_with_class_open(WindowClass::Chat);
             self.window_groups.observe(|class| self.interface.is_window_with_class_open(class));
             let menu_bar_bits = menu_bar_open_bits(|class| self.interface.is_window_with_class_open(class));
@@ -8812,10 +8801,20 @@ impl Client {
                 if !is_interface_hovered && let Some(item) = dragged_inventory_item {
                     self.input_event_buffer.push(InputEvent::DropItem { item });
                 }
-                if !is_interface_hovered && let Some((tab, slot)) = dragged_from_hotbar {
+                // A hotbar drag that ends off the bar and is not taken by a
+                // window clears the slot (Matthew t278u).
+                let over_hotbar = interface_frame.hovered_class() == Some(WindowClass::Hotbar);
+                let accepted = interface_frame.drop(&self.client_state);
+                let release = crate::interface::components::hotbar_actions::DragRelease {
+                    over_interface: is_interface_hovered,
+                    over_hotbar,
+                    accepted,
+                };
+                if let Some((tab, slot)) =
+                    crate::interface::components::hotbar_actions::slot_to_clear_on_release(dragged_from_hotbar, release)
+                {
                     self.input_event_buffer.push(InputEvent::ClearHotbar { tab, slot });
                 }
-                interface_frame.drop(&self.client_state);
             }
 
             if let Some(delta) = input_report.scroll {

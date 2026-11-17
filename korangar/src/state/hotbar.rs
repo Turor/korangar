@@ -321,20 +321,35 @@ impl Hotbar {
     ) where
         Callback: PacketCallback + Send,
     {
-        let Some(source) = self.index(source_tab, source_slot) else {
-            return;
-        };
-        let Some(destination) = self.index(destination_tab, destination_slot) else {
-            return;
-        };
+        for (tab, slot, data) in self
+            .swap_local(source_tab, source_slot, destination_tab, destination_slot)
+            .into_iter()
+            .flatten()
+        {
+            let _ = networking_system.set_hotkey_data(tab, slot, data);
+        }
+    }
+
+    /// Swap two cells locally and return the hotkey updates to send,
+    /// destination first. `None` when either slot is invalid or both are the
+    /// same slot.
+    pub fn swap_local(
+        &mut self,
+        source_tab: HotbarTab,
+        source_slot: HotbarSlot,
+        destination_tab: HotbarTab,
+        destination_slot: HotbarSlot,
+    ) -> Option<[(HotbarTab, HotbarSlot, HotkeyData); 2]> {
+        let source = self.index(source_tab, source_slot)?;
+        let destination = self.index(destination_tab, destination_slot)?;
         if source == destination {
-            return;
+            return None;
         }
         self.cells.swap(source, destination);
-        let first = self.cells[destination].to_hotkey();
-        let second = self.cells[source].to_hotkey();
-        let _ = networking_system.set_hotkey_data(destination_tab, destination_slot, first);
-        let _ = networking_system.set_hotkey_data(source_tab, source_slot, second);
+        Some([
+            (destination_tab, destination_slot, self.cells[destination].to_hotkey()),
+            (source_tab, source_slot, self.cells[source].to_hotkey()),
+        ])
     }
 
     pub fn apply_skill_sprite(&mut self, skill_id: SkillId, sprite: Arc<Sprite>) {

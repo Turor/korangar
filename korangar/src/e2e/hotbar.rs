@@ -239,3 +239,189 @@ pub fn offline_hotbar_scenario(directory: &Path) -> Result<OfflineHotbarReport, 
         timeline: cooldown_timeline(),
     })
 }
+
+/// Pointer flow on a two-slot hotbar (Matthew t278u): right-click each slot,
+/// drag the skill onto the item's slot (swap), cancel a drag with Escape,
+/// then drag each one off the bar (world, then a window that ignores it).
+#[derive(Clone, Debug, PartialEq)]
+pub struct HotbarPointerReport {
+    /// Title of the window each right-click opens, in order: skill, item,
+    /// empty slot.
+    pub right_click_titles: Vec<Option<String>>,
+    /// Right-click opened the skill description and the item details.
+    pub right_click_kinds: Vec<&'static str>,
+    /// Slot kinds after the right-clicks (they must not clear).
+    pub after_right_click: [u8; 2],
+    /// Slot kinds after dropping the skill on the item's slot.
+    pub after_swap: [u8; 2],
+    /// Hotkey updates the swap sends: (slot, is_skill).
+    pub swap_updates: Vec<(u16, bool)>,
+    /// Escape cancelled the drag, and releasing afterwards cleared nothing.
+    pub escape_cancels: bool,
+    pub cleared_after_escape: bool,
+    /// Slots cleared by dropping on the world and on a window that ignores
+    /// the drag.
+    pub cleared_off_bar: Vec<u16>,
+    /// Slot kinds at the end.
+    pub after_drag_off: [u8; 2],
+}
+
+/// Run [`HotbarPointerReport`] offline.
+pub fn offline_hotbar_pointer() -> HotbarPointerReport {
+    use korangar_interface::MouseMode;
+    use korangar_networking::{InventoryItem, InventoryItemDetails};
+    use ragnarok_packets::{EquipPosition, HotbarSlot, HotbarTab, InventoryIndex, ItemId, RegularItemFlags, SkillLevel};
+
+    use crate::input::{InputEvent, MouseInputMode};
+    use crate::interface::components::hotbar_actions::{
+        DragRelease, escape_cancels_drag, hotbar_drag_source, hotbar_info_event, hotbar_item, slot_to_clear_on_release,
+    };
+    use crate::interface::components::item_tooltip::ItemTooltipText;
+    use crate::interface::resource::{ItemSource, SkillSource};
+    use crate::state::hotbar::Hotbar;
+    use crate::state::skills::{LearnableSkill, SkillAcquisition};
+    use crate::world::{ResourceMetadata, SpriteAnimationState};
+
+    const TAB: HotbarTab = HotbarTab(0);
+    const SKILL: HotbarSlot = HotbarSlot(0);
+    const ITEM: HotbarSlot = HotbarSlot(1);
+    let endure = LearnableSkill {
+        skill_id: SkillId(8),
+        maximum_level: SkillLevel(1),
+        file_name: "sm_endure".to_owned(),
+        skill_name: "Endure".to_owned(),
+        description: "Keep moving while hit.".to_owned(),
+        spell_point_costs: vec![10],
+        can_select_level: false,
+        acquisition: SkillAcquisition::Job,
+        required_skills: Default::default(),
+        required_for_skills: Default::default(),
+        sprite: None,
+        actions: None,
+        animation_state: SpriteAnimationState::new(ClientTick(0)),
+    };
+    let potion = InventoryItem {
+        metadata: ResourceMetadata {
+            texture: None,
+            name: "Red Potion".to_owned(),
+            description: String::new(),
+        },
+        index: InventoryIndex(2),
+        item_id: ItemId(501),
+        item_type: 0,
+        slot: [0; 4],
+        hire_expiration_date: 0,
+        details: InventoryItemDetails::Regular {
+            amount: 7,
+            equipped_position: EquipPosition::empty(),
+            flags: RegularItemFlags::IDENTIFIED,
+        },
+    };
+    let inventory = [potion.clone()];
+    let held = |item_id: ItemId| inventory.iter().find(|item| item.item_id == item_id).cloned();
+    let text = |item: &InventoryItem<ResourceMetadata>| ItemTooltipText {
+        body: format!("{} (inventory text)", item.metadata.name),
+        compare: String::new(),
+    };
+
+    let mut hotbar = Hotbar::default();
+    hotbar.set_skill_local(TAB, SKILL, endure);
+    hotbar.set_item_local(TAB, ITEM, 501, 7);
+    let kinds = |hotbar: &Hotbar| [SKILL, ITEM].map(|slot| hotbar.cell(TAB, slot).map(|cell| cell.kind).unwrap_or(u8::MAX));
+
+    let mut right_click_titles = Vec::new();
+    let mut right_click_kinds = Vec::new();
+    for slot in [SKILL, ITEM, HotbarSlot(5)] {
+        let cell = hotbar.cell(TAB, slot).filter(|cell| cell.kind != crate::state::hotbar::CELL_EMPTY);
+        match hotbar_info_event(cell, held, text) {
+            Some(InputEvent::ToggleSkillDescription { title, .. }) => {
+                right_click_titles.push(Some(title));
+                right_click_kinds.push("skill description");
+            }
+            Some(InputEvent::OpenItemDetails { title, .. }) => {
+                right_click_titles.push(Some(title));
+                right_click_kinds.push("item details");
+            }
+            Some(_) => right_click_kinds.push("other"),
+            None => right_click_titles.push(None),
+        }
+    }
+    let after_right_click = kinds(&hotbar);
+
+    // Drag the skill onto the item's slot: the slot's drop handler queues
+    // MoveSkill Hotbar -> Hotbar, which swaps.
+    let swap_updates = hotbar
+        .swap_local(TAB, SKILL, TAB, ITEM)
+        .map(|updates| updates.iter().map(|(_, slot, data)| (slot.0, data.is_skill())).collect())
+        .unwrap_or_default();
+    let after_swap = kinds(&hotbar);
+
+    // Pick up the item (now in SKILL) and press Escape.
+    let item_cell = hotbar.cell(TAB, SKILL).cloned();
+    let item = item_cell
+        .as_ref()
+        .and_then(|cell| hotbar_item(cell, held(ItemId(cell.item_id)).as_ref()));
+    let mut mouse_mode: MouseMode<crate::state::ClientState> = MouseMode::Custom {
+        mode: MouseInputMode::MoveItem {
+            item: item.unwrap_or(potion),
+            source: ItemSource::Hotbar { tab: TAB, slot: SKILL },
+        },
+    };
+    let escape_cancels = escape_cancels_drag(&mouse_mode);
+    if escape_cancels {
+        mouse_mode = MouseMode::Default;
+    }
+    let off_bar = DragRelease {
+        over_interface: false,
+        over_hotbar: false,
+        accepted: false,
+    };
+    let cleared_after_escape = slot_to_clear_on_release(hotbar_drag_source(&mouse_mode), off_bar).is_some();
+
+    // Drag the item off onto the world, then the skill onto a window that
+    // ignores it (for example chat).
+    let mut cleared_off_bar = Vec::new();
+    let skill = hotbar.cell(TAB, ITEM).and_then(|cell| cell.skill.clone());
+    let drags = [
+        (
+            MouseMode::Custom {
+                mode: MouseInputMode::MoveItem {
+                    item: hotbar_item(hotbar.cell(TAB, SKILL).unwrap(), None).unwrap(),
+                    source: ItemSource::Hotbar { tab: TAB, slot: SKILL },
+                },
+            },
+            off_bar,
+        ),
+        (
+            MouseMode::Custom {
+                mode: MouseInputMode::MoveSkill {
+                    skill: skill.expect("the swapped skill"),
+                    source: SkillSource::Hotbar { tab: TAB, slot: ITEM },
+                },
+            },
+            DragRelease {
+                over_interface: true,
+                over_hotbar: false,
+                accepted: false,
+            },
+        ),
+    ];
+    for (mode, release) in drags {
+        if let Some((tab, slot)) = slot_to_clear_on_release(hotbar_drag_source(&mode), release) {
+            hotbar.clear_local(tab, slot);
+            cleared_off_bar.push(slot.0);
+        }
+    }
+
+    HotbarPointerReport {
+        right_click_titles,
+        right_click_kinds,
+        after_right_click,
+        after_swap,
+        swap_updates,
+        escape_cancels,
+        cleared_after_escape,
+        cleared_off_bar,
+        after_drag_off: kinds(&hotbar),
+    }
+}

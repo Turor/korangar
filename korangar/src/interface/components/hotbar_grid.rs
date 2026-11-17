@@ -20,9 +20,11 @@ use rust_state::{Path, State};
 use crate::graphics::Color;
 use crate::input::{InputEvent, MouseInputMode};
 use crate::interface::components::cooldown_overlay::add_skill_cooldown;
+use crate::interface::components::hotbar_actions::{hotbar_info_event, hotbar_item};
 use crate::interface::components::hotbar_layout::{
     HOTBAR_HINT_FONT_PX, HOTBAR_LABEL_FONT_PX, HOTBAR_SLOT_GAP, HotbarMetrics, drawn_visual_slots, ellipsize, hotbar_metrics,
 };
+use crate::interface::components::item_tooltip::inventory_tooltips;
 use crate::interface::font_scale::{self, from_theme_body};
 use crate::interface::resource::{ItemSource, SkillSource};
 use crate::loaders::{FontSize, OverflowBehavior};
@@ -63,17 +65,30 @@ where
     }
 }
 
-struct ClearHandler<H> {
+/// Right-click: the skill description or the item details, never a clear
+/// (Matthew t278u). Removing is a drag off the bar.
+struct InfoHandler<H, I> {
     slot: SlotLocate<H>,
+    inventory_path: I,
 }
 
-impl<H> ClickHandler<ClientState> for ClearHandler<H>
+impl<H, I> ClickHandler<ClientState> for InfoHandler<H, I>
 where
     H: Path<ClientState, Hotbar>,
+    I: Path<ClientState, Inventory>,
 {
     fn handle_click(&self, state: &State<ClientState>, queue: &mut EventQueue<ClientState>) {
         let (tab, slot) = self.slot.tab_slot(state);
-        queue.queue(InputEvent::ClearHotbar { tab, slot });
+        let cell = state.get(&self.slot.hotbar_path).cell(tab, slot);
+        let inventory = state.get(&self.inventory_path);
+        let event = hotbar_info_event(
+            cell,
+            |item_id| inventory.find_by_item_id(item_id).cloned(),
+            |item| inventory_tooltips(state, item, ItemSource::Inventory),
+        );
+        if let Some(event) = event {
+            queue.queue(event);
+        }
     }
 }
 
@@ -104,7 +119,7 @@ where
                 },
             });
         } else if let Some(item_id) = cell_item_id(cell)
-            && let Some(item) = state.get(&self.inventory_path).find_by_item_id(item_id).cloned()
+            && let Some(item) = hotbar_item(cell, state.get(&self.inventory_path).find_by_item_id(item_id))
         {
             if crate::state::item_link::shift_links() {
                 queue.queue(InputEvent::LinkItemInChat { item });
@@ -170,7 +185,7 @@ pub struct HotbarGrid<H, I> {
     hotbar_path: H,
     inventory_path: I,
     activates: [ActivateHandler<H>; HOTBAR_SLOTS],
-    clears: [ClearHandler<H>; HOTBAR_SLOTS],
+    infos: [InfoHandler<H, I>; HOTBAR_SLOTS],
     drags: [DragHandler<H, I>; HOTBAR_SLOTS],
     drops: [SlotDrop<H>; HOTBAR_SLOTS],
     /// Skill level or stack amount, bottom-right inside the slot.
@@ -196,11 +211,12 @@ where
                     hotbar_path,
                 },
             }),
-            clears: std::array::from_fn(|visual| ClearHandler {
+            infos: std::array::from_fn(|visual| InfoHandler {
                 slot: SlotLocate {
                     visual: visual as u16,
                     hotbar_path,
                 },
+                inventory_path,
             }),
             drags: std::array::from_fn(|visual| DragHandler {
                 slot: SlotLocate {
@@ -402,7 +418,7 @@ where
                 if occupied {
                     layout.register_click_handler(MouseButton::Left, &self.drags[visual as usize]);
                     layout.register_click_handler(MouseButton::DoubleLeft, &self.activates[visual as usize]);
-                    layout.register_click_handler(MouseButton::Right, &self.clears[visual as usize]);
+                    layout.register_click_handler(MouseButton::Right, &self.infos[visual as usize]);
                 }
             }
             // Hint and level/amount go on the layer above the icon (with the
