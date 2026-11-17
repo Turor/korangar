@@ -1182,10 +1182,15 @@ pub enum NetworkEvent {
     RemoveSkill {
         skill_id: SkillId,
     },
-    /// Remaining cooldown for a skill (`DisplaySkillCooldownPacket`, 0x043D).
+    /// A skill started its cooldown (`DisplaySkillCooldownPacket`, 0x043D).
+    /// `delay_ms` is a duration from now, not a tick.
     SkillCooldown {
         skill_id: SkillId,
-        until: ClientTick,
+        delay_ms: u32,
+    },
+    /// Running cooldowns on login (`SkillCooldownListPacket`, 0x0985).
+    SkillCooldownList {
+        entries: Vec<SkillCooldownEntry>,
     },
     /// A cast was cancelled (`SkillCastCancelPacket` / `ZC_DISPEL`, `0x01B9`).
     ///

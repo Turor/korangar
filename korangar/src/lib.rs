@@ -1318,6 +1318,7 @@ impl Client {
         *self.client_state.follow_mut(client_state().client_tick()) = client_tick;
         self.client_state.follow_mut(client_state().status_effects()).expire(client_tick);
         self.cast_bars.expire(client_tick.0);
+        self.client_state.follow_mut(client_state().skill_cooldowns()).prune(client_tick);
         self.client_state.follow_mut(client_state().navigation()).expire(client_tick.0);
         self.client_state.follow_mut(client_state()).expire_chat_overlays(client_tick.0);
         self.client_state
@@ -4544,8 +4545,16 @@ impl Client {
                         .follow_mut(client_state().skill_tree_window().chosen_skill_level())
                         .remove(&skill_id);
                 }
-                NetworkEvent::SkillCooldown { skill_id, until } => {
-                    self.client_state.follow_mut(client_state().skill_cooldowns()).set(skill_id, until);
+                NetworkEvent::SkillCooldown { skill_id, delay_ms } => {
+                    self.client_state
+                        .follow_mut(client_state().skill_cooldowns())
+                        .set(skill_id, delay_ms, client_tick);
+                }
+                NetworkEvent::SkillCooldownList { entries } => {
+                    let cooldowns = self.client_state.follow_mut(client_state().skill_cooldowns());
+                    for entry in entries {
+                        cooldowns.set_remaining(entry.skill_id, entry.remaining_ms, entry.total_ms, client_tick);
+                    }
                 }
                 NetworkEvent::SkillCastCancelled { entity_id } => {
                     self.cast_bars.cancel(entity_id.0);
@@ -4607,6 +4616,21 @@ impl Client {
                         .client_state
                         .try_follow(this_entity())
                         .is_some_and(|entity| entity.get_entity_id() == entity_id);
+                    if is_local && status_index == crate::state::skill_cooldowns::EFST_POSTDELAY {
+                        // After-cast delay (see `state::skill_cooldowns`): dim every
+                        // hotbar skill and show the drain bar under the player.
+                        let cooldowns = self.client_state.follow_mut(client_state().skill_cooldowns());
+                        match state {
+                            StatusChangeState::Ended => {
+                                cooldowns.end_after_cast();
+                                self.cast_bars.end_after_cast(entity_id.0);
+                            }
+                            StatusChangeState::Active | StatusChangeState::StillActive | StatusChangeState::Other(_) => {
+                                cooldowns.start_after_cast(remaining_milliseconds, total_duration_milliseconds, client_tick);
+                                self.cast_bars.begin_after_cast(entity_id.0, remaining_milliseconds, client_tick.0);
+                            }
+                        }
+                    }
                     if is_local {
                         let statuses = self.client_state.follow_mut(client_state().status_effects());
                         match state {
@@ -8211,6 +8235,16 @@ impl Client {
                 format!("[{}]", rows.join(", "))
             }
             autopilot::DumpPath::Windows => format!("{:?}", self.interface.open_window_classes()),
+            autopilot::DumpPath::Cooldowns => {
+                let now = *self.client_state.follow(client_state().client_tick());
+                let cooldowns = self.client_state.follow(client_state().skill_cooldowns()).describe(now);
+                let bars: Vec<String> = self
+                    .cast_bars
+                    .iter_visible(now.0)
+                    .map(|bar| format!("{} {} {:.2}", bar.entity_id, bar.phase.label(), bar.progress))
+                    .collect();
+                format!("(cooldowns: {cooldowns}, cast_bars: [{}])", bars.join(", "))
+            }
             autopilot::DumpPath::Player => {
                 let name = self.client_state.follow(client_state().player_name()).clone();
                 self.client_state
@@ -9725,49 +9759,75 @@ impl<'a, 'm: 'a> MapRenderContext<'a, 'm> {
     }
 
     fn render_cast_bars(&mut self) {
-        let (bar_width, bar_height, border, background, spell_point_color) = {
+        let (bar_width, player_bar_width, bar_height, border, background, cast_color, after_cast_color, label_color, player_offset) = {
             let theme = self.client_state.follow(client_state().world_theme());
             (
                 theme.status_bar.enemy_bar_width,
+                theme.status_bar.player_bar_width,
                 theme.status_bar.spell_point_height,
                 theme.status_bar.border_size,
                 theme.status_bar.background_color,
                 theme.status_bar.spell_point_color,
+                theme.status_bar.after_cast_color,
+                theme.overlay.foreground_color,
+                effects::player_cast_bar_offset(&theme.status_bar),
             )
         };
+        let player_id = self.client_state.try_follow(this_entity()).map(|player| player.get_entity_id().0);
         let entities = self.client_state.follow(client_state().entities());
-        for (entity_id, progress) in self.cast_bars.iter_visible(self.client_tick.0) {
-            let Some(entity) = entities.iter().find(|entity| entity.get_entity_id().0 == entity_id) else {
+        for bar in self.cast_bars.iter_visible(self.client_tick.0) {
+            let Some(entity) = entities.iter().find(|entity| entity.get_entity_id().0 == bar.entity_id) else {
                 continue;
             };
-            let head = entity.get_position() + Vector3::new(0.0, 12.0, 0.0);
-            let clip = self.current_camera.view_projection_matrix() * head.to_homogeneous();
+            // The local player's bar sits under the HP/SP/AP block (Matthew
+            // t274u); everyone else keeps the bar over the head.
+            let is_player = player_id == Some(bar.entity_id);
+            let anchor = match is_player {
+                true => entity.get_position(),
+                false => entity.get_position() + Vector3::new(0.0, 12.0, 0.0),
+            };
+            let clip = self.current_camera.view_projection_matrix() * anchor.to_homogeneous();
             if clip.w <= 0.1 {
                 continue;
             }
             let screen = self.current_camera.clip_to_screen_space(clip);
-            let position = ScreenPosition {
+            let mut position = ScreenPosition {
                 left: screen.x * self.screen_size.width,
                 top: screen.y * self.screen_size.height,
             };
+            let width = match is_player {
+                true => player_bar_width,
+                false => bar_width,
+            };
+            if is_player {
+                position.top += player_offset;
+            }
+            let color = match bar.phase {
+                effects::CastPhase::Casting => cast_color,
+                effects::CastPhase::AfterCast => after_cast_color,
+            };
             self.middle_interface_renderer.render_rectangle(
-                position - border - ScreenSize::only_width(bar_width / 2.0),
-                ScreenSize {
-                    width: bar_width,
-                    height: bar_height,
-                } + border * 2.0,
+                position - border - ScreenSize::only_width(width / 2.0),
+                ScreenSize { width, height: bar_height } + border * 2.0,
                 background,
             );
+            // `render_bar` fills from the left edge of a centred bar.
             self.middle_interface_renderer.render_bar(
                 position,
-                ScreenSize {
-                    width: bar_width,
-                    height: bar_height,
-                },
-                spell_point_color,
+                ScreenSize { width, height: bar_height },
+                color,
                 1.0,
-                progress,
+                bar.phase.fill(bar.progress),
             );
+            if is_player {
+                self.middle_interface_renderer.render_text(
+                    bar.phase.label(),
+                    position + ScreenPosition::only_top(bar_height + border.height + 1.0),
+                    label_color,
+                    FontSize(effects::CAST_LABEL_FONT_PX),
+                    crate::renderer::AlignHorizontal::Center,
+                );
+            }
         }
     }
 }

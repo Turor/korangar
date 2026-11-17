@@ -193,6 +193,51 @@ impl BasicInfoTheme {
     }
 }
 
+/// Hotbar window colors (Matthew t274u). The window background is the
+/// normal window background times the hotbar-only `hotbar_alpha` token
+/// (0.75 by default), so the world shows through a little. Icons, labels and
+/// tooltips stay opaque, and `window_alpha` is untouched.
+#[derive(Serialize, Deserialize, RustState, StateElement, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct HotbarTheme {
+    /// Window background behind the slots.
+    pub background_color: Color,
+    /// Skill or item name under a slot.
+    pub label_color: Color,
+    /// Hotkey hint in the top-left corner of a slot.
+    pub hint_color: Color,
+    /// Sweep over a skill on its own cooldown.
+    pub cooldown_color: Color,
+    /// Dimmer sweep over every skill during the after-cast delay.
+    pub after_cast_color: Color,
+    /// Remaining cooldown seconds.
+    pub cooldown_text_color: Color,
+    /// Outline around the remaining seconds.
+    pub cooldown_text_outline_color: Color,
+}
+
+impl Default for HotbarTheme {
+    fn default() -> Self {
+        let tokens = crate::state::theme::ThemeTokens::turoran_dark();
+        Self::from_parts(tokens.panel.with_alpha_u8(tokens.window_alpha_u8()), &tokens)
+    }
+}
+
+impl HotbarTheme {
+    /// Colors for a theme whose windows use `window_background`.
+    pub fn from_parts(window_background: Color, tokens: &crate::state::theme::ThemeTokens) -> Self {
+        Self {
+            background_color: window_background.multiply_alpha(tokens.hotbar_alpha.clamp(0.0, 1.0)),
+            label_color: tokens.text,
+            hint_color: tokens.muted,
+            cooldown_color: tokens.bg.with_alpha_u8(185),
+            after_cast_color: tokens.bg.with_alpha_u8(110),
+            cooldown_text_color: tokens.text,
+            cooldown_text_outline_color: tokens.bg,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, RustState, StateElement, StateWindow)]
 #[window_title("Theme Inspector")]
 pub struct InterfaceTheme {
@@ -225,6 +270,10 @@ pub struct InterfaceTheme {
     /// Experience bars, zeny, and weight. Missing from older theme files.
     #[serde(default)]
     pub basic_info: BasicInfoTheme,
+    /// Hotbar background, labels and cooldown sweeps. Missing from older
+    /// theme files.
+    #[serde(default)]
+    pub hotbar: HotbarTheme,
 }
 
 impl InterfaceTheme {
@@ -480,6 +529,7 @@ impl InterfaceTheme {
                 drop_area_outline: ShadowPadding::uniform(3.0),
             },
             basic_info: BasicInfoTheme::from_tokens(tokens),
+            hotbar: HotbarTheme::from_parts(panel.with_alpha_u8(tokens.window_alpha_u8()), tokens),
         }
     }
 
@@ -504,6 +554,19 @@ impl InterfaceTheme {
         self
     }
 
+    /// Parse a RON theme. A file from before the hotbar section existed gets
+    /// a hotbar derived from its own window background and tokens, not the
+    /// stock dark one. A missing section deserializes to
+    /// [`HotbarTheme::default`] (the dark colors); a file that really saved
+    /// exactly those colors derives the same values from the dark tokens.
+    pub fn from_ron(data: &str) -> Option<Self> {
+        let mut theme: Self = ron::from_str(data).ok()?;
+        if theme.hotbar == HotbarTheme::default() {
+            theme.hotbar = HotbarTheme::from_parts(theme.window.background_color, &theme.tokens);
+        }
+        Some(theme)
+    }
+
     pub fn load(theme_type: InterfaceThemeType, name: &str) -> Self {
         #[cfg(feature = "debug")]
         let timer = Timer::new("Load theme");
@@ -518,7 +581,7 @@ impl InterfaceTheme {
 
         let theme = crate::state::theme::load_theme_tokens(name)
             .map(|tokens| Self::from_tokens(&tokens))
-            .or_else(|| std::fs::read_to_string(&path).ok().and_then(|data| ron::from_str(&data).ok()))
+            .or_else(|| std::fs::read_to_string(&path).ok().and_then(|data| Self::from_ron(&data)))
             .unwrap_or_else(|| {
                 #[cfg(feature = "debug")]
                 print_debug!("[{}] failed to load theme {}", "error".red(), name.magenta());
@@ -644,7 +707,7 @@ impl InterfaceTheme {
     }
 
     fn default_menu() -> Self {
-        Self {
+        let mut theme = Self {
             tokens: crate::state::theme::ThemeTokens::default(),
             window: WindowTheme {
                 title_color: Color::rgb_u8(200, 150, 150),
@@ -870,11 +933,14 @@ impl InterfaceTheme {
                 drop_area_outline: ShadowPadding::uniform(4.0),
             },
             basic_info: BasicInfoTheme::default(),
-        }
+            hotbar: HotbarTheme::default(),
+        };
+        theme.hotbar = HotbarTheme::from_parts(theme.window.background_color, &theme.tokens);
+        theme
     }
 
     fn default_in_game() -> Self {
-        Self {
+        let mut theme = Self {
             tokens: crate::state::theme::ThemeTokens::default(),
             window: WindowTheme {
                 title_color: Color::rgb_u8(185, 155, 155),
@@ -1099,7 +1165,10 @@ impl InterfaceTheme {
                 drop_area_outline: ShadowPadding::uniform(4.0),
             },
             basic_info: BasicInfoTheme::default(),
-        }
+            hotbar: HotbarTheme::default(),
+        };
+        theme.hotbar = HotbarTheme::from_parts(theme.window.background_color, &theme.tokens);
+        theme
     }
 }
 
@@ -1378,6 +1447,43 @@ mod styling_token_tests {
         assert_eq!(stock.tooltip.background_color.alpha_as_u8(), 255);
         let menu = InterfaceTheme::menu_for_in_game(VERDANT_RUNE_THEME_NAME);
         assert_eq!(menu.tooltip.background_color.alpha_as_u8(), 255);
+    }
+
+    #[test]
+    fn theme_files_without_a_hotbar_section_derive_it_from_their_own_colors() {
+        let theme = InterfaceTheme::verdant_rune();
+        let expected = super::HotbarTheme::from_parts(theme.window.background_color, &theme.tokens);
+        let encoded = ron::to_string(&theme).expect("serialize theme");
+        let start = encoded.rfind(",hotbar:").expect("hotbar is the last field");
+        let old_file = format!("{})", &encoded[..start]);
+        assert!(!old_file.contains("hotbar:"));
+
+        let loaded = InterfaceTheme::from_ron(&old_file).expect("an old theme file still loads");
+        assert_eq!(loaded.hotbar, expected);
+        assert_ne!(loaded.hotbar, super::HotbarTheme::default(), "not the stock dark hotbar");
+
+        let mut custom = InterfaceTheme::verdant_rune();
+        custom.hotbar.label_color = Color::WHITE;
+        let kept = InterfaceTheme::from_ron(&ron::to_string(&custom).unwrap()).unwrap();
+        assert_eq!(kept.hotbar.label_color, Color::WHITE, "a saved hotbar section wins");
+    }
+
+    #[test]
+    fn hotbar_alpha_only_touches_the_hotbar_background() {
+        let tokens = crate::state::theme::ThemeTokens::verdant_rune();
+        let theme = InterfaceTheme::from_tokens(&tokens);
+        assert_eq!(theme.window.background_color.alpha_as_u8(), 255);
+        assert_eq!(theme.tooltip.background_color.alpha_as_u8(), 255);
+        let alpha = theme.hotbar.background_color.alpha_as_u8();
+        assert!((185..=195).contains(&alpha), "hotbar alpha {alpha}");
+        assert_eq!(theme.hotbar.label_color.alpha_as_u8(), 255);
+
+        let mut opaque = tokens.clone();
+        opaque.hotbar_alpha = 1.0;
+        assert_eq!(InterfaceTheme::from_tokens(&opaque).hotbar.background_color.alpha_as_u8(), 255);
+
+        let stock = InterfaceTheme::load(InterfaceThemeType::InGame, "^missing-stock-fallback^");
+        assert!(stock.hotbar.background_color.alpha_as_u8() < stock.window.background_color.alpha_as_u8());
     }
 
     #[test]

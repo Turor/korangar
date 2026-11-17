@@ -577,6 +577,25 @@ impl KeybindMap {
         map
     }
 
+    /// Short key hint for visual hotbar slot `visual` (`F1`, `A-F1`), or
+    /// `None` when the slot has no key.
+    pub fn slot_hint(&self, visual: u16) -> Option<String> {
+        let action = self
+            .actions
+            .iter()
+            .find(|action| matches!(action.kind, ActionKind::Hotbar(slot) | ActionKind::Quick(slot) if slot == visual))?;
+        let chord = action.chord;
+        if chord.key == KeyName::Unbound {
+            return None;
+        }
+        Some(crate::interface::components::hotbar_layout::compact_hint(
+            chord.key.label(),
+            chord.alt,
+            chord.ctrl,
+            chord.shift,
+        ))
+    }
+
     #[cfg(test)]
     pub fn index_of(&self, id: &str) -> Option<usize> {
         self.actions.iter().position(|action| action.id == id)
@@ -971,5 +990,16 @@ mod tests {
         let capturing = map.poll(Some(0), 0, 0, &edges(Some(KeyName::F2), false, false, false));
         assert!(capturing.events.is_empty());
         assert_eq!(capturing.rebound, Some((0, Chord::new(KeyName::F2, false, false, false))));
+    }
+
+    #[test]
+    fn hotbar_slots_have_compact_key_hints() {
+        let map = KeybindMap::default();
+        assert_eq!(map.slot_hint(0).as_deref(), Some("F1"));
+        assert_eq!(map.slot_hint(9).as_deref(), Some("A-F1"));
+        assert_eq!(map.slot_hint(35).as_deref(), Some("S-F9"));
+        // Quick slots start unbound.
+        assert_eq!(map.slot_hint(36), None);
+        assert_eq!(map.slot_hint(200), None);
     }
 }

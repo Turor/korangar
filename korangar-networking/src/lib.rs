@@ -2422,16 +2422,18 @@ mod packet_handlers {
 
         let cooldown = DisplaySkillCooldownPacket {
             skill_id: SkillId(46),
-            until: ClientTick(1_500),
+            delay_ms: 1_500,
         };
         let mut writer = ByteWriter::new();
         cooldown.packet_to_bytes(&mut writer).unwrap();
+        // Hercules `PACKET_ZC_SKILL_POSTDELAY`: header, SKID (u16), DelayTM (u32).
+        assert_eq!(writer.as_slice(), &[0x3D, 0x04, 46, 0, 0xDC, 0x05, 0, 0]);
         let HandlerResult::Ok(events) = handle_one(SupportedPacketVersion::_20250716, writer.as_slice()) else {
             panic!("cooldown packet was not handled");
         };
         assert!(matches!(events.0.as_slice(), [NetworkEvent::SkillCooldown {
             skill_id: SkillId(46),
-            until: ClientTick(1_500),
+            delay_ms: 1_500,
         }]));
 
         let legacy_ack = UseSkillSuccessPacket {
@@ -2624,7 +2626,7 @@ mod packet_handlers {
         let mut writer = ByteWriter::new();
         DisplaySkillCooldownPacket {
             skill_id: ragnarok_packets::SkillId(1),
-            until: ragnarok_packets::ClientTick(2),
+            delay_ms: 2,
         }
         .packet_to_bytes(&mut writer)
         .unwrap();
@@ -2634,6 +2636,51 @@ mod packet_handlers {
                 panic!("older packetver should still accept the cooldown packet");
             };
             assert!(events.0.is_empty(), "{version:?} should keep the packet as a noop");
+        }
+    }
+
+    #[test]
+    fn packetver_20250716_cooldown_list_decodes_hercules_bytes() {
+        use ragnarok_packets::{SkillCooldownEntry, SkillId};
+
+        // `clif_skill_cooldown_list` (PACKETVER >= 20120604): 0x0985, length,
+        // then per entry SKID (u16), total (u32), remaining (u32).
+        let bytes: Vec<u8> = [
+            &[0x85, 0x09, 24, 0][..],
+            &[5, 0, 0x10, 0x27, 0, 0, 0xC4, 0x09, 0, 0][..],
+            &[0x1C, 0x01, 0xE8, 0x03, 0, 0, 0xF4, 0x01, 0, 0][..],
+        ]
+        .concat();
+        let HandlerResult::Ok(events) = handle_one(SupportedPacketVersion::_20250716, &bytes) else {
+            panic!("cooldown list was not handled");
+        };
+        let [NetworkEvent::SkillCooldownList { entries }] = events.0.as_slice() else {
+            panic!("expected one cooldown list event");
+        };
+        assert_eq!(entries.as_slice(), &[
+            SkillCooldownEntry {
+                skill_id: SkillId(5),
+                total_ms: 10_000,
+                remaining_ms: 2_500,
+            },
+            SkillCooldownEntry {
+                skill_id: SkillId(284),
+                total_ms: 1_000,
+                remaining_ms: 500,
+            },
+        ]);
+
+        let empty = [0x85, 0x09, 4, 0];
+        let HandlerResult::Ok(events) = handle_one(SupportedPacketVersion::_20250716, &empty) else {
+            panic!("empty cooldown list was not handled");
+        };
+        assert!(matches!(events.0.as_slice(), [NetworkEvent::SkillCooldownList { entries }] if entries.is_empty()));
+
+        for version in [SupportedPacketVersion::_20220406, SupportedPacketVersion::_20190530] {
+            let HandlerResult::Ok(events) = handle_one(version, &bytes) else {
+                panic!("older packetver should still accept the cooldown list");
+            };
+            assert!(events.0.is_empty(), "{version:?} should keep the list as a noop");
         }
     }
 

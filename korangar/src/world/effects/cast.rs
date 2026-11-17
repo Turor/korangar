@@ -6,12 +6,69 @@
 //! That is the packet Hercules sends for a damage interrupt
 //! (`clif_skillcastcancel`). The client stop packet `CZ_USE_SKILL_END`
 //! (`0x0B11`) clears the local bar as well.
+//!
+//! After the cast, the local player's bar switches to the after-cast delay
+//! (Matthew t274u). Hercules has no packet for that delay; with
+//! `display_status_timers` it sends status icon `EFST_POSTDELAY` (46) on
+//! `0x0983` with the `skill->delay_fix` duration, the same signal roBrowser
+//! uses for `ShortCut.setGlobalSkillDelay`. That bar drains instead of
+//! filling and is labelled, see [`CastPhase`].
 
 use super::table;
+use crate::state::theme::StatusBarTheme;
+
+/// Gap between the local player's status bars and the cast bar under them.
+pub const CAST_BAR_GAP: f32 = 3.0;
+/// Phase label font under the local player's cast bar.
+pub const CAST_LABEL_FONT_PX: f32 = 11.0;
+
+/// Offset from the player's feet (projected) to the top of the cast bar fill,
+/// in screen pixels. The status block starts 5px under the feet (see
+/// `Player::render_status`) and is HP + SP + AP with two gaps, framed by
+/// `border_size`; the cast bar sits under it with its own frame.
+pub fn player_cast_bar_offset(theme: &StatusBarTheme) -> f32 {
+    let status = theme.health_height + theme.spell_point_height + theme.activity_point_height + theme.gap * 2.0;
+    5.0 + status + theme.border_size.height * 2.0 + CAST_BAR_GAP
+}
 
 /// `SkillConst.KN_AUTOCOUNTER`. The server sends `delay_time = 0`.
 const KN_AUTOCOUNTER: u16 = 61;
 const AUTOCOUNTER_CAST_MS: u32 = 1000;
+
+/// Which wait a cast bar shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CastPhase {
+    /// `ZC_USESKILL_ACK` cast time. The bar fills.
+    Casting,
+    /// `EFST_POSTDELAY` after-cast delay. The bar drains.
+    AfterCast,
+}
+
+impl CastPhase {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Casting => "Casting",
+            Self::AfterCast => "After-cast",
+        }
+    }
+
+    /// How full the bar is drawn for `progress` (0.0 at the start, 1.0 done).
+    pub fn fill(self, progress: f32) -> f32 {
+        let progress = progress.clamp(0.0, 1.0);
+        match self {
+            Self::Casting => progress,
+            Self::AfterCast => 1.0 - progress,
+        }
+    }
+}
+
+/// One visible bar, see [`CastBars::iter_visible`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VisibleCastBar {
+    pub entity_id: u32,
+    pub progress: f32,
+    pub phase: CastPhase,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CastBar {
@@ -20,6 +77,7 @@ pub struct CastBar {
     pub started_at_ms: u32,
     pub delay_ms: u32,
     pub interruptible: bool,
+    pub phase: CastPhase,
 }
 
 impl CastBar {
@@ -71,7 +129,41 @@ impl CastBars {
             started_at_ms: now_ms,
             delay_ms,
             interruptible,
+            phase: CastPhase::Casting,
         });
+    }
+
+    /// `EFST_POSTDELAY` on the local player: show the after-cast delay. It
+    /// replaces a finished (or nearly finished) cast bar. Zero shows nothing.
+    pub fn begin_after_cast(&mut self, entity_id: u32, delay_ms: u32, now_ms: u32) {
+        if delay_ms == 0 {
+            return;
+        }
+        // Keep a longer after-cast that is still running, like
+        // `SkillCooldowns::start_after_cast` does for the slots.
+        let longer_running = self.bars.iter().any(|bar| {
+            bar.entity_id == entity_id
+                && bar.phase == CastPhase::AfterCast
+                && bar.delay_ms.saturating_sub(now_ms.wrapping_sub(bar.started_at_ms)) > delay_ms
+        });
+        if longer_running {
+            return;
+        }
+        self.cancel(entity_id);
+        self.bars.push(CastBar {
+            entity_id,
+            skill_id: 0,
+            started_at_ms: now_ms,
+            delay_ms,
+            interruptible: false,
+            phase: CastPhase::AfterCast,
+        });
+    }
+
+    /// `EFST_POSTDELAY` ended early: drop the after-cast bar only.
+    pub fn end_after_cast(&mut self, entity_id: u32) {
+        self.bars
+            .retain(|bar| bar.entity_id != entity_id || bar.phase != CastPhase::AfterCast);
     }
 
     /// `ZC_DISPEL` / local `0x0B11`.
@@ -99,10 +191,14 @@ impl CastBars {
         (progress < 1.0).then_some(progress)
     }
 
-    pub fn iter_visible(&self, now_ms: u32) -> impl Iterator<Item = (u32, f32)> + '_ {
+    pub fn iter_visible(&self, now_ms: u32) -> impl Iterator<Item = VisibleCastBar> + '_ {
         self.bars.iter().filter_map(move |bar| {
             let progress = bar.progress(now_ms);
-            (progress < 1.0).then_some((bar.entity_id, progress))
+            (progress < 1.0).then_some(VisibleCastBar {
+                entity_id: bar.entity_id,
+                progress,
+                phase: bar.phase,
+            })
         })
     }
 }
@@ -123,6 +219,66 @@ mod tests {
         bars.expire(1_500);
         assert!(bars.bars.is_empty());
         assert!(bars.iter_visible(1_500).next().is_none());
+    }
+
+    #[test]
+    fn player_cast_bar_sits_under_the_status_bars() {
+        let theme = StatusBarTheme::default();
+        let status_bottom =
+            5.0 + theme.health_height + theme.spell_point_height + theme.activity_point_height + theme.gap * 2.0 + theme.border_size.height;
+        let bar_top = player_cast_bar_offset(&theme);
+        assert!(bar_top - theme.border_size.height > status_bottom, "frames must not overlap");
+        assert!((bar_top - theme.border_size.height - status_bottom - CAST_BAR_GAP).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn a_shorter_after_cast_does_not_replace_a_longer_running_one() {
+        let mut bars = CastBars::default();
+        bars.begin_after_cast(7, 3_000, 0);
+        // 1 s in, 2 s remain; a 500 ms after-cast must not cut it short.
+        bars.begin_after_cast(7, 500, 1_000);
+        let bar = bars.iter_visible(2_000).next().expect("the long after-cast still shows");
+        assert_eq!(bar.phase, CastPhase::AfterCast);
+        assert!((bar.progress - 2.0 / 3.0).abs() < 1e-6, "{}", bar.progress);
+        // A longer one does replace it.
+        bars.begin_after_cast(7, 4_000, 2_000);
+        let bar = bars.iter_visible(4_000).next().unwrap();
+        assert!((bar.progress - 0.5).abs() < 1e-6, "{}", bar.progress);
+        // Another entity is independent.
+        bars.begin_after_cast(8, 100, 4_000);
+        assert_eq!(bars.iter_visible(4_050).count(), 2);
+    }
+
+    #[test]
+    fn after_cast_follows_the_cast_and_drains() {
+        let mut bars = CastBars::default();
+        bars.begin(7, 14, 1_000, 0);
+        let casting = bars.iter_visible(500).next().unwrap();
+        assert_eq!(casting.phase, CastPhase::Casting);
+        assert!((casting.phase.fill(casting.progress) - 0.5).abs() < f32::EPSILON);
+        assert_eq!(casting.phase.label(), "Casting");
+
+        bars.begin_after_cast(7, 2_000, 1_000);
+        let visible: Vec<_> = bars.iter_visible(1_500).collect();
+        assert_eq!(visible.len(), 1, "the after-cast bar replaces the cast bar");
+        assert_eq!(visible[0].phase, CastPhase::AfterCast);
+        assert!((visible[0].phase.fill(visible[0].progress) - 0.75).abs() < f32::EPSILON);
+        assert_eq!(visible[0].phase.label(), "After-cast");
+
+        // Damage does not cut the after-cast delay short; the status end does.
+        bars.interrupt_for_damage(7);
+        assert!(bars.progress(7, 1_500).is_some());
+        bars.end_after_cast(7);
+        assert!(bars.progress(7, 1_500).is_none());
+
+        bars.begin_after_cast(7, 0, 0);
+        assert!(bars.iter_visible(0).next().is_none());
+
+        // Ending the after-cast delay keeps a new cast.
+        bars.begin(7, 14, 1_000, 3_000);
+        bars.end_after_cast(7);
+        assert!(bars.progress(7, 3_100).is_some());
+        assert!(bars.iter_visible(3_000 + 1_000).next().is_none());
     }
 
     #[test]

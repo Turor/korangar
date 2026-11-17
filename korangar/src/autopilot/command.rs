@@ -19,6 +19,8 @@ pub enum DumpPath {
     ChatMessages,
     Windows,
     Player,
+    /// Skill cooldowns, the after-cast delay and visible cast bars.
+    Cooldowns,
 }
 
 impl DumpPath {
@@ -29,6 +31,7 @@ impl DumpPath {
             Self::ChatMessages => "chat_messages",
             Self::Windows => "windows",
             Self::Player => "player",
+            Self::Cooldowns => "cooldowns",
         }
     }
 
@@ -39,8 +42,9 @@ impl DumpPath {
             "chat_messages" => Ok(Self::ChatMessages),
             "windows" => Ok(Self::Windows),
             "player" => Ok(Self::Player),
+            "cooldowns" => Ok(Self::Cooldowns),
             other => Err(format!(
-                "unknown dump path {other} (inventory, hotbar, chat_messages, windows, player)"
+                "unknown dump path {other} (inventory, hotbar, chat_messages, windows, player, cooldowns)"
             )),
         }
     }
@@ -338,6 +342,10 @@ mod tests {
     fn rejects_login_event_and_unknown_dump() {
         assert!(parse_command("event LogIn").is_err());
         assert!(parse_command("dump secrets").is_err());
+        assert!(matches!(
+            parse_command("dump cooldowns").unwrap(),
+            Command::Dump(DumpPath::Cooldowns)
+        ));
         assert!(parse_command("toggle PlayerMove").is_err());
         assert!(parse_command("nope").is_err());
     }

@@ -174,6 +174,15 @@ impl<App: Application> Default for LayoutLayer<'_, App> {
     }
 }
 
+/// Per-layer instruction counts, see [`WindowLayout::queued_instructions`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct QueuedInstructions {
+    pub rectangles: usize,
+    pub icons: usize,
+    pub custom: usize,
+    pub texts: usize,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ClipId(usize);
 
@@ -395,6 +404,27 @@ impl<'a, App: Application> WindowLayout<'a, App> {
 
     fn pop_layer(&mut self) {
         self.current_layer -= 1;
+    }
+
+    /// Instructions queued on each layer, in render order: layers render
+    /// bottom to top, and inside a layer rectangles, then icons, then custom
+    /// instructions (sprites and textures), then text. Lets tests check that
+    /// an overlay ends up above what it covers.
+    pub fn queued_instructions(&self) -> Vec<QueuedInstructions> {
+        self.layers
+            .iter()
+            .map(|layer| QueuedInstructions {
+                rectangles: layer.rectangle_instructions.len(),
+                icons: layer.icon_instructions.len(),
+                custom: layer.custom_instructions.len(),
+                texts: layer.text_instructions.len(),
+            })
+            .collect()
+    }
+
+    /// Index of the layer new instructions go to.
+    pub fn current_layer_index(&self) -> usize {
+        self.current_layer
     }
 
     pub fn with_layer(&mut self, mut f: impl FnMut(&mut Self)) {

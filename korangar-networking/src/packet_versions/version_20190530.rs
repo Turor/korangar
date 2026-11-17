@@ -531,6 +531,7 @@ where
     })?;
     packet_handler.register_noop::<DisplaySpecialEffectPacket>()?;
     packet_handler.register_noop::<DisplaySkillCooldownPacket>()?;
+    packet_handler.register_noop::<SkillCooldownListPacket>()?;
     packet_handler.register_noop::<DisplaySkillEffectAndDamagePacket>()?;
     packet_handler.register(|packet: DisplaySkillEffectNoDamagePacket| NetworkEvent::HealEffect {
         entity_id: packet.destination_entity_id,
