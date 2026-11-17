@@ -176,7 +176,10 @@ fn preset_window(class: WindowClass, screen_width: f32, screen_height: f32) -> O
     let hud = first_open_hud(screen_width, screen_height);
     let (anchor_kind, frame) = match class {
         WindowClass::Equipment => (ScreenAnchor::TopLeft, hud.gear),
-        WindowClass::Inventory => (ScreenAnchor::TopLeft, hud.inventory),
+        WindowClass::Inventory => (
+            ScreenAnchor::TopLeft,
+            super::placement::inventory_window_frame(hud.inventory, screen_width, screen_height),
+        ),
         WindowClass::CharacterOverview => (ScreenAnchor::TopLeft, hud.character),
         WindowClass::Stats => (ScreenAnchor::TopLeft, hud.stats),
         WindowClass::Chat => (ScreenAnchor::BottomLeft, hud.chat),

@@ -28,6 +28,7 @@ pub mod quest_renewal;
 pub mod refine;
 pub mod rodex;
 pub mod stable;
+pub mod storage_items;
 pub mod styling_shop;
 pub mod version_20190530;
 pub mod version_20220406;

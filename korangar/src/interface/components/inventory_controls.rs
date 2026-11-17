@@ -13,7 +13,7 @@ use crate::state::theme::{BasicInfoThemePathExt, InterfaceThemePathExt, ThemeTok
 use crate::state::{ClientState, client_theme};
 use crate::world::{WeightPressure, weight_pressure};
 
-const WEIGHT_BAR_HEIGHT: f32 = 8.0;
+pub const WEIGHT_BAR_HEIGHT: f32 = 8.0;
 
 /// Carried weight as a bar. Fill uses the weight status colours; tick marks
 /// sit at 50% (no natural HP/SP regen) and 90% (no attacks or skills).

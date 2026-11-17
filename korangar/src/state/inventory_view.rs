@@ -35,7 +35,9 @@ pub mod item_type {
     pub const PET_ARMOR: u8 = 8;
     pub const AMMO: u8 = 10;
     pub const DELAY_CONSUME: u8 = 11;
-    pub const SHADOW_GEAR: u8 = 12;
+    /// `IT_SELECTPACKAGE` (Hercules `mmo.h`): a box the player opens to pick
+    /// an item, so it is used like a consumable.
+    pub const SELECT_PACKAGE: u8 = 12;
     pub const CASH: u8 = 18;
 }
 
@@ -141,8 +143,8 @@ pub fn click_sort(current: InventorySort, reversed: bool, clicked: InventorySort
 pub fn type_tab(item_type: u8) -> InventoryTab {
     use item_type::*;
     match item_type {
-        HEALING | USABLE | DELAY_CONSUME | CASH => InventoryTab::Usable,
-        WEAPON | ARMOR | SHADOW_GEAR | PET_EGG | PET_ARMOR => InventoryTab::Equip,
+        HEALING | USABLE | DELAY_CONSUME | CASH | SELECT_PACKAGE => InventoryTab::Usable,
+        WEAPON | ARMOR | PET_EGG | PET_ARMOR => InventoryTab::Equip,
         AMMO => InventoryTab::Ammo,
         CARD => InventoryTab::Cards,
         _ => InventoryTab::Etc,
@@ -787,7 +789,7 @@ mod tests {
         assert_eq!(type_tab(CASH), InventoryTab::Usable);
         assert_eq!(type_tab(WEAPON), InventoryTab::Equip);
         assert_eq!(type_tab(ARMOR), InventoryTab::Equip);
-        assert_eq!(type_tab(SHADOW_GEAR), InventoryTab::Equip);
+        assert_eq!(type_tab(SELECT_PACKAGE), InventoryTab::Usable);
         assert_eq!(type_tab(PET_EGG), InventoryTab::Equip);
         assert_eq!(type_tab(PET_ARMOR), InventoryTab::Equip);
         assert_eq!(type_tab(AMMO), InventoryTab::Ammo);
@@ -904,6 +906,33 @@ mod tests {
         view.refresh_priced(&items, 1, Vec::new(), vec![(909, Some(100))]);
         let after: Vec<u16> = view.items().iter().map(|item| item.index.0).collect();
         assert_eq!(after, [6, 2, 4, 5]);
+    }
+
+    #[test]
+    fn zeny_sort_works_without_a_price_file_on_disk() {
+        // No System/itemprices file in the data path (a binary-only
+        // auto-update install): the built-in table still prices the stacks.
+        let mut finder = crate::state::item_finder::ItemFinderState::default();
+        finder.load_prices(None);
+        assert!(finder.price_count() > 1_000);
+        let items = sample();
+        let prices: Vec<(u32, Option<u32>)> = items
+            .iter()
+            .map(|item| (item.item_id.0, finder.sell_price(item.item_id.0)))
+            .collect();
+        let mut view = InventoryView::default();
+        view.click_sort(InventorySort::Zeny);
+        view.refresh_priced(&items, 1, Vec::new(), prices);
+        let order: Vec<u16> = view.items().iter().map(|item| item.index.0).collect();
+        // Red Potion x30 at 25 z is the most valuable stack.
+        assert_eq!(order.first(), Some(&2));
+        assert_ne!(order, [2, 4, 5, 6], "not just the server order");
+        let values: Vec<u64> = view
+            .items()
+            .iter()
+            .map(|item| stack_value(item, finder.sell_price(item.item_id.0)).unwrap_or(0))
+            .collect();
+        assert!(values.windows(2).all(|pair| pair[0] >= pair[1]), "{order:?} {values:?}");
     }
 
     #[test]

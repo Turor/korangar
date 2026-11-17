@@ -65,7 +65,7 @@ mod party;
 mod party_invite;
 mod picker_list;
 mod pincode;
-mod placement;
+pub(crate) mod placement;
 #[cfg(feature = "debug")]
 mod profiler;
 mod quest_journal;
@@ -146,7 +146,7 @@ pub use self::guild_invite::GuildInviteWindow;
 pub use self::hotbar::HotbarWindow;
 pub use self::interface_settings::InterfaceSettingsWindow;
 #[allow(unused_imports)]
-pub use self::inventory::InventoryWindow;
+pub use self::inventory::{INVENTORY_MAXIMUM_HEIGHT, InventoryWindow};
 #[allow(unused_imports)]
 pub use self::item_details::format_item_details;
 pub use self::item_details::{ItemDetailsWindow, item_details_key};

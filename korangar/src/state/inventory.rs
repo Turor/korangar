@@ -190,6 +190,36 @@ impl Inventory {
         visual
     }
 
+    /// A storage add (`ZC_ADD_ITEM_TO_STORE`). A stack of the same item at
+    /// that row grows; anything else at the row is replaced. Returns the
+    /// row that still needs its name and icon loaded, if any. Never panics on
+    /// a mismatched row, unlike [`Self::add_item`].
+    pub fn apply_added(&mut self, item: InventoryItem<NoMetadata>) -> Option<InventoryItem<NoMetadata>> {
+        if let Some(position) = self.items.iter().position(|row| row.index == item.index) {
+            let row = &mut self.items[position];
+            if let (InventoryItemDetails::Regular { amount, .. }, InventoryItemDetails::Regular { amount: added, .. }) =
+                (&mut row.details, &item.details)
+                && row.item_id == item.item_id
+            {
+                *amount = amount.saturating_add(*added);
+                let item_id = row.item_id;
+                self.remember(item_id);
+                return None;
+            }
+            self.items.remove(position);
+        }
+        Some(item)
+    }
+
+    /// [`Self::apply_added`], loading the new row's name and icon.
+    pub fn add_stored_item(&mut self, async_loader: &AsyncLoader, item: InventoryItem<NoMetadata>) {
+        if let Some(item) = self.apply_added(item) {
+            let item = async_loader.request_inventory_item_metadata_load(item);
+            self.remember(item.item_id);
+            self.items.push(item);
+        }
+    }
+
     pub fn update_item_sprite(&mut self, item_id: ItemId, texture: Arc<Texture>) {
         self.items.iter_mut().filter(|item| item.item_id == item_id).for_each(|item| {
             item.metadata.texture = Some(texture.clone());
@@ -497,6 +527,67 @@ mod tests {
 
     use super::{GroundDrop, Inventory, ItemActivation, ThrowUpdate, ground_drop, item_activation, use_ack_targets_self};
     use crate::world::ResourceMetadata;
+
+    fn stack(index: u16, item_id: u32, amount: u16) -> InventoryItem<korangar_networking::NoMetadata> {
+        InventoryItem {
+            metadata: korangar_networking::NoMetadata,
+            index: InventoryIndex(index),
+            item_id: ItemId(item_id),
+            item_type: 3,
+            slot: [0; 4],
+            hire_expiration_date: 0,
+            details: InventoryItemDetails::Regular {
+                amount,
+                equipped_position: EquipPosition::empty(),
+                flags: RegularItemFlags::IDENTIFIED,
+            },
+        }
+    }
+
+    fn amounts(inventory: &Inventory) -> Vec<(u16, u32, u16)> {
+        inventory
+            .items
+            .iter()
+            .map(|row| match row.details {
+                InventoryItemDetails::Regular { amount, .. } => (row.index.0, row.item_id.0, amount),
+                _ => (row.index.0, row.item_id.0, 0),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn storage_adds_grow_or_replace_rows_and_removes_shrink_them() {
+        let resolved = |item: InventoryItem<korangar_networking::NoMetadata>| InventoryItem {
+            metadata: ResourceMetadata {
+                texture: None,
+                name: String::new(),
+                description: String::new(),
+            },
+            index: item.index,
+            item_id: item.item_id,
+            item_type: item.item_type,
+            slot: item.slot,
+            hire_expiration_date: item.hire_expiration_date,
+            details: item.details,
+        };
+        // Storage row 0 is InventoryIndex(u16::MAX), as the list decodes it.
+        let mut storage = Inventory::from_items(vec![resolved(stack(u16::MAX, 909, 200)), resolved(stack(0, 501, 5))]);
+
+        // Jellopy deposited onto the existing stack: it grows, nothing to load.
+        assert!(storage.apply_added(stack(u16::MAX, 909, 2)).is_none());
+        // A new stack needs its metadata loaded.
+        let fresh = storage.apply_added(stack(1, 512, 4)).expect("new row");
+        storage.items.push(resolved(fresh));
+        // A different item at an occupied row replaces it.
+        assert!(storage.apply_added(stack(0, 4001, 1)).is_some());
+        assert_eq!(amounts(&storage), [(u16::MAX, 909, 202), (1, 512, 4)]);
+
+        // Withdrawals (ZC_DELETE_ITEM_FROM_STORE), including row 0.
+        storage.remove_item_if_present(InventoryIndex(u16::MAX), 2);
+        storage.remove_item_if_present(InventoryIndex(1), 4);
+        storage.remove_item_if_present(InventoryIndex(7), 1);
+        assert_eq!(amounts(&storage), [(u16::MAX, 909, 200)]);
+    }
 
     fn equip(index: u16, refine: u8, grade: u8) -> InventoryItem<ResourceMetadata> {
         let option = || ItemOptions {

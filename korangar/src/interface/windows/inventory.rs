@@ -4,7 +4,6 @@ use rust_state::{ManuallyAssertExt, Path, PathExt};
 
 use super::basic_info_view::{WeightColor, WeightLabel, ZenyLabel};
 use crate::ItemSource;
-use crate::input::InputEvent;
 use crate::interface::components::inventory_controls::WeightBar;
 use crate::interface::components::item_grid::{
     CART_FALLBACK_CAPACITY, CursorReveal, INVENTORY_FALLBACK_CAPACITY, ItemCountLabel, ItemGrid,
@@ -16,9 +15,8 @@ use crate::loaders::OverflowBehavior;
 use crate::state::inventory::{Inventory, InventoryPathExt};
 use crate::state::inventory_view::InventoryViewPathExt;
 use crate::state::localization::LocalizationPathExt;
-use crate::state::storage_tools::StorageToolsPathExt;
 use crate::state::theme::{BasicInfoThemePathExt, InterfaceThemePathExt, InterfaceThemeType};
-use crate::state::unified_inventory::UnifiedInventory;
+use crate::state::unified_inventory::{SecondPane, UnifiedInventory};
 use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme, this_player};
 use crate::world::{BasicInfoStatsPathExt, PlayerPathExt};
 
@@ -33,6 +31,9 @@ use crate::world::{BasicInfoStatsPathExt, PlayerPathExt};
 ///
 /// Each half of the split has its own scroll pane and draws half the
 /// columns less one; an accent bar runs down the split.
+/// Tallest the inventory window gets, by hand or when it grows for a split.
+pub const INVENTORY_MAXIMUM_HEIGHT: f32 = 720.0;
+
 pub struct InventoryWindow<P> {
     inventory_path: P,
 }
@@ -77,13 +78,9 @@ where
             minimum_width: crate::interface::windows::resizable::GRID_WINDOW_MINIMUM_WIDTH,
             maximum_width: crate::interface::windows::resizable::GRID_WINDOW_MAXIMUM_WIDTH,
             minimum_height: 240.0,
-            maximum_height: 720.0,
+            maximum_height: INVENTORY_MAXIMUM_HEIGHT,
             elements: (
-                either! {
-                    selector: ComputedSelector::new_default(|state: &ClientState| unified(state).shows_cart_tabs()),
-                    on_true: AccentTabs::panes(inventory_path),
-                    on_false: (),
-                },
+                AccentTabs::panes(inventory_path),
                 AccentTabs::categories(inventory_path),
                 text_box! {
                     ghost_text: "Search name, effect or card",
@@ -94,49 +91,32 @@ where
                 SortButtons::new(inventory_path),
                 either! {
                     selector: ComputedSelector::new_default(|state: &ClientState| unified(state).storage_open()),
-                    on_true: (
-                        SavedSearchStrip::new(client_state().storage_tools(), inventory_path),
-                        split! {
-                            gaps: theme().window().gaps(),
-                            children: (
-                                button! {
-                                    text: "Save search",
-                                    event: InputEvent::SaveStorageSearch,
-                                },
-                                button! {
-                                    text: "Deposit matching",
-                                    event: InputEvent::DepositMatchingToStorage,
-                                },
-                                button! {
-                                    text: "Close storage",
-                                    event: InputEvent::CloseStorage,
-                                },
-                            ),
+                    on_true: SavedSearchStrip::new(client_state().storage_tools(), inventory_path),
+                    on_false: (),
+                },
+                // Keep in step with `InventoryLayoutMetrics::grid_top`.
+                split! {
+                    gaps: theme().window().gaps(),
+                    children: (
+                        text! {
+                            text: WeightLabel::new(info.weight(), info.maximum_weight()),
+                            color: WeightColor::new(info.weight(), info.maximum_weight()),
+                            overflow_behavior: OverflowBehavior::Shrink,
                         },
                         text! {
-                            text: client_state().storage_tools().status(),
+                            text: ZenyLabel::new(info.zeny()),
+                            color: client_theme().basic_info().zeny_color(),
                             overflow_behavior: OverflowBehavior::Shrink,
                         },
                     ),
-                    on_false: (),
-                },
-                text! {
-                    text: WeightLabel::new(info.weight(), info.maximum_weight()),
-                    color: WeightColor::new(info.weight(), info.maximum_weight()),
-                    overflow_behavior: OverflowBehavior::Shrink,
                 },
                 WeightBar::new(info.weight(), info.maximum_weight()),
-                text! {
-                    text: ZenyLabel::new(info.zeny()),
-                    color: client_theme().basic_info().zeny_color(),
-                    overflow_behavior: OverflowBehavior::Shrink,
-                },
                 either! {
                     selector: ComputedSelector::new_default(|state: &ClientState| unified(state).is_split()),
                     on_true: DualPane::new(
                         (
                             text! {
-                                text: PaneLabel::new("Inventory", inventory_path, Some(INVENTORY_FALLBACK_CAPACITY)),
+                                text: PaneLabel::new(|_| "Inventory", inventory_path, Some(INVENTORY_FALLBACK_CAPACITY)),
                                 overflow_behavior: OverflowBehavior::Shrink,
                             },
                             scroll_view! {
@@ -145,10 +125,17 @@ where
                             },
                         ),
                         either! {
-                            selector: ComputedSelector::new_default(|state: &ClientState| unified(state).storage_open()),
+                            selector: ComputedSelector::new_default(|state: &ClientState| unified(state).second_pane() == Some(SecondPane::Storage)),
                             on_true: (
                                 text! {
-                                    text: PaneLabel::new("Storage", storage_path, None),
+                                    text: PaneLabel::new(
+                                        |state: &ClientState| match unified(state).open_storage_kind() {
+                                            Some(kind) => kind.label(),
+                                            None => "Storage",
+                                        },
+                                        storage_path,
+                                        None,
+                                    ),
                                     overflow_behavior: OverflowBehavior::Shrink,
                                 },
                                 scroll_view! {
@@ -157,7 +144,7 @@ where
                             ),
                             on_false: (
                                 text! {
-                                    text: PaneLabel::new("Cart", cart_path, Some(CART_FALLBACK_CAPACITY)),
+                                    text: PaneLabel::new(|_| "Cart", cart_path, Some(CART_FALLBACK_CAPACITY)),
                                     overflow_behavior: OverflowBehavior::Shrink,
                                 },
                                 scroll_view! {

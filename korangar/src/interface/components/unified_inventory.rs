@@ -13,6 +13,7 @@ use korangar_interface::element::Element;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::event::{ClickHandler, DropHandler, EventQueue};
 use korangar_interface::layout::area::{Area, PartialArea};
+use korangar_interface::layout::tooltip::TooltipExt;
 use korangar_interface::layout::{MouseButton, Resolver, Resolvers, WindowLayout, with_single_resolver};
 use korangar_interface::prelude::{ButtonThemePathExt, HorizontalAlignment, VerticalAlignment, WindowThemePathExt};
 use korangar_interface::theme::{ThemePathGetter, theme};
@@ -20,6 +21,7 @@ use rust_state::{Path, PathExt, Selector, State};
 
 use crate::graphics::{Color, CornerDiameter, ShadowPadding};
 use crate::input::{InputEvent, MouseInputMode};
+use crate::interface::components::inventory_controls::WEIGHT_BAR_HEIGHT;
 use crate::interface::components::item_grid::{GridMetrics, grid_metrics, item_count_text};
 use crate::interface::font_scale::from_theme_body;
 use crate::interface::resource::ItemSource;
@@ -27,7 +29,7 @@ use crate::loaders::{FontSize, OverflowBehavior};
 use crate::state::inventory::Inventory;
 use crate::state::inventory_view::{InventorySort, InventoryTab, SORT_BUTTONS, favorite_drop};
 use crate::state::theme::{InterfaceThemePathExt, ThemeTokensPathExt};
-use crate::state::unified_inventory::{UnifiedInventory, split_columns};
+use crate::state::unified_inventory::{PaneTab, StorageKind, split_columns};
 use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 
 /// Thickness of the accent underline under a tab row.
@@ -100,6 +102,80 @@ pub fn split_grid_metrics(pane_width: f32, gaps: f32) -> GridMetrics {
     }
 }
 
+/// Heights the inventory window stacks above its item grids, read from the
+/// theme. Mirrors `windows::inventory`: the Inventory / Cart / Storage tabs,
+/// the category tabs, search, sort, the optional storage tool row, weight and
+/// Zeny, the weight bar, then the count line over each grid.
+#[derive(Clone, Copy, Debug)]
+pub struct InventoryLayoutMetrics {
+    pub title: f32,
+    pub title_gap: f32,
+    pub border: f32,
+    pub gaps: f32,
+    pub tab: f32,
+    pub text_box: f32,
+    pub text: f32,
+}
+
+impl InventoryLayoutMetrics {
+    pub fn from_theme(theme: &crate::state::theme::InterfaceTheme) -> Self {
+        Self {
+            title: theme.window.title_height,
+            title_gap: theme.window.title_gap,
+            border: theme.window.border,
+            gaps: theme.window.gaps,
+            tab: theme.button.height.max(16.0),
+            text_box: theme.text_box.height,
+            text: theme.text.height,
+        }
+    }
+
+    /// Window height down to the top of the item grids.
+    pub fn grid_top(&self, storage_tools: bool) -> f32 {
+        let tabs = self.tab + TAB_UNDERLINE;
+        // Pane tabs, category tabs, search, sort, weight | Zeny, bar, count.
+        let mut rows = vec![tabs, tabs, self.text_box, self.tab, self.text, WEIGHT_BAR_HEIGHT, self.text];
+        if storage_tools {
+            rows.push(storage_tool_row_height(self.tab));
+        }
+        // Every element is followed by a gap, the last one by the gap
+        // before the scroll view.
+        self.title + self.title_gap + rows.iter().sum::<f32>() + self.gaps * rows.len() as f32
+    }
+
+    /// Item rows fully visible in a window of this size.
+    #[cfg(test)]
+    pub fn visible_rows(&self, width: f32, height: f32, split: bool, storage_tools: bool) -> usize {
+        let viewport = height - self.grid_top(storage_tools) - self.border;
+        let slot = self.slot(width, split);
+        (((viewport + self.gaps) / (slot + self.gaps)).floor().max(0.0)) as usize
+    }
+
+    /// Window height that shows `rows` item rows.
+    pub fn height_for_rows(&self, rows: usize, width: f32, split: bool, storage_tools: bool) -> f32 {
+        let slot = self.slot(width, split);
+        let grid = rows as f32 * (slot + self.gaps) - self.gaps;
+        (self.grid_top(storage_tools) + grid + self.border).ceil()
+    }
+
+    fn slot(&self, width: f32, split: bool) -> f32 {
+        let content = (width - self.border * 2.0).max(0.0);
+        match split {
+            true => split_grid_metrics(split_areas(0.0, content, self.gaps).1, self.gaps).slot,
+            false => grid_metrics(content, self.gaps).slot,
+        }
+    }
+}
+
+/// The storage tool row: saved-search chips and the Save / Deposit / Close
+/// buttons on one line.
+pub fn storage_tool_row_height(tab: f32) -> f32 {
+    tab.max(STORAGE_CHIP_HEIGHT)
+}
+
+/// Height of a saved-search chip.
+pub const STORAGE_CHIP_HEIGHT: f32 = 22.0;
+
 fn flat() -> ShadowPadding {
     ShadowPadding::diagonal(0.0, 0.0)
 }
@@ -136,8 +212,8 @@ fn body_font(state: &State<ClientState>) -> FontSize {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TabKind {
     Category(InventoryTab),
-    /// Inventory (`false`) or Cart (`true`).
-    Pane(bool),
+    /// Inventory, Cart, Storage or Guild Storage.
+    Pane(PaneTab),
 }
 
 impl TabKind {
@@ -146,10 +222,21 @@ impl TabKind {
         match self {
             Self::Category(tab) if short => short_tab_label(tab),
             Self::Category(tab) => tab.label(),
-            Self::Pane(false) => "Inventory",
-            Self::Pane(true) => "Cart",
+            Self::Pane(PaneTab::Inventory) if short => "Bag",
+            Self::Pane(PaneTab::Inventory) => "Inventory",
+            Self::Pane(PaneTab::Cart) => "Cart",
+            Self::Pane(PaneTab::Storage(StorageKind::Guild)) if short => "Guild",
+            Self::Pane(PaneTab::Storage(kind)) => kind.label(),
         }
     }
+}
+
+/// Tooltip on Guild Storage outside a guild.
+pub const NO_GUILD_TOOLTIP: &str = "Join a guild to use guild storage";
+
+/// The tab can be clicked: Guild Storage needs a guild.
+pub fn pane_tab_enabled(tab: PaneTab, in_guild: bool) -> bool {
+    in_guild || tab != PaneTab::Storage(StorageKind::Guild)
 }
 
 /// Label for a narrow tab.
@@ -177,7 +264,7 @@ where
     fn is_selected(&self, state: &State<ClientState>) -> bool {
         match self.kind {
             TabKind::Category(tab) => state.get(&self.inventory_path).view().tab() == tab,
-            TabKind::Pane(cart) => state.get(&client_state().unified_inventory()).cart_view() == cart,
+            TabKind::Pane(tab) => state.get(&client_state().unified_inventory()).is_tab_selected(tab),
         }
     }
 }
@@ -186,14 +273,13 @@ impl<P> ClickHandler<ClientState> for TabHandler<P>
 where
     P: Path<ClientState, Inventory> + Copy + 'static,
 {
-    fn handle_click(&self, state: &State<ClientState>, _: &mut EventQueue<ClientState>) {
+    fn handle_click(&self, state: &State<ClientState>, queue: &mut EventQueue<ClientState>) {
         match self.kind {
             TabKind::Category(tab) => state.update_value_with(self.inventory_path, move |inventory: &mut Inventory| {
                 inventory.view_mut().set_tab(tab)
             }),
-            TabKind::Pane(cart) => state.update_value_with(client_state().unified_inventory(), move |panes: &mut UnifiedInventory| {
-                panes.show_cart(cart)
-            }),
+            // Storage tabs talk to the server, so the client handles them.
+            TabKind::Pane(tab) => queue.queue(InputEvent::ClickPaneTab { tab }),
         }
     }
 }
@@ -222,6 +308,8 @@ impl<P> DropHandler<ClientState> for TabHandler<P> {
 pub struct TabRowLayoutInfo {
     row: Area,
     tab_height: f32,
+    /// Handlers shown this frame, with their cells.
+    shown: Vec<usize>,
     cells: Vec<Area>,
 }
 
@@ -245,15 +333,21 @@ impl<P: Copy> AccentTabs<P> {
         }
     }
 
+    /// Inventory, Cart (with a cart equipped), Storage and Guild Storage.
     pub fn panes(inventory_path: P) -> Self {
         Self {
-            tabs: [false, true]
-                .into_iter()
-                .map(|cart| TabHandler {
-                    inventory_path,
-                    kind: TabKind::Pane(cart),
-                })
-                .collect(),
+            tabs: [
+                PaneTab::Inventory,
+                PaneTab::Cart,
+                PaneTab::Storage(StorageKind::Personal),
+                PaneTab::Storage(StorageKind::Guild),
+            ]
+            .into_iter()
+            .map(|tab| TabHandler {
+                inventory_path,
+                kind: TabKind::Pane(tab),
+            })
+            .collect(),
         }
     }
 }
@@ -271,10 +365,26 @@ where
         resolvers: &mut dyn Resolvers<ClientState>,
     ) -> Self::LayoutInfo {
         let tab_height = tab_height(state);
+        let pane_tabs = state.get(&client_state().unified_inventory()).pane_tabs();
+        let shown: Vec<usize> = self
+            .tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, handler)| match handler.kind {
+                TabKind::Category(_) => true,
+                TabKind::Pane(tab) => pane_tabs.contains(&tab),
+            })
+            .map(|(index, _)| index)
+            .collect();
         with_single_resolver(resolvers, |resolver| {
             let row = resolver.with_height(tab_height + TAB_UNDERLINE);
-            let cells = row_cells(Area { height: tab_height, ..row }, self.tabs.len(), 2.0);
-            TabRowLayoutInfo { row, tab_height, cells }
+            let cells = row_cells(Area { height: tab_height, ..row }, shown.len(), 2.0);
+            TabRowLayoutInfo {
+                row,
+                tab_height,
+                shown,
+                cells,
+            }
         })
     }
 
@@ -296,6 +406,8 @@ where
         let text = *state.get(&tokens.text());
         let muted = *state.get(&tokens.muted());
         let font = body_font(state);
+        let pending_storage = state.get(&client_state().unified_inventory()).pending_storage();
+        let in_guild = state.get(&client_state().guild()).joined;
         let corners = CornerDiameter {
             top_left: 6.0,
             top_right: 6.0,
@@ -303,7 +415,13 @@ where
             bottom_right: 0.0,
         };
 
-        for (handler, cell) in self.tabs.iter().zip(&layout_info.cells) {
+        for (handler, cell) in layout_info.shown.iter().map(|index| &self.tabs[*index]).zip(&layout_info.cells) {
+            let enabled = match handler.kind {
+                TabKind::Pane(tab) => pane_tab_enabled(tab, in_guild),
+                TabKind::Category(_) => true,
+            };
+            // Asked for, waiting on the server: drawn half-selected.
+            let pending = matches!(handler.kind, TabKind::Pane(PaneTab::Storage(kind)) if pending_storage == Some(kind));
             let hovered = if is_move_mode {
                 let hovered = cell.check().any_mouse_mode().run(layout);
                 if hovered {
@@ -314,12 +432,13 @@ where
                 cell.check().run(layout)
             };
             let selected = handler.is_selected(state);
-            let outline = if selected { accent_mid } else { accent_dim };
+            let outline = if selected || pending { accent_mid } else { accent_dim };
             let area = tab_outline(*cell, layout_info.tab_height, selected);
             add_outlined(layout, area, outline, fill, corners);
-            let text_color = match (selected, hovered) {
-                (true, _) | (false, true) => text,
-                (false, false) => muted,
+            let text_color = match (enabled, selected || pending, hovered) {
+                (false, ..) => muted,
+                (true, true, _) | (true, false, true) => text,
+                (true, false, false) => muted,
             };
             layout.add_text(
                 area,
@@ -335,6 +454,10 @@ where
                 match (is_move_mode, handler.kind) {
                     (true, TabKind::Category(_)) => layout.register_drop_handler(handler),
                     (true, TabKind::Pane(_)) => {}
+                    (false, _) if !enabled => {
+                        struct NoGuildTooltip;
+                        layout.add_tooltip(NO_GUILD_TOOLTIP, NoGuildTooltip.tooltip_id());
+                    }
                     (false, _) => layout.register_click_handler(MouseButton::Left, handler),
                 }
             }
@@ -563,15 +686,16 @@ where
 
 /// "Storage · Items 37 / 600" over one pane.
 pub struct PaneLabel<P> {
-    title: &'static str,
+    title: fn(&ClientState) -> &'static str,
     inventory_path: P,
     fallback_capacity: Option<u32>,
-    last: Cell<Option<(usize, Option<u32>)>>,
+    last: Cell<Option<(&'static str, usize, Option<u32>)>>,
     text: UnsafeCell<String>,
 }
 
 impl<P> PaneLabel<P> {
-    pub fn new(title: &'static str, inventory_path: P, fallback_capacity: Option<u32>) -> Self {
+    /// `title` picks the name each frame ("Storage" or "Guild Storage").
+    pub fn new(title: fn(&ClientState) -> &'static str, inventory_path: P, fallback_capacity: Option<u32>) -> Self {
         Self {
             title,
             inventory_path,
@@ -593,10 +717,14 @@ where
 {
     fn select<'a>(&'a self, state: &'a ClientState) -> Option<&'a String> {
         let inventory = self.inventory_path.follow_safe(state);
-        let key = (inventory.item_count(), inventory.capacity().or(self.fallback_capacity));
+        let key = (
+            (self.title)(state),
+            inventory.item_count(),
+            inventory.capacity().or(self.fallback_capacity),
+        );
         if self.last.get() != Some(key) {
             unsafe {
-                *self.text.get() = pane_label_text(self.title, key.0, key.1);
+                *self.text.get() = pane_label_text(key.0, key.1, key.2);
             }
             self.last.set(Some(key));
         }
@@ -607,6 +735,68 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guild_storage_needs_a_guild() {
+        let guild = PaneTab::Storage(StorageKind::Guild);
+        assert!(!pane_tab_enabled(guild, false));
+        assert!(pane_tab_enabled(guild, true));
+        for tab in [PaneTab::Inventory, PaneTab::Cart, PaneTab::Storage(StorageKind::Personal)] {
+            assert!(pane_tab_enabled(tab, false));
+        }
+    }
+
+    /// Rows the default window shows, per theme and screen (review B1).
+    #[test]
+    fn the_default_window_shows_item_rows_in_every_view() {
+        use crate::interface::windows::placement::{first_open_hud, inventory_window_frame};
+        use crate::state::theme::InterfaceTheme;
+        use crate::state::unified_inventory::{FitStep, SPLIT_MINIMUM_ROWS, SecondPane, SplitFit};
+
+        for (name, theme) in [
+            ("turoran_dark", InterfaceTheme::turoran_dark()),
+            ("verdant_rune", InterfaceTheme::verdant_rune()),
+            ("turoran_dark x1.25", InterfaceTheme::turoran_dark().with_font_scale(1.25)),
+        ] {
+            let metrics = InventoryLayoutMetrics::from_theme(&theme);
+            for (screen_width, screen_height) in [(1280.0_f32, 720.0_f32), (1920.0, 1080.0), (1024.0, 768.0)] {
+                let frame = inventory_window_frame(
+                    first_open_hud(screen_width, screen_height).inventory,
+                    screen_width,
+                    screen_height,
+                );
+                let (width, height) = (
+                    frame.width.max(crate::interface::windows::resizable::GRID_WINDOW_MINIMUM_WIDTH),
+                    frame.height.max(240.0),
+                );
+                let single = metrics.visible_rows(width, height, false, false);
+                assert!(
+                    single >= 5,
+                    "{name} {screen_width}x{screen_height}: single {single} at {width}x{height}"
+                );
+
+                // The split grows the window (screen permitting) to four rows a half.
+                let room = (screen_height - 16.0).min(720.0);
+                for (label, pane, storage) in [
+                    ("cart split", SecondPane::Cart, false),
+                    ("storage split", SecondPane::Storage, true),
+                    ("cart pane with storage open", SecondPane::Cart, true),
+                ] {
+                    let needed = metrics.height_for_rows(SPLIT_MINIMUM_ROWS, width, true, storage);
+                    let mut fit = SplitFit::default();
+                    let grown = match fit.step(Some(pane), height, needed, room) {
+                        FitStep::Resize(grown) => grown,
+                        FitStep::Nothing => height,
+                    };
+                    let rows = metrics.visible_rows(width, grown, true, storage);
+                    assert!(
+                        rows >= SPLIT_MINIMUM_ROWS,
+                        "{name} {screen_width}x{screen_height} {label}: {rows} rows at {width}x{grown}"
+                    );
+                }
+            }
+        }
+    }
 
     fn area(width: f32) -> Area {
         Area {
@@ -650,7 +840,11 @@ mod tests {
         assert_eq!(TabKind::Category(InventoryTab::Favorites).label(80.0), "Favorites");
         assert_eq!(TabKind::Category(InventoryTab::Favorites).label(40.0), "Fav");
         assert_eq!(TabKind::Category(InventoryTab::Usable).label(40.0), "Use");
-        assert_eq!(TabKind::Pane(true).label(40.0), "Cart");
+        assert_eq!(TabKind::Pane(PaneTab::Cart).label(40.0), "Cart");
+        assert_eq!(TabKind::Pane(PaneTab::Inventory).label(80.0), "Inventory");
+        assert_eq!(TabKind::Pane(PaneTab::Storage(StorageKind::Personal)).label(80.0), "Storage");
+        assert_eq!(TabKind::Pane(PaneTab::Storage(StorageKind::Guild)).label(80.0), "Guild Storage");
+        assert_eq!(TabKind::Pane(PaneTab::Storage(StorageKind::Guild)).label(40.0), "Guild");
     }
 
     #[test]

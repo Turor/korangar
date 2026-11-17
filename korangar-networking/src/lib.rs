@@ -83,6 +83,7 @@ pub use self::packet_versions::npc_dialog::{
 };
 pub use self::packet_versions::rodex::{format_rodex_mails, parse_rodex_attachments, parse_rodex_mail_id};
 pub use self::packet_versions::stable::{format_stable_result, parse_stable_action, parse_stable_id};
+pub use self::packet_versions::storage_items::decode_item_deltas;
 pub use self::packet_versions::warpra::{
     format_warpra_destinations, format_warpra_result, push_warpra_chunk, warpra_kind_name, warpra_level_requirement,
 };

@@ -439,6 +439,15 @@ pub enum NetworkEvent {
     StorageClosed,
     /// `ZC_CARTOFF`: the cart was removed.
     CartRemoved,
+    /// `ZC_ADD_ITEM_TO_STORE`: a stack arrived in (or grew in) storage.
+    StorageItemAdded {
+        item: InventoryItem<NoMetadata>,
+    },
+    /// `ZC_DELETE_ITEM_FROM_STORE`: `amount` left storage row `index`.
+    StorageItemRemoved {
+        index: InventoryIndex,
+        amount: u16,
+    },
     /// Full cart snapshot. Distinct from [`Self::SetInventory`].
     SetCart {
         items: Vec<InventoryItem<NoMetadata>>,

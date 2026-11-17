@@ -68,6 +68,7 @@ where
     })?;
     packet_handler.register(|_: StorageClosedPacket| NetworkEvent::StorageClosed)?;
     packet_handler.register(|_: CartOffPacket| NetworkEvent::CartRemoved)?;
+    crate::packet_versions::storage_items::register_storage_delete_packet(packet_handler)?;
     Ok(())
 }
 

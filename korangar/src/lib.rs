@@ -1464,6 +1464,7 @@ impl Client {
                     self.flush_item_flags();
                     self.clear_chat_rooms();
                     self.client_state.follow_mut(client_state().inventory()).clear_equipped_ammo();
+                    self.reset_item_panes();
                     if reason != DisconnectReason::ClosedByClient {
                         // TODO: Make this an on-screen popup.
                         #[cfg(feature = "debug")]
@@ -3170,6 +3171,32 @@ impl Client {
                     self.open_storage_pane();
                 }
                 NetworkEvent::StorageClosed => self.close_storage_pane(false),
+                NetworkEvent::StorageItemAdded { item } => {
+                    let fresh = !self
+                        .client_state
+                        .follow(client_state().storage().items())
+                        .iter()
+                        .any(|row| row.index == item.index);
+                    if fresh {
+                        self.clear_item_marks_at(crate::state::item_flags::MarkPlace::storage(item.index.0));
+                    }
+                    self.client_state
+                        .follow_mut(client_state().storage())
+                        .add_stored_item(&self.async_loader, item);
+                }
+                NetworkEvent::StorageItemRemoved { index, amount } => {
+                    self.client_state
+                        .follow_mut(client_state().storage())
+                        .remove_item_if_present(index, amount);
+                    if !self
+                        .client_state
+                        .follow(client_state().storage().items())
+                        .iter()
+                        .any(|row| row.index == index)
+                    {
+                        self.clear_item_marks_at(crate::state::item_flags::MarkPlace::storage(index.0));
+                    }
+                }
                 NetworkEvent::SetCart { items } => {
                     self.client_state.follow_mut(client_state().cart()).fill(&self.async_loader, items);
                     // The server only sends a cart list while a cart is on.
@@ -6372,6 +6399,7 @@ impl Client {
                     }
                 }
                 InputEvent::CloseStorage => self.close_storage_pane(true),
+                InputEvent::ClickPaneTab { tab } => self.click_pane_tab(tab),
                 InputEvent::EnchantSelectItem { index } => {
                     self.client_state.follow_mut(client_state().enchant_window()).select(index);
                 }
@@ -7597,6 +7625,10 @@ impl Client {
                         .set_item_texture(item_id.0, texture.clone());
                     self.client_state
                         .follow_mut(client_state().cart())
+                        .update_item_sprite(item_id, texture.clone());
+                    // The storage half of the unified inventory.
+                    self.client_state
+                        .follow_mut(client_state().storage())
                         .update_item_sprite(item_id, texture);
                 }
                 (LoaderId::Map(..), LoadableResource::Map { map, position }) => {
@@ -8125,7 +8157,8 @@ impl Client {
                     }
                 }
                 autopilot::Effect::Window { class, open, event } => {
-                    if self.interface.is_window_with_class_open(class) != open {
+                    // Cart and Storage are inventory panes now.
+                    if self.menu_class_open(class) != open {
                         self.input_event_buffer.push(event);
                     }
                 }
@@ -8621,7 +8654,8 @@ impl Client {
             };
             let is_chat_open = self.interface.is_window_with_class_open(WindowClass::Chat);
             self.window_groups.observe(|class| self.interface.is_window_with_class_open(class));
-            let menu_bar_bits = menu_bar_open_bits(|class| self.interface.is_window_with_class_open(class));
+            let menu_bar_bits =
+                menu_bar_open_bits(|class| interface::unified_inventory_flow::menu_class_open(&self.interface, &self.client_state, class));
             *self.client_state.follow_mut(client_state().menu_bar_open()) = menu_bar_bits;
             let ctrl = self.input_system.key_down(KeyCode::ControlLeft) || self.input_system.key_down(KeyCode::ControlRight);
             self.client_state.follow_mut(client_state().dressing_room()).set_ctrl(ctrl);

@@ -25,6 +25,11 @@ pub const SOURCES_PATH: &str = "System/itemsources.turoran.v3.json";
 /// sort reads it; items without a price sort last.
 pub const PRICES_PATH: &str = "System/itemprices.turoran.v1.json";
 
+/// [`PRICES_PATH`] built into the binary (115 KB). The auto-update ships
+/// only the executable, so installs without the archive file still get the
+/// Zeny sort; a file in the data path overrides it.
+pub const BUNDLED_PRICES: &[u8] = include_bytes!("../../archive/System/itemprices.turoran.v1.json");
+
 pub const MISSING_CATALOG_STATUS: &str = "Item Finder catalog is not loaded. Data worker A5 owns itemInfo.turoran.renewal11 and has not \
                                           published System/itemfinder.turoran.v8.json in the client data path. This window stays empty \
                                           until that file is available. Drop lines also need System/itemsources.turoran.v3.json.";
@@ -228,10 +233,13 @@ impl ItemFinderState {
         self.sell_prices.get(&id).copied()
     }
 
-    /// Load [`PRICES_PATH`]. Missing or invalid bytes leave no prices; the
-    /// Zeny sort then keeps the server order.
+    /// Load [`PRICES_PATH`] from the data path when it is there and valid,
+    /// otherwise the table built into the binary ([`BUNDLED_PRICES`]).
     pub fn load_prices(&mut self, bytes: Option<&[u8]>) {
-        self.sell_prices = bytes.and_then(|bytes| parse_prices(bytes).ok()).unwrap_or_default();
+        self.sell_prices = bytes
+            .and_then(|bytes| parse_prices(bytes).ok())
+            .or_else(|| parse_prices(BUNDLED_PRICES).ok())
+            .unwrap_or_default();
     }
 
     /// Name and weight (tenths) for the inventory view's search and sort.
@@ -1005,8 +1013,13 @@ mod tests {
             (state.price_count(), state.sell_price(501), state.sell_price(502)),
             (1, Some(25), None)
         );
+        // No file, or a broken one: the table built into the binary.
         state.load_prices(None);
-        assert_eq!(state.price_count(), 0);
+        let bundled = state.price_count();
+        assert!(bundled > 1_000, "{bundled}");
+        assert_eq!(state.sell_price(501), Some(25));
+        state.load_prices(Some(b"not json"));
+        assert_eq!(state.price_count(), bundled);
     }
 
     #[test]

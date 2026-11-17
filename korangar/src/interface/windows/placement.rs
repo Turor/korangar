@@ -133,6 +133,28 @@ pub fn frame_anchor_offset(anchor: ScreenAnchor, frame: HudFrame, screen_width: 
 }
 
 /// Frames used when a window class has no saved position yet.
+/// First-open inventory height: five or more item rows in the single view
+/// (t275u review B1). The HUD column keeps its 120 px slot for the
+/// character and stats windows below; the inventory window is drawn
+/// taller over them, as its 240 px minimum already was.
+pub const INVENTORY_DEFAULT_HEIGHT: f32 = 400.0;
+
+/// The inventory's first-open frame: the HUD slot, made
+/// [`INVENTORY_DEFAULT_HEIGHT`] tall where the screen has room below it.
+///
+/// Wide screens get a wide window with larger slots, so the height grows
+/// with the HUD scale too.
+pub fn inventory_window_frame(hud_slot: HudFrame, screen_width: f32, screen_height: f32) -> HudFrame {
+    let scale = (screen_width / REFERENCE_SCREEN_WIDTH)
+        .min(screen_height / REFERENCE_SCREEN_HEIGHT)
+        .max(1.0);
+    let room = (screen_height - hud_slot.top - 8.0).max(hud_slot.height);
+    HudFrame {
+        height: (INVENTORY_DEFAULT_HEIGHT * scale).max(hud_slot.height).min(room),
+        ..hud_slot
+    }
+}
+
 pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
     let scale = (screen_width / REFERENCE_SCREEN_WIDTH).min(screen_height / REFERENCE_SCREEN_HEIGHT);
     let margin = 8.0 * scale;

@@ -493,6 +493,31 @@ where
         }
     }
 
+    /// Area an open window was last drawn in.
+    pub fn window_class_area(&self, window_class: App::WindowClass) -> Option<Area> {
+        self.windows
+            .iter()
+            .find(|wrapper| wrapper.window.get_class().is_some_and(|class| class == window_class))
+            .map(|wrapper| wrapper.display_information.real_area)
+    }
+
+    /// Resize an open window for now. The saved size is left alone, so the
+    /// next open uses the size the player chose.
+    pub fn resize_window_class(&mut self, window_class: App::WindowClass, size: App::Size) {
+        if let Some(wrapper) = self
+            .windows
+            .iter_mut()
+            .find(|wrapper| wrapper.window.get_class().is_some_and(|class| class == window_class))
+        {
+            wrapper.data.size = size;
+        }
+    }
+
+    /// Size of the screen the windows are kept in.
+    pub fn screen_size(&self) -> App::Size {
+        self.window_size
+    }
+
     /// Make `to` open where `from` is now. Used by tab strips so switching
     /// tabs keeps the window in place. Does nothing when `from` is closed.
     pub fn share_window_anchor(&mut self, from: App::WindowClass, to: App::WindowClass) {

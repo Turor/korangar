@@ -57,7 +57,10 @@ pub use self::guild_actions::{
     RequestGuildEmblemPacket, UploadGuildEmblemPacket,
 };
 pub use self::inventory_tab::{INVENTORY_TAB_FAVORITE, INVENTORY_TAB_NORMAL, InventoryTabPacket, InventoryTabRequestPacket};
-pub use self::item_capacity::{CartItemCountPacket, CartOffPacket, StorageClosedPacket, StorageItemCountPacket};
+pub use self::item_capacity::{
+    AddItemToCart2Packet, AddItemToStore2Packet, AddItemToStorePacket, CartItemCountPacket, CartOffPacket, DeleteItemFromStorePacket,
+    StorageClosedPacket, StorageItemCountPacket,
+};
 pub use self::item_skill_selection::{
     AutoSpellListFixedPacket, AutoSpellListPacket, ItemCompositionAckPacket, ItemCompositionListPacket, ItemIdentifyAckPacket,
     ItemIdentifyListPacket, MakableItemEntry, MakableItemListPacket, MakingArrowListPacket, MakingItemListPacket, MapName16,
