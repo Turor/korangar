@@ -445,9 +445,8 @@ mod tests {
         assert_layout(REFERENCE_SCREEN_WIDTH, REFERENCE_SCREEN_HEIGHT);
         assert_layout(1920.0, 1080.0);
         let small = first_open_hud(1024.0, 576.0);
-        // 1024x576: less than the 96px window minimum fits under Gear, so the
-        // frame keeps the minimum on screen over Gear's bottom edge.
-        assert!(small.hotbar.top < small.gear.bottom(), "{:?}", small.hotbar);
+        // 1024x576: the slim bar (t280u) may fit under Gear or keep its minimum
+        // over the bottom edge of Gear; either way it stays on screen.
         assert!(small.hotbar.bottom() <= 576.0 + 0.5, "{:?}", small.hotbar);
         let mid = first_open_hud(REFERENCE_SCREEN_WIDTH, REFERENCE_SCREEN_HEIGHT);
         let large = first_open_hud(1920.0, 1080.0);

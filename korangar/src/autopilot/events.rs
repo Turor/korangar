@@ -156,6 +156,8 @@ pub fn unit_event(name: &str) -> Option<InputEvent> {
         "LaphineSynthesisClose" => Some(InputEvent::LaphineSynthesisClose),
         "LaphineUpgradeSubmit" => Some(InputEvent::LaphineUpgradeSubmit),
         "LaphineUpgradeClose" => Some(InputEvent::LaphineUpgradeClose),
+        "AddHotbarRow" => Some(InputEvent::AddHotbarRow),
+        "RemoveHotbarRow" => Some(InputEvent::RemoveHotbarRow),
         _ => None,
     };
     if event.is_some() {

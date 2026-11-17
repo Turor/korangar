@@ -45,8 +45,8 @@ pub use self::dressing_room::{LiveDressingReport, OfflineDressingReport, no_prev
 pub use self::grid_navigation::{GridKey, KEY_RUN, OfflineGridNavReport, offline_grid_navigation};
 pub use self::headgear::{HeadgearScene, LookedPlayer};
 pub use self::hotbar::{
-    HOTBAR_NARROW_DRAG, HotbarSnapshot, OfflineHotbarReport, TimelinePoint, cooldown_timeline, hotbar_limits, hotbar_window_grid,
-    offline_hotbar_scenario,
+    HOTBAR_NARROW_DRAG, HotbarPointerReport, HotbarSnapshot, OfflineHotbarReport, TimelinePoint, cooldown_timeline, hotbar_limits,
+    hotbar_window_grid, offline_hotbar_pointer, offline_hotbar_scenario,
 };
 pub use self::inject::input_path_parity;
 pub use self::inventory_grid::{GridView, OfflineInventoryGridReport, TURORAN_CAP_BYTES, grid_view, offline_inventory_grid};
