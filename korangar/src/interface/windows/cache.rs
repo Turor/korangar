@@ -44,7 +44,12 @@ impl WindowCache {
         #[cfg(feature = "debug")]
         print_debug!("loading window cache from {}", Self::FILE_NAME.magenta());
 
-        std::fs::read_to_string(Self::FILE_NAME)
+        Self::load_from(std::path::Path::new(Self::FILE_NAME))
+    }
+
+    /// Read a saved layout. `None` when the file is missing or unreadable.
+    pub fn load_from(path: &std::path::Path) -> Option<Self> {
+        std::fs::read_to_string(path)
             .ok()
             .and_then(|data| ron::from_str(&data).ok())
             .map(|entries| Self { entries })
@@ -54,8 +59,31 @@ impl WindowCache {
         #[cfg(feature = "debug")]
         print_debug!("saving window cache to {}", Self::FILE_NAME.magenta());
 
-        let data = ron::ser::to_string_pretty(&self.entries, PrettyConfig::new()).unwrap();
-        std::fs::write(Self::FILE_NAME, data).expect("unable to write file");
+        if let Err(_error) = self.save_to(std::path::Path::new(Self::FILE_NAME)) {
+            #[cfg(feature = "debug")]
+            print_debug!("failed to save window cache: {}", _error);
+        }
+    }
+
+    /// Write the layout next to the target and rename it over, so a crash
+    /// mid-write never leaves a half-written file.
+    pub fn save_to(&self, path: &std::path::Path) -> std::io::Result<()> {
+        let data = ron::ser::to_string_pretty(&self.entries, PrettyConfig::new()).map_err(std::io::Error::other)?;
+        let mut temporary = path.as_os_str().to_owned();
+        temporary.push(".tmp");
+        let temporary = std::path::PathBuf::from(temporary);
+        std::fs::write(&temporary, data)?;
+        std::fs::rename(&temporary, path)
+    }
+
+    /// Drop every saved window (without writing the file).
+    pub fn forget_all(&mut self) {
+        self.entries.clear();
+    }
+
+    /// Saved size and position of one window, if the user placed it.
+    pub fn saved(&self, class: WindowClass) -> Option<&WindowState> {
+        self.entries.get(&class)
     }
 }
 
@@ -114,6 +142,11 @@ impl korangar_interface::application::WindowCache<ClientState> for WindowCache {
         } else if let Some((anchor, _)) = preset_window(class, REFERENCE_SCREEN_WIDTH, REFERENCE_SCREEN_HEIGHT) {
             self.entries.insert(class, WindowState::new(anchor, size));
         }
+    }
+
+    fn clear(&mut self) {
+        self.forget_all();
+        self.save();
     }
 }
 

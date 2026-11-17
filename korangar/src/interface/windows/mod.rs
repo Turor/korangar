@@ -73,6 +73,7 @@ mod quest_journal;
 mod refine;
 #[cfg(feature = "debug")]
 mod render_options;
+pub(crate) mod resizable;
 mod respawn;
 mod roulette;
 mod search_store;

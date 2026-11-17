@@ -41,15 +41,49 @@ impl MouseButton {
     }
 }
 
-/// Different modes for resizing a window.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum ResizeMode {
-    /// Only update the horizontal dimensions of the window.
-    Horizontal,
-    /// Only update the vertical dimensions of the window.
-    Vertical,
-    /// Update both the horizontal and vertical dimensions of the window.
-    Both,
+/// Which window edges a resize drag moves. Corners move two edges.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ResizeMode {
+    pub left: bool,
+    pub right: bool,
+    pub top: bool,
+    pub bottom: bool,
+}
+
+impl ResizeMode {
+    pub const BOTTOM: Self = Self::edges(false, false, false, true);
+    pub const BOTTOM_LEFT: Self = Self::edges(true, false, false, true);
+    pub const BOTTOM_RIGHT: Self = Self::edges(false, true, false, true);
+    pub const LEFT: Self = Self::edges(true, false, false, false);
+    pub const RIGHT: Self = Self::edges(false, true, false, false);
+    pub const TOP: Self = Self::edges(false, false, true, false);
+    pub const TOP_LEFT: Self = Self::edges(true, false, true, false);
+    pub const TOP_RIGHT: Self = Self::edges(false, true, true, false);
+
+    const fn edges(left: bool, right: bool, top: bool, bottom: bool) -> Self {
+        Self { left, right, top, bottom }
+    }
+
+    /// The drag changes the width.
+    pub fn is_horizontal(self) -> bool {
+        self.left || self.right
+    }
+
+    /// The drag changes the height.
+    pub fn is_vertical(self) -> bool {
+        self.top || self.bottom
+    }
+
+    /// Keep only the axes the window allows. `None` when nothing is left.
+    pub fn restricted(self, horizontal: bool, vertical: bool) -> Option<Self> {
+        let mode = Self {
+            left: self.left && horizontal,
+            right: self.right && horizontal,
+            top: self.top && vertical,
+            bottom: self.bottom && vertical,
+        };
+        (mode.is_horizontal() || mode.is_vertical()).then_some(mode)
+    }
 }
 
 /// Icons that can be rendered from the [`Layout`].
@@ -227,6 +261,9 @@ pub struct WindowLayout<'a, App: Application> {
     interface_scaling: f32,
 
     mouse_mode: Option<&'a MouseMode<App>>,
+
+    /// The pointer is on a resize edge or corner of this window.
+    resize_hovered: bool,
 }
 
 impl<App: Application> Default for WindowLayout<'_, App> {
@@ -254,6 +291,8 @@ impl<App: Application> Default for WindowLayout<'_, App> {
             interface_scaling: 1.0,
 
             mouse_mode: None,
+
+            resize_hovered: false,
         }
     }
 }
@@ -296,6 +335,7 @@ impl<'a, App: Application> WindowLayout<'a, App> {
         self.is_hovered = false;
         self.can_be_hovered = can_be_hovered;
         self.mouse_mode = Some(mouse_mode);
+        self.resize_hovered = false;
     }
 
     pub fn get_interface_scaling(&self) -> f32 {
@@ -328,6 +368,17 @@ impl<'a, App: Application> WindowLayout<'a, App> {
     /// work.
     pub fn set_hovered(&mut self) {
         self.is_hovered = true;
+    }
+
+    /// Mark that the pointer is on a resize edge or corner, so the client can
+    /// show resize cursor feedback.
+    pub fn set_resize_hovered(&mut self) {
+        self.resize_hovered = true;
+    }
+
+    /// See [`Self::set_resize_hovered`].
+    pub fn is_resize_hovered(&self) -> bool {
+        self.resize_hovered
     }
 
     pub fn is_element_focused(&self, element_id: ElementId) -> bool {

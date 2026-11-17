@@ -208,6 +208,10 @@ where
 
     /// Update the size of a registered window.
     fn update_size(&mut self, window_class: App::WindowClass, size: App::Size);
+
+    /// Forget every saved position and size, so windows open at their
+    /// defaults again.
+    fn clear(&mut self) {}
 }
 
 /// Glue between [`korangar_interface`] and the renderer of the application.

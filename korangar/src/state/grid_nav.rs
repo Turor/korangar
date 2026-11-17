@@ -26,8 +26,15 @@ pub enum GridKey {
 /// Next cursor position over `len` drawn stacks. The first key press on an
 /// empty cursor lands on the first stack (End on the last). Moves stop at
 /// the edges; Down from a row whose column is past the end goes to the last
-/// stack.
+/// stack. Rows are [`GRID_COLUMNS`] wide; the grid uses [`step_cursor_in`]
+/// with the column count it drew.
 pub fn step_cursor(cursor: Option<usize>, len: usize, key: GridKey) -> Option<usize> {
+    step_cursor_in(cursor, len, key, GRID_COLUMNS)
+}
+
+/// [`step_cursor`] over rows of `columns` cells.
+pub fn step_cursor_in(cursor: Option<usize>, len: usize, key: GridKey, columns: usize) -> Option<usize> {
+    let columns = columns.max(1);
     if len == 0 {
         return None;
     }
@@ -38,9 +45,9 @@ pub fn step_cursor(cursor: Option<usize>, len: usize, key: GridKey) -> Option<us
     Some(match key {
         GridKey::Left => cursor.saturating_sub(1),
         GridKey::Right => (cursor + 1).min(last),
-        GridKey::Up => cursor.checked_sub(GRID_COLUMNS).unwrap_or(cursor),
-        GridKey::Down if cursor + GRID_COLUMNS <= last => cursor + GRID_COLUMNS,
-        GridKey::Down if cursor / GRID_COLUMNS < last / GRID_COLUMNS => last,
+        GridKey::Up => cursor.checked_sub(columns).unwrap_or(cursor),
+        GridKey::Down if cursor + columns <= last => cursor + columns,
+        GridKey::Down if cursor / columns < last / columns => last,
         GridKey::Down => cursor,
         GridKey::Home => 0,
         GridKey::End => last,
@@ -111,16 +118,45 @@ pub fn enter_free_for_chat(grid_took_enter: bool, dialog_ate_confirm: bool) -> b
 /// Scroll range of the cursor's row as fractions of the grid height, for
 /// `scroll_view!`'s `reveal`.
 pub fn row_fraction(cursor: usize, rows: usize) -> Option<(f32, f32)> {
+    row_fraction_in(cursor, rows, GRID_COLUMNS)
+}
+
+/// [`row_fraction`] for rows of `columns` cells.
+pub fn row_fraction_in(cursor: usize, rows: usize, columns: usize) -> Option<(f32, f32)> {
     if rows == 0 {
         return None;
     }
-    let row = (cursor / GRID_COLUMNS).min(rows - 1);
+    let row = (cursor / columns.max(1)).min(rows - 1);
     Some((row as f32 / rows as f32, (row + 1) as f32 / rows as f32))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_view_keeps_its_own_drawn_column_count() {
+        let inventory = InventoryView::default();
+        let storage = InventoryView::default();
+        assert_eq!(inventory.columns(), GRID_COLUMNS, "before the first layout");
+        inventory.note_columns(7);
+        storage.note_columns(13);
+        assert_eq!((inventory.columns(), storage.columns()), (7, 13));
+        assert_eq!(InventoryView::default().columns(), GRID_COLUMNS, "no process-wide state");
+    }
+
+    #[test]
+    fn arrows_step_by_the_drawn_column_count() {
+        assert_eq!(step_cursor_in(Some(3), 40, GridKey::Down, 7), Some(10));
+        assert_eq!(step_cursor_in(Some(10), 40, GridKey::Up, 7), Some(3));
+        assert_eq!(step_cursor_in(Some(33), 40, GridKey::Down, 7), Some(39));
+        assert_eq!(
+            step_cursor_in(Some(5), 40, GridKey::Down, 0),
+            Some(6),
+            "zero columns acts as one"
+        );
+        assert_eq!(row_fraction_in(13, 6, 7), Some((1.0 / 6.0, 2.0 / 6.0)));
+    }
 
     #[test]
     fn first_press_lands_on_an_edge() {
