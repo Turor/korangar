@@ -560,10 +560,14 @@ pub fn window_command(class: WindowClass, open: bool) -> Result<WindowCommand, S
             }
         }
         WindowClass::Storage => {
+            // The Storage tab sends @storage; the server's list opens the split.
             if open {
-                return Err("storage opens from the server; close uses event CloseStorage".to_owned());
+                InputEvent::ClickPaneTab {
+                    tab: crate::state::unified_inventory::PaneTab::Storage(crate::state::unified_inventory::StorageKind::Personal),
+                }
+            } else {
+                InputEvent::CloseStorage
             }
-            InputEvent::CloseStorage
         }
         WindowClass::Enchant => {
             if open {

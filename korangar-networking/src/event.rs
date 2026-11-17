@@ -435,6 +435,19 @@ pub enum NetworkEvent {
     },
     /// Slot cap for the inventory, storage or cart.
     ItemCapacity(crate::packet_versions::item_capacity::ItemCapacity),
+    /// `ZC_CLOSE_STORE`: storage closed on the server.
+    StorageClosed,
+    /// `ZC_CARTOFF`: the cart was removed.
+    CartRemoved,
+    /// `ZC_ADD_ITEM_TO_STORE`: a stack arrived in (or grew in) storage.
+    StorageItemAdded {
+        item: InventoryItem<NoMetadata>,
+    },
+    /// `ZC_DELETE_ITEM_FROM_STORE`: `amount` left storage row `index`.
+    StorageItemRemoved {
+        index: InventoryIndex,
+        amount: u16,
+    },
     /// Full cart snapshot. Distinct from [`Self::SetInventory`].
     SetCart {
         items: Vec<InventoryItem<NoMetadata>>,

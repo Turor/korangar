@@ -131,9 +131,20 @@ pub struct ItemGrid<P> {
     cells: Vec<ElementBox<ClientState>>,
     /// Slot side the cells were built with.
     built_slot: f32,
+    /// One pane of the split inventory: half the columns less one.
+    split: bool,
 }
 
 impl<P> ItemGrid<P> {
+    /// A grid in one pane of the split view (inventory | storage or cart).
+    /// It keeps the single view's slot size and draws
+    /// [`split_columns`](crate::state::unified_inventory::split_columns) of
+    /// its columns.
+    pub fn split(mut self) -> Self {
+        self.split = true;
+        self
+    }
+
     pub fn new(inventory_path: P, source: ItemSource, fallback_capacity: Option<u32>) -> Self {
         Self {
             inventory_path,
@@ -141,6 +152,7 @@ impl<P> ItemGrid<P> {
             fallback_capacity,
             cells: Vec::new(),
             built_slot: 0.0,
+            split: false,
         }
     }
 }
@@ -165,7 +177,11 @@ where
             let cells = tab_cells(inventory.view().tab(), inventory.item_count(), inventory.view().len(), capacity);
 
             let gaps = *state.get(&theme().window().gaps());
-            let metrics = grid_metrics(resolver.push_available_area().width, gaps);
+            let width = resolver.push_available_area().width;
+            let metrics = match self.split {
+                true => crate::interface::components::unified_inventory::split_grid_metrics(width, gaps),
+                false => grid_metrics(width, gaps),
+            };
             // Arrow keys and the cursor reveal step by the drawn row.
             inventory.view().note_columns(metrics.columns);
 

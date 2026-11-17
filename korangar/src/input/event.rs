@@ -391,6 +391,10 @@ pub enum InputEvent {
     },
     /// Close Kafra storage and tell the map server.
     CloseStorage,
+    /// Inventory / Cart / Storage / Guild Storage tab in the inventory.
+    ClickPaneTab {
+        tab: crate::state::unified_inventory::PaneTab,
+    },
     /// Pick an eligible inventory item in the enchant window.
     EnchantSelectItem {
         index: u16,

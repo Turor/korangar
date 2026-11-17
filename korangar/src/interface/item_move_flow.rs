@@ -163,7 +163,7 @@ impl Client {
         let prompt_open = self.interface.is_window_with_class_open(WindowClass::ItemMoveAmount);
         // The cart has no open/close handshake, so a cart question stays.
         let context_open = if target.needs_storage() {
-            self.interface.is_window_with_class_open(WindowClass::Storage)
+            self.storage_is_open()
         } else if target == ItemMoveTarget::ToTrade {
             self.interface.is_window_with_class_open(WindowClass::Trade)
         } else {

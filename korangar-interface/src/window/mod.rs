@@ -130,6 +130,13 @@ where
     /// Thickness of [`Self::frame_color`] in interface pixels. Zero skips the
     /// outline.
     pub frame_width: f32,
+    /// Accent line drawn right under the title bar, inside the frame. `None`
+    /// (older theme files) skips it.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub accent_color: Option<App::Color>,
+    /// Thickness of [`Self::accent_color`] in interface pixels.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub accent_width: f32,
 }
 
 pub struct WindowData<App>
@@ -614,6 +621,20 @@ where
             );
         }
 
+        // After the background so the line sits on top of it.
+        if let Some(accent_color) = *state.get(&theme().window().accent_color()) {
+            let accent_width = *state.get(&theme().window().accent_width());
+            if let Some(accent_area) = title_accent_area(layout_info.title_area, frame_width, accent_width) {
+                layout.add_rectangle(
+                    accent_area,
+                    App::CornerDiameter::new(0.0, 0.0, 0.0, 0.0),
+                    accent_color,
+                    accent_color,
+                    App::ShadowPadding::none(),
+                );
+            }
+        }
+
         if let Some(handle_area) = highlighted_handle {
             layout.add_rectangle(
                 handle_area,
@@ -651,6 +672,22 @@ where
     }
 }
 
+/// The accent line under the title bar: the full width inside the window
+/// frame, `width` high, starting at the bottom edge of the title. `None` when
+/// the width is zero or not a number.
+pub fn title_accent_area(title_area: Area, frame_width: f32, width: f32) -> Option<Area> {
+    if !width.is_finite() || width <= 0.0 {
+        return None;
+    }
+    let inset = if frame_width.is_finite() { frame_width.max(0.0) } else { 0.0 };
+    Some(Area {
+        left: title_area.left + inset,
+        top: title_area.top + title_area.height,
+        width: (title_area.width - inset * 2.0).max(0.0),
+        height: width,
+    })
+}
+
 /// Inner fill after a frame of `inset` interface pixels is drawn on `area`.
 pub fn inset_area(area: Area, inset: f32) -> Area {
     let inset = if inset.is_finite() { inset.max(0.0) } else { 0.0 };
@@ -673,7 +710,22 @@ pub(crate) fn clamp_window_origin(left: f32, top: f32, width: f32, height: f32, 
 
 #[cfg(test)]
 mod tests {
-    use super::{Area, clamp_window_origin, inset_area};
+    use super::{Area, clamp_window_origin, inset_area, title_accent_area};
+
+    #[test]
+    fn title_accent_runs_under_the_title_inside_the_frame() {
+        let title = Area {
+            left: 10.0,
+            top: 20.0,
+            width: 300.0,
+            height: 22.0,
+        };
+        let accent = title_accent_area(title, 2.0, 2.0).unwrap();
+        assert_eq!((accent.left, accent.top, accent.width, accent.height), (12.0, 42.0, 296.0, 2.0));
+        assert!(title_accent_area(title, 2.0, 0.0).is_none());
+        assert!(title_accent_area(title, 2.0, f32::NAN).is_none());
+        assert_eq!(title_accent_area(title, f32::NAN, 1.0).unwrap().left, 10.0);
+    }
 
     #[test]
     fn frame_inset_leaves_a_border_inside_the_window() {

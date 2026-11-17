@@ -2,6 +2,11 @@
 //! #2, #3, #7, #9, #12): category tabs, hidden worn gear, favorites, display
 //! sort, search dimming and the weight bar marks.
 //!
+//! The unified inventory (Matthew t275u) draws the cart and storage beside
+//! the bag; one set of tabs, one search box and one sort (A-Z, Recent,
+//! Zeny, each reversible) drive both panes, see
+//! [`InventoryView::follow_controls`].
+//!
 //! Everything here is view-only. Server inventory indexes never change; the
 //! grid just draws [`view_order`] of the item list.
 
@@ -28,32 +33,48 @@ pub mod item_type {
     pub const CARD: u8 = 6;
     pub const PET_EGG: u8 = 7;
     pub const PET_ARMOR: u8 = 8;
+    pub const AMMO: u8 = 10;
     pub const DELAY_CONSUME: u8 = 11;
-    pub const SHADOW_GEAR: u8 = 12;
+    /// `IT_SELECTPACKAGE` (Hercules `mmo.h`): a box the player opens to pick
+    /// an item, so it is used like a consumable.
+    pub const SELECT_PACKAGE: u8 = 12;
     pub const CASH: u8 = 18;
 }
 
-/// Grid tab. `All` is the default; the rest follow roBrowser's
-/// Usable / Equip / Etc / Favorites tabs.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+/// Grid tab. `All` is the default; the rest follow the official client's
+/// and roBrowser's storage tabs (Usable / Equip / Ammo / Etc / Cards) plus
+/// Favorites (the server-side `PlaceETCTab` flag, `ZC_INVENTORY_TAB`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum InventoryTab {
     #[default]
     All,
     Usable,
     Equip,
+    Ammo,
     Etc,
+    Cards,
     Favorites,
 }
 
 impl InventoryTab {
-    pub const ALL: [InventoryTab; 5] = [Self::All, Self::Usable, Self::Equip, Self::Etc, Self::Favorites];
+    pub const ALL: [InventoryTab; 7] = [
+        Self::All,
+        Self::Usable,
+        Self::Equip,
+        Self::Ammo,
+        Self::Etc,
+        Self::Cards,
+        Self::Favorites,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::All => "All",
             Self::Usable => "Usable",
             Self::Equip => "Equip",
+            Self::Ammo => "Ammo",
             Self::Etc => "Etc",
+            Self::Cards => "Cards",
             Self::Favorites => "Favorites",
         }
     }
@@ -61,7 +82,11 @@ impl InventoryTab {
 
 /// Display sort. `Server` keeps the server's order; the others only change
 /// the drawn order. There is no separate Compact: the grid never has gaps.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+///
+/// The window offers A-Z ([`Self::Name`]), Recent ([`Self::Newest`]) and
+/// Zeny ([`Self::Zeny`]); see [`click_sort`]. `Type`, `Weight` and `Amount`
+/// stay for the headless checks.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum InventorySort {
     #[default]
     Server,
@@ -70,38 +95,58 @@ pub enum InventorySort {
     Weight,
     Newest,
     Amount,
+    /// NPC sell value of the whole stack, highest first.
+    Zeny,
 }
+
+/// The three sort buttons, left to right.
+pub const SORT_BUTTONS: [InventorySort; 3] = [InventorySort::Name, InventorySort::Newest, InventorySort::Zeny];
 
 impl InventorySort {
-    pub fn next(self) -> Self {
+    /// Button text. The direction is drawn as an arrow next to it.
+    pub fn button_label(self) -> &'static str {
         match self {
-            Self::Server => Self::Type,
-            Self::Type => Self::Name,
-            Self::Name => Self::Weight,
-            Self::Weight => Self::Newest,
-            Self::Newest => Self::Amount,
-            Self::Amount => Self::Server,
+            Self::Server => "Default",
+            Self::Type => "Type",
+            Self::Name => "A-Z",
+            Self::Weight => "Weight",
+            Self::Newest => "Recent",
+            Self::Amount => "Amount",
+            Self::Zeny => "Zeny",
         }
     }
 
-    pub fn label(self) -> &'static str {
+    /// The arrow points up when the drawn list starts from the low end
+    /// (A first, oldest first, cheapest first).
+    pub fn arrow_up(self, reversed: bool) -> bool {
         match self {
-            Self::Server => "Sort: Default",
-            Self::Type => "Sort: Type",
-            Self::Name => "Sort: Name",
-            Self::Weight => "Sort: Weight",
-            Self::Newest => "Sort: Newest",
-            Self::Amount => "Sort: Amount",
+            Self::Name => !reversed,
+            // Recent and Zeny start from the newest / most valuable stack.
+            Self::Newest | Self::Zeny => reversed,
+            _ => !reversed,
         }
     }
 }
 
-/// Category tab for an item type (roBrowser `getItemTab`).
+/// A click on a sort button. A new button starts in its natural direction,
+/// a second click reverses it and a third goes back to the server order.
+pub fn click_sort(current: InventorySort, reversed: bool, clicked: InventorySort) -> (InventorySort, bool) {
+    match (current == clicked, reversed) {
+        (false, _) => (clicked, false),
+        (true, false) => (clicked, true),
+        (true, true) => (InventorySort::Server, false),
+    }
+}
+
+/// Category tab for an item type (roBrowser `getItemTab`). Pet eggs and pet
+/// armor are gear, cash-shop consumables are usable.
 pub fn type_tab(item_type: u8) -> InventoryTab {
     use item_type::*;
     match item_type {
-        HEALING | USABLE | DELAY_CONSUME | CASH => InventoryTab::Usable,
-        WEAPON | ARMOR | SHADOW_GEAR | PET_EGG | PET_ARMOR => InventoryTab::Equip,
+        HEALING | USABLE | DELAY_CONSUME | CASH | SELECT_PACKAGE => InventoryTab::Usable,
+        WEAPON | ARMOR | PET_EGG | PET_ARMOR => InventoryTab::Equip,
+        AMMO => InventoryTab::Ammo,
+        CARD => InventoryTab::Cards,
         _ => InventoryTab::Etc,
     }
 }
@@ -152,15 +197,64 @@ fn type_rank(item_type: u8) -> u8 {
     match type_tab(item_type) {
         InventoryTab::Usable => 0,
         InventoryTab::Equip => 1,
-        _ => 2,
+        InventoryTab::Ammo => 2,
+        InventoryTab::Etc => 3,
+        _ => 4,
     }
+}
+
+/// NPC sell value of a whole stack, if the price table knows the item.
+pub fn stack_value<Meta>(item: &InventoryItem<Meta>, sell_price: Option<u32>) -> Option<u64> {
+    sell_price.map(|price| u64::from(price) * u64::from(amount_of(item)))
 }
 
 /// Positions into `items` in drawn order for this tab and sort. The item
 /// list is kept in arrival order, so "newest" is the list reversed. `weight`
 /// is the per-piece weight from the Item Finder catalog; unknown items sort
 /// last.
+#[cfg(test)]
 pub fn view_order(
+    items: &[InventoryItem<ResourceMetadata>],
+    tab: InventoryTab,
+    sort: InventorySort,
+    weight: impl Fn(u32) -> Option<i32>,
+) -> Vec<usize> {
+    view_order_sorted(items, tab, sort, false, weight, |_| None)
+}
+
+/// [`view_order`] with a direction and the NPC sell price per piece.
+/// `reversed` flips the order; stacks the price table does not know stay
+/// last under Zeny either way.
+pub fn view_order_sorted(
+    items: &[InventoryItem<ResourceMetadata>],
+    tab: InventoryTab,
+    sort: InventorySort,
+    reversed: bool,
+    weight: impl Fn(u32) -> Option<i32>,
+    sell_price: impl Fn(u32) -> Option<u32>,
+) -> Vec<usize> {
+    if sort == InventorySort::Zeny {
+        let mut order: Vec<usize> = (0..items.len()).filter(|&position| shows_in_tab(&items[position], tab)).collect();
+        order.sort_by_key(|&position| {
+            let item = &items[position];
+            let value = stack_value(item, sell_price(item.item_id.0));
+            let direction = match (value, reversed) {
+                (None, _) => (1, 0),
+                (Some(value), false) => (0, u64::MAX - value),
+                (Some(value), true) => (0, value),
+            };
+            (direction, item.index.server_order())
+        });
+        return order;
+    }
+    let mut order = view_order_unreversed(items, tab, sort, weight);
+    if reversed && sort != InventorySort::Server {
+        order.reverse();
+    }
+    order
+}
+
+fn view_order_unreversed(
     items: &[InventoryItem<ResourceMetadata>],
     tab: InventoryTab,
     sort: InventorySort,
@@ -187,6 +281,8 @@ pub fn view_order(
             let item = &items[position];
             (std::cmp::Reverse(amount_of(item)), item.index.0)
         }),
+        // Handled by `view_order_sorted`; without prices it is the server order.
+        InventorySort::Zeny => order.sort_by_key(|&position| items[position].index.server_order()),
     }
     order
 }
@@ -239,8 +335,12 @@ pub struct InventoryView {
     misses: Vec<bool>,
     tab: InventoryTab,
     sort: InventorySort,
+    /// Second click on the active sort button.
+    reversed: bool,
     search: String,
     lookups: HashMap<u32, Lookup>,
+    /// NPC sell price per piece (`System/itemprices.turoran.v1.json`).
+    prices: HashMap<u32, Option<u32>>,
     lookup_catalog_len: usize,
     key: Option<u64>,
     /// Keyboard cursor: a drawn position (`state::grid_nav`).
@@ -279,6 +379,44 @@ impl InventoryView {
 
     pub fn set_sort(&mut self, sort: InventorySort) {
         self.sort = sort;
+    }
+
+    pub fn reversed(&self) -> bool {
+        self.reversed
+    }
+
+    pub fn set_reversed(&mut self, reversed: bool) {
+        self.reversed = reversed;
+    }
+
+    /// A sort button was clicked (see [`click_sort`]).
+    pub fn click_sort(&mut self, clicked: InventorySort) {
+        let (sort, reversed) = click_sort(self.sort, self.reversed, clicked);
+        self.sort = sort;
+        self.reversed = reversed;
+    }
+
+    /// Tab, sort, direction and search, as persisted per character.
+    pub fn controls(&self) -> ViewControls {
+        ViewControls {
+            tab: self.tab,
+            sort: self.sort,
+            reversed: self.reversed,
+        }
+    }
+
+    pub fn apply_controls(&mut self, controls: ViewControls) {
+        self.set_tab(controls.tab);
+        self.sort = controls.sort;
+        self.reversed = controls.reversed;
+    }
+
+    /// The cart and storage panes follow the bag's tab, sort and search.
+    pub fn follow_controls(&mut self, controls: ViewControls, search: &str) {
+        self.apply_controls(controls);
+        if self.search != search {
+            self.set_search(search);
+        }
     }
 
     pub fn cursor(&self) -> Option<usize> {
@@ -362,11 +500,24 @@ impl InventoryView {
 
     /// Stores catalog answers and rebuilds the drawn list if anything changed.
     pub fn refresh(&mut self, items: &[InventoryItem<ResourceMetadata>], catalog_len: usize, resolved: Vec<(u32, Lookup)>) {
+        self.refresh_priced(items, catalog_len, resolved, Vec::new());
+    }
+
+    /// [`Self::refresh`] with sell prices for the same ids.
+    pub fn refresh_priced(
+        &mut self,
+        items: &[InventoryItem<ResourceMetadata>],
+        catalog_len: usize,
+        resolved: Vec<(u32, Lookup)>,
+        prices: Vec<(u32, Option<u32>)>,
+    ) {
         if catalog_len != self.lookup_catalog_len {
             self.lookups.clear();
+            self.prices.clear();
             self.lookup_catalog_len = catalog_len;
         }
         self.lookups.extend(resolved);
+        self.prices.extend(prices);
 
         let key = self.key_for(items);
         if self.key == Some(key) {
@@ -375,9 +526,15 @@ impl InventoryView {
         self.key = Some(key);
 
         let lookups = &self.lookups;
-        let order = view_order(items, self.tab, self.sort, |id| {
-            lookups.get(&id).and_then(|lookup| lookup.as_ref()).map(|(_, weight)| *weight)
-        });
+        let prices = &self.prices;
+        let order = view_order_sorted(
+            items,
+            self.tab,
+            self.sort,
+            self.reversed,
+            |id| lookups.get(&id).and_then(|lookup| lookup.as_ref()).map(|(_, weight)| *weight),
+            |id| prices.get(&id).copied().flatten(),
+        );
         let query = normalize_query(&self.search);
         let card_name = |id: u32| lookups.get(&id).and_then(|lookup| lookup.as_ref()).map(|(name, _)| name.as_str());
         self.misses = order
@@ -393,7 +550,16 @@ impl InventoryView {
 
     fn key_for(&self, items: &[InventoryItem<ResourceMetadata>]) -> u64 {
         let mut hasher = DefaultHasher::new();
-        (self.tab, self.sort, &self.search, self.lookups.len(), self.lookup_catalog_len).hash(&mut hasher);
+        (
+            self.tab,
+            self.sort,
+            self.reversed,
+            &self.search,
+            self.lookups.len(),
+            self.prices.len(),
+            self.lookup_catalog_len,
+        )
+            .hash(&mut hasher);
         for item in items {
             (item.index.0, item.item_id.0, item.item_type, item.slot, &item.metadata.name).hash(&mut hasher);
             item.metadata
@@ -427,12 +593,46 @@ impl InventoryView {
     }
 }
 
+/// Tab, sort and direction of one grid, saved per character in
+/// `client/inventory_view.ron`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ViewControls {
+    pub tab: InventoryTab,
+    pub sort: InventorySort,
+    pub reversed: bool,
+}
+
 /// Rebuilds the Inventory, Storage and Cart views. Called once per frame;
-/// cheap when nothing changed.
+/// cheap when nothing changed. The storage and cart panes take the bag's
+/// tab, sort and search first, so one set of controls filters both panes.
 pub fn refresh_inventory_views(state: &mut State<ClientState>) {
+    sync_pane_controls(state);
     refresh_one(state, client_state().inventory());
     refresh_one(state, client_state().storage());
     refresh_one(state, client_state().cart());
+}
+
+fn sync_pane_controls(state: &mut State<ClientState>) {
+    sync_pane(state, client_state().storage());
+    sync_pane(state, client_state().cart());
+}
+
+/// Copies the bag's tab, sort and search onto one pane when they differ.
+fn sync_pane<P>(state: &mut State<ClientState>, pane: P)
+where
+    P: Path<ClientState, Inventory> + Copy,
+{
+    let bag = client_state().inventory();
+    let differs = {
+        let bag_view = state.get(&bag).view();
+        let pane_view = state.get(&pane).view();
+        bag_view.controls() != pane_view.controls() || bag_view.search() != pane_view.search()
+    };
+    if differs {
+        let controls = state.get(&bag).view().controls();
+        let search = state.get(&bag).view().search().to_owned();
+        state.follow_mut(pane).view_mut().follow_controls(controls, &search);
+    }
 }
 
 fn refresh_one<P>(state: &mut State<ClientState>, path: P)
@@ -441,9 +641,11 @@ where
 {
     let finder_path = client_state().item_finder();
     let finder: &ItemFinderState = state.get(&finder_path);
-    let catalog_len = finder.catalog_len();
-    let wanted = state.get(&path).wanted_lookups(catalog_len);
+    // A price table that loads later must also refresh the lookups.
+    let generation = finder.catalog_len() + finder.price_count();
+    let wanted = state.get(&path).wanted_lookups(generation);
     let finder: &ItemFinderState = state.get(&finder_path);
+    let prices = wanted.iter().map(|&id| (id, finder.sell_price(id))).collect();
     let resolved = wanted
         .into_iter()
         .map(|id| {
@@ -453,7 +655,7 @@ where
             )
         })
         .collect();
-    state.follow_mut(path).refresh_view(catalog_len, resolved);
+    state.follow_mut(path).refresh_view_priced(generation, resolved, prices);
 }
 
 /// Weight bar marks: from 50% HP/SP stop regenerating, from 90% you cannot
@@ -576,7 +778,161 @@ mod tests {
         assert_eq!(order(InventorySort::Type), [2, 4, 6, 5]);
         // Stack weight: potions 30 x 7.0, knife 60.0, jellopy 12 x 1.0, card unknown.
         assert_eq!(order(InventorySort::Weight), [2, 4, 6, 5]);
-        assert_eq!(InventorySort::Amount.next(), InventorySort::Server);
+    }
+
+    #[test]
+    fn tabs_follow_the_official_storage_categories() {
+        use item_type::*;
+        assert_eq!(type_tab(HEALING), InventoryTab::Usable);
+        assert_eq!(type_tab(USABLE), InventoryTab::Usable);
+        assert_eq!(type_tab(DELAY_CONSUME), InventoryTab::Usable);
+        assert_eq!(type_tab(CASH), InventoryTab::Usable);
+        assert_eq!(type_tab(WEAPON), InventoryTab::Equip);
+        assert_eq!(type_tab(ARMOR), InventoryTab::Equip);
+        assert_eq!(type_tab(SELECT_PACKAGE), InventoryTab::Usable);
+        assert_eq!(type_tab(PET_EGG), InventoryTab::Equip);
+        assert_eq!(type_tab(PET_ARMOR), InventoryTab::Equip);
+        assert_eq!(type_tab(AMMO), InventoryTab::Ammo);
+        assert_eq!(type_tab(CARD), InventoryTab::Cards);
+        assert_eq!(type_tab(ETC), InventoryTab::Etc);
+        assert_eq!(type_tab(1), InventoryTab::Etc);
+        assert_eq!(InventoryTab::ALL.map(InventoryTab::label), [
+            "All",
+            "Usable",
+            "Equip",
+            "Ammo",
+            "Etc",
+            "Cards",
+            "Favorites"
+        ]);
+    }
+
+    #[test]
+    fn ammo_and_cards_get_their_own_tabs_and_favorites_win() {
+        let mut favorite_arrow = regular(9, 1751, item_type::AMMO, 20, "Silver Arrow");
+        set_favorite(&mut favorite_arrow, true);
+        let items = vec![
+            regular(2, 1750, item_type::AMMO, 500, "Arrow"),
+            regular(3, 4001, item_type::CARD, 1, "Poring Card"),
+            regular(4, 909, item_type::ETC, 3, "Jellopy"),
+            favorite_arrow,
+        ];
+        let drawn = |tab| {
+            view_order(&items, tab, InventorySort::Server, |_| None)
+                .into_iter()
+                .map(|position| items[position].index.0)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(drawn(InventoryTab::Ammo), [2]);
+        assert_eq!(drawn(InventoryTab::Cards), [3]);
+        assert_eq!(drawn(InventoryTab::Etc), [4]);
+        assert_eq!(drawn(InventoryTab::Favorites), [9]);
+        assert_eq!(drawn(InventoryTab::All), [2, 3, 4, 9]);
+    }
+
+    #[test]
+    fn sort_buttons_reverse_then_reset() {
+        use InventorySort::*;
+        assert_eq!(SORT_BUTTONS, [Name, Newest, Zeny]);
+        assert_eq!(click_sort(Server, false, Name), (Name, false));
+        assert_eq!(click_sort(Name, false, Name), (Name, true));
+        assert_eq!(click_sort(Name, true, Name), (Server, false));
+        // Another button starts fresh in its natural direction.
+        assert_eq!(click_sort(Name, true, Zeny), (Zeny, false));
+        assert_eq!(click_sort(Zeny, false, Newest), (Newest, false));
+        // Arrows: A-Z up, Z-A down; Recent and Zeny start from the top.
+        assert!(Name.arrow_up(false) && !Name.arrow_up(true));
+        assert!(!Newest.arrow_up(false) && Newest.arrow_up(true));
+        assert!(!Zeny.arrow_up(false) && Zeny.arrow_up(true));
+        assert_eq!(SORT_BUTTONS.map(InventorySort::button_label), ["A-Z", "Recent", "Zeny"]);
+    }
+
+    #[test]
+    fn a_z_recent_and_zeny_orders_and_their_reversals() {
+        let items = sample();
+        let price = |id: u32| match id {
+            501 => Some(25),  // 30 potions: 750
+            909 => Some(3),   // 12 jellopy: 36
+            1202 => Some(25), // knife: 25
+            _ => None,        // card: unknown, always last
+        };
+        let order = |sort, reversed| {
+            view_order_sorted(&items, InventoryTab::All, sort, reversed, |_| None, price)
+                .into_iter()
+                .map(|position| items[position].index.0)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(order(InventorySort::Name, false), [6, 4, 5, 2]);
+        assert_eq!(order(InventorySort::Name, true), [2, 5, 4, 6]);
+        assert_eq!(order(InventorySort::Newest, false), [6, 5, 4, 2]);
+        assert_eq!(order(InventorySort::Newest, true), [2, 4, 5, 6]);
+        assert_eq!(order(InventorySort::Zeny, false), [2, 6, 4, 5]);
+        assert_eq!(order(InventorySort::Zeny, true), [4, 6, 2, 5]);
+        // The server order has no direction.
+        assert_eq!(order(InventorySort::Server, true), [2, 4, 5, 6]);
+        assert_eq!(stack_value(&items[0], Some(25)), Some(750));
+        assert_eq!(stack_value(&items[0], None), None);
+    }
+
+    #[test]
+    fn view_controls_round_trip_and_panes_copy_the_bag() {
+        let mut bag = InventoryView::default();
+        bag.set_tab(InventoryTab::Cards);
+        bag.click_sort(InventorySort::Zeny);
+        bag.click_sort(InventorySort::Zeny);
+        bag.set_search("poring");
+        assert_eq!(bag.controls(), ViewControls {
+            tab: InventoryTab::Cards,
+            sort: InventorySort::Zeny,
+            reversed: true,
+        });
+        let mut storage = InventoryView::default();
+        storage.follow_controls(bag.controls(), bag.search());
+        assert_eq!(storage.controls(), bag.controls());
+        assert_eq!(storage.search(), "poring");
+
+        let text = ron::to_string(&bag.controls()).unwrap();
+        assert_eq!(ron::from_str::<ViewControls>(&text).unwrap(), bag.controls());
+    }
+
+    #[test]
+    fn prices_rebuild_the_zeny_order() {
+        let items = sample();
+        let mut view = InventoryView::default();
+        view.click_sort(InventorySort::Zeny);
+        view.refresh_priced(&items, 1, Vec::new(), Vec::new());
+        let before: Vec<u16> = view.items().iter().map(|item| item.index.0).collect();
+        assert_eq!(before, [2, 4, 5, 6], "no prices: server order");
+        view.refresh_priced(&items, 1, Vec::new(), vec![(909, Some(100))]);
+        let after: Vec<u16> = view.items().iter().map(|item| item.index.0).collect();
+        assert_eq!(after, [6, 2, 4, 5]);
+    }
+
+    #[test]
+    fn zeny_sort_works_without_a_price_file_on_disk() {
+        // No System/itemprices file in the data path (a binary-only
+        // auto-update install): the built-in table still prices the stacks.
+        let mut finder = crate::state::item_finder::ItemFinderState::default();
+        finder.load_prices(None);
+        assert!(finder.price_count() > 1_000);
+        let items = sample();
+        let prices: Vec<(u32, Option<u32>)> = items
+            .iter()
+            .map(|item| (item.item_id.0, finder.sell_price(item.item_id.0)))
+            .collect();
+        let mut view = InventoryView::default();
+        view.click_sort(InventorySort::Zeny);
+        view.refresh_priced(&items, 1, Vec::new(), prices);
+        let order: Vec<u16> = view.items().iter().map(|item| item.index.0).collect();
+        // Red Potion x30 at 25 z is the most valuable stack.
+        assert_eq!(order.first(), Some(&2));
+        assert_ne!(order, [2, 4, 5, 6], "not just the server order");
+        let values: Vec<u64> = view
+            .items()
+            .iter()
+            .map(|item| stack_value(item, finder.sell_price(item.item_id.0)).unwrap_or(0))
+            .collect();
+        assert!(values.windows(2).all(|pair| pair[0] >= pair[1]), "{order:?} {values:?}");
     }
 
     #[test]

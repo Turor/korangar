@@ -10,3 +10,4 @@ pub mod item_grid;
 pub mod item_tooltip;
 pub mod skill_box;
 pub mod storage_controls;
+pub mod unified_inventory;

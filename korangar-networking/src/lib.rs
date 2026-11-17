@@ -68,7 +68,9 @@ pub use self::packet_versions::eden::{
 };
 pub use self::packet_versions::enchant::{format_enchant_result, parse_enchant_index, parse_enchant_item_id, parse_enchant_slot};
 pub use self::packet_versions::inventory_tab::decode_item_favorites;
-pub use self::packet_versions::item_capacity::{FIXED_INVENTORY_SIZE, ItemCapacity, ItemCapacityList, decode_item_capacity};
+pub use self::packet_versions::item_capacity::{
+    FIXED_INVENTORY_SIZE, ItemCapacity, ItemCapacityList, decode_item_capacity, decode_list_ends,
+};
 pub use self::packet_versions::misc_info::{
     BattlefieldUpdate, ELEMENT_NAMES, MemorialDungeonUpdate, ammunition_is_error, ammunition_message, format_remaining, format_reputation,
     format_sense, memorial_dungeon_notice, memorial_dungeon_notice_closes,
@@ -81,6 +83,7 @@ pub use self::packet_versions::npc_dialog::{
 };
 pub use self::packet_versions::rodex::{format_rodex_mails, parse_rodex_attachments, parse_rodex_mail_id};
 pub use self::packet_versions::stable::{format_stable_result, parse_stable_action, parse_stable_id};
+pub use self::packet_versions::storage_items::decode_item_deltas;
 pub use self::packet_versions::warpra::{
     format_warpra_destinations, format_warpra_result, push_warpra_chunk, warpra_kind_name, warpra_level_requirement,
 };

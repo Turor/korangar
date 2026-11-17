@@ -57,6 +57,7 @@ pub mod styling_catalog;
 pub mod styling_shop;
 pub mod theme;
 pub mod trade;
+pub mod unified_inventory;
 pub mod view_equip;
 mod view_names;
 pub mod vn_dialog;
@@ -421,6 +422,9 @@ pub struct ClientState {
     equip_switch: EquipSwitch,
     /// Player cart. Separate from the bag and from NPC buy/sell drafts.
     cart: Inventory,
+    /// Cart and storage panes of the Inventory window (Matthew t275u).
+    #[hidden_element]
+    unified_inventory: crate::state::unified_inventory::UnifiedInventory,
     /// Player skill tree.
     skill_tree: SkillTree,
     /// Player-to-player trade.
@@ -804,6 +808,7 @@ impl ClientState {
             storage,
             equip_switch: EquipSwitch::default(),
             cart,
+            unified_inventory: Default::default(),
             skill_tree,
             trade,
             context_menu,

@@ -19,7 +19,7 @@ pub type DepositCase = (InventoryTab, &'static str, Option<u16>, Vec<u16>);
 /// What the offline run observed.
 #[derive(Clone, Debug, PartialEq)]
 pub struct OfflineStorageReport {
-    /// Storage indexes per storage tab (All, Usable, Equip, Etc).
+    /// Storage indexes per tab; storage shows the inventory's tabs.
     pub storage_tabs: Vec<(InventoryTab, Vec<u16>)>,
     /// Inventory indexes "Deposit matching" queues per (tab, search).
     pub plans: Vec<DepositCase>,
@@ -62,7 +62,7 @@ pub fn offline_storage_tools(scratch: &std::path::Path) -> Result<OfflineStorage
         gear(1, 1202, "Knife", false, [0; 4]),
         regular(2, 501, item_type::HEALING, 5, EquipPosition::empty(), "Red Potion"),
     ]);
-    let storage_tabs = [InventoryTab::All, InventoryTab::Usable, InventoryTab::Equip, InventoryTab::Etc]
+    let storage_tabs = InventoryTab::ALL
         .into_iter()
         .map(|tab| (tab, drawn(&mut storage, tab, InventorySort::Server, 0)))
         .collect();
@@ -76,8 +76,9 @@ pub fn offline_storage_tools(scratch: &std::path::Path) -> Result<OfflineStorage
         (InventoryTab::All, "", None),
         (InventoryTab::All, "", Some(5)),
         (InventoryTab::Usable, "", None),
+        (InventoryTab::Ammo, "", None),
+        (InventoryTab::Ammo, "", Some(5)),
         (InventoryTab::Etc, "", None),
-        (InventoryTab::Etc, "", Some(5)),
         (InventoryTab::All, "poring", None),
         (InventoryTab::Favorites, "", None),
     ]

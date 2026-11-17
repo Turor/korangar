@@ -20,6 +20,16 @@ pub const CATALOG_PATH: &str = "System/itemfinder.turoran.v8.json";
 /// catalog.
 pub const SOURCES_PATH: &str = "System/itemsources.turoran.v3.json";
 
+/// NPC sell price per item id, generated from the TEST server's renewal
+/// `item_db.conf` by `scripts/generate-item-prices.py`. The inventory's Zeny
+/// sort reads it; items without a price sort last.
+pub const PRICES_PATH: &str = "System/itemprices.turoran.v1.json";
+
+/// [`PRICES_PATH`] built into the binary (115 KB). The auto-update ships
+/// only the executable, so installs without the archive file still get the
+/// Zeny sort; a file in the data path overrides it.
+pub const BUNDLED_PRICES: &[u8] = include_bytes!("../../archive/System/itemprices.turoran.v1.json");
+
 pub const MISSING_CATALOG_STATUS: &str = "Item Finder catalog is not loaded. Data worker A5 owns itemInfo.turoran.renewal11 and has not \
                                           published System/itemfinder.turoran.v8.json in the client data path. This window stays empty \
                                           until that file is available. Drop lines also need System/itemsources.turoran.v3.json.";
@@ -186,6 +196,9 @@ pub struct ItemFinderState {
     /// the catalog loads so a hover does not scan the finder list.
     #[hidden_element]
     tooltip_catalog: ItemTooltipCatalog,
+    /// NPC sell price per piece ([`PRICES_PATH`]).
+    #[hidden_element]
+    sell_prices: HashMap<u32, u32>,
 }
 
 impl Default for ItemFinderState {
@@ -198,6 +211,7 @@ impl Default for ItemFinderState {
             catalog: FinderCatalog::default(),
             sources: None,
             sources_ready: false,
+            sell_prices: HashMap::new(),
             tooltip_catalog: ItemTooltipCatalog::default(),
         }
     }
@@ -207,6 +221,25 @@ impl ItemFinderState {
     /// Catalog size; changes when the catalog loads.
     pub fn catalog_len(&self) -> usize {
         self.catalog.len()
+    }
+
+    /// Items the sell price table knows.
+    pub fn price_count(&self) -> usize {
+        self.sell_prices.len()
+    }
+
+    /// NPC sell price of one piece.
+    pub fn sell_price(&self, id: u32) -> Option<u32> {
+        self.sell_prices.get(&id).copied()
+    }
+
+    /// Load [`PRICES_PATH`] from the data path when it is there and valid,
+    /// otherwise the table built into the binary ([`BUNDLED_PRICES`]).
+    pub fn load_prices(&mut self, bytes: Option<&[u8]>) {
+        self.sell_prices = bytes
+            .and_then(|bytes| parse_prices(bytes).ok())
+            .or_else(|| parse_prices(BUNDLED_PRICES).ok())
+            .unwrap_or_default();
     }
 
     /// Name and weight (tenths) for the inventory view's search and sort.
@@ -368,6 +401,18 @@ fn push_source_rows(rows: &mut Vec<String>, catalog: &FinderCatalog, sources: &I
     if quests.len() > shown_quests {
         rows.push(format!("    … {} more quest file(s)", quests.len() - shown_quests));
     }
+}
+
+/// `{"version": 1, "sell": {"501": 25, ...}}`: NPC sell price per item id.
+pub fn parse_prices(bytes: &[u8]) -> Result<HashMap<u32, u32>, String> {
+    let value: Value = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+    let Some(sell) = value.get("sell").and_then(Value::as_object) else {
+        return Err("price table has no sell object".to_owned());
+    };
+    Ok(sell
+        .iter()
+        .filter_map(|(id, price)| Some((id.parse::<u32>().ok()?, u32::try_from(price.as_u64()?).ok()?)))
+        .collect())
 }
 
 pub fn parse_catalog(bytes: &[u8]) -> Result<FinderCatalog, String> {
@@ -954,5 +999,39 @@ mod tests {
         state.load_bytes(Some(&catalog_bytes), Some(&sources_bytes));
         assert!(state.sources_ready);
         assert!(!state.rows.is_empty());
+    }
+
+    #[test]
+    fn sell_prices_parse_and_skip_bad_rows() {
+        let prices = super::parse_prices(br#"{"version":1,"sell":{"501":25,"909":3,"x":4,"1201":-1}}"#).unwrap();
+        assert_eq!(prices.len(), 2);
+        assert_eq!(prices[&501], 25);
+        assert!(super::parse_prices(b"{}").is_err());
+        let mut state = super::ItemFinderState::default();
+        state.load_prices(Some(br#"{"sell":{"501":25}}"#));
+        assert_eq!(
+            (state.price_count(), state.sell_price(501), state.sell_price(502)),
+            (1, Some(25), None)
+        );
+        // No file, or a broken one: the table built into the binary.
+        state.load_prices(None);
+        let bundled = state.price_count();
+        assert!(bundled > 1_000, "{bundled}");
+        assert_eq!(state.sell_price(501), Some(25));
+        state.load_prices(Some(b"not json"));
+        assert_eq!(state.price_count(), bundled);
+    }
+
+    #[test]
+    fn bundled_price_table_covers_common_items() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("archive")
+            .join(super::PRICES_PATH);
+        let prices = super::parse_prices(&std::fs::read(path).expect("bundled price table")).unwrap();
+        assert!(prices.len() > 5_000, "{}", prices.len());
+        // Red Potion buys for 50 and sells for half.
+        assert_eq!(prices.get(&501), Some(&25));
+        // Jellopy.
+        assert_eq!(prices.get(&909), Some(&3));
     }
 }

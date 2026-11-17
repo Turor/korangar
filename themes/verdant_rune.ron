@@ -9,6 +9,9 @@ ThemeFile(
     muted: "#93A69C",
     accent: "#4CC3A0",
     accent2: "#E0708A",
+    // Tab outlines and window title accents: dim for idle tabs, mid (halfway to
+    // accent, computed when omitted) for the selected tab.
+    accent_dim: Some("#2A6453"),
     hover: "#CFAE5A",
     hp: "#D2524A",
     sp: "#4A86D8",

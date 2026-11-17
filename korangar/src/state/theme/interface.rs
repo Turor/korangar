@@ -324,13 +324,17 @@ impl InterfaceTheme {
                 title_height: 22.0,
                 title_gap: 2.0,
                 font_size: title_font,
-                horizontal_alignment: HorizontalAlignment::Center { offset: 0.0, border: 4.0 },
+                // Titles are left-aligned (Matthew t275u).
+                horizontal_alignment: HorizontalAlignment::Left { offset: 10.0, border: 4.0 },
                 vertical_alignment: VerticalAlignment::Center { offset: 0.0 },
                 overflow_behavior: OverflowBehavior::Shrink,
                 anchor_color: border,
                 closest_anchor_color: hover,
                 frame_color: border,
                 frame_width: 2.0,
+                // Accent line under the title bar (theme `accent`).
+                accent_color: Some(accent),
+                accent_width: 2.0,
             },
             text: TextTheme {
                 color: text,
@@ -668,6 +672,7 @@ impl InterfaceTheme {
             window.title_height,
             window.title_gap,
             window.font_size,
+            window.horizontal_alignment,
             text.height,
             text.font_size,
             button.height,
@@ -723,13 +728,17 @@ impl InterfaceTheme {
                 title_height: 45.0,
                 title_gap: 20.0,
                 font_size: FontSize(20.0),
-                horizontal_alignment: HorizontalAlignment::Center { offset: 0.0, border: 5.0 },
+                // Titles are left-aligned (Matthew t275u), clear of the large
+                // rounded corner.
+                horizontal_alignment: HorizontalAlignment::Left { offset: 26.0, border: 5.0 },
                 vertical_alignment: VerticalAlignment::Center { offset: 0.0 },
                 overflow_behavior: OverflowBehavior::Shrink,
                 anchor_color: Color::rgb_u8(130, 105, 160),
                 closest_anchor_color: Color::rgb_u8(255, 175, 30),
                 frame_color: Color::rgb_u8(130, 105, 160),
                 frame_width: 2.0,
+                accent_color: Some(crate::state::theme::ThemeTokens::default().accent),
+                accent_width: 2.0,
             },
             text: TextTheme {
                 color: Color::monochrome_u8(220),
@@ -952,13 +961,16 @@ impl InterfaceTheme {
                 title_height: 25.0,
                 title_gap: 2.0,
                 font_size: FontSize(15.0),
-                horizontal_alignment: HorizontalAlignment::Center { offset: 0.0, border: 5.0 },
+                // Titles are left-aligned (Matthew t275u).
+                horizontal_alignment: HorizontalAlignment::Left { offset: 10.0, border: 5.0 },
                 vertical_alignment: VerticalAlignment::Center { offset: 0.0 },
                 overflow_behavior: OverflowBehavior::Shrink,
                 anchor_color: Color::rgb_u8(140, 105, 130),
                 closest_anchor_color: Color::rgb_u8(255, 175, 30),
                 frame_color: Color::rgb_u8(140, 105, 130),
                 frame_width: 2.0,
+                accent_color: Some(crate::state::theme::ThemeTokens::default().accent),
+                accent_width: 2.0,
             },
             text: TextTheme {
                 color: Color::monochrome_u8(220),

@@ -18,5 +18,6 @@ pub mod player_shop_flow;
 pub mod resource;
 pub mod shop_boards;
 pub(crate) mod storage_flow;
+pub(crate) mod unified_inventory_flow;
 pub(crate) mod vn_portrait;
 pub mod windows;

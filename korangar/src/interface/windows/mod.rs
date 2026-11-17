@@ -8,7 +8,6 @@ mod buy;
 mod buy_cart;
 mod buy_or_sell;
 mod cache;
-mod cart;
 mod character_appearance;
 mod character_creation;
 mod character_deletion;
@@ -66,7 +65,7 @@ mod party;
 mod party_invite;
 mod picker_list;
 mod pincode;
-mod placement;
+pub(crate) mod placement;
 #[cfg(feature = "debug")]
 mod profiler;
 mod quest_journal;
@@ -86,7 +85,6 @@ pub(crate) mod stable;
 mod stats;
 mod status_effects;
 mod status_panel;
-mod storage;
 mod styling_shop;
 mod switch_equip;
 #[cfg(feature = "debug")]
@@ -111,7 +109,6 @@ pub use self::buy::BuyWindow;
 pub use self::buy_cart::BuyCartWindow;
 pub use self::buy_or_sell::BuyOrSellWindow;
 pub use self::cache::WindowCache;
-pub use self::cart::CartWindow;
 pub use self::character_creation::CharacterCreationWindow;
 pub use self::character_deletion::CharacterDeletionWindow;
 pub use self::character_overview::CharacterOverviewWindow;
@@ -149,7 +146,7 @@ pub use self::guild_invite::GuildInviteWindow;
 pub use self::hotbar::HotbarWindow;
 pub use self::interface_settings::InterfaceSettingsWindow;
 #[allow(unused_imports)]
-pub use self::inventory::InventoryWindow;
+pub use self::inventory::{INVENTORY_MAXIMUM_HEIGHT, InventoryWindow};
 #[allow(unused_imports)]
 pub use self::item_details::format_item_details;
 pub use self::item_details::{ItemDetailsWindow, item_details_key};
@@ -196,7 +193,6 @@ pub use self::stable::{StableWindow, StableWindowState};
 pub use self::stats::StatsWindow;
 pub use self::status_effects::StatusEffectsWindow;
 pub use self::status_panel::StatusPanelWindow;
-pub use self::storage::StorageWindow;
 pub use self::styling_shop::StylingShopWindow;
 pub use self::switch_equip::SwitchEquipWindow;
 #[cfg(feature = "debug")]

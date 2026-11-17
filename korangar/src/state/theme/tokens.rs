@@ -33,6 +33,14 @@ pub struct ThemeTokens {
     pub muted: Color,
     pub accent: Color,
     pub accent2: Color,
+    /// `accent_dim`: idle tab outlines. Defaults to `accent` 55% of the way
+    /// to `bg`.
+    #[serde(default = "default_accent_dim")]
+    pub accent_dim: Color,
+    /// `accent_mid`: selected tab outline, halfway between `accent_dim` and
+    /// `accent` unless the theme sets it.
+    #[serde(default = "default_accent_mid")]
+    pub accent_mid: Color,
     /// Slot hover border. Gold / amber, never the default slot border.
     pub hover: Color,
     pub hp: Color,
@@ -124,6 +132,39 @@ fn default_chat_colors() -> ChatChannelColors {
     )
 }
 
+/// `accent` blended towards `to` by `amount` (0.0 keeps `accent`).
+pub fn mix_color(from: Color, to: Color, amount: f32) -> Color {
+    let amount = if amount.is_finite() { amount.clamp(0.0, 1.0) } else { 0.0 };
+    let channel = |a: f32, b: f32| ((a + (b - a) * amount) * 255.0).round() / 255.0;
+    Color::rgba(
+        channel(from.red, to.red),
+        channel(from.green, to.green),
+        channel(from.blue, to.blue),
+        from.alpha,
+    )
+}
+
+/// How far `accent_dim` sits from `accent` towards `bg`.
+pub const ACCENT_DIM_AMOUNT: f32 = 0.55;
+
+/// Default `accent_dim` for an accent on a background.
+pub fn derive_accent_dim(accent: Color, bg: Color) -> Color {
+    mix_color(accent, bg, ACCENT_DIM_AMOUNT)
+}
+
+/// Default `accent_mid`: the midpoint of `accent_dim` and `accent`.
+pub fn derive_accent_mid(accent_dim: Color, accent: Color) -> Color {
+    mix_color(accent_dim, accent, 0.5)
+}
+
+fn default_accent_dim() -> Color {
+    derive_accent_dim(Color::rgb_u8(255, 152, 48), Color::rgb_u8(12, 14, 20))
+}
+
+fn default_accent_mid() -> Color {
+    derive_accent_mid(default_accent_dim(), Color::rgb_u8(255, 152, 48))
+}
+
 fn default_slot_shadow() -> Color {
     Color::rgba_u8(0, 0, 0, 140)
 }
@@ -180,6 +221,8 @@ impl ThemeTokens {
             muted: Color::rgb_u8(176, 180, 192),
             accent: Color::rgb_u8(255, 152, 48),
             accent2: Color::rgb_u8(198, 64, 88),
+            accent_dim: default_accent_dim(),
+            accent_mid: default_accent_mid(),
             hover: Color::rgb_u8(255, 170, 60),
             hp: Color::rgb_u8(62, 168, 96),
             sp: Color::rgb_u8(64, 156, 210),
@@ -233,6 +276,13 @@ pub struct ThemeFile {
     pub muted: String,
     pub accent: String,
     pub accent2: String,
+    /// Optional `accent_dim`; derived from `accent` and `bg` when omitted.
+    #[serde(default)]
+    pub accent_dim: Option<String>,
+    /// Optional `accent_mid`; halfway between `accent_dim` and `accent` when
+    /// omitted.
+    #[serde(default)]
+    pub accent_mid: Option<String>,
     pub hover: String,
     pub hp: String,
     pub sp: String,
@@ -379,6 +429,8 @@ impl ThemeFile {
         let item_new_glow = optional(&self.item.new_glow, accent)?;
         let item_junk = optional(&self.item.junk, accent2)?;
         let item_lock = optional(&self.item.lock, gold)?;
+        let accent_dim = optional(&self.accent_dim, derive_accent_dim(accent, bg))?;
+        let accent_mid = optional(&self.accent_mid, derive_accent_mid(accent_dim, accent))?;
         Some(ThemeTokens {
             name: self.name,
             bg,
@@ -389,6 +441,8 @@ impl ThemeFile {
             muted: parse_hex_color(&self.muted)?,
             accent,
             accent2,
+            accent_dim,
+            accent_mid,
             hover: parse_hex_color(&self.hover)?,
             hp: parse_hex_color(&self.hp)?,
             sp,
@@ -466,6 +520,8 @@ fn parse_theme_toml(source: &str) -> Option<ThemeFile> {
         muted: strings.remove("muted")?,
         accent: strings.remove("accent")?,
         accent2: strings.remove("accent2")?,
+        accent_dim: strings.remove("accent_dim"),
+        accent_mid: strings.remove("accent_mid"),
         hover: strings.remove("hover")?,
         hp: strings.remove("hp")?,
         sp: strings.remove("sp")?,
@@ -916,5 +972,53 @@ job_exp_bar = "#445566"
                 .iter()
                 .any(|name| name == VERDANT_RUNE_THEME_NAME || name == EMBER_FORGE_THEME_NAME)
         );
+    }
+
+    #[test]
+    fn every_theme_has_accent_dim_and_a_midpoint_accent_mid() {
+        for tokens in [
+            ThemeTokens::verdant_rune(),
+            ThemeTokens::ember_forge(),
+            ThemeTokens::arcane_violet(),
+            ThemeTokens::turoran_dark(),
+        ] {
+            assert_ne!(tokens.accent_dim, tokens.accent, "{}", tokens.name);
+            let mid = derive_accent_mid(tokens.accent_dim, tokens.accent);
+            assert_eq!(tokens.accent_mid, mid, "{}", tokens.name);
+            for (dim, mid, full) in [
+                (tokens.accent_dim.red, tokens.accent_mid.red, tokens.accent.red),
+                (tokens.accent_dim.green, tokens.accent_mid.green, tokens.accent.green),
+                (tokens.accent_dim.blue, tokens.accent_mid.blue, tokens.accent.blue),
+            ] {
+                assert!((mid - (dim + full) / 2.0).abs() <= 1.0 / 255.0, "{}", tokens.name);
+            }
+        }
+    }
+
+    #[test]
+    fn accent_dim_and_mid_derive_or_come_from_the_file() {
+        let base = |extra: &str| {
+            format!(
+                "ThemeFile(name: \"T\", bg: \"#000000\", panel: \"#111111\", raised: \"#222222\", border: \"#333333\", text:                  \"#FFFFFF\", muted: \"#888888\", accent: \"#FF0000\", accent2: \"#00FF00\", hover: \"#FFFF00\", hp: \"#FF0000\",                  sp: \"#0000FF\", gold: \"#FFAA00\"{extra})"
+            )
+        };
+        let derived = parse_theme_file(&base("")).unwrap();
+        assert_eq!(derived.accent_dim, derive_accent_dim(derived.accent, derived.bg));
+        assert_eq!(derived.accent_mid, derive_accent_mid(derived.accent_dim, derived.accent));
+        let set = parse_theme_file(&base(", accent_dim: Some(\"#400000\")")).unwrap();
+        assert_eq!(set.accent_dim, Color::rgb_u8(0x40, 0, 0));
+        assert_eq!(
+            set.accent_mid,
+            derive_accent_mid(Color::rgb_u8(0x40, 0, 0), Color::rgb_u8(0xFF, 0, 0))
+        );
+        let both = parse_theme_file(&base(", accent_dim: Some(\"#400000\"), accent_mid: Some(\"#800000\")")).unwrap();
+        assert_eq!(both.accent_mid, Color::rgb_u8(0x80, 0, 0));
+        let toml = parse_theme_file(
+            "name = \"T\"\nbg = \"#000000\"\npanel = \"#111111\"\nraised = \"#222222\"\nborder = \"#333333\"\ntext =              \
+             \"#FFFFFF\"\nmuted = \"#888888\"\naccent = \"#FF0000\"\naccent2 = \"#00FF00\"\nhover = \"#FFFF00\"\nhp =              \
+             \"#FF0000\"\nsp = \"#0000FF\"\ngold = \"#FFAA00\"\naccent_mid = \"#C00000\"\n",
+        )
+        .unwrap();
+        assert_eq!(toml.accent_mid, Color::rgb_u8(0xC0, 0, 0));
     }
 }

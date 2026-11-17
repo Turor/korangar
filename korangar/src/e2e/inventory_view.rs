@@ -26,6 +26,8 @@ pub type DrawnIndexes = Vec<u16>;
 pub struct OfflineInventoryViewReport {
     pub tabs: Vec<(InventoryTab, DrawnIndexes)>,
     pub sorts: Vec<(InventorySort, DrawnIndexes)>,
+    /// The A-Z / Recent / Zeny buttons, each natural then reversed.
+    pub buttons: Vec<(InventorySort, bool, DrawnIndexes)>,
     /// Indexes drawn faded for the search "poring" on the All tab.
     pub poring_dimmed: DrawnIndexes,
     /// Favorites decoded from the `0x0908` bytes.
@@ -115,6 +117,21 @@ pub fn drawn(inventory: &mut Inventory, tab: InventoryTab, sort: InventorySort, 
     inventory.view().items().iter().map(|item| item.index.0).collect()
 }
 
+/// Server indexes drawn for one sort button and direction.
+pub fn drawn_button(inventory: &mut Inventory, sort: InventorySort, reversed: bool, catalog_len: usize) -> DrawnIndexes {
+    inventory.view_mut().set_tab(InventoryTab::All);
+    inventory.view_mut().set_sort(sort);
+    inventory.view_mut().set_reversed(reversed);
+    inventory.refresh_view_priced(catalog_len, Vec::new(), Vec::new());
+    let drawn = inventory.view().items().iter().map(|item| item.index.0).collect();
+    inventory.view_mut().set_reversed(false);
+    drawn
+}
+
+/// NPC sell prices for the Zeny sort; Arrow (1750) is left unknown.
+pub const FIXTURE_SELL_PRICES: [(u32, Option<u32>); 5] =
+    [(501, Some(5)), (909, Some(3)), (1202, Some(250)), (4001, Some(10)), (1750, None)];
+
 /// `ZC_INVENTORY_TAB` for index 7 (Poring Card) moving into favorites.
 pub const FAVORITE_ACK_BYTES: [u8; 5] = [0x08, 0x09, 9, 0, INVENTORY_TAB_FAVORITE];
 
@@ -163,6 +180,13 @@ pub fn offline_inventory_view() -> Result<OfflineInventoryViewReport, String> {
     .map(|sort| (sort, drawn(&mut inventory, InventoryTab::All, sort, 5)))
     .collect();
 
+    inventory.refresh_view_priced(5, Vec::new(), FIXTURE_SELL_PRICES.to_vec());
+    let buttons = crate::state::inventory_view::SORT_BUTTONS
+        .into_iter()
+        .flat_map(|sort| [false, true].map(|reversed| (sort, reversed)))
+        .map(|(sort, reversed)| (sort, reversed, drawn_button(&mut inventory, sort, reversed, 5)))
+        .collect();
+
     inventory.view_mut().set_search(" Poring ");
     let all = drawn(&mut inventory, InventoryTab::All, InventorySort::Server, 5);
     let poring_dimmed = all
@@ -180,6 +204,7 @@ pub fn offline_inventory_view() -> Result<OfflineInventoryViewReport, String> {
     Ok(OfflineInventoryViewReport {
         tabs,
         sorts,
+        buttons,
         poring_dimmed,
         favorite_acks,
         favorite_request: writer.as_slice().to_vec(),
