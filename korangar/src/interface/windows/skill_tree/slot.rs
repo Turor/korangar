@@ -17,7 +17,7 @@ use crate::renderer::LayoutExt;
 use crate::state::skills::{LearnableSkill, LearnedSkill, SkillAcquisition};
 use crate::state::theme::{InterfaceThemePathExt, SkillTreeThemePathExt};
 use crate::state::{ClientState, client_theme};
-use crate::world::{compose_skill_description, shown_skill_level};
+use crate::world::{compose_skill_description, shown_skill_level, skill_hover_text};
 
 struct LevelDisplay {
     level: Option<SkillLevel>,
@@ -352,7 +352,7 @@ where
                     learnable_skill.maximum_level.0,
                     &learnable_skill.spell_point_costs,
                 );
-                self.hover_text = format!("{}\n{}", learnable_skill.skill_name, self.description_text);
+                self.hover_text = skill_hover_text(&learnable_skill.skill_name, &self.description_text);
             } else {
                 self.hover_text.clear();
                 self.description_text.clear();

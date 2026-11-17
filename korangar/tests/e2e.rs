@@ -37,6 +37,8 @@ mod navigation_followups;
 mod release;
 #[path = "e2e/resizable_windows.rs"]
 mod resizable_windows;
+#[path = "e2e/skill_description.rs"]
+mod skill_description;
 #[path = "e2e/social.rs"]
 mod social;
 #[path = "e2e/status_icons.rs"]
