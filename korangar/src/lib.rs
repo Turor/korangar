@@ -5950,6 +5950,7 @@ impl Client {
                     }
                 }
                 InputEvent::ReloadTheme => self.force_reload_themes = true,
+                InputEvent::ResetWindowLayout => self.interface.reset_window_layout(),
                 InputEvent::OpenItemDetails { key, title, body } => {
                     self.interface.open_or_raise_instance(key, ItemDetailsWindow { title, body });
                 }
@@ -8636,6 +8637,7 @@ impl Client {
             let cursor_state = match input_report.mouse_target {
                 _ if is_rotating_camera => MouseCursorState::RotateCamera,
                 _ if is_grabbing => MouseCursorState::GrabResource,
+                _ if interface_frame.shows_resize_feedback() => MouseCursorState::Grab,
                 _ if shop_hit.is_some() || room_hit.is_some() => MouseCursorState::Dialog,
                 PickerTarget::Entity(entity_id) if !is_interface_hovered => {
                     if self

@@ -18,7 +18,9 @@ pub fn window(token_stream: TokenStream) -> TokenStream {
         border: { korangar_interface::theme::theme().window().border() },
         corner_diameter: { korangar_interface::theme::theme().window().corner_diameter() },
         closable: { false },
-        resizable: { false },
+        // Every window can be resized by its edges and corners unless it opts
+        // out. Width still follows `minimum_width`/`maximum_width`.
+        resizable: { true },
         close_button_size: { korangar_interface::theme::theme().window().close_button_size() },
         close_button_corner_diameter: { korangar_interface::theme::theme().window().close_button_corner_diameter() },
         minimum_width: { korangar_interface::theme::theme().window().minimum_width() },

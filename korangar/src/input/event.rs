@@ -282,6 +282,8 @@ pub enum InputEvent {
     Escape,
     /// Re-read the active theme file from disk.
     ReloadTheme,
+    /// Forget saved window sizes and positions (Settings > Interface).
+    ResetWindowLayout,
     /// Open or focus a pinned item-details window.
     OpenItemDetails {
         key: u64,

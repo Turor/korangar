@@ -1,10 +1,12 @@
 mod anchor;
+pub mod resize;
 pub mod store;
 
 use std::marker::PhantomData;
 
 pub use anchor::{Anchor, AnchorPoint};
 pub use interface_macros::StateWindow;
+pub use resize::{FrameTarget, ResizeLimits, frame_hit, frame_targets, resize_handle_areas, resize_handle_at, resize_window_area};
 use rust_state::{Path, RustState, Selector, State};
 use store::WindowStore;
 
@@ -142,6 +144,10 @@ where
 pub(crate) struct DisplayInformation {
     pub real_area: Area,
     pub display_height: f32,
+    /// Size limits resolved during the last layout, used by resize drags.
+    pub limits: ResizeLimits,
+    /// The window lets the user change its height.
+    pub vertical_resize: bool,
 }
 
 pub struct WindowLayoutInfoSet<T> {
@@ -245,9 +251,8 @@ where
     // to inject some data into the click action instead.
     close_click_action: CloseClickHandler,
     move_click_action: MoveClickHandler,
-    horizontal_resize_click_action: ResizeClickHandler,
-    vertical_resize_click_action: ResizeClickHandler,
-    resize_click_action: ResizeClickHandler,
+    /// One handler per corner and edge, in [`resize_handle_areas`] order.
+    resize_click_actions: [ResizeClickHandler; 8],
     layout_info: Option<WindowLayoutInfoSet<<Elements as Element<App>>::LayoutInfo>>,
 }
 
@@ -312,9 +317,17 @@ where
             elements,
             close_click_action: CloseClickHandler::default(),
             move_click_action: MoveClickHandler::default(),
-            horizontal_resize_click_action: ResizeClickHandler::new(ResizeMode::Horizontal),
-            vertical_resize_click_action: ResizeClickHandler::new(ResizeMode::Vertical),
-            resize_click_action: ResizeClickHandler::new(ResizeMode::Both),
+            resize_click_actions: [
+                ResizeMode::TOP_LEFT,
+                ResizeMode::TOP_RIGHT,
+                ResizeMode::BOTTOM_LEFT,
+                ResizeMode::BOTTOM_RIGHT,
+                ResizeMode::LEFT,
+                ResizeMode::RIGHT,
+                ResizeMode::TOP,
+                ResizeMode::BOTTOM,
+            ]
+            .map(ResizeClickHandler::new),
             layout_info: None,
         }
     }
@@ -381,24 +394,23 @@ where
     ) -> DisplayInformation {
         self.close_click_action.update(data.id);
         self.move_click_action.update(data.id);
-        self.horizontal_resize_click_action.update(data.id);
-        self.vertical_resize_click_action.update(data.id);
-        self.resize_click_action.update(data.id);
+        self.resize_click_actions.iter_mut().for_each(|action| action.update(data.id));
 
         App::set_current_theme_type(self.theme);
 
         let title_height = *state.get(&self.title_height);
         let title_gap = *state.get(&self.title_gap);
 
-        let minimum_width = *state.get(&self.minimum_width);
-        let maximum_width = *state.get(&self.maximum_width);
-        let minimum_height = *state.get(&self.minimum_height);
-        let maximum_height = *state.get(&self.maximum_height);
-
-        let adjusted_size = App::Size::new(
-            data.size.width().min(maximum_width).max(minimum_width),
-            data.size.height().min(maximum_height).max(minimum_height),
+        let limits = ResizeLimits::new(
+            *state.get(&self.minimum_width),
+            *state.get(&self.maximum_width),
+            *state.get(&self.minimum_height),
+            *state.get(&self.maximum_height),
         );
+        let minimum_height = limits.minimum_height;
+        let maximum_height = limits.maximum_height;
+
+        let adjusted_size = App::Size::new(limits.clamp_width(data.size.width()), limits.clamp_height(data.size.height()));
 
         if data.anchor.is_initializing() {
             data.anchor.initialize(window_size, adjusted_size);
@@ -465,6 +477,8 @@ where
         DisplayInformation {
             real_area: area,
             display_height,
+            limits,
+            vertical_resize: *state.get(&self.resizable),
         }
     }
 
@@ -480,77 +494,75 @@ where
             layout.set_hovered();
         }
 
-        let close_button = if *state.get(&self.closable) {
+        // Frame targets in priority order (close button, resize handles, title
+        // bar), checked before the contents. The first hovered one takes the
+        // click; see `resize::frame_targets`.
+        let border = *state.get(&self.border);
+        let horizontal_resize_available = *state.get(&self.minimum_width) < *state.get(&self.maximum_width);
+        let vertical_resize_available = *state.get(&self.resizable);
+        let close_button_area = state.get(&self.closable).then(|| {
             let close_button_size = *state.get(&self.close_button_size);
-            let offset = layout_info.title_area.height - close_button_size.height();
+            resize::close_button_area(
+                layout_info.title_area,
+                close_button_size.width(),
+                close_button_size.height(),
+                border,
+            )
+        });
+        let targets = resize::frame_targets(
+            layout_info.area,
+            layout_info.title_area,
+            close_button_area,
+            border,
+            horizontal_resize_available,
+            vertical_resize_available,
+        );
+        let hit = targets
+            .iter()
+            .find(|(_, target_area)| target_area.check().run(layout))
+            .map(|(target, target_area)| (*target, *target_area));
 
-            let close_button_area = Area {
-                left: layout_info.title_area.left + layout_info.title_area.width - close_button_size.width() - *state.get(&self.border),
-                top: layout_info.title_area.top + offset / 2.0,
-                width: close_button_size.width(),
-                height: layout_info.title_area.height - offset,
-            };
+        let resizing_mode = match layout.get_mouse_mode() {
+            MouseMode::ResizingWindow { resize_mode, window_id } if *window_id == data.id => Some(*resize_mode),
+            _ => None,
+        };
+        let mut highlighted_handle = None;
+        let mut is_title_hovered = false;
+        let mut is_close_hovered = false;
+        match hit {
+            Some((resize::FrameTarget::Close, _)) => {
+                layout.register_click_handler(MouseButton::Left, &self.close_click_action);
+                is_close_hovered = true;
+            }
+            Some((resize::FrameTarget::Resize { index, .. }, handle_area)) => {
+                layout.register_click_handler(MouseButton::Left, &self.resize_click_actions[index]);
+                layout.set_hovered();
+                layout.set_resize_hovered();
+                highlighted_handle = Some(handle_area);
+            }
+            Some((resize::FrameTarget::Move, _)) => {
+                layout.register_click_handler(MouseButton::Left, &self.move_click_action);
+                is_title_hovered = true;
+            }
+            None => {}
+        }
+        if let Some(resizing_mode) = resizing_mode {
+            layout.set_resize_hovered();
+            if highlighted_handle.is_none() {
+                highlighted_handle = resize_handle_areas(layout_info.area, border)
+                    .into_iter()
+                    .find(|(mode, _)| *mode == resizing_mode)
+                    .map(|(_, handle_area)| handle_area);
+            }
+        }
 
-            let close_button_color = match close_button_area.check().run(layout) {
-                true => {
-                    layout.register_click_handler(MouseButton::Left, &self.close_click_action);
-
-                    *state.get(&self.hovered_title_color)
-                }
+        let close_button = close_button_area.map(|close_button_area| {
+            let close_button_color = match is_close_hovered {
+                true => *state.get(&self.hovered_title_color),
                 false => *state.get(&self.title_color),
             };
-
-            Some((close_button_area, close_button_color))
-        } else {
-            None
-        };
-
-        let is_title_hovered = layout_info.title_area.check().run(layout);
-
-        if is_title_hovered {
-            layout.register_click_handler(MouseButton::Left, &self.move_click_action);
-        }
-
-        let corner_diameter = *state.get(&self.corner_diameter);
-
-        let horizontal_resize_area = Area {
-            left: layout_info.area.left + layout_info.area.width - 3.0,
-            top: layout_info.area.top + 20.0,
-            width: 6.0,
-            height: layout_info.area.height - 40.0,
-        };
-        let vertical_resize_area = Area {
-            left: layout_info.area.left + 20.0,
-            top: layout_info.area.top + layout_info.area.height - 3.0,
-            width: layout_info.area.width - 40.0,
-            height: 6.0,
-        };
-
-        let radius = corner_diameter.bottom_right() / 2.0;
-        let corner_offset = radius - (radius.powi(2) / 2.0).sqrt();
-        let resize_area = Area {
-            left: layout_info.area.left + layout_info.area.width - corner_offset - 6.0,
-            top: layout_info.area.top + layout_info.area.height - corner_offset - 6.0,
-            width: 12.0,
-            height: 12.0,
-        };
-        let horizontal_resize_hovered = horizontal_resize_area.check().run(layout);
-        let vertical_resize_hovered = vertical_resize_area.check().run(layout);
-        let resize_hovered = resize_area.check().run(layout);
-
-        let horizontal_resize_available = *state.get(&self.minimum_width) != *state.get(&self.maximum_width);
-        let vertical_resize_availabe = *state.get(&self.resizable);
-
-        if horizontal_resize_hovered && horizontal_resize_available {
-            layout.register_click_handler(MouseButton::Left, &self.horizontal_resize_click_action);
-            layout.set_hovered();
-        } else if vertical_resize_hovered && vertical_resize_availabe {
-            layout.register_click_handler(MouseButton::Left, &self.vertical_resize_click_action);
-            layout.set_hovered();
-        } else if resize_hovered && horizontal_resize_available && vertical_resize_availabe {
-            layout.register_click_handler(MouseButton::Left, &self.resize_click_action);
-            layout.set_hovered();
-        }
+            (close_button_area, close_button_color)
+        });
 
         layout.with_clip(layout_info.area, |layout| {
             layout.with_layer(|layout| {
@@ -602,43 +614,10 @@ where
             );
         }
 
-        if horizontal_resize_hovered && horizontal_resize_available
-            || matches!(layout.get_mouse_mode(), MouseMode::ResizingWindow {
-                resize_mode: ResizeMode::Horizontal,
-                window_id,
-            } if *window_id == data.id)
-        {
+        if let Some(handle_area) = highlighted_handle {
             layout.add_rectangle(
-                horizontal_resize_area,
-                App::CornerDiameter::new(6.0, 6.0, 6.0, 6.0),
-                *state.get(&theme().window().closest_anchor_color()),
-                // TODO: Properly theme
-                *state.get(&theme().window().closest_anchor_color()),
-                App::ShadowPadding::none(),
-            );
-        } else if vertical_resize_hovered && vertical_resize_availabe
-            || matches!(layout.get_mouse_mode(), MouseMode::ResizingWindow {
-                resize_mode: ResizeMode::Vertical,
-                window_id,
-            } if *window_id == data.id)
-        {
-            layout.add_rectangle(
-                vertical_resize_area,
-                App::CornerDiameter::new(6.0, 6.0, 6.0, 6.0),
-                *state.get(&theme().window().closest_anchor_color()),
-                // TODO: Properly theme
-                *state.get(&theme().window().closest_anchor_color()),
-                App::ShadowPadding::none(),
-            );
-        } else if resize_hovered && horizontal_resize_available && vertical_resize_availabe
-            || matches!(layout.get_mouse_mode(), MouseMode::ResizingWindow {
-                resize_mode: ResizeMode::Both,
-                window_id,
-            } if *window_id == data.id)
-        {
-            layout.add_rectangle(
-                resize_area,
-                App::CornerDiameter::new(12.0, 12.0, 12.0, 12.0),
+                handle_area,
+                App::CornerDiameter::new(4.0, 4.0, 4.0, 4.0),
                 *state.get(&theme().window().closest_anchor_color()),
                 // TODO: Properly theme
                 *state.get(&theme().window().closest_anchor_color()),
