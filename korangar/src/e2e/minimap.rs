@@ -150,7 +150,7 @@ impl MinimapHarness {
             false,
             |code| (self.input.key_pressed(code), self.input.key_released(code)),
         );
-        let outcome = KeybindMap::default().poll(None, 0, 0, &edges);
+        let outcome = KeybindMap::default().poll(None, 0, 0, 1, &edges);
         let toggled = outcome.events.iter().any(|event| matches!(event, InputEvent::ToggleShowInterface));
         if toggled {
             self.show_interface = minimap::toggle_show_interface(self.show_interface);

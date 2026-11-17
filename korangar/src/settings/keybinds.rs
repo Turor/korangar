@@ -334,21 +334,60 @@ fn default_actions() -> Vec<ActionDef> {
         KeyName::F8,
         KeyName::F9,
     ];
-    const ROW_MODS: [(bool, bool, bool); 4] = [
-        (false, false, false),
-        (true, false, false),
-        (false, true, false),
-        (false, false, true),
+    // Matthew t280u: the rows `+` adds above the F-keys use the number row,
+    // the Q row and the A row. They only fire while that row is shown and
+    // no text field has focus.
+    const ROW_KEYS: [[KeyName; 9]; 4] = [
+        F_KEYS,
+        [
+            KeyName::Digit1,
+            KeyName::Digit2,
+            KeyName::Digit3,
+            KeyName::Digit4,
+            KeyName::Digit5,
+            KeyName::Digit6,
+            KeyName::Digit7,
+            KeyName::Digit8,
+            KeyName::Digit9,
+        ],
+        [
+            KeyName::Q,
+            KeyName::W,
+            KeyName::E,
+            KeyName::R,
+            KeyName::T,
+            KeyName::Y,
+            KeyName::U,
+            KeyName::I,
+            KeyName::O,
+        ],
+        [
+            KeyName::A,
+            KeyName::S,
+            KeyName::D,
+            KeyName::F,
+            KeyName::G,
+            KeyName::H,
+            KeyName::J,
+            KeyName::K,
+            KeyName::L,
+        ],
     ];
 
     let mut actions = Vec::with_capacity(80);
-    for (row, (alt, ctrl, shift)) in ROW_MODS.into_iter().enumerate() {
-        for (column, key) in F_KEYS.into_iter().enumerate() {
+    for (row, keys) in ROW_KEYS.into_iter().enumerate() {
+        for (column, key) in keys.into_iter().enumerate() {
             let visual = (row * HOTBAR_COLUMNS + column) as u16;
+            // New ids for the letter rows, so a keybinds file saved with the
+            // old Alt/Ctrl/Shift+F rows does not bring those chords back.
+            let id = match row {
+                0 => format!("hotbar-{visual}"),
+                _ => format!("hotbar-key-{visual}"),
+            };
             actions.push(ActionDef {
-                id: format!("hotbar-{visual}"),
+                id,
                 title: format!("Hotbar {}-{}", row + 1, column + 1),
-                chord: Chord::new(key, alt, ctrl, shift),
+                chord: Chord::new(key, false, false, false),
                 kind: ActionKind::Hotbar(visual),
             });
         }
@@ -572,7 +611,10 @@ impl KeybindMap {
             let Some(index) = map.actions.iter().position(|action| action.id == bind.action) else {
                 continue;
             };
-            map.rebind(index, Chord::new(bind.key, bind.alt, bind.ctrl, bind.shift));
+            // Assign as saved, without unbinding equal chords: the letter
+            // hotbar rows share J and L with Mark junk / Lock item on purpose
+            // (those act only on a hovered item).
+            map.actions[index].chord = Chord::new(bind.key, bind.alt, bind.ctrl, bind.shift);
         }
         map
     }
@@ -651,7 +693,8 @@ pub fn edges_from_transitions(
 }
 
 impl KeybindMap {
-    pub fn poll(&self, capturing: Option<u16>, active_tab: u8, row_shift: u8, edges: &KeyEdges) -> PollOutcome {
+    /// `visible_rows`: hotbar rows shown; keys of hidden rows do nothing.
+    pub fn poll(&self, capturing: Option<u16>, active_tab: u8, row_shift: u8, visible_rows: u8, edges: &KeyEdges) -> PollOutcome {
         if let Some(index) = capturing {
             for (key_index, key) in BINDABLE_KEYS.into_iter().enumerate() {
                 if edges.pressed[key_index] {
@@ -673,6 +716,11 @@ impl KeybindMap {
                 continue;
             };
             if edges.lock_movement_keys && movement_key(action.chord.key) {
+                continue;
+            }
+            if let ActionKind::Hotbar(visual) = action.kind
+                && usize::from(visual) / HOTBAR_COLUMNS >= usize::from(visible_rows.max(1))
+            {
                 continue;
             }
             let mods = action.chord.alt == edges.alt && action.chord.ctrl == edges.ctrl && action.chord.shift == edges.shift;
@@ -891,17 +939,18 @@ mod tests {
             Chord::new(KeyName::F9, false, false, false)
         );
         assert_eq!(
-            map.chord(map.index_of("hotbar-9").unwrap()),
-            Chord::new(KeyName::F1, true, false, false)
+            map.chord(map.index_of("hotbar-key-9").unwrap()),
+            Chord::new(KeyName::Digit1, false, false, false)
         );
         assert_eq!(
-            map.chord(map.index_of("hotbar-18").unwrap()),
-            Chord::new(KeyName::F1, false, true, false)
+            map.chord(map.index_of("hotbar-key-18").unwrap()),
+            Chord::new(KeyName::Q, false, false, false)
         );
         assert_eq!(
-            map.chord(map.index_of("hotbar-27").unwrap()),
-            Chord::new(KeyName::F1, false, false, true)
+            map.chord(map.index_of("hotbar-key-35").unwrap()),
+            Chord::new(KeyName::L, false, false, false)
         );
+        assert_eq!(map.index_of("hotbar-9"), None);
         assert_eq!(
             map.chord(map.index_of("inventory").unwrap()),
             Chord::new(KeyName::E, true, false, false)
@@ -962,42 +1011,81 @@ mod tests {
     #[test]
     fn poll_dispatches_hotbar_rows_sit_and_capture() {
         let map = KeybindMap::default();
-        let f1 = map.poll(None, 0, 0, &edges(Some(KeyName::F1), false, false, false));
+        let f1 = map.poll(None, 0, 0, 1, &edges(Some(KeyName::F1), false, false, false));
         assert!(matches!(f1.events.as_slice(), [InputEvent::ActivateHotbar {
             slot: HotbarSlot(0),
             ..
         }]));
-        let alt_f1 = map.poll(None, 0, 0, &edges(Some(KeyName::F1), true, false, false));
-        assert!(matches!(alt_f1.events.as_slice(), [InputEvent::ActivateHotbar {
+        let one = map.poll(None, 0, 0, 2, &edges(Some(KeyName::Digit1), false, false, false));
+        assert!(matches!(one.events.as_slice(), [InputEvent::ActivateHotbar {
             slot: HotbarSlot(9),
             ..
         }]));
-        let shifted = map.poll(None, 0, 1, &edges(Some(KeyName::F1), false, false, false));
+        let alt_f1 = map.poll(None, 0, 0, 4, &edges(Some(KeyName::F1), true, false, false));
+        assert!(alt_f1.events.is_empty(), "{:?}", alt_f1.events);
+        let shifted = map.poll(None, 0, 1, 1, &edges(Some(KeyName::F1), false, false, false));
         assert!(matches!(shifted.events.as_slice(), [InputEvent::ActivateHotbar {
             slot: HotbarSlot(9),
             ..
         }]));
-        let sit = map.poll(None, 0, 0, &edges(Some(KeyName::Insert), false, false, false));
+        let sit = map.poll(None, 0, 0, 1, &edges(Some(KeyName::Insert), false, false, false));
         assert!(matches!(sit.events.as_slice(), [InputEvent::ToggleSit]));
-        let hide = map.poll(None, 0, 0, &edges(Some(KeyName::H), false, true, false));
+        let hide = map.poll(None, 0, 0, 1, &edges(Some(KeyName::H), false, true, false));
         assert!(matches!(hide.events.as_slice(), [InputEvent::ToggleShowInterface]));
         let hide_index = map.index_of("show-interface").unwrap();
         assert!(map.editor_label(hide_index).starts_with("Hide interface"));
         assert_eq!(map.chord(hide_index), Chord::new(KeyName::H, false, true, false));
-        let inventory = map.poll(None, 0, 0, &edges(Some(KeyName::E), true, false, false));
+        let inventory = map.poll(None, 0, 0, 1, &edges(Some(KeyName::E), true, false, false));
         assert!(matches!(inventory.events.as_slice(), [InputEvent::ToggleInventoryWindow]));
 
-        let capturing = map.poll(Some(0), 0, 0, &edges(Some(KeyName::F2), false, false, false));
+        let capturing = map.poll(Some(0), 0, 0, 1, &edges(Some(KeyName::F2), false, false, false));
         assert!(capturing.events.is_empty());
         assert_eq!(capturing.rebound, Some((0, Chord::new(KeyName::F2, false, false, false))));
+    }
+
+    #[test]
+    fn letter_rows_fire_only_while_shown_and_keep_alt_chords() {
+        let map = KeybindMap::default();
+        let hidden = map.poll(None, 0, 0, 1, &edges(Some(KeyName::Q), false, false, false));
+        assert!(hidden.events.is_empty(), "{:?}", hidden.events);
+        let shown = map.poll(None, 0, 0, 3, &edges(Some(KeyName::Q), false, false, false));
+        assert!(matches!(shown.events.as_slice(), [InputEvent::ActivateHotbar {
+            slot: HotbarSlot(18),
+            ..
+        }]));
+        // Alt+Q is still Equipment, Alt+1 still an emotion, Ctrl+S settings.
+        let equipment = map.poll(None, 0, 0, 4, &edges(Some(KeyName::Q), true, false, false));
+        assert!(matches!(equipment.events.as_slice(), [InputEvent::ToggleEquipmentWindow]));
+        let emotion = map.poll(None, 0, 0, 4, &edges(Some(KeyName::Digit1), true, false, false));
+        assert!(matches!(emotion.events.as_slice(), [InputEvent::SendEmotion { .. }]));
+        let settings = map.poll(None, 0, 0, 4, &edges(Some(KeyName::S), false, true, false));
+        assert!(matches!(settings.events.as_slice(), [InputEvent::ToggleGameSettingsWindow]));
+        // Row shift applies to the letter rows like the F-keys.
+        let shifted = map.poll(None, 0, 1, 4, &edges(Some(KeyName::A), false, false, false));
+        assert!(matches!(shifted.events.as_slice(), [InputEvent::ActivateHotbar {
+            slot: HotbarSlot(0),
+            ..
+        }]));
+    }
+
+    #[test]
+    fn old_saved_modifier_rows_do_not_come_back() {
+        let saved = "[(action: \"hotbar-9\", key: F1, alt: true, ctrl: false, shift: false), (action: \"mark-junk\", key: J, alt: false, \
+                     ctrl: false, shift: false)]";
+        let map = KeybindMap::from_ron(saved);
+        assert_eq!(map.slot_hint(9).as_deref(), Some("1"));
+        // Loading Mark junk on J keeps the A row's J.
+        assert_eq!(map.slot_hint(33).as_deref(), Some("J"));
+        assert_eq!(map.chord(map.index_of("mark-junk").unwrap()).key, KeyName::J);
     }
 
     #[test]
     fn hotbar_slots_have_compact_key_hints() {
         let map = KeybindMap::default();
         assert_eq!(map.slot_hint(0).as_deref(), Some("F1"));
-        assert_eq!(map.slot_hint(9).as_deref(), Some("A-F1"));
-        assert_eq!(map.slot_hint(35).as_deref(), Some("S-F9"));
+        assert_eq!(map.slot_hint(9).as_deref(), Some("1"));
+        assert_eq!(map.slot_hint(18).as_deref(), Some("Q"));
+        assert_eq!(map.slot_hint(35).as_deref(), Some("L"));
         // Quick slots start unbound.
         assert_eq!(map.slot_hint(36), None);
         assert_eq!(map.slot_hint(200), None);

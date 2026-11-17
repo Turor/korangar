@@ -118,8 +118,14 @@ impl InputSystem {
             self.keys[code as usize].set_down(false);
         }
         if self.synthetic_mouse && !self.synthetic_hold {
-            self.left_mouse_button.set_down(false);
-            self.right_mouse_button.set_down(false);
+            // Release only the button that was armed: releasing one that was
+            // never down counts as a press on the next frame (a phantom left
+            // click after every synthetic right-click).
+            for button in [&mut self.left_mouse_button, &mut self.right_mouse_button] {
+                if button.down() {
+                    button.set_down(false);
+                }
+            }
             self.synthetic_mouse = false;
         }
     }

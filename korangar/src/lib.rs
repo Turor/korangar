@@ -5286,12 +5286,15 @@ impl Client {
                 });
                 let active_tab = self.client_state.follow(client_state().hotbar()).active_tab();
                 let row_shift = self.client_state.follow(client_state().hotbar()).row_shift(active_tab);
+                let visible_rows = self.client_state.follow(client_state().hotbar()).visible_rows();
                 let capture_index = self.client_state.follow(client_state().keybinds()).capturing();
-                let outcome = self
-                    .client_state
-                    .follow(client_state().keybinds())
-                    .map()
-                    .poll(capture_index, active_tab, row_shift, &edges);
+                let outcome = self.client_state.follow(client_state().keybinds()).map().poll(
+                    capture_index,
+                    active_tab,
+                    row_shift,
+                    visible_rows,
+                    &edges,
+                );
                 self.input_event_buffer.extend(outcome.events);
                 if let Some((index, chord)) = outcome.rebound {
                     self.client_state.follow_mut(client_state().keybinds()).apply_rebind(index, chord);
@@ -6807,7 +6810,21 @@ impl Client {
                         .clear_slot(&mut self.networking_system, tab, slot);
                 }
                 InputEvent::CycleHotbarRows => {
-                    self.client_state.follow_mut(client_state().hotbar()).cycle_visible_rows();
+                    let hotbar = self.client_state.follow_mut(client_state().hotbar());
+                    hotbar.cycle_visible_rows();
+                    hotbar.save_rows();
+                }
+                InputEvent::AddHotbarRow => {
+                    let hotbar = self.client_state.follow_mut(client_state().hotbar());
+                    if hotbar.add_row() {
+                        hotbar.save_rows();
+                    }
+                }
+                InputEvent::RemoveHotbarRow => {
+                    let hotbar = self.client_state.follow_mut(client_state().hotbar());
+                    if hotbar.remove_row() {
+                        hotbar.save_rows();
+                    }
                 }
                 InputEvent::RotateHotbar => {
                     self.client_state

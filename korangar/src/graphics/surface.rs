@@ -3,8 +3,8 @@ use cgmath::Vector2;
 use korangar_debug::logging::{Colorize, print_debug};
 use rust_state::RustState;
 use wgpu::{
-    Adapter, CurrentSurfaceTexture, Device, PresentMode, SurfaceCapabilities, SurfaceConfiguration, SurfaceTexture, TextureFormat,
-    TextureUsages,
+    Adapter, CompositeAlphaMode, CurrentSurfaceTexture, Device, PresentMode, SurfaceCapabilities, SurfaceConfiguration, SurfaceTexture,
+    TextureFormat, TextureUsages,
 };
 
 use crate::graphics::ScreenSize;
@@ -37,6 +37,18 @@ impl PresentModeInfo {
 /// Select only configurations advertised by the adapter for this surface.
 /// In particular, an adapter found on a surfaceless EGL display is not evidence
 /// that it can present to a native window.
+/// Composite the window opaquely whenever the surface allows it. The first
+/// listed mode can be pre- or post-multiplied (Wayland compositors such as
+/// Hyprland list those first); with it, every translucent interface pixel
+/// (the hotbar background) made the whole game window see-through to the
+/// desktop. Translucency must only blend with the game scene (Matthew t280u).
+fn opaque_alpha_mode(modes: &[CompositeAlphaMode]) -> Option<CompositeAlphaMode> {
+    [CompositeAlphaMode::Opaque, CompositeAlphaMode::Inherit]
+        .into_iter()
+        .find(|mode| modes.contains(mode))
+        .or_else(|| modes.first().copied())
+}
+
 fn surface_configuration(
     capabilities: &SurfaceCapabilities,
     width: u32,
@@ -58,11 +70,7 @@ fn surface_configuration(
     if !capabilities.usages.contains(TextureUsages::RENDER_ATTACHMENT) {
         return Err("The surface does not support RENDER_ATTACHMENT usage".into());
     }
-    let alpha_mode = capabilities
-        .alpha_modes
-        .first()
-        .copied()
-        .ok_or("No surface alpha modes are supported")?;
+    let alpha_mode = opaque_alpha_mode(&capabilities.alpha_modes).ok_or("No surface alpha modes are supported")?;
     let present_mode_info = PresentModeInfo::from_capabilities(capabilities);
     let present_mode = match vsync {
         false if present_mode_info.supports_mailbox => PresentMode::Mailbox,
@@ -243,6 +251,24 @@ mod tests {
             alpha_modes: vec![CompositeAlphaMode::Opaque],
             usages: TextureUsages::RENDER_ATTACHMENT,
         }
+    }
+
+    #[test]
+    fn prefers_opaque_composition_over_the_first_listed_mode() {
+        let mut caps = supported();
+        caps.alpha_modes = vec![CompositeAlphaMode::PreMultiplied, CompositeAlphaMode::Opaque];
+        let config = surface_configuration(&caps, 800, 600, false, true).unwrap();
+        assert_eq!(config.alpha_mode, CompositeAlphaMode::Opaque);
+        caps.alpha_modes = vec![CompositeAlphaMode::PostMultiplied, CompositeAlphaMode::Inherit];
+        assert_eq!(
+            surface_configuration(&caps, 800, 600, false, true).unwrap().alpha_mode,
+            CompositeAlphaMode::Inherit
+        );
+        caps.alpha_modes = vec![CompositeAlphaMode::PreMultiplied];
+        assert_eq!(
+            surface_configuration(&caps, 800, 600, false, true).unwrap().alpha_mode,
+            CompositeAlphaMode::PreMultiplied
+        );
     }
 
     #[test]

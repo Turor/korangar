@@ -3,15 +3,16 @@
 //! [`offline_hotbar_scenario`] opens the hotbar at its first-open size,
 //! drags its top-right corner in (narrower, taller) with the scripted input
 //! path and the same [`resize_window_area`] the interface uses, and sizes the
-//! slot grid for each region with [`hotbar_metrics`]: the one-row bar wraps
-//! onto more rows. It saves and reloads the size through `window_cache.ron`
-//! and checks a reset forgets it. It then plays the cooldown and cast
-//! timeline the client builds from `0x0B1A`, `0x043D` and `EFST_POSTDELAY`
-//! through [`SkillCooldowns`] and [`CastBars`].
+//! slot grid for each region with [`hotbar_metrics`]: rows never wrap
+//! (Matthew t280u), extra height becomes padding, and laying the window out
+//! again does not change its height. It saves and reloads the size through
+//! `window_cache.ron` and checks a reset forgets it. It then plays the cooldown
+//! and cast timeline the client builds from `0x0B1A`, `0x043D` and
+//! `EFST_POSTDELAY` through [`SkillCooldowns`] and [`CastBars`].
 //!
-//! Review-1 added two sizes: 18 slots (two rows shown) in the smallest window
-//! the limits allow, and the first-open bar at the largest global font scale.
-//! Both must keep the grid inside the window width.
+//! Two more sizes: two rows in the smallest window the limits allow, and the
+//! first-open bar at the largest global font scale. Both must keep the grid
+//! inside the window width.
 
 use std::mem::ManuallyDrop;
 use std::path::Path;
@@ -25,8 +26,9 @@ use ragnarok_packets::{ClientTick, SkillId};
 use super::resizable_windows::{RESIZE_SCREEN, scripted_drag};
 use crate::graphics::{ScreenPosition, ScreenSize};
 use crate::interface::components::hotbar_layout::{
-    HOTBAR_DEFAULT_HEIGHT, HOTBAR_LABEL_FONT_PX, HOTBAR_WINDOW_MAXIMUM_HEIGHT, HOTBAR_WINDOW_MAXIMUM_WIDTH, HOTBAR_WINDOW_MINIMUM_HEIGHT,
-    HOTBAR_WINDOW_MINIMUM_WIDTH, HotbarMetrics, hotbar_metrics,
+    HOTBAR_DEFAULT_HEIGHT, HOTBAR_GRAB_HEIGHT, HOTBAR_HINT_FONT_PX, HOTBAR_WINDOW_BORDER, HOTBAR_WINDOW_MAXIMUM_HEIGHT,
+    HOTBAR_WINDOW_MAXIMUM_WIDTH, HOTBAR_WINDOW_MINIMUM_HEIGHT, HOTBAR_WINDOW_MINIMUM_WIDTH, HotbarMetrics, hint_strip_height,
+    hotbar_metrics, laid_out_window_height,
 };
 use crate::interface::font_scale::{FONT_SCALE_MAX, font_scale_factor, from_theme_body};
 use crate::interface::windows::{WindowCache, WindowClass};
@@ -46,6 +48,8 @@ pub struct HotbarSnapshot {
     pub region_width: f32,
     /// Window height after the grid grew it (never below `height`).
     pub laid_out_height: f32,
+    /// Height after 100 more layout passes, each fed the last result.
+    pub settled_height: f32,
     pub metrics: HotbarMetrics,
 }
 
@@ -68,9 +72,9 @@ pub struct OfflineHotbarReport {
     pub narrowed: HotbarSnapshot,
     pub reloaded: HotbarSnapshot,
     pub reset_forgets: bool,
-    /// 18 slots in the minimum 180x96 window.
-    pub minimum_18: HotbarSnapshot,
-    /// First-open 420x124 bar at the largest font scale.
+    /// Two rows in the minimum window.
+    pub minimum_two_rows: HotbarSnapshot,
+    /// First-open bar at the largest font scale.
     pub font_scaled: HotbarSnapshot,
     /// Same bar at the default font scale, for comparison.
     pub font_default: HotbarSnapshot,
@@ -87,34 +91,36 @@ pub fn hotbar_limits() -> ResizeLimits {
     )
 }
 
-/// Grid for a hotbar window of this size: the window border on both sides,
-/// the title and the button row above, one row of nine slots shown.
+/// Grid for a hotbar window of this size with one row shown: the grab strip
+/// above, the window border on the sides and below.
 pub fn hotbar_window_grid(width: f32, height: f32) -> HotbarMetrics {
-    hotbar_window_snapshot(9, width, height, 1.0).metrics
+    hotbar_window_snapshot(1, width, height, 1.0).metrics
 }
 
-/// `slots` drawn in a window of this size with the global font scale at
-/// `font_factor`, as `hotbar_grid.rs` lays it out (label line
-/// `ceil(font * factor) + 2`, the grid may grow the window downwards).
-pub fn hotbar_window_snapshot(slots: usize, width: f32, height: f32, font_factor: f32) -> HotbarSnapshot {
+/// `rows` rows drawn in a window of this size with the global font scale at
+/// `font_factor`, as `hotbar_grid.rs` lays it out.
+pub fn hotbar_window_snapshot(rows: usize, width: f32, height: f32, font_factor: f32) -> HotbarSnapshot {
     let theme = InterfaceTheme::turoran_dark();
-    let window = &theme.window;
-    let chrome = window.title_height + window.title_gap + window.border + theme.button.height + window.gaps;
-    let region_width = width - window.border * 2.0;
-    let grid_height = height - chrome;
-    let label_height = (from_theme_body(theme.tokens.font_size, HOTBAR_LABEL_FONT_PX) * font_factor).ceil() + 2.0;
-    let metrics = hotbar_metrics(slots, region_width, Some(grid_height), label_height);
+    let chrome = HOTBAR_GRAB_HEIGHT + HOTBAR_WINDOW_BORDER;
+    let region_width = width - HOTBAR_WINDOW_BORDER * 2.0;
+    let hint_height = hint_strip_height(from_theme_body(theme.tokens.font_size, HOTBAR_HINT_FONT_PX) * font_factor);
+    let metrics = hotbar_metrics(rows, region_width, Some(height - chrome), hint_height);
+    let laid_out_height = laid_out_window_height(height, rows, width, hint_height).max(height);
+    let settled_height = (0..100).fold(laid_out_height, |window, _| {
+        laid_out_window_height(window, rows, width, hint_height)
+    });
     HotbarSnapshot {
         width,
         height,
         region_width,
-        laid_out_height: (chrome + metrics.grid_height().max(grid_height)).clamp(height, HOTBAR_WINDOW_MAXIMUM_HEIGHT),
+        laid_out_height: laid_out_height.min(HOTBAR_WINDOW_MAXIMUM_HEIGHT),
+        settled_height,
         metrics,
     }
 }
 
 fn snapshot(area: Area) -> HotbarSnapshot {
-    hotbar_window_snapshot(9, area.width, area.height, 1.0)
+    hotbar_window_snapshot(1, area.width, area.height, 1.0)
 }
 
 fn save(cache: &mut WindowCache, area: Area) {
@@ -233,9 +239,9 @@ pub fn offline_hotbar_scenario(directory: &Path) -> Result<OfflineHotbarReport, 
         narrowed,
         reloaded,
         reset_forgets,
-        minimum_18: hotbar_window_snapshot(18, HOTBAR_WINDOW_MINIMUM_WIDTH, HOTBAR_WINDOW_MINIMUM_HEIGHT, 1.0),
-        font_scaled: hotbar_window_snapshot(9, 420.0, HOTBAR_DEFAULT_HEIGHT, font_scale_factor(FONT_SCALE_MAX)),
-        font_default: hotbar_window_snapshot(9, 420.0, HOTBAR_DEFAULT_HEIGHT, 1.0),
+        minimum_two_rows: hotbar_window_snapshot(2, HOTBAR_WINDOW_MINIMUM_WIDTH, HOTBAR_WINDOW_MINIMUM_HEIGHT, 1.0),
+        font_scaled: hotbar_window_snapshot(1, 420.0, HOTBAR_DEFAULT_HEIGHT, font_scale_factor(FONT_SCALE_MAX)),
+        font_default: hotbar_window_snapshot(1, 420.0, HOTBAR_DEFAULT_HEIGHT, 1.0),
         timeline: cooldown_timeline(),
     })
 }
