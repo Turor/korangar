@@ -4,11 +4,18 @@
 //! on the item id, refine, and cards. The file is `client/item_flags.ron`, the
 //! same kind of client config the hotbar and game settings use. Only the
 //! active character's rows are loaded; other characters stay in the file.
+//! Only junk and lock are saved. The new-item glow lasts for the session, so
+//! the login list never glows. A file that does not parse is never written
+//! over, and saves go through a temp file and a rename.
 
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+#[cfg(feature = "debug")]
+use korangar_debug::logging::{Colorize, print_debug};
 use korangar_interface::element::StateElement;
 use korangar_networking::{InventoryItem, InventoryItemDetails};
+use ragnarok_packets::InventoryIndex;
 use ron::ser::PrettyConfig;
 use rust_state::RustState;
 use serde::{Deserialize, Serialize};
@@ -21,6 +28,9 @@ pub const NEW_GLOW_MS: u32 = 300;
 pub const NEW_GLOW_ALPHA: u8 = 160;
 
 const FILE_NAME: &str = "client/item_flags.ron";
+/// A junk or lock edit is written this long after it is made, and right away
+/// on logout, exit, and character change.
+pub const SAVE_DEBOUNCE_MS: u32 = 2000;
 
 /// Stable identity of one stack. Two potions of the same id share a mark.
 /// Two weapons with a different refine or a different card do not.
@@ -57,6 +67,15 @@ pub fn is_equipped(details: &InventoryItemDetails) -> bool {
         InventoryItemDetails::Regular { equipped_position, .. } | InventoryItemDetails::Equippable { equipped_position, .. } => {
             !equipped_position.is_empty()
         }
+    }
+}
+
+/// Worn gear, or the arrow stack the server equipped. A Regular row's
+/// `equipped_position` is the slot the item fits, so it does not mean worn.
+pub fn is_worn_stack<Meta>(item: &InventoryItem<Meta>, equipped_ammo: Option<InventoryIndex>) -> bool {
+    match &item.details {
+        InventoryItemDetails::Equippable { equipped_position, .. } => !equipped_position.is_empty(),
+        InventoryItemDetails::Regular { .. } => equipped_ammo == Some(item.index),
     }
 }
 
@@ -105,7 +124,7 @@ impl StackRef {
         ItemKey::new(self.item_id, self.refine, self.cards)
     }
 
-    pub fn from_item(item: &InventoryItem<ResourceMetadata>) -> Self {
+    pub fn from_item(item: &InventoryItem<ResourceMetadata>, equipped_ammo: Option<InventoryIndex>) -> Self {
         Self {
             index: item.index.0,
             item_id: item.item_id.0,
@@ -116,7 +135,7 @@ impl StackRef {
                 InventoryItemDetails::Regular { amount, .. } => *amount,
                 InventoryItemDetails::Equippable { .. } => 1,
             },
-            equipped: is_equipped(&item.details),
+            equipped: is_worn_stack(item, equipped_ammo),
         }
     }
 
@@ -197,6 +216,11 @@ impl ItemFlagEntry {
     fn alive(&self) -> bool {
         self.junk || self.locked || self.is_new
     }
+
+    /// Junk and lock are kept across logins; the glow is not.
+    fn stored(&self) -> bool {
+        self.junk || self.locked
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, RustState, StateElement)]
@@ -244,6 +268,24 @@ pub struct ItemFlags {
     laid_out: bool,
     #[hidden_element]
     persist: bool,
+    /// Client clock of the first junk or lock edit not yet on disk.
+    #[hidden_element]
+    dirty_at: Option<u32>,
+    /// The file on disk did not parse at the last load or save.
+    #[hidden_element]
+    file_broken: bool,
+    /// One chat line for the player, taken by the flow each frame.
+    #[hidden_element]
+    notice: Option<String>,
+}
+
+/// What [`ItemFlags::save_to`] did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SaveOutcome {
+    Written,
+    /// The file on disk does not parse. It was left alone and copied aside.
+    KeptBroken,
+    Failed,
 }
 
 fn elapsed_ms() -> u32 {
@@ -260,8 +302,15 @@ impl ItemFlags {
 
     /// Load this character's rows and remember later edits on disk.
     pub fn bind_character(&mut self, character_id: u32) {
-        let text = std::fs::read_to_string(FILE_NAME).unwrap_or_default();
+        self.flush();
+        let path = Path::new(FILE_NAME);
+        let text = read_existing(path).unwrap_or_default();
         self.load_ron(character_id, &text);
+        self.file_broken = false;
+        if parse_file(&text).is_none() {
+            self.note_broken_file(path);
+        }
+        self.dirty_at = None;
         self.persist = true;
         self.snapshot = false;
         self.hover = None;
@@ -272,6 +321,7 @@ impl ItemFlags {
     pub fn load_ron(&mut self, character_id: u32, text: &str) {
         self.character_id = character_id;
         self.entries = parse_file(text)
+            .unwrap_or_default()
             .characters
             .into_iter()
             .find(|character| character.character_id == character_id)
@@ -280,13 +330,15 @@ impl ItemFlags {
     }
 
     /// File text with this character replaced and every other character kept.
-    pub fn save_ron(&self, previous: &str) -> String {
-        let mut file = parse_file(previous);
+    /// `None` when `previous` does not parse, so a broken file is never
+    /// written over.
+    pub fn save_ron(&self, previous: &str) -> Option<String> {
+        let mut file = parse_file(previous)?;
         file.characters.retain(|character| character.character_id != self.character_id);
         let items = self
             .entries
             .iter()
-            .filter(|entry| entry.alive())
+            .filter(|entry| entry.stored())
             .map(StoredFlag::from_entry)
             .collect::<Vec<_>>();
         if !items.is_empty() {
@@ -296,7 +348,7 @@ impl ItemFlags {
             });
         }
         file.characters.sort_by_key(|character| character.character_id);
-        ron::ser::to_string_pretty(&file, PrettyConfig::new()).unwrap_or_else(|_| "()".to_owned())
+        ron::ser::to_string_pretty(&file, PrettyConfig::new()).ok()
     }
 
     /// The login inventory list. Items in it do not become new.
@@ -312,7 +364,6 @@ impl ItemFlags {
         let entry = self.entry_mut(key);
         entry.is_new = true;
         entry.fade_from = None;
-        self.persist_if_needed();
     }
 
     pub fn is_new(&self, key: ItemKey) -> bool {
@@ -328,15 +379,21 @@ impl ItemFlags {
     }
 
     pub fn set_junk(&mut self, key: ItemKey, junk: bool) {
+        let changed = self.is_junk(key) != junk;
         self.entry_mut(key).junk = junk;
         self.prune();
-        self.persist_if_needed();
+        if changed {
+            self.mark_dirty(elapsed_ms());
+        }
     }
 
     pub fn set_locked(&mut self, key: ItemKey, locked: bool) {
+        let changed = self.is_locked(key) != locked;
         self.entry_mut(key).locked = locked;
         self.prune();
-        self.persist_if_needed();
+        if changed {
+            self.mark_dirty(elapsed_ms());
+        }
     }
 
     pub fn refusal(&self, key: ItemKey, name: &str) -> Option<String> {
@@ -346,7 +403,11 @@ impl ItemFlags {
     /// Called once per input frame, before hotkeys. A grid that was not drawn
     /// last frame drops its hover, so J and L do nothing in the world.
     pub fn begin_input_frame(&mut self) {
-        self.advance_to(elapsed_ms());
+        let now = elapsed_ms();
+        self.advance_to(now);
+        if self.save_due(now) {
+            self.flush();
+        }
         if !self.laid_out {
             self.hover = None;
             self.hover_fresh = false;
@@ -417,7 +478,6 @@ impl ItemFlags {
         }
         if changed {
             self.prune();
-            self.persist_if_needed();
         }
     }
 
@@ -472,15 +532,116 @@ impl ItemFlags {
         self.entries.retain(ItemFlagEntry::alive);
     }
 
-    fn persist_if_needed(&self) {
-        if !self.persist {
+    fn mark_dirty(&mut self, now: u32) {
+        if self.dirty_at.is_none() {
+            self.dirty_at = Some(now);
+        }
+    }
+
+    /// Client clock of the first junk or lock edit not yet saved.
+    #[cfg(test)]
+    fn unsaved_since(&self) -> Option<u32> {
+        self.dirty_at
+    }
+
+    /// A junk or lock edit has waited [`SAVE_DEBOUNCE_MS`].
+    pub fn save_due(&self, now: u32) -> bool {
+        self.dirty_at.is_some_and(|at| now.wrapping_sub(at) >= SAVE_DEBOUNCE_MS)
+    }
+
+    /// Write pending junk and lock edits now. Logout, exit, and character
+    /// change call this; frames call it once the debounce has passed.
+    pub fn flush(&mut self) {
+        if !self.persist || self.dirty_at.is_none() {
             return;
         }
-        let previous = std::fs::read_to_string(FILE_NAME).unwrap_or_default();
-        let text = self.save_ron(&previous);
-        let _ = std::fs::create_dir_all("client");
-        let _ = std::fs::write(FILE_NAME, text);
+        self.dirty_at = None;
+        self.save_to(Path::new(FILE_NAME));
     }
+
+    /// A chat line about the file, once.
+    pub fn take_notice(&mut self) -> Option<String> {
+        self.notice.take()
+    }
+
+    /// Merge this character into the file at `path`. A file that does not
+    /// parse is left as it is.
+    pub(crate) fn save_to(&mut self, path: &Path) -> SaveOutcome {
+        let Some(previous) = read_existing(path) else {
+            return SaveOutcome::Failed;
+        };
+        let Some(text) = self.save_ron(&previous) else {
+            self.note_broken_file(path);
+            return SaveOutcome::KeptBroken;
+        };
+        match write_atomic(path, &text) {
+            Ok(()) => {
+                self.file_broken = false;
+                SaveOutcome::Written
+            }
+            Err(_error) => {
+                #[cfg(feature = "debug")]
+                print_debug!("[{}] failed to save {}: {:?}", "error".red(), path.display(), _error);
+                SaveOutcome::Failed
+            }
+        }
+    }
+
+    fn note_broken_file(&mut self, path: &Path) {
+        if self.file_broken {
+            return;
+        }
+        self.file_broken = true;
+        let copy = suffixed(path, ".corrupt");
+        let _ = std::fs::copy(path, &copy);
+        #[cfg(feature = "debug")]
+        print_debug!(
+            "[{}] {} does not parse; kept a copy at {} and will not save over it",
+            "warning".red(),
+            path.display(),
+            copy.display()
+        );
+        self.notice = Some(format!(
+            "{} could not be read. A copy is at {}. Junk and lock marks will not be saved until the file is fixed or removed.",
+            path.display(),
+            copy.display()
+        ));
+    }
+}
+
+/// The file text, empty when there is no file yet, `None` when it exists but
+/// cannot be read.
+fn read_existing(path: &Path) -> Option<String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Some(text),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(String::new()),
+        Err(_) => None,
+    }
+}
+
+fn suffixed(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+/// Write next to `path` and rename into place, so a cut-off write leaves the
+/// old file whole.
+fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
+    use std::io::Write;
+
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+    let temp = suffixed(path, ".tmp");
+    {
+        let mut file = std::fs::File::create(&temp)?;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()?;
+    }
+    std::fs::rename(&temp, path)
 }
 
 /// Applies a Junk / Lock pick from the item menu.
@@ -604,8 +765,6 @@ struct StoredFlag {
     cards: [u32; 4],
     junk: bool,
     locked: bool,
-    #[serde(default)]
-    is_new: bool,
 }
 
 impl StoredFlag {
@@ -616,7 +775,6 @@ impl StoredFlag {
             cards: entry.cards,
             junk: entry.junk,
             locked: entry.locked,
-            is_new: entry.is_new,
         }
     }
 
@@ -627,18 +785,20 @@ impl StoredFlag {
             cards: self.cards,
             junk: self.junk,
             locked: self.locked,
-            is_new: self.is_new,
+            is_new: false,
             fade_from: None,
         };
-        entry.alive().then_some(entry)
+        entry.stored().then_some(entry)
     }
 }
 
-fn parse_file(text: &str) -> FlagFile {
+/// `None` when the text is not a flag file. Older files with an `is_new`
+/// field still parse; the field is ignored.
+fn parse_file(text: &str) -> Option<FlagFile> {
     if text.trim().is_empty() {
-        return FlagFile::default();
+        return Some(FlagFile::default());
     }
-    ron::from_str(text).unwrap_or_default()
+    ron::from_str(text).ok()
 }
 
 #[cfg(test)]
@@ -735,18 +895,164 @@ mod tests {
         flags.note_snapshot();
         flags.note_arrival(ItemKey::new(512, 0, [0; 4]));
         let previous = r#"(characters: [(character_id: 9, items: [(item_id: 909, refine: 0, cards: (0, 0, 0, 0), junk: true, locked: false, is_new: false)])])"#;
-        let text = flags.save_ron(previous);
+        let text = flags.save_ron(previous).expect("previous file parses");
 
         let mut loaded = ItemFlags::default();
         loaded.load_ron(4, &text);
         assert!(loaded.is_junk(ItemKey::new(501, 0, [0; 4])));
         assert!(loaded.is_locked(ItemKey::new(1201, 0, [0; 4])));
-        assert!(loaded.is_new(ItemKey::new(512, 0, [0; 4])));
+        assert!(!loaded.is_new(ItemKey::new(512, 0, [0; 4])));
         assert!(!loaded.is_junk(ItemKey::new(909, 0, [0; 4])));
 
         let mut other = ItemFlags::default();
         other.load_ron(9, &text);
         assert!(other.is_junk(ItemKey::new(909, 0, [0; 4])));
         assert!(!other.is_locked(ItemKey::new(1201, 0, [0; 4])));
+    }
+
+    fn arrows(index: u16, amount: u16) -> InventoryItem<ResourceMetadata> {
+        use ragnarok_packets::{EquipPosition, ItemId, RegularItemFlags};
+
+        InventoryItem {
+            metadata: ResourceMetadata {
+                texture: None,
+                name: "Arrow".to_owned(),
+                description: String::new(),
+            },
+            index: InventoryIndex(index),
+            item_id: ItemId(1750),
+            item_type: 10,
+            slot: [0; 4],
+            hire_expiration_date: 0,
+            details: InventoryItemDetails::Regular {
+                amount,
+                equipped_position: EquipPosition::AMMO,
+                flags: RegularItemFlags::IDENTIFIED,
+            },
+        }
+    }
+
+    fn scratch_file(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("korangar-item-flags-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir.join("item_flags.ron")
+    }
+
+    #[test]
+    fn new_glow_is_never_saved() {
+        let mut flags = ItemFlags {
+            character_id: 4,
+            ..ItemFlags::default()
+        };
+        flags.note_snapshot();
+        flags.note_arrival(ItemKey::new(512, 0, [0; 4]));
+        assert!(flags.is_new(ItemKey::new(512, 0, [0; 4])));
+        let text = flags.save_ron("").expect("empty file parses");
+        assert!(!text.contains("is_new"));
+        assert!(!text.contains("512"));
+
+        let old = "(characters: [(character_id: 4, items: [(item_id: 512, refine: 0, cards: (0, 0, 0, 0), junk: false, locked: false, \
+                   is_new: true), (item_id: 501, refine: 0, cards: (0, 0, 0, 0), junk: true, locked: false, is_new: true)])])";
+        let mut loaded = ItemFlags::default();
+        loaded.load_ron(4, old);
+        assert!(!loaded.is_new(ItemKey::new(512, 0, [0; 4])));
+        assert!(!loaded.is_new(ItemKey::new(501, 0, [0; 4])));
+        assert!(loaded.is_junk(ItemKey::new(501, 0, [0; 4])));
+        assert_eq!(loaded.glow_alpha_at(ItemKey::new(501, 0, [0; 4]), 0), 0);
+    }
+
+    #[test]
+    fn broken_file_is_copied_aside_and_never_saved_over() {
+        let path = scratch_file("broken");
+        let broken = "(characters: [(character_id: 9, items: [(item_id: 909";
+        std::fs::write(&path, broken).expect("write broken file");
+        let mut flags = ItemFlags {
+            character_id: 4,
+            ..ItemFlags::default()
+        };
+        flags.set_locked(ItemKey::new(1201, 0, [0; 4]), true);
+
+        assert!(flags.save_ron(broken).is_none());
+        assert_eq!(flags.save_to(&path), SaveOutcome::KeptBroken);
+        assert_eq!(std::fs::read_to_string(&path).expect("file kept"), broken);
+        assert_eq!(std::fs::read_to_string(suffixed(&path, ".corrupt")).expect("copy kept"), broken);
+        assert!(flags.take_notice().is_some_and(|notice| notice.contains(".corrupt")));
+
+        assert_eq!(flags.save_to(&path), SaveOutcome::KeptBroken);
+        assert!(flags.take_notice().is_none(), "the warning is given once");
+        assert_eq!(std::fs::read_to_string(&path).expect("file kept"), broken);
+        let _ = std::fs::remove_dir_all(path.parent().expect("scratch dir"));
+    }
+
+    #[test]
+    fn save_goes_through_a_temp_file_and_keeps_other_characters() {
+        let path = scratch_file("atomic");
+        let previous =
+            "(characters: [(character_id: 9, items: [(item_id: 909, refine: 0, cards: (0, 0, 0, 0), junk: true, locked: false)])])";
+        std::fs::write(&path, previous).expect("write previous file");
+        let mut flags = ItemFlags {
+            character_id: 4,
+            ..ItemFlags::default()
+        };
+        flags.set_locked(ItemKey::new(1201, 0, [0; 4]), true);
+
+        assert_eq!(flags.save_to(&path), SaveOutcome::Written);
+        assert!(!suffixed(&path, ".tmp").exists());
+        assert!(!suffixed(&path, ".corrupt").exists());
+        let text = std::fs::read_to_string(&path).expect("saved file");
+        let mut loaded = ItemFlags::default();
+        loaded.load_ron(4, &text);
+        assert!(loaded.is_locked(ItemKey::new(1201, 0, [0; 4])));
+        let mut other = ItemFlags::default();
+        other.load_ron(9, &text);
+        assert!(other.is_junk(ItemKey::new(909, 0, [0; 4])));
+        let _ = std::fs::remove_dir_all(path.parent().expect("scratch dir"));
+    }
+
+    #[test]
+    fn only_junk_and_lock_edits_are_saved_after_the_debounce() {
+        let mut flags = ItemFlags::default();
+        let pickup = ItemKey::new(512, 0, [0; 4]);
+        flags.note_snapshot();
+        flags.note_arrival(pickup);
+        flags.note_hover_at(pickup, 1, String::new(), 0);
+        flags.advance_to(NEW_GLOW_MS);
+        assert_eq!(flags.unsaved_since(), None, "pickups and the glow fade do not save");
+
+        let knife = ItemKey::new(1201, 0, [0; 4]);
+        flags.set_locked(knife, true);
+        let at = flags.unsaved_since().expect("lock waits to be saved");
+        flags.set_junk(knife, true);
+        assert_eq!(flags.unsaved_since(), Some(at), "a second edit does not push the save back");
+        assert!(!flags.save_due(at.wrapping_add(SAVE_DEBOUNCE_MS - 1)));
+        assert!(flags.save_due(at.wrapping_add(SAVE_DEBOUNCE_MS)));
+
+        flags.flush();
+        assert_eq!(flags.unsaved_since(), Some(at), "an unbound client never writes the file");
+
+        flags.dirty_at = None;
+        flags.set_locked(knife, true);
+        assert_eq!(flags.unsaved_since(), None, "setting the same lock again is not an edit");
+    }
+
+    #[test]
+    fn sell_junk_skips_only_the_equipped_arrow_stack() {
+        let quiver = arrows(3, 200);
+        let spare = arrows(4, 50);
+        let mut flags = ItemFlags::default();
+        flags.set_junk(ItemKey::from_inventory(&quiver), true);
+        let stacks = [
+            StackRef::from_item(&quiver, Some(InventoryIndex(3))),
+            StackRef::from_item(&spare, Some(InventoryIndex(3))),
+        ];
+        assert!(stacks[0].equipped);
+        assert!(!stacks[1].equipped);
+        let (adds, messages) = plan_sell_junk(&flags, &stacks, &[(3, 200), (4, 50)]);
+        assert_eq!(adds, vec![JunkAdd { index: 4, amount: 50 }]);
+        assert!(messages.is_empty());
+
+        assert!(!StackRef::from_item(&quiver, None).equipped);
+        assert!(!is_worn_stack(&quiver, None));
     }
 }

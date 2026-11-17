@@ -54,7 +54,19 @@ impl Client {
     }
 
     pub(crate) fn begin_item_flag_frame(&mut self) {
-        self.client_state.follow_mut(client_state().item_flags()).begin_input_frame();
+        let notice = {
+            let flags = self.client_state.follow_mut(client_state().item_flags());
+            flags.begin_input_frame();
+            flags.take_notice()
+        };
+        if let Some(notice) = notice {
+            self.item_flag_notice(notice);
+        }
+    }
+
+    /// Save pending junk and lock edits. Logout and exit call this.
+    pub(crate) fn flush_item_flags(&mut self) {
+        self.client_state.follow_mut(client_state().item_flags()).flush();
     }
 
     pub(crate) fn on_toggle_hovered_junk(&mut self) {
@@ -99,7 +111,8 @@ impl Client {
     }
 
     pub(crate) fn on_drop_item(&mut self, item: InventoryItem<ResourceMetadata>) {
-        let stack = StackRef::from_item(&item);
+        let equipped_ammo = self.client_state.follow(client_state().inventory()).equipped_ammo();
+        let stack = StackRef::from_item(&item, equipped_ammo);
         let attempt = {
             let flags = self.client_state.follow(client_state().item_flags());
             item_flags::attempt_drop(flags, &stack, stack.amount)
@@ -164,10 +177,11 @@ impl Client {
     }
 
     fn inventory_stacks(&self) -> Vec<StackRef> {
+        let equipped_ammo = self.client_state.follow(client_state().inventory()).equipped_ammo();
         self.client_state
             .follow(client_state().inventory().items())
             .iter()
-            .map(StackRef::from_item)
+            .map(|item| StackRef::from_item(item, equipped_ammo))
             .collect()
     }
 
