@@ -8,7 +8,7 @@
 use ragnarok_packets::handler::{DuplicateHandlerError, PacketCallback, PacketHandler};
 use ragnarok_packets::{ItemMarkResultPacket, ItemMarksListPacket, TuroranFeaturesPacket};
 
-use crate::event::{NetworkEvent, NetworkEventList};
+use crate::event::{ItemMark, NetworkEvent, NetworkEventList};
 
 /// Version sent in `0x0EE0` and expected back in `0x0EE8`.
 pub const ITEM_MARKS_VERSION: u16 = 1;
@@ -20,7 +20,19 @@ where
     Callback: PacketCallback,
 {
     packet_handler.register(|packet: TuroranFeaturesPacket| NetworkEvent::TuroranFeatures { features: packet.features })?;
-    packet_handler.register(|packet: ItemMarksListPacket| NetworkEvent::ItemMarksList { entries: packet.entries })?;
+    packet_handler.register(|packet: ItemMarksListPacket| NetworkEvent::ItemMarksList {
+        entries: packet
+            .entries
+            .into_iter()
+            .filter_map(|entry| {
+                Some(ItemMark {
+                    location: entry.location,
+                    index: ragnarok_packets::InventoryIndex(entry.wire_index.checked_sub(2)?),
+                    marks: entry.marks,
+                })
+            })
+            .collect(),
+    })?;
     packet_handler.register(|packet: ItemMarkResultPacket| NetworkEvent::ItemMarkResult {
         location: packet.location,
         index: packet.index.0,

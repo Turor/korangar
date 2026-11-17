@@ -62,13 +62,21 @@ impl MarkPlace {
         }
     }
 
-    /// Storage has no server row the client can name.
+    /// A personal storage row. The server only lists and changes these while
+    /// the storage is open.
+    pub fn storage(index: u16) -> Self {
+        Self {
+            location: ragnarok_packets::ITEM_MARK_STORAGE,
+            index,
+        }
+    }
+
     pub fn for_source(source: crate::interface::resource::ItemSource, index: u16) -> Option<Self> {
         use crate::interface::resource::ItemSource;
         match source {
             ItemSource::Inventory | ItemSource::Equipment { .. } | ItemSource::Hotbar { .. } => Some(Self::inventory(index)),
             ItemSource::Cart => Some(Self::cart(index)),
-            ItemSource::Storage => None,
+            ItemSource::Storage => Some(Self::storage(index)),
         }
     }
 }
@@ -86,6 +94,8 @@ pub struct MarkRequest {
 pub(crate) struct ServerMarks {
     rows: Vec<(MarkPlace, u8)>,
     outbox: Vec<MarkRequest>,
+    /// File marks still have to be copied up after the first list.
+    migrate: bool,
 }
 
 impl ServerMarks {
@@ -367,6 +377,9 @@ pub struct ItemFlags {
     /// live on the server.
     #[hidden_element]
     server: Option<ServerMarks>,
+    /// This character's file marks were already copied to the server.
+    #[hidden_element]
+    migrated: bool,
 }
 
 /// What [`ItemFlags::save_to`] did.
@@ -411,11 +424,13 @@ impl ItemFlags {
     /// Replace the in-memory rows with this character's section of `text`.
     pub fn load_ron(&mut self, character_id: u32, text: &str) {
         self.character_id = character_id;
-        self.entries = parse_file(text)
+        let record = parse_file(text)
             .unwrap_or_default()
             .characters
             .into_iter()
-            .find(|character| character.character_id == character_id)
+            .find(|character| character.character_id == character_id);
+        self.migrated = record.as_ref().is_some_and(|character| character.server_migrated);
+        self.entries = record
             .map(|character| character.items.into_iter().filter_map(StoredFlag::into_entry).collect())
             .unwrap_or_default();
     }
@@ -432,10 +447,11 @@ impl ItemFlags {
             .filter(|entry| entry.stored())
             .map(StoredFlag::from_entry)
             .collect::<Vec<_>>();
-        if !items.is_empty() {
+        if !items.is_empty() || self.migrated {
             file.characters.push(CharacterRecord {
                 character_id: self.character_id,
                 items,
+                server_migrated: self.migrated,
             });
         }
         file.characters.sort_by_key(|character| character.character_id);
@@ -468,8 +484,71 @@ impl ItemFlags {
         self.persist = false;
         self.dirty_at = None;
         if self.server.is_none() {
-            self.server = Some(ServerMarks::default());
+            self.server = Some(ServerMarks {
+                migrate: !self.migrated,
+                ..ServerMarks::default()
+            });
         }
+    }
+
+    /// The file marks still wait to be copied to the server.
+    pub fn migration_pending(&self) -> bool {
+        self.server.as_ref().is_some_and(|server| server.migrate)
+    }
+
+    /// Once per character, after the first server list: copy file lock and
+    /// junk onto the rows still present. Bits are only ever set, never
+    /// cleared. The file records that it was done and is not used for marks
+    /// again.
+    pub fn migrate_file_marks(&mut self, rows: &[(MarkPlace, ItemKey)]) -> usize {
+        let mut sent = 0;
+        let wanted = rows
+            .iter()
+            .filter_map(|(place, key)| {
+                let entry = self.entry(*key)?;
+                let mut bits = 0;
+                if entry.locked {
+                    bits |= ragnarok_packets::ITEM_MARK_LOCK;
+                }
+                if entry.junk {
+                    bits |= ragnarok_packets::ITEM_MARK_JUNK;
+                }
+                (bits != 0).then_some((*place, bits))
+            })
+            .collect::<Vec<_>>();
+        let Some(server) = self.server.as_mut() else {
+            return 0;
+        };
+        if !server.migrate {
+            return 0;
+        }
+        server.migrate = false;
+        for (place, bits) in wanted {
+            let current = server.get(place);
+            let missing = bits & !current;
+            if missing == 0 {
+                continue;
+            }
+            server.put(place, current | missing);
+            server.outbox.push(MarkRequest {
+                place,
+                mask: missing,
+                value: missing,
+            });
+            sent += 1;
+        }
+        self.migrated = true;
+        self.record_migration();
+        sent
+    }
+
+    /// Write the migrated flag; the marks in the file are kept for servers
+    /// without item marks.
+    fn record_migration(&mut self) {
+        if self.character_id == 0 {
+            return;
+        }
+        self.save_to(Path::new(FILE_NAME));
     }
 
     #[cfg(test)]
@@ -974,6 +1053,10 @@ struct FlagFile {
 struct CharacterRecord {
     character_id: u32,
     items: Vec<StoredFlag>,
+    /// Lock and junk were copied to the server once; the server is the
+    /// source from then on. Older files have no field.
+    #[serde(default)]
+    server_migrated: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1044,6 +1127,7 @@ mod tests {
         assert!(flags.server_marks_enabled());
         // File marks are not used once the server keeps them.
         assert!(!flags.junk_at(potion, Some(MarkPlace::inventory(2))));
+        assert!(flags.migration_pending());
 
         flags.apply_server_list([
             (MarkPlace::inventory(2), ragnarok_packets::ITEM_MARK_LOCK),
@@ -1099,6 +1183,48 @@ mod tests {
         flags.assign_character(9);
         flags.server = None;
         assert!(flags.is_junk(potion));
+    }
+
+    #[test]
+    fn file_marks_migrate_once_and_only_set_bits() {
+        let knife = ItemKey::new(1201, 0, [0; 4]);
+        let potion = ItemKey::new(501, 0, [0; 4]);
+        let gone = ItemKey::new(909, 0, [0; 4]);
+        let mut flags = ItemFlags::default();
+        flags.set_locked(knife, true);
+        flags.set_junk(knife, true);
+        flags.set_junk(potion, true);
+        flags.set_locked(gone, true);
+        flags.enable_server_marks();
+        assert!(flags.migration_pending());
+        flags.apply_server_list([(MarkPlace::inventory(4), ragnarok_packets::ITEM_MARK_LOCK)]);
+
+        let rows = [(MarkPlace::inventory(4), knife), (MarkPlace::cart(1), potion)];
+        assert_eq!(flags.migrate_file_marks(&rows), 2);
+        assert_eq!(flags.take_mark_requests(), vec![
+            MarkRequest {
+                place: MarkPlace::inventory(4),
+                mask: ragnarok_packets::ITEM_MARK_JUNK,
+                value: ragnarok_packets::ITEM_MARK_JUNK,
+            },
+            MarkRequest {
+                place: MarkPlace::cart(1),
+                mask: ragnarok_packets::ITEM_MARK_JUNK,
+                value: ragnarok_packets::ITEM_MARK_JUNK,
+            },
+        ]);
+        assert!(!flags.migration_pending());
+        // Once only.
+        assert_eq!(flags.migrate_file_marks(&rows), 0);
+
+        // The file says so, keeps its marks, and a reload does not migrate.
+        let text = flags.save_ron("").expect("saves");
+        assert!(text.contains("server_migrated: true"));
+        let mut loaded = ItemFlags::default();
+        loaded.load_ron(0, &text);
+        assert!(loaded.is_locked(knife));
+        loaded.enable_server_marks();
+        assert!(!loaded.migration_pending());
     }
 
     #[test]

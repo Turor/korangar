@@ -8,7 +8,7 @@
 use std::time::{Duration, Instant};
 
 use korangar_networking::{InventoryItem, NetworkEvent, NoMetadata};
-use ragnarok_packets::{ITEM_MARK_INVENTORY, ITEM_MARK_LOCK, InventoryIndex, ItemMarkEntry, TURORAN_FEATURE_ITEM_MARKS};
+use ragnarok_packets::{ITEM_MARK_INVENTORY, ITEM_MARK_LOCK, InventoryIndex, TURORAN_FEATURE_ITEM_MARKS};
 
 use super::super::LogicSession;
 use crate::state::item_flags::is_equipped;
@@ -42,7 +42,7 @@ fn is_lock_refusal(line: &str) -> bool {
 struct MarkWatch {
     features: Option<u32>,
     inventory: Vec<InventoryItem<NoMetadata>>,
-    list: Option<Vec<ItemMarkEntry>>,
+    list: Option<Vec<korangar_networking::ItemMark>>,
     results: Vec<(u8, u16, u8, u8)>,
     chat: Vec<String>,
     removed: Vec<u16>,
@@ -171,26 +171,32 @@ impl LogicSession {
                 .any(|item| item.index.0 == row.index && item.item_id.0 == row.item_id),
             ..LiveServerMarksReport::default()
         };
-        if report.row_present {
-            watch.chat.clear();
-            watch.removed.clear();
-            self.net
-                .as_mut()
-                .ok_or("logic mode has no network")?
-                .drop_item(InventoryIndex(row.index), 1)
-                .map_err(|_| "map server is not connected".to_owned())?;
-            self.pump_marks(&mut watch, Duration::from_secs(3), |watch| {
-                watch.chat.iter().any(|line| is_lock_refusal(line))
-            })?;
-            report.refusal = watch
-                .chat
-                .iter()
-                .find(|line| is_lock_refusal(line))
-                .map(|line| line.trim_end_matches(char::from(0)).to_owned())
-                .unwrap_or_default();
-
-            report.removed_after_drop = watch.removed.contains(&row.index);
+        if !(report.row_present && report.listed_locked) {
+            // Never drop an item whose lock is not confirmed. Clear and fail.
+            let _ = self.set_lock(&mut watch, row.index, false);
+            return Err(format!(
+                "lock not confirmed after relog (present={}, listed={}); no drop sent",
+                report.row_present, report.listed_locked
+            ));
         }
+        watch.chat.clear();
+        watch.removed.clear();
+        self.net
+            .as_mut()
+            .ok_or("logic mode has no network")?
+            .drop_item(InventoryIndex(row.index), 1)
+            .map_err(|_| "map server is not connected".to_owned())?;
+        self.pump_marks(&mut watch, Duration::from_secs(3), |watch| {
+            watch.chat.iter().any(|line| is_lock_refusal(line))
+        })?;
+        report.refusal = watch
+            .chat
+            .iter()
+            .find(|line| is_lock_refusal(line))
+            .map(|line| line.trim_end_matches(char::from(0)).to_owned())
+            .unwrap_or_default();
+
+        report.removed_after_drop = watch.removed.contains(&row.index);
         let (marks, result) = self.set_lock(&mut watch, row.index, false)?;
         report.cleared = result == 0 && marks & ITEM_MARK_LOCK == 0;
         Ok(report)

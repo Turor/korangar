@@ -9,6 +9,15 @@ use crate::{
     UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
 };
 
+/// One marked row from `0x0EE8`. `index` is the [`InventoryIndex`] the item
+/// lists use for the same row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ItemMark {
+    pub location: u8,
+    pub index: InventoryIndex,
+    pub marks: u8,
+}
+
 /// Blessing catalyst on a grade-enchant material list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GradeBlessingOffer {
@@ -1422,7 +1431,7 @@ pub enum NetworkEvent {
     },
     /// Turoran item marks of every marked inventory and cart row (`0x0EE8`).
     ItemMarksList {
-        entries: Vec<ragnarok_packets::ItemMarkEntry>,
+        entries: Vec<ItemMark>,
     },
     /// Turoran item mark change result (`0x0EE9`). `index` is the
     /// [`ragnarok_packets::InventoryIndex`] value.

@@ -45,7 +45,7 @@ impl Client {
         let _ = self.networking_system.send_item_marks_hello();
     }
 
-    pub(crate) fn on_item_marks_list(&mut self, entries: Vec<ragnarok_packets::ItemMarkEntry>) {
+    pub(crate) fn on_item_marks_list(&mut self, entries: Vec<korangar_networking::ItemMark>) {
         self.client_state
             .follow_mut(client_state().item_flags())
             .apply_server_list(entries.into_iter().map(|entry| {
@@ -57,6 +57,21 @@ impl Client {
                     entry.marks,
                 )
             }));
+        if self.client_state.follow(client_state().item_flags()).migration_pending() {
+            let mut rows = self
+                .client_state
+                .follow(client_state().inventory().items())
+                .iter()
+                .map(|item| (MarkPlace::inventory(item.index.0), ItemKey::from_inventory(item)))
+                .collect::<Vec<_>>();
+            rows.extend(
+                self.client_state
+                    .follow(client_state().cart().items())
+                    .iter()
+                    .map(|item| (MarkPlace::cart(item.index.0), ItemKey::from_inventory(item))),
+            );
+            self.client_state.follow_mut(client_state().item_flags()).migrate_file_marks(&rows);
+        }
     }
 
     pub(crate) fn on_item_mark_result(&mut self, location: u8, index: u16, marks: u8, result: u8) {

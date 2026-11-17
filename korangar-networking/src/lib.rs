@@ -47,8 +47,8 @@ pub use self::equip_switch::EquipSwitchSlotPathExt;
 pub use self::equip_switch::{EquipSwitchSlot, assign_slot, position_label, replace_slots};
 pub use self::event::{
     ChatRoomMember, DisconnectReason, GradeBlessingOffer, GradeMaterialOffer, GuildMemberSnapshot, GuildSkillSnapshot, HuntIndexUpdate,
-    NetworkEvent, OwnShopLine, RefineMaterialOffer, RodexAttachment, RodexMailSummary, RoulettePrize, SearchStoreHit, StatusChangeState,
-    ViewedEquipPiece, WeaponRefineOffer,
+    ItemMark, NetworkEvent, OwnShopLine, RefineMaterialOffer, RodexAttachment, RodexMailSummary, RoulettePrize, SearchStoreHit,
+    StatusChangeState, ViewedEquipPiece, WeaponRefineOffer,
 };
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
@@ -4257,12 +4257,12 @@ mod packet_handlers {
                 panic!("expected one item marks list, got {events:?}");
             };
             assert_eq!(entries.as_slice(), &[
-                ItemMarkEntry {
+                crate::ItemMark {
                     location: ITEM_MARK_INVENTORY,
                     index: InventoryIndex(5),
                     marks: ITEM_MARK_LOCK,
                 },
-                ItemMarkEntry {
+                crate::ItemMark {
                     location: ITEM_MARK_CART,
                     index: InventoryIndex(0),
                     marks: ITEM_MARK_JUNK,
@@ -4275,12 +4275,12 @@ mod packet_handlers {
             entries: vec![
                 ItemMarkEntry {
                     location: ITEM_MARK_INVENTORY,
-                    index: InventoryIndex(5),
+                    wire_index: 7,
                     marks: ITEM_MARK_LOCK,
                 },
                 ItemMarkEntry {
                     location: ITEM_MARK_CART,
-                    index: InventoryIndex(0),
+                    wire_index: 2,
                     marks: ITEM_MARK_JUNK,
                 },
             ],
@@ -4288,6 +4288,16 @@ mod packet_handlers {
         .packet_to_bytes(&mut writer)
         .unwrap();
         assert_eq!(writer.as_slice(), &list);
+
+        // A storage row 0 (wire 1) has no InventoryIndex; it is skipped, not
+        // a decode error for the whole list.
+        let storage = [0xE8, 0x0E, 14, 0, 1, 0, 2, 1, 0, 1, 2, 3, 0, 2];
+        let events = process_one(SupportedPacketVersion::_20250716, &storage);
+        assert!(matches!(
+            events.as_slice(),
+            [NetworkEvent::ItemMarksList { entries }]
+                if entries.as_slice() == [crate::ItemMark { location: 2, index: InventoryIndex(1), marks: ITEM_MARK_JUNK }]
+        ));
 
         let empty = [0xE8, 0x0E, 6, 0, 1, 0];
         let events = process_one(SupportedPacketVersion::_20250716, &empty);

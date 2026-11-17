@@ -4730,6 +4730,9 @@ pub const TURORAN_FEATURE_ITEM_MARKS: u32 = 0x0000_0001;
 pub const ITEM_MARK_INVENTORY: u8 = 0;
 /// `where` byte of the item mark packets: a cart row.
 pub const ITEM_MARK_CART: u8 = 1;
+/// `where` byte of the item mark packets: a personal storage row, only while
+/// the storage is open.
+pub const ITEM_MARK_STORAGE: u8 = 2;
 /// Item mark bit: the row is locked.
 pub const ITEM_MARK_LOCK: u8 = 0x01;
 /// Item mark bit: the row is junk.
@@ -4758,12 +4761,15 @@ pub struct SetItemMarkPacket {
     pub value: u8,
 }
 
-/// One marked row on `0x0EE8`.
+/// One marked row on `0x0EE8`. `wire_index` is the raw index from the item
+/// lists: server index + 2 for inventory and cart, server index + 1 for
+/// storage. It stays raw so a storage row 0 (wire 1) does not fail the whole
+/// list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ByteConvertable, FixedByteSize)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct ItemMarkEntry {
     pub location: u8,
-    pub index: InventoryIndex,
+    pub wire_index: u16,
     pub marks: u8,
 }
 

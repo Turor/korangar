@@ -49,6 +49,7 @@ fn server_item_marks_lock_survives_relog_on_test() {
     let Some(mut second) = live_session() else {
         panic!("TEST went away between sessions");
     };
+    // Errors, without dropping, when the lock did not survive the relog.
     let report = second.server_marks_check_after_relog(&row).unwrap();
     eprintln!(
         "E2E_SERVER_MARKS relog listed={} present={} refusal={:?} removed={} cleared={}",
