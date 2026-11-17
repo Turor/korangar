@@ -25,11 +25,14 @@ const SKILL_ID_CANDIDATES: &[&str] = &[
     "data/luafiles514/lua files/skillinfoz/skillid.lub",
 ];
 
+/// First file whose `SKILL_DESCRIPT` loads wins. The Turoran renewal file is
+/// what roBrowser reads; the `skillinfoz` copy is where the official client
+/// keeps it, so a host without the Turoran file still has text. Slash variants
+/// are not listed: both normalize to the same path.
 const DESCRIPT_CANDIDATES: &[&str] = &[
     "System\\skilldescript.turoran.re2.lub",
-    "System/skilldescript.turoran.re2.lub",
     "System\\skilldescript.lub",
-    "System/skilldescript.lub",
+    "data\\luafiles514\\lua files\\skillinfoz\\skilldescript.lub",
 ];
 
 const STEP6_CANDIDATES: &[&str] = &["System\\skilldescript.turoran.step6.lub", "System/skilldescript.turoran.step6.lub"];
@@ -39,18 +42,31 @@ const JOB_INHERIT_CANDIDATES: &[&str] = &[
     "data/luafiles514/lua files/skillinfoz/jobinheritlist.lub",
 ];
 
-pub(super) fn load_skill_text(game_file_loader: &GameFileLoader) -> (HashMap<u16, String>, JobParents) {
+pub(crate) fn load_skill_text(game_file_loader: &GameFileLoader) -> (HashMap<u16, String>, JobParents) {
     let parents = load_job_parents(game_file_loader);
     let Ok(state) = Lua::load_from_game_files_with_fallbacks(game_file_loader, &[SKILL_ID_CANDIDATES]) else {
+        eprintln!("warning: skill descriptions unavailable: no skillid.lub");
         return (HashMap::new(), parents);
     };
-    let Some(bytes) = read_first(game_file_loader, DESCRIPT_CANDIDATES) else {
-        return (HashMap::new(), parents);
-    };
-    if execute_chunk(&state, "skilldescript", &bytes).is_err() {
+    // A missing, broken, or empty file falls through to the next candidate
+    // instead of leaving every skill without text.
+    let mut descriptions = HashMap::new();
+    for path in DESCRIPT_CANDIDATES {
+        let Some(bytes) = read_first(game_file_loader, &[path]) else {
+            continue;
+        };
+        if execute_chunk(&state, "skilldescript", &bytes).is_err() {
+            continue;
+        }
+        descriptions = parse_skill_descript_table(&state, "SKILL_DESCRIPT");
+        if !descriptions.is_empty() {
+            break;
+        }
+    }
+    if descriptions.is_empty() {
+        eprintln!("warning: skill descriptions unavailable: no skilldescript.lub loaded");
         return (HashMap::new(), parents);
     }
-    let mut descriptions = parse_skill_descript_table(&state, "SKILL_DESCRIPT");
     if let Some(step6) = read_first(game_file_loader, STEP6_CANDIDATES)
         && execute_chunk(&state, "skilldescript.step6", &step6).is_ok()
     {
@@ -215,6 +231,11 @@ pub fn shown_skill_level(learned: Option<u16>, pending_points: u16, chosen: Opti
     } else {
         chosen.or(learned).unwrap_or(0)
     }
+}
+
+/// Skill slot hover tooltip: the skill name over the composed description.
+pub fn skill_hover_text(skill_name: &str, description: &str) -> String {
+    format!("{skill_name}\n{description}")
 }
 
 /// Level line plus the roBrowser SP-cost line, then the description body.

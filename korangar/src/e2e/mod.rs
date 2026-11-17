@@ -27,6 +27,7 @@ mod minimap;
 mod navigation_followups;
 mod release;
 mod screenshot;
+mod skill_description;
 mod social;
 mod status_icons;
 mod storage_tools;
@@ -63,6 +64,9 @@ pub use self::navigation_followups::{MapRouteReport, RewardDetailReport, map_rou
 pub use self::release::{ClientStartup, drive_startup_update};
 pub use self::screenshot::{
     Capture, capture_client_settings, capture_display, capture_lavapipe, lavapipe_icd_present, logic_mode_skips_image_assertions,
+};
+pub use self::skill_description::{
+    BASH_SKILL_ID, DescriptionHost, SkillDescriptionReport, live_skill_description, offline_skill_description,
 };
 pub use self::social::{
     AchievementReport, NavigationReport, achievement_scenario, attendance_scenario, clan_chat_scenario, navigation_follow,

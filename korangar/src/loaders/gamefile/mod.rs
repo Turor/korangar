@@ -134,7 +134,9 @@ impl GameFileLoader {
         // Local archives win. A pinned manifest is next; paths missing from that
         // snapshot fall through to a loose fetch under the same base URL.
         match self.remote.read().unwrap().as_ref() {
-            Some(remote) => remote.get(&archive_path).map_err(|error| {
+            // The caller's case goes to the host: remoteclient2 matches real
+            // `System/` files by exact name.
+            Some(remote) => remote.get(path).map_err(|error| {
                 note_missing_game_file(path);
                 FileNotFoundError::new(format!("{path}: verified remote retrieval failed: {error}"))
             }),
@@ -259,6 +261,12 @@ impl GameFileLoader {
         #[cfg(feature = "debug")]
         timer.stop();
         Ok(())
+    }
+
+    /// Attach a remote asset host without reading deployment environment
+    /// variables. e2e scenarios use this with a local test host.
+    pub(crate) fn attach_remote_assets(&self, assets: PersistentAssets) {
+        *self.remote.write().unwrap() = Some(Arc::new(assets));
     }
 
     /// Load `client/game_archives.ron` from `install_dir` as the install root.

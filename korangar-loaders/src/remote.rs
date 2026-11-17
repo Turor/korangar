@@ -61,11 +61,21 @@ fn valid_digest(s: &str) -> bool {
 /// Canonicalize a virtual RO path without decoding percent escapes or accepting
 /// filesystem roots, hidden components, query strings, drives, or traversal.
 pub fn canonical_path(path: &str) -> Option<String> {
+    request_path(path).map(|path| path.to_lowercase())
+}
+
+/// [`canonical_path`] rules, but the caller's letter case is kept.
+/// remoteclient2 serves real `System/` files by their exact name
+/// (`System/skilldescript. turoran.re2.lub` works,
+/// `system/skilldescript.turoran.re2.lub` is a 404), so loose fetches ask for
+/// the case the caller used first.
+fn request_path(path: &str) -> Option<String> {
     if path.starts_with(['/', '\\']) || path.contains(['%', ':', '?', '#']) || path.chars().any(char::is_control) {
         return None;
     }
-    let path = path.replace('\\', "/").to_lowercase();
-    let mut parts = path.split('/');
+    let path = path.replace('\\', "/");
+    let lower = path.to_lowercase();
+    let mut parts = lower.split('/');
     let root = parts.next()?;
     if !["data", "bgm", "system", "systemen", "ai"].contains(&root) {
         return None;
@@ -77,11 +87,12 @@ pub fn canonical_path(path: &str) -> Option<String> {
     Some(path)
 }
 
-/// Percent-encode a canonical virtual path onto the asset base. Hangul is
+/// Percent-encode a virtual path onto the asset base, keeping its letter case
+/// (see [`request_path`]). Hangul is
 /// encoded as UTF-8 octets. EUC-KR sources are already decoded to Unicode by
 /// the format readers before this runs.
 pub fn loose_asset_url(base: &Url, virtual_path: &str) -> Option<Url> {
-    let path = canonical_path(virtual_path)?;
+    let path = request_path(virtual_path)?;
     let mut url = base.clone();
     {
         let mut segments = url.path_segments_mut().ok()?;
@@ -416,9 +427,10 @@ impl PersistentAssets {
     /// Retrieve one file, permanently storing a verified response atomically.
     /// Failed/interrupted transfers never publish a final cache entry.
     pub fn get(&self, path: &str) -> io::Result<Vec<u8>> {
+        let requested = path;
         let path = canonical_path(path).ok_or_else(|| error("invalid virtual asset path"))?;
         let Some(entry) = self.entries.get(&path) else {
-            return self.loose_get(&path);
+            return self.loose_get(&path, requested);
         };
         if let Ok(bytes) = self.local(entry) {
             return Ok(bytes);
@@ -445,7 +457,9 @@ impl PersistentAssets {
 
     /// Fetch one file that is not in the pinned snapshot and store it by
     /// digest.
-    fn loose_get(&self, path: &str) -> io::Result<Vec<u8>> {
+    /// `path` is the canonical cache key. `requested` keeps the caller's case
+    /// for the URL; a 404 there retries the lower-case path once.
+    fn loose_get(&self, path: &str, requested: &str) -> io::Result<Vec<u8>> {
         if let Some(bytes) = self.cached_loose(path) {
             return Ok(bytes);
         }
@@ -456,8 +470,14 @@ impl PersistentAssets {
         if let Some(bytes) = self.cached_loose(path) {
             return Ok(bytes);
         }
-        let url = loose_asset_url(&self.base, path).ok_or_else(|| error("invalid virtual asset path"))?;
-        let bytes = fetch(&self.client, url, MAX_ASSET)?;
+        let url = loose_asset_url(&self.base, requested).ok_or_else(|| error("invalid virtual asset path"))?;
+        let bytes = match fetch(&self.client, url, MAX_ASSET) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound && request_path(requested).as_deref() != Some(path) => {
+                let url = loose_asset_url(&self.base, path).ok_or_else(|| error("invalid virtual asset path"))?;
+                fetch(&self.client, url, MAX_ASSET)?
+            }
+            result => result?,
+        };
         if bytes.is_empty() {
             return Err(error("asset not found"));
         }
@@ -719,6 +739,63 @@ mod tests {
             io::ErrorKind::Other
         );
         assert!(!dir.path().join("manifest.json").exists());
+    }
+    /// remoteclient2 serves real `System/` files by exact name only. The
+    /// caller's case goes out first; a 404 retries lower case once.
+    #[test]
+    fn loose_fetch_keeps_caller_case_then_falls_back_to_lower_case() {
+        let body = b"SKILL_DESCRIPT = {}";
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}/client/", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            for status_body in [
+                (404u16, Vec::<u8>::new()),
+                (200, body.to_vec()),
+                (404, Vec::new()),
+                (200, body.to_vec()),
+            ] {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    stream.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                }
+                let text = String::from_utf8_lossy(&request);
+                seen.push(text.split_whitespace().nth(1).unwrap_or("").to_owned());
+                write!(
+                    stream,
+                    "HTTP/1.1 {} {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    status_body.0,
+                    if status_body.0 == 200 { "OK" } else { "Not Found" },
+                    status_body.1.len()
+                )
+                .unwrap();
+                stream.write_all(&status_body.1).unwrap();
+            }
+            seen
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let assets = PersistentAssets::open(config(base, dir.path())).unwrap();
+        assert_eq!(assets.get(r"System\skilldescript.turoran.re2.lub").unwrap(), body);
+        // Cached under the canonical key, so any case is a local hit now.
+        assert_eq!(assets.get("system/SKILLDESCRIPT.turoran.re2.lub").unwrap(), body);
+        assert_eq!(assets.get(r"Data\LuaFiles514\x.lub").unwrap(), body);
+        assert_eq!(server.join().unwrap(), [
+            "/client/api/assets/v1/manifest",
+            "/client/System/skilldescript.turoran.re2.lub",
+            "/client/Data/LuaFiles514/x.lub",
+            "/client/data/luafiles514/x.lub",
+        ]);
+        assert_eq!(
+            loose_asset_url(&Url::parse("https://ro.turoran.com/client/").unwrap(), r"System\itemInfo.lua")
+                .unwrap()
+                .as_str(),
+            "https://ro.turoran.com/client/System/itemInfo.lua"
+        );
+        assert_eq!(canonical_path(r"System\itemInfo.lua").as_deref(), Some("system/iteminfo.lua"));
     }
     #[test]
     fn loose_fetch_caches_hangul_path_and_second_get_is_local() {
