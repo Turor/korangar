@@ -35,6 +35,8 @@ mod minimap;
 mod navigation_followups;
 #[path = "e2e/release.rs"]
 mod release;
+#[path = "e2e/server_item_marks.rs"]
+mod server_item_marks;
 #[path = "e2e/skill_description.rs"]
 mod skill_description;
 #[path = "e2e/social.rs"]

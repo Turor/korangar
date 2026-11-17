@@ -19,14 +19,14 @@ pub fn paint(state: &State<ClientState>, layout: &mut WindowLayout<ClientState>,
     state.update_value_with(client_state().item_flags(), move |flags| {
         flags.prepare_layout();
         if let Some(hovered) = hovered.clone() {
-            flags.note_hover(hovered.key, hovered.index, hovered.name);
+            flags.note_hover_place(hovered.key, hovered.place, hovered.index, hovered.name);
         }
     });
 
     let Some(note) = note else {
         return;
     };
-    let appearance = state.get(&client_state().item_flags()).appearance_now(note.key);
+    let appearance = state.get(&client_state().item_flags()).appearance_now_at(note.key, note.place);
     if !appearance.visible() {
         return;
     }

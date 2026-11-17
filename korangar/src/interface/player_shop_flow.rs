@@ -336,7 +336,8 @@ impl Client {
         let mut sources = Vec::new();
         for item in items.iter() {
             let key = ItemKey::from_inventory(item);
-            if let Some(message) = flags.refusal(key, &item.metadata.name) {
+            let place = Some(crate::state::item_flags::MarkPlace::cart(item.index.0));
+            if let Some(message) = flags.refusal_at(key, place, &item.metadata.name) {
                 messages.push(message);
             } else {
                 sources.push(source_from_item(item));
@@ -350,7 +351,7 @@ impl Client {
         let flags = self.client_state.follow(client_state().item_flags());
         let mut messages = Vec::new();
         for (index, ..) in items {
-            if let Some(message) = item_flags::refusal_for_index(flags, cart, *index) {
+            if let Some(message) = item_flags::refusal_for_index(flags, cart, *index, ragnarok_packets::ITEM_MARK_CART) {
                 messages.push(message);
             }
         }

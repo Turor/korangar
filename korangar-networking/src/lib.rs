@@ -1380,6 +1380,31 @@ where
         }
     }
 
+    /// `0x0EE0`. Only after the server's features notice has the item marks
+    /// bit; an older server would drop the connection on this packet.
+    pub fn send_item_marks_hello(&mut self) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(ragnarok_packets::ItemMarksHelloPacket {
+                    version: crate::packet_versions::item_marks::ITEM_MARKS_VERSION,
+                }),
+        }
+    }
+
+    /// `0x0EE1`. Set the bits of `mask` on one inventory or cart row to
+    /// `value`.
+    pub fn set_item_mark(&mut self, location: u8, index: u16, mask: u8, value: u8) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 | SupportedPacketVersion::_20190530 | SupportedPacketVersion::_20250716 => self
+                .send_map_server_packet(ragnarok_packets::SetItemMarkPacket {
+                    location,
+                    index: InventoryIndex(index),
+                    mask,
+                    value,
+                }),
+        }
+    }
+
     /// `0x0EF4`. `action` is list (`0`), warp (`1`), or unlock (`2`).
     pub fn request_warpra(&mut self, action: i16, kind: i16, location_id: i16) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
@@ -4193,6 +4218,99 @@ mod packet_handlers {
         assert_eq!(u16::from_le_bytes([writer.as_slice()[0], writer.as_slice()[1]]), 0x0EFC);
         let events = process_one(SupportedPacketVersion::_20190530, writer.as_slice());
         assert!(matches!(events.as_slice(), [NetworkEvent::EdenResult { result: 9, quest_id: 44, summary }] if summary.contains("Merit")));
+    }
+
+    #[test]
+    fn item_mark_packets_encode_and_decode() {
+        use ragnarok_packets::{
+            ITEM_MARK_CART, ITEM_MARK_INVENTORY, ITEM_MARK_JUNK, ITEM_MARK_LOCK, InventoryIndex, ItemMarkEntry, ItemMarkResultPacket,
+            ItemMarksHelloPacket, ItemMarksListPacket, SetItemMarkPacket, TURORAN_FEATURE_ITEM_MARKS, TuroranFeaturesPacket,
+        };
+
+        let mut writer = ByteWriter::new();
+        ItemMarksHelloPacket { version: 1 }.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &[0xE0, 0x0E, 1, 0]);
+
+        let mut writer = ByteWriter::new();
+        SetItemMarkPacket {
+            location: ITEM_MARK_INVENTORY,
+            index: InventoryIndex(0x0103),
+            mask: ITEM_MARK_LOCK,
+            value: ITEM_MARK_LOCK,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice(), &[0xE1, 0x0E, 0, 0x05, 0x01, 1, 1]);
+
+        let features = [0xF1, 0x0E, 0x01, 0, 0, 0];
+        let events = process_one(SupportedPacketVersion::_20250716, &features);
+        assert!(matches!(events.as_slice(), [NetworkEvent::TuroranFeatures { features }] if features & TURORAN_FEATURE_ITEM_MARKS != 0));
+        let mut writer = ByteWriter::new();
+        TuroranFeaturesPacket { features: 1 }.packet_to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.as_slice(), &features);
+
+        // 0x0EE8 len 14: version 1, inventory 7 locked, cart 2 junk.
+        let list = [0xE8, 0x0E, 14, 0, 1, 0, 0, 7, 0, 1, 1, 2, 0, 2];
+        for version in [SupportedPacketVersion::_20190530, SupportedPacketVersion::_20250716] {
+            let events = process_one(version, &list);
+            let [NetworkEvent::ItemMarksList { entries }] = events.as_slice() else {
+                panic!("expected one item marks list, got {events:?}");
+            };
+            assert_eq!(entries.as_slice(), &[
+                ItemMarkEntry {
+                    location: ITEM_MARK_INVENTORY,
+                    index: InventoryIndex(5),
+                    marks: ITEM_MARK_LOCK,
+                },
+                ItemMarkEntry {
+                    location: ITEM_MARK_CART,
+                    index: InventoryIndex(0),
+                    marks: ITEM_MARK_JUNK,
+                },
+            ]);
+        }
+        let mut writer = ByteWriter::new();
+        ItemMarksListPacket {
+            version: 1,
+            entries: vec![
+                ItemMarkEntry {
+                    location: ITEM_MARK_INVENTORY,
+                    index: InventoryIndex(5),
+                    marks: ITEM_MARK_LOCK,
+                },
+                ItemMarkEntry {
+                    location: ITEM_MARK_CART,
+                    index: InventoryIndex(0),
+                    marks: ITEM_MARK_JUNK,
+                },
+            ],
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice(), &list);
+
+        let empty = [0xE8, 0x0E, 6, 0, 1, 0];
+        let events = process_one(SupportedPacketVersion::_20250716, &empty);
+        assert!(matches!(events.as_slice(), [NetworkEvent::ItemMarksList { entries }] if entries.is_empty()));
+
+        let result = [0xE9, 0x0E, 0, 9, 0, 3, 0];
+        let events = process_one(SupportedPacketVersion::_20250716, &result);
+        assert!(matches!(events.as_slice(), [NetworkEvent::ItemMarkResult {
+            location: 0,
+            index: 7,
+            marks: 3,
+            result: 0
+        }]));
+        let mut writer = ByteWriter::new();
+        ItemMarkResultPacket {
+            location: 0,
+            index: InventoryIndex(7),
+            marks: 3,
+            result: 0,
+        }
+        .packet_to_bytes(&mut writer)
+        .unwrap();
+        assert_eq!(writer.as_slice(), &result);
     }
 
     #[test]

@@ -4711,6 +4711,86 @@ pub struct WarpraDestinationEntry {
     pub group_name: String,
 }
 
+/// Turoran server features (`0x0EF1` from the map server, 6 bytes).
+///
+/// Sent after every map load by servers with the matching plugins. The
+/// client-to-server `0x0EF1` is the stable homunculus request; this is the
+/// other direction, which roBrowser and older clients frame and skip.
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EF1)]
+pub struct TuroranFeaturesPacket {
+    pub features: u32,
+}
+
+/// [`TuroranFeaturesPacket`] bit: lock and junk marks are kept on the server.
+pub const TURORAN_FEATURE_ITEM_MARKS: u32 = 0x0000_0001;
+
+/// `where` byte of the item mark packets: an inventory row.
+pub const ITEM_MARK_INVENTORY: u8 = 0;
+/// `where` byte of the item mark packets: a cart row.
+pub const ITEM_MARK_CART: u8 = 1;
+/// Item mark bit: the row is locked.
+pub const ITEM_MARK_LOCK: u8 = 0x01;
+/// Item mark bit: the row is junk.
+pub const ITEM_MARK_JUNK: u8 = 0x02;
+
+/// Turoran item marks hello (`0x0EE0`, 4 bytes). Only sent after
+/// [`TuroranFeaturesPacket`] has the item marks bit; the server answers with
+/// [`ItemMarksListPacket`].
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EE0)]
+pub struct ItemMarksHelloPacket {
+    pub version: u16,
+}
+
+/// Turoran set item marks (`0x0EE1`, 7 bytes). The bits in `mask` are set to
+/// the same bits of `value`. `index` goes on the wire as server index + 2,
+/// like every other inventory and cart index.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EE1)]
+pub struct SetItemMarkPacket {
+    pub location: u8,
+    pub index: InventoryIndex,
+    pub mask: u8,
+    pub value: u8,
+}
+
+/// One marked row on `0x0EE8`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ByteConvertable, FixedByteSize)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct ItemMarkEntry {
+    pub location: u8,
+    pub index: InventoryIndex,
+    pub marks: u8,
+}
+
+/// Turoran item marks list (`0x0EE8`, variable). Every marked inventory and
+/// cart row; a row that is not listed has no marks.
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EE8)]
+#[variable_length]
+pub struct ItemMarksListPacket {
+    pub version: u16,
+    #[repeating_remaining]
+    pub entries: Vec<ItemMarkEntry>,
+}
+
+/// Turoran item mark result (`0x0EE9`, 7 bytes). `marks` is the row's marks
+/// after the request. `result` is 0 ok, 1 no such row, 2 busy.
+#[derive(Debug, Clone, PartialEq, Eq, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0EE9)]
+pub struct ItemMarkResultPacket {
+    pub location: u8,
+    pub index: InventoryIndex,
+    pub marks: u8,
+    pub result: u8,
+}
+
 /// Turoran Warpra request (`0x0EF4`, 8 bytes).
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]

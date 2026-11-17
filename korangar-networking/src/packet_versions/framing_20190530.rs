@@ -1492,6 +1492,10 @@ pub fn packet_length(opcode: u16) -> Option<i32> {
         0x0BA0 => Some(2),
         // 20220406 frames with this table. Its cash shop open is 0x0B6E.
         0x0B6E => Some(14),
+        0x0EE0 => Some(4),
+        0x0EE1 => Some(7),
+        0x0EE8 => Some(-1),
+        0x0EE9 => Some(7),
         0x0EF0 => Some(2),
         0x0EF1 => Some(6),
         0x0EF2 => Some(8),

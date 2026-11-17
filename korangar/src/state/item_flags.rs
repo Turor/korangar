@@ -7,6 +7,13 @@
 //! Only junk and lock are saved. The new-item glow lasts for the session, so
 //! the login list never glows. A file that does not parse is never written
 //! over, and saves go through a temp file and a rename.
+//!
+//! When the map server announces item marks (`0x0EF1` bit 0), junk and lock
+//! move to the server: they are kept per inventory or cart row, read from
+//! `0x0EE8`, changed with `0x0EE1`, and the file is neither read for them nor
+//! written. The server refuses drop, NPC sell, vend, trade, and mail of a
+//! locked row on its own; the checks here only save a round trip. Storage
+//! rows show no marks in that mode. The new-item glow stays client-only.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -31,6 +38,68 @@ const FILE_NAME: &str = "client/item_flags.ron";
 /// A junk or lock edit is written this long after it is made, and right away
 /// on logout, exit, and character change.
 pub const SAVE_DEBOUNCE_MS: u32 = 2000;
+
+/// One inventory or cart row as the server keys its marks. `index` is the
+/// client index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MarkPlace {
+    pub location: u8,
+    pub index: u16,
+}
+
+impl MarkPlace {
+    pub fn inventory(index: u16) -> Self {
+        Self {
+            location: ragnarok_packets::ITEM_MARK_INVENTORY,
+            index,
+        }
+    }
+
+    pub fn cart(index: u16) -> Self {
+        Self {
+            location: ragnarok_packets::ITEM_MARK_CART,
+            index,
+        }
+    }
+
+    /// Storage has no server row the client can name.
+    pub fn for_source(source: crate::interface::resource::ItemSource, index: u16) -> Option<Self> {
+        use crate::interface::resource::ItemSource;
+        match source {
+            ItemSource::Inventory | ItemSource::Equipment { .. } | ItemSource::Hotbar { .. } => Some(Self::inventory(index)),
+            ItemSource::Cart => Some(Self::cart(index)),
+            ItemSource::Storage => None,
+        }
+    }
+}
+
+/// One `0x0EE1` the network loop still has to send.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MarkRequest {
+    pub place: MarkPlace,
+    pub mask: u8,
+    pub value: u8,
+}
+
+/// Marks kept on the server, by row.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ServerMarks {
+    rows: Vec<(MarkPlace, u8)>,
+    outbox: Vec<MarkRequest>,
+}
+
+impl ServerMarks {
+    fn get(&self, place: MarkPlace) -> u8 {
+        self.rows.iter().find(|(row, _)| *row == place).map_or(0, |(_, marks)| *marks)
+    }
+
+    fn put(&mut self, place: MarkPlace, marks: u8) {
+        self.rows.retain(|(row, _)| *row != place);
+        if marks != 0 {
+            self.rows.push((place, marks));
+        }
+    }
+}
 
 /// Stable identity of one stack. Two potions of the same id share a mark.
 /// Two weapons with a different refine or a different card do not.
@@ -95,6 +164,7 @@ pub struct HoverNote {
     pub key: ItemKey,
     pub index: u16,
     pub name: String,
+    pub place: Option<MarkPlace>,
 }
 
 impl HoverNote {
@@ -103,6 +173,15 @@ impl HoverNote {
             key: ItemKey::from_inventory(item),
             index: item.index.0,
             name: item.metadata.name.clone(),
+            place: None,
+        }
+    }
+
+    /// [`Self::from_item`] for a slot of `source`.
+    pub fn from_slot(item: &InventoryItem<ResourceMetadata>, source: crate::interface::resource::ItemSource) -> Self {
+        Self {
+            place: MarkPlace::for_source(source, item.index.0),
+            ..Self::from_item(item)
         }
     }
 }
@@ -122,6 +201,11 @@ pub struct StackRef {
 impl StackRef {
     pub fn key(&self) -> ItemKey {
         ItemKey::new(self.item_id, self.refine, self.cards)
+    }
+
+    /// Stacks are bag rows.
+    pub fn place(&self) -> Option<MarkPlace> {
+        Some(MarkPlace::inventory(self.index))
     }
 
     pub fn from_item(item: &InventoryItem<ResourceMetadata>, equipped_ammo: Option<InventoryIndex>) -> Self {
@@ -230,6 +314,8 @@ pub(crate) struct HoveredItem {
     refine: u8,
     cards: [u32; 4],
     name: String,
+    #[hidden_element]
+    place: Option<MarkPlace>,
 }
 
 impl HoveredItem {
@@ -277,6 +363,10 @@ pub struct ItemFlags {
     /// One chat line for the player, taken by the flow each frame.
     #[hidden_element]
     notice: Option<String>,
+    /// Set once the map server announces item marks; junk and lock then
+    /// live on the server.
+    #[hidden_element]
+    server: Option<ServerMarks>,
 }
 
 /// What [`ItemFlags::save_to`] did.
@@ -312,6 +402,7 @@ impl ItemFlags {
         }
         self.dirty_at = None;
         self.persist = true;
+        self.server = None;
         self.snapshot = false;
         self.hover = None;
         self.hover_fresh = false;
@@ -370,15 +461,103 @@ impl ItemFlags {
         self.entry(key).is_some_and(|entry| entry.is_new)
     }
 
-    pub fn is_junk(&self, key: ItemKey) -> bool {
-        self.entry(key).is_some_and(|entry| entry.junk)
+    /// The map server keeps junk and lock. Pending file edits are written
+    /// first; after this the file is not written again for this character.
+    pub fn enable_server_marks(&mut self) {
+        self.flush();
+        self.persist = false;
+        self.dirty_at = None;
+        if self.server.is_none() {
+            self.server = Some(ServerMarks::default());
+        }
     }
 
-    pub fn is_locked(&self, key: ItemKey) -> bool {
-        self.entry(key).is_some_and(|entry| entry.locked)
+    #[cfg(test)]
+    pub fn server_marks_enabled(&self) -> bool {
+        self.server.is_some()
     }
 
-    pub fn set_junk(&mut self, key: ItemKey, junk: bool) {
+    /// `0x0EE8`: every marked row. Rows not listed have no marks.
+    pub fn apply_server_list(&mut self, entries: impl IntoIterator<Item = (MarkPlace, u8)>) {
+        let Some(server) = self.server.as_mut() else {
+            return;
+        };
+        server.rows.clear();
+        for (place, marks) in entries {
+            server.put(
+                place,
+                marks & (ragnarok_packets::ITEM_MARK_LOCK | ragnarok_packets::ITEM_MARK_JUNK),
+            );
+        }
+    }
+
+    /// `0x0EE9`: the row's marks after a change. Result 1 is a row that is
+    /// gone.
+    pub fn apply_server_result(&mut self, place: MarkPlace, marks: u8, result: u8) {
+        let Some(server) = self.server.as_mut() else {
+            return;
+        };
+        let marks = if result == 1 { 0 } else { marks };
+        server.put(
+            place,
+            marks & (ragnarok_packets::ITEM_MARK_LOCK | ragnarok_packets::ITEM_MARK_JUNK),
+        );
+    }
+
+    /// The row was used up or filled by something new; the server cleared it.
+    pub fn clear_place(&mut self, place: MarkPlace) {
+        if let Some(server) = self.server.as_mut() {
+            server.put(place, 0);
+        }
+    }
+
+    /// `0x0EE1` requests made since the last call.
+    pub fn take_mark_requests(&mut self) -> Vec<MarkRequest> {
+        self.server
+            .as_mut()
+            .map(|server| std::mem::take(&mut server.outbox))
+            .unwrap_or_default()
+    }
+
+    fn server_bit(&self, place: Option<MarkPlace>, bit: u8) -> Option<bool> {
+        let server = self.server.as_ref()?;
+        Some(place.is_some_and(|place| server.get(place) & bit != 0))
+    }
+
+    fn set_server_bit(&mut self, place: Option<MarkPlace>, bit: u8, on: bool) {
+        let (Some(server), Some(place)) = (self.server.as_mut(), place) else {
+            return;
+        };
+        let current = server.get(place);
+        let next = if on { current | bit } else { current & !bit };
+        if next == current {
+            return;
+        }
+        server.put(place, next);
+        server.outbox.push(MarkRequest {
+            place,
+            mask: bit,
+            value: if on { bit } else { 0 },
+        });
+    }
+
+    /// Junk on this row: the server row when the server keeps marks,
+    /// otherwise the stack key.
+    pub fn junk_at(&self, key: ItemKey, place: Option<MarkPlace>) -> bool {
+        self.server_bit(place, ragnarok_packets::ITEM_MARK_JUNK)
+            .unwrap_or_else(|| self.entry(key).is_some_and(|entry| entry.junk))
+    }
+
+    pub fn locked_at(&self, key: ItemKey, place: Option<MarkPlace>) -> bool {
+        self.server_bit(place, ragnarok_packets::ITEM_MARK_LOCK)
+            .unwrap_or_else(|| self.entry(key).is_some_and(|entry| entry.locked))
+    }
+
+    pub fn set_junk_at(&mut self, key: ItemKey, place: Option<MarkPlace>, junk: bool) {
+        if self.server.is_some() {
+            self.set_server_bit(place, ragnarok_packets::ITEM_MARK_JUNK, junk);
+            return;
+        }
         let changed = self.is_junk(key) != junk;
         self.entry_mut(key).junk = junk;
         self.prune();
@@ -387,7 +566,11 @@ impl ItemFlags {
         }
     }
 
-    pub fn set_locked(&mut self, key: ItemKey, locked: bool) {
+    pub fn set_locked_at(&mut self, key: ItemKey, place: Option<MarkPlace>, locked: bool) {
+        if self.server.is_some() {
+            self.set_server_bit(place, ragnarok_packets::ITEM_MARK_LOCK, locked);
+            return;
+        }
         let changed = self.is_locked(key) != locked;
         self.entry_mut(key).locked = locked;
         self.prune();
@@ -396,8 +579,27 @@ impl ItemFlags {
         }
     }
 
-    pub fn refusal(&self, key: ItemKey, name: &str) -> Option<String> {
-        self.is_locked(key).then(|| format!("{} is locked", item_label(name, key.item_id)))
+    pub fn refusal_at(&self, key: ItemKey, place: Option<MarkPlace>, name: &str) -> Option<String> {
+        self.locked_at(key, place)
+            .then(|| format!("{} is locked", item_label(name, key.item_id)))
+    }
+
+    /// Key-only reads and writes, for file mode. With server marks they see
+    /// no row.
+    pub fn is_junk(&self, key: ItemKey) -> bool {
+        self.junk_at(key, None)
+    }
+
+    pub fn is_locked(&self, key: ItemKey) -> bool {
+        self.locked_at(key, None)
+    }
+
+    pub fn set_junk(&mut self, key: ItemKey, junk: bool) {
+        self.set_junk_at(key, None, junk);
+    }
+
+    pub fn set_locked(&mut self, key: ItemKey, locked: bool) {
+        self.set_locked_at(key, None, locked);
     }
 
     /// Called once per input frame, before hotkeys. A grid that was not drawn
@@ -425,17 +627,23 @@ impl ItemFlags {
         self.hover_fresh = false;
     }
 
-    pub fn note_hover(&mut self, key: ItemKey, index: u16, name: String) {
-        self.note_hover_at(key, index, name, elapsed_ms());
+    pub fn note_hover_at(&mut self, key: ItemKey, index: u16, name: String, now: u32) {
+        self.note_hover_in(key, None, index, name, now);
     }
 
-    pub fn note_hover_at(&mut self, key: ItemKey, index: u16, name: String, now: u32) {
+    /// A hover on a slot whose server row is `place`.
+    pub fn note_hover_place(&mut self, key: ItemKey, place: Option<MarkPlace>, index: u16, name: String) {
+        self.note_hover_in(key, place, index, name, elapsed_ms());
+    }
+
+    fn note_hover_in(&mut self, key: ItemKey, place: Option<MarkPlace>, index: u16, name: String, now: u32) {
         self.hover = Some(HoveredItem {
             index,
             item_id: key.item_id,
             refine: key.refine,
             cards: key.cards,
             name,
+            place,
         });
         self.hover_fresh = true;
         if let Some(entry) = self.entries.iter_mut().find(|entry| entry.matches(key))
@@ -447,20 +655,20 @@ impl ItemFlags {
     }
 
     pub fn toggle_hovered_junk(&mut self) -> bool {
-        let Some(key) = self.fresh_hover_key() else {
+        let Some((key, place)) = self.fresh_hover() else {
             return false;
         };
-        let junk = !self.is_junk(key);
-        self.set_junk(key, junk);
+        let junk = !self.junk_at(key, place);
+        self.set_junk_at(key, place, junk);
         true
     }
 
     pub fn toggle_hovered_lock(&mut self) -> bool {
-        let Some(key) = self.fresh_hover_key() else {
+        let Some((key, place)) = self.fresh_hover() else {
             return false;
         };
-        let locked = !self.is_locked(key);
-        self.set_locked(key, locked);
+        let locked = !self.locked_at(key, place);
+        self.set_locked_at(key, place, locked);
         true
     }
 
@@ -499,21 +707,23 @@ impl ItemFlags {
         (u32::from(NEW_GLOW_ALPHA) * left / NEW_GLOW_MS) as u8
     }
 
-    pub fn appearance(&self, key: ItemKey, now: u32) -> FlagAppearance {
+    pub fn appearance_at(&self, key: ItemKey, place: Option<MarkPlace>, now: u32) -> FlagAppearance {
         FlagAppearance {
             glow: self.glow_alpha_at(key, now),
-            junk: self.is_junk(key),
-            locked: self.is_locked(key),
+            junk: self.junk_at(key, place),
+            locked: self.locked_at(key, place),
         }
     }
 
     /// Glow, junk, and lock for the overlay, using the client clock.
-    pub fn appearance_now(&self, key: ItemKey) -> FlagAppearance {
-        self.appearance(key, elapsed_ms())
+    pub fn appearance_now_at(&self, key: ItemKey, place: Option<MarkPlace>) -> FlagAppearance {
+        self.appearance_at(key, place, elapsed_ms())
     }
 
-    fn fresh_hover_key(&self) -> Option<ItemKey> {
-        self.hover_fresh.then(|| self.hover.as_ref().map(HoveredItem::key)).flatten()
+    fn fresh_hover(&self) -> Option<(ItemKey, Option<MarkPlace>)> {
+        self.hover_fresh
+            .then(|| self.hover.as_ref().map(|hover| (hover.key(), hover.place)))
+            .flatten()
     }
 
     fn entry(&self, key: ItemKey) -> Option<&ItemFlagEntry> {
@@ -646,9 +856,14 @@ fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
 
 /// Applies a Junk / Lock pick from the item menu.
 pub fn apply_toggle(flags: &mut ItemFlags, key: ItemKey, toggle: crate::state::item_menu::FlagToggle) {
+    apply_toggle_at(flags, key, None, toggle);
+}
+
+/// [`apply_toggle`] on the row at `place`.
+pub fn apply_toggle_at(flags: &mut ItemFlags, key: ItemKey, place: Option<MarkPlace>, toggle: crate::state::item_menu::FlagToggle) {
     match toggle {
-        crate::state::item_menu::FlagToggle::Junk(junk) => flags.set_junk(key, junk),
-        crate::state::item_menu::FlagToggle::Lock(locked) => flags.set_locked(key, locked),
+        crate::state::item_menu::FlagToggle::Junk(junk) => flags.set_junk_at(key, place, junk),
+        crate::state::item_menu::FlagToggle::Lock(locked) => flags.set_locked_at(key, place, locked),
     }
 }
 
@@ -658,13 +873,13 @@ pub fn plan_sell_junk(flags: &ItemFlags, stacks: &[StackRef], sellable: &[(u16, 
     let mut adds = Vec::new();
     let mut messages = Vec::new();
     for stack in stacks {
-        if !flags.is_junk(stack.key()) {
+        if !flags.junk_at(stack.key(), stack.place()) {
             continue;
         }
         if stack.equipped {
             continue;
         }
-        if flags.is_locked(stack.key()) {
+        if flags.locked_at(stack.key(), stack.place()) {
             messages.push(format!("{} is locked", stack.label()));
             continue;
         }
@@ -683,7 +898,7 @@ pub fn plan_sell_junk(flags: &ItemFlags, stacks: &[StackRef], sellable: &[(u16, 
 }
 
 pub fn attempt_drop(flags: &ItemFlags, stack: &StackRef, amount: u16) -> FlagAttempt {
-    if let Some(message) = flags.refusal(stack.key(), &stack.name) {
+    if let Some(message) = flags.refusal_at(stack.key(), stack.place(), &stack.name) {
         return FlagAttempt::refuse(message);
     }
     FlagAttempt::allow(FlagSend::Drop {
@@ -693,7 +908,7 @@ pub fn attempt_drop(flags: &ItemFlags, stack: &StackRef, amount: u16) -> FlagAtt
 }
 
 pub fn attempt_trade(flags: &ItemFlags, stack: &StackRef, amount: u16) -> FlagAttempt {
-    if let Some(message) = flags.refusal(stack.key(), &stack.name) {
+    if let Some(message) = flags.refusal_at(stack.key(), stack.place(), &stack.name) {
         return FlagAttempt::refuse(message);
     }
     FlagAttempt::allow(FlagSend::Trade {
@@ -703,14 +918,14 @@ pub fn attempt_trade(flags: &ItemFlags, stack: &StackRef, amount: u16) -> FlagAt
 }
 
 pub fn attempt_mail(flags: &ItemFlags, stack: &StackRef, count: u16) -> FlagAttempt {
-    if let Some(message) = flags.refusal(stack.key(), &stack.name) {
+    if let Some(message) = flags.refusal_at(stack.key(), stack.place(), &stack.name) {
         return FlagAttempt::refuse(message);
     }
     FlagAttempt::allow(FlagSend::Mail { index: stack.index, count })
 }
 
 pub fn attempt_vend(flags: &ItemFlags, stack: &StackRef) -> FlagAttempt {
-    if let Some(message) = flags.refusal(stack.key(), &stack.name) {
+    if let Some(message) = flags.refusal_at(stack.key(), stack.place(), &stack.name) {
         return FlagAttempt::refuse(message);
     }
     FlagAttempt::allow(FlagSend::Vend { index: stack.index })
@@ -731,7 +946,7 @@ pub fn attempt_sell(flags: &ItemFlags, stacks: &[StackRef], lines: &[(u16, u16)]
         let Some(stack) = stacks.iter().find(|stack| stack.index == *index) else {
             continue;
         };
-        if let Some(message) = flags.refusal(stack.key(), &stack.name) {
+        if let Some(message) = flags.refusal_at(stack.key(), stack.place(), &stack.name) {
             messages.push(message);
         }
     }
@@ -741,9 +956,12 @@ pub fn attempt_sell(flags: &ItemFlags, stacks: &[StackRef], lines: &[(u16, u16)]
     FlagAttempt::allow(FlagSend::Sell { lines: lines.to_vec() })
 }
 
-pub fn refusal_for_index(flags: &ItemFlags, items: &[InventoryItem<ResourceMetadata>], index: u16) -> Option<String> {
+/// `location` is [`ragnarok_packets::ITEM_MARK_INVENTORY`] or
+/// [`ragnarok_packets::ITEM_MARK_CART`], matching `items`.
+pub fn refusal_for_index(flags: &ItemFlags, items: &[InventoryItem<ResourceMetadata>], index: u16, location: u8) -> Option<String> {
     let item = items.iter().find(|item| item.index.0 == index)?;
-    flags.refusal(ItemKey::from_inventory(item), &item.metadata.name)
+    let place = MarkPlace { location, index };
+    flags.refusal_at(ItemKey::from_inventory(item), Some(place), &item.metadata.name)
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -815,6 +1033,72 @@ mod tests {
             amount,
             equipped,
         }
+    }
+
+    #[test]
+    fn server_marks_follow_rows_not_keys_and_queue_requests() {
+        let mut flags = ItemFlags::default();
+        let potion = ItemKey::new(501, 0, [0; 4]);
+        flags.set_junk(potion, true);
+        flags.enable_server_marks();
+        assert!(flags.server_marks_enabled());
+        // File marks are not used once the server keeps them.
+        assert!(!flags.junk_at(potion, Some(MarkPlace::inventory(2))));
+
+        flags.apply_server_list([
+            (MarkPlace::inventory(2), ragnarok_packets::ITEM_MARK_LOCK),
+            (MarkPlace::cart(5), ragnarok_packets::ITEM_MARK_JUNK),
+        ]);
+        assert!(flags.locked_at(potion, Some(MarkPlace::inventory(2))));
+        assert!(!flags.locked_at(potion, Some(MarkPlace::inventory(3))));
+        assert!(!flags.locked_at(potion, None));
+        assert!(flags.junk_at(potion, Some(MarkPlace::cart(5))));
+        assert_eq!(
+            flags.refusal_at(potion, Some(MarkPlace::inventory(2)), "Red Potion"),
+            Some("Red Potion is locked".to_owned())
+        );
+
+        flags.set_locked_at(potion, Some(MarkPlace::inventory(2)), false);
+        flags.set_locked_at(potion, Some(MarkPlace::inventory(2)), false);
+        flags.set_junk_at(potion, Some(MarkPlace::inventory(3)), true);
+        flags.set_junk_at(potion, None, true);
+        assert_eq!(flags.take_mark_requests(), vec![
+            MarkRequest {
+                place: MarkPlace::inventory(2),
+                mask: ragnarok_packets::ITEM_MARK_LOCK,
+                value: 0,
+            },
+            MarkRequest {
+                place: MarkPlace::inventory(3),
+                mask: ragnarok_packets::ITEM_MARK_JUNK,
+                value: ragnarok_packets::ITEM_MARK_JUNK,
+            },
+        ]);
+        assert!(flags.take_mark_requests().is_empty());
+
+        // The server answer wins; a gone row loses its marks.
+        flags.apply_server_result(
+            MarkPlace::inventory(3),
+            ragnarok_packets::ITEM_MARK_LOCK | ragnarok_packets::ITEM_MARK_JUNK,
+            0,
+        );
+        assert!(flags.locked_at(potion, Some(MarkPlace::inventory(3))));
+        flags.apply_server_result(MarkPlace::inventory(3), 0, 1);
+        assert!(!flags.junk_at(potion, Some(MarkPlace::inventory(3))));
+        flags.clear_place(MarkPlace::cart(5));
+        assert!(!flags.junk_at(potion, Some(MarkPlace::cart(5))));
+
+        // Hover toggles go to the hovered row.
+        flags.prepare_layout();
+        flags.note_hover_place(potion, Some(MarkPlace::inventory(7)), 7, "Red Potion".to_owned());
+        assert!(flags.toggle_hovered_lock());
+        assert!(flags.locked_at(potion, Some(MarkPlace::inventory(7))));
+        assert_eq!(flags.take_mark_requests().len(), 1);
+
+        // A new character starts in file mode again.
+        flags.assign_character(9);
+        flags.server = None;
+        assert!(flags.is_junk(potion));
     }
 
     #[test]

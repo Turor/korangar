@@ -1416,6 +1416,22 @@ pub enum NetworkEvent {
         merit: i32,
         items: Vec<EdenShopEntry>,
     },
+    /// Turoran server features notice (`0x0EF1` from the map server).
+    TuroranFeatures {
+        features: u32,
+    },
+    /// Turoran item marks of every marked inventory and cart row (`0x0EE8`).
+    ItemMarksList {
+        entries: Vec<ragnarok_packets::ItemMarkEntry>,
+    },
+    /// Turoran item mark change result (`0x0EE9`). `index` is the
+    /// [`ragnarok_packets::InventoryIndex`] value.
+    ItemMarkResult {
+        location: u8,
+        index: u16,
+        marks: u8,
+        result: u8,
+    },
     /// Turoran Warpra destination chunk (`0x0EFE`).
     WarpraList {
         zeny: i32,

@@ -2640,6 +2640,14 @@ impl Client {
                         self.client_state.follow_mut(client_state().world_map_window()).set_status(status);
                     }
                 }
+                NetworkEvent::TuroranFeatures { features } => self.on_turoran_features(features),
+                NetworkEvent::ItemMarksList { entries } => self.on_item_marks_list(entries),
+                NetworkEvent::ItemMarkResult {
+                    location,
+                    index,
+                    marks,
+                    result,
+                } => self.on_item_mark_result(location, index, marks, result),
                 NetworkEvent::WarpraResult {
                     result, kind, location_id, ..
                 } => {
@@ -3173,6 +3181,14 @@ impl Client {
                 }
                 NetworkEvent::CartItemAdded { item } => {
                     self.note_item_arrival(crate::state::item_flags::ItemKey::from_inventory(&item));
+                    let fresh = !self
+                        .client_state
+                        .follow(client_state().cart().items())
+                        .iter()
+                        .any(|row| row.index == item.index);
+                    if fresh {
+                        self.clear_item_marks_at(crate::state::item_flags::MarkPlace::cart(item.index.0));
+                    }
                     let _ = self
                         .client_state
                         .follow_mut(client_state().cart())
@@ -3180,9 +3196,25 @@ impl Client {
                 }
                 NetworkEvent::CartItemRemoved { index, amount } => {
                     self.client_state.follow_mut(client_state().cart()).remove_item(index, amount);
+                    if !self
+                        .client_state
+                        .follow(client_state().cart().items())
+                        .iter()
+                        .any(|row| row.index == index)
+                    {
+                        self.clear_item_marks_at(crate::state::item_flags::MarkPlace::cart(index.0));
+                    }
                 }
                 NetworkEvent::IventoryItemAdded { item } => {
                     let arrival = crate::state::item_flags::ItemKey::from_inventory(&item);
+                    let fresh = !self
+                        .client_state
+                        .follow(client_state().inventory().items())
+                        .iter()
+                        .any(|row| row.index == item.index);
+                    if fresh {
+                        self.clear_item_marks_at(crate::state::item_flags::MarkPlace::inventory(item.index.0));
+                    }
                     let visual = self
                         .client_state
                         .follow_mut(client_state().inventory())
@@ -3219,6 +3251,14 @@ impl Client {
                 }
                 NetworkEvent::InventoryItemRemoved { index, amount, .. } => {
                     self.client_state.follow_mut(client_state().inventory()).remove_item(index, amount);
+                    if !self
+                        .client_state
+                        .follow(client_state().inventory().items())
+                        .iter()
+                        .any(|row| row.index == index)
+                    {
+                        self.clear_item_marks_at(crate::state::item_flags::MarkPlace::inventory(index.0));
+                    }
                     self.reload_enchant_materials();
                 }
                 NetworkEvent::ItemUseAck {
@@ -5150,6 +5190,7 @@ impl Client {
         #[cfg(feature = "debug")] delta_time: f32,
     ) -> bool {
         self.begin_item_flag_frame();
+        self.send_item_mark_requests();
         let shop_setup_open = self.interface.is_window_with_class_open(WindowClass::VendingSetup);
         let shop_search_open = self.interface.is_window_with_class_open(WindowClass::SearchStore);
         let shop_report_open = self.interface.is_window_with_class_open(WindowClass::VendingReport);

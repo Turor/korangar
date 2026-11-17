@@ -276,7 +276,7 @@ where
                                 let locked = {
                                     let flags = state.get(&flags_path);
                                     let inventory = state.get(&items_path);
-                                    refusal_for_index(flags, inventory, item.inventory_index.0)
+                                    refusal_for_index(flags, inventory, item.inventory_index.0, ragnarok_packets::ITEM_MARK_INVENTORY)
                                 };
                                 if let Some(message) = locked {
                                     queue.queue(InputEvent::SystemNotice { text: message });
