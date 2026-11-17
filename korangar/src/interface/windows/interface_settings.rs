@@ -119,6 +119,11 @@ where
                 text: "Reload theme",
                 event: InputEvent::ReloadTheme,
             },
+            button! {
+                text: "Reset window layout",
+                tooltip: "Put every window back at its default size and place",
+                event: InputEvent::ResetWindowLayout,
+            },
         );
 
         window! {

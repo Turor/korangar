@@ -1,10 +1,12 @@
 mod anchor;
+pub mod resize;
 pub mod store;
 
 use std::marker::PhantomData;
 
 pub use anchor::{Anchor, AnchorPoint};
 pub use interface_macros::StateWindow;
+pub use resize::{ResizeLimits, resize_handle_areas, resize_handle_at, resize_window_area};
 use rust_state::{Path, RustState, Selector, State};
 use store::WindowStore;
 
@@ -142,6 +144,10 @@ where
 pub(crate) struct DisplayInformation {
     pub real_area: Area,
     pub display_height: f32,
+    /// Size limits resolved during the last layout, used by resize drags.
+    pub limits: ResizeLimits,
+    /// The window lets the user change its height.
+    pub vertical_resize: bool,
 }
 
 pub struct WindowLayoutInfoSet<T> {
@@ -245,9 +251,8 @@ where
     // to inject some data into the click action instead.
     close_click_action: CloseClickHandler,
     move_click_action: MoveClickHandler,
-    horizontal_resize_click_action: ResizeClickHandler,
-    vertical_resize_click_action: ResizeClickHandler,
-    resize_click_action: ResizeClickHandler,
+    /// One handler per corner and edge, in [`resize_handle_areas`] order.
+    resize_click_actions: [ResizeClickHandler; 8],
     layout_info: Option<WindowLayoutInfoSet<<Elements as Element<App>>::LayoutInfo>>,
 }
 
@@ -312,9 +317,17 @@ where
             elements,
             close_click_action: CloseClickHandler::default(),
             move_click_action: MoveClickHandler::default(),
-            horizontal_resize_click_action: ResizeClickHandler::new(ResizeMode::Horizontal),
-            vertical_resize_click_action: ResizeClickHandler::new(ResizeMode::Vertical),
-            resize_click_action: ResizeClickHandler::new(ResizeMode::Both),
+            resize_click_actions: [
+                ResizeMode::TOP_LEFT,
+                ResizeMode::TOP_RIGHT,
+                ResizeMode::BOTTOM_LEFT,
+                ResizeMode::BOTTOM_RIGHT,
+                ResizeMode::LEFT,
+                ResizeMode::RIGHT,
+                ResizeMode::TOP,
+                ResizeMode::BOTTOM,
+            ]
+            .map(ResizeClickHandler::new),
             layout_info: None,
         }
     }
@@ -381,24 +394,23 @@ where
     ) -> DisplayInformation {
         self.close_click_action.update(data.id);
         self.move_click_action.update(data.id);
-        self.horizontal_resize_click_action.update(data.id);
-        self.vertical_resize_click_action.update(data.id);
-        self.resize_click_action.update(data.id);
+        self.resize_click_actions.iter_mut().for_each(|action| action.update(data.id));
 
         App::set_current_theme_type(self.theme);
 
         let title_height = *state.get(&self.title_height);
         let title_gap = *state.get(&self.title_gap);
 
-        let minimum_width = *state.get(&self.minimum_width);
-        let maximum_width = *state.get(&self.maximum_width);
-        let minimum_height = *state.get(&self.minimum_height);
-        let maximum_height = *state.get(&self.maximum_height);
-
-        let adjusted_size = App::Size::new(
-            data.size.width().min(maximum_width).max(minimum_width),
-            data.size.height().min(maximum_height).max(minimum_height),
+        let limits = ResizeLimits::new(
+            *state.get(&self.minimum_width),
+            *state.get(&self.maximum_width),
+            *state.get(&self.minimum_height),
+            *state.get(&self.maximum_height),
         );
+        let minimum_height = limits.minimum_height;
+        let maximum_height = limits.maximum_height;
+
+        let adjusted_size = App::Size::new(limits.clamp_width(data.size.width()), limits.clamp_height(data.size.height()));
 
         if data.anchor.is_initializing() {
             data.anchor.initialize(window_size, adjusted_size);
@@ -465,6 +477,8 @@ where
         DisplayInformation {
             real_area: area,
             display_height,
+            limits,
+            vertical_resize: *state.get(&self.resizable),
         }
     }
 
@@ -478,6 +492,34 @@ where
 
         if layout_info.area.check().dont_mark().run(layout) {
             layout.set_hovered();
+        }
+
+        // Resize handles are checked before the title and the contents so the
+        // window edge wins where they meet.
+        let horizontal_resize_available = *state.get(&self.minimum_width) < *state.get(&self.maximum_width);
+        let vertical_resize_available = *state.get(&self.resizable);
+        let resizing_mode = match layout.get_mouse_mode() {
+            MouseMode::ResizingWindow { resize_mode, window_id } if *window_id == data.id => Some(*resize_mode),
+            _ => None,
+        };
+        let mut highlighted_handle = None;
+        for (index, (mode, handle_area)) in resize_handle_areas(layout_info.area).into_iter().enumerate() {
+            if mode.restricted(horizontal_resize_available, vertical_resize_available).is_none() {
+                continue;
+            }
+            if handle_area.check().run(layout) {
+                layout.register_click_handler(MouseButton::Left, &self.resize_click_actions[index]);
+                layout.set_hovered();
+                layout.set_resize_hovered();
+                highlighted_handle = Some(handle_area);
+                break;
+            }
+            if resizing_mode == Some(mode) && highlighted_handle.is_none() {
+                highlighted_handle = Some(handle_area);
+            }
+        }
+        if resizing_mode.is_some() {
+            layout.set_resize_hovered();
         }
 
         let close_button = if *state.get(&self.closable) {
@@ -509,47 +551,6 @@ where
 
         if is_title_hovered {
             layout.register_click_handler(MouseButton::Left, &self.move_click_action);
-        }
-
-        let corner_diameter = *state.get(&self.corner_diameter);
-
-        let horizontal_resize_area = Area {
-            left: layout_info.area.left + layout_info.area.width - 3.0,
-            top: layout_info.area.top + 20.0,
-            width: 6.0,
-            height: layout_info.area.height - 40.0,
-        };
-        let vertical_resize_area = Area {
-            left: layout_info.area.left + 20.0,
-            top: layout_info.area.top + layout_info.area.height - 3.0,
-            width: layout_info.area.width - 40.0,
-            height: 6.0,
-        };
-
-        let radius = corner_diameter.bottom_right() / 2.0;
-        let corner_offset = radius - (radius.powi(2) / 2.0).sqrt();
-        let resize_area = Area {
-            left: layout_info.area.left + layout_info.area.width - corner_offset - 6.0,
-            top: layout_info.area.top + layout_info.area.height - corner_offset - 6.0,
-            width: 12.0,
-            height: 12.0,
-        };
-        let horizontal_resize_hovered = horizontal_resize_area.check().run(layout);
-        let vertical_resize_hovered = vertical_resize_area.check().run(layout);
-        let resize_hovered = resize_area.check().run(layout);
-
-        let horizontal_resize_available = *state.get(&self.minimum_width) != *state.get(&self.maximum_width);
-        let vertical_resize_availabe = *state.get(&self.resizable);
-
-        if horizontal_resize_hovered && horizontal_resize_available {
-            layout.register_click_handler(MouseButton::Left, &self.horizontal_resize_click_action);
-            layout.set_hovered();
-        } else if vertical_resize_hovered && vertical_resize_availabe {
-            layout.register_click_handler(MouseButton::Left, &self.vertical_resize_click_action);
-            layout.set_hovered();
-        } else if resize_hovered && horizontal_resize_available && vertical_resize_availabe {
-            layout.register_click_handler(MouseButton::Left, &self.resize_click_action);
-            layout.set_hovered();
         }
 
         layout.with_clip(layout_info.area, |layout| {
@@ -602,43 +603,10 @@ where
             );
         }
 
-        if horizontal_resize_hovered && horizontal_resize_available
-            || matches!(layout.get_mouse_mode(), MouseMode::ResizingWindow {
-                resize_mode: ResizeMode::Horizontal,
-                window_id,
-            } if *window_id == data.id)
-        {
+        if let Some(handle_area) = highlighted_handle {
             layout.add_rectangle(
-                horizontal_resize_area,
-                App::CornerDiameter::new(6.0, 6.0, 6.0, 6.0),
-                *state.get(&theme().window().closest_anchor_color()),
-                // TODO: Properly theme
-                *state.get(&theme().window().closest_anchor_color()),
-                App::ShadowPadding::none(),
-            );
-        } else if vertical_resize_hovered && vertical_resize_availabe
-            || matches!(layout.get_mouse_mode(), MouseMode::ResizingWindow {
-                resize_mode: ResizeMode::Vertical,
-                window_id,
-            } if *window_id == data.id)
-        {
-            layout.add_rectangle(
-                vertical_resize_area,
-                App::CornerDiameter::new(6.0, 6.0, 6.0, 6.0),
-                *state.get(&theme().window().closest_anchor_color()),
-                // TODO: Properly theme
-                *state.get(&theme().window().closest_anchor_color()),
-                App::ShadowPadding::none(),
-            );
-        } else if resize_hovered && horizontal_resize_available && vertical_resize_availabe
-            || matches!(layout.get_mouse_mode(), MouseMode::ResizingWindow {
-                resize_mode: ResizeMode::Both,
-                window_id,
-            } if *window_id == data.id)
-        {
-            layout.add_rectangle(
-                resize_area,
-                App::CornerDiameter::new(12.0, 12.0, 12.0, 12.0),
+                handle_area,
+                App::CornerDiameter::new(4.0, 4.0, 4.0, 4.0),
                 *state.get(&theme().window().closest_anchor_color()),
                 // TODO: Properly theme
                 *state.get(&theme().window().closest_anchor_color()),

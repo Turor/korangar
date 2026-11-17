@@ -329,18 +329,41 @@ where
             }
             MouseMode::ResizingWindow { window_id, resize_mode } => {
                 if let Some(wrapper) = self.windows.iter_mut().find(|window| window.data.id == window_id) {
-                    let (delta_width, delta_height) = match resize_mode {
-                        ResizeMode::Horizontal => (delta.width(), 0.0),
-                        ResizeMode::Vertical => (0.0, delta.height()),
-                        ResizeMode::Both => (delta.width(), delta.height()),
+                    let information = &wrapper.display_information;
+                    let Some(resize_mode) = resize_mode.restricted(information.limits.allows_width(), information.vertical_resize) else {
+                        return;
                     };
-
-                    wrapper.data.size = App::Size::new(
-                        wrapper.display_information.real_area.width + delta_width / interface_scaling,
-                        wrapper.display_information.real_area.height + delta_height / interface_scaling,
+                    let current = information.real_area;
+                    let resized = window::resize_window_area(
+                        current,
+                        resize_mode,
+                        delta.width(),
+                        delta.height(),
+                        interface_scaling,
+                        information.limits,
+                        self.window_size.width(),
+                        self.window_size.height(),
                     );
 
+                    // A width-only drag keeps the requested height, so windows that size
+                    // themselves to their content keep doing so.
+                    let height = match resize_mode.is_vertical() {
+                        true => resized.height,
+                        false => wrapper.data.size.height(),
+                    };
+                    wrapper.data.size = App::Size::new(resized.width, height);
+
+                    // Re-anchor from the drawn top-left corner. Left and top drags move it, and a
+                    // window that still sits on its first-open preset gets a saved anchor that
+                    // matches this screen rather than the preset's reference screen.
+                    let scaled_size = App::Size::new(resized.width * interface_scaling, resized.height * interface_scaling);
+                    wrapper
+                        .data
+                        .anchor
+                        .update(self.window_size, App::Position::new(resized.left, resized.top), scaled_size);
+
                     if let Some(window_class) = wrapper.window.get_class() {
+                        self.window_cache.update_anchor(window_class, wrapper.data.anchor);
                         self.window_cache.update_size(window_class, wrapper.data.size);
                     }
                 }
@@ -414,6 +437,8 @@ where
                     height: size.height(),
                 },
                 display_height: 0.0,
+                limits: window::ResizeLimits::unbounded(),
+                vertical_resize: false,
             },
         });
         id
@@ -510,6 +535,24 @@ where
                 let wrapper = self.windows.remove(index);
                 self.windows.push(wrapper);
             }
+        }
+    }
+
+    /// Forget every saved window position and size and move the open windows
+    /// back to their default places (Settings > Interface > Reset window
+    /// layout).
+    pub fn reset_window_layout(&mut self) {
+        self.window_cache.clear();
+        for wrapper in &mut self.windows {
+            let Some(window_class) = wrapper.window.get_class() else {
+                continue;
+            };
+            let (anchor, size) = self
+                .window_cache
+                .get_window_state(window_class, self.window_size)
+                .unwrap_or_else(|| (Anchor::default(), App::Size::new(0.0, f32::MAX)));
+            wrapper.data.anchor = anchor;
+            wrapper.data.size = size;
         }
     }
 
@@ -811,6 +854,17 @@ pub struct InterfaceFrame<'a, App: Application> {
 impl<App: Application> InterfaceFrame<'_, App> {
     pub fn is_interface_hovered(&self) -> bool {
         self.hovered_window.is_some()
+    }
+
+    /// The pointer is on a window edge or corner, or a resize drag is running:
+    /// the client shows resize cursor feedback.
+    pub fn shows_resize_feedback(&self) -> bool {
+        if matches!(self.mouse_mode, MouseMode::ResizingWindow { .. }) {
+            return true;
+        }
+        self.hovered_window
+            .and_then(|id| self.window_layouts.get(&id))
+            .is_some_and(|layout| layout.is_resize_hovered())
     }
 
     /// Class of the window under the pointer, when one is hovered.

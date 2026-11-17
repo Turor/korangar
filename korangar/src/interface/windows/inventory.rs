@@ -50,6 +50,8 @@ where
             theme: InterfaceThemeType::InGame,
             closable: true,
             resizable: true,
+            minimum_width: crate::interface::windows::resizable::GRID_WINDOW_MINIMUM_WIDTH,
+            maximum_width: crate::interface::windows::resizable::GRID_WINDOW_MAXIMUM_WIDTH,
             minimum_height: 240.0,
             maximum_height: 720.0,
             elements: (

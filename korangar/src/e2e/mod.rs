@@ -26,6 +26,7 @@ mod mail;
 mod minimap;
 mod navigation_followups;
 mod release;
+mod resizable_windows;
 mod screenshot;
 mod social;
 mod status_icons;
@@ -61,6 +62,10 @@ pub use self::mail::{OfflineMailReport, offline_mail_exchange};
 pub use self::minimap::{MinimapHarness, MinimapMarkView, MinimapView};
 pub use self::navigation_followups::{MapRouteReport, RewardDetailReport, map_route_scenario, reward_detail_scenario};
 pub use self::release::{ClientStartup, drive_startup_update};
+pub use self::resizable_windows::{
+    GROW_DRAG, OfflineResizeReport, RESIZE_SCREEN, SHRINK_DRAG, WindowSnapshot, inventory_limits, offline_window_resize, scripted_drag,
+    window_grid,
+};
 pub use self::screenshot::{
     Capture, capture_client_settings, capture_display, capture_lavapipe, lavapipe_icd_present, logic_mode_skips_image_assertions,
 };
