@@ -75,15 +75,17 @@ impl Client {
     }
 
     pub(crate) fn on_item_mark_result(&mut self, location: u8, index: u16, marks: u8, result: u8) {
-        self.client_state
-            .follow_mut(client_state().item_flags())
-            .apply_server_result(MarkPlace { location, index }, marks, result);
-        if result == 2 {
+        let outcome =
+            self.client_state
+                .follow_mut(client_state().item_flags())
+                .apply_server_result(MarkPlace { location, index }, marks, result);
+        if outcome == crate::state::item_flags::MarkOutcome::Refused {
             self.item_flag_notice("Marks cannot be changed right now.".to_owned());
         }
     }
 
-    /// Send the `0x0EE1` requests J, L, and the item menu queued.
+    /// Send the `0x0EE1` requests J, L, the item menu, and the file migration
+    /// queued, paced to what the server accepts.
     pub(crate) fn send_item_mark_requests(&mut self) {
         let requests = self.client_state.follow_mut(client_state().item_flags()).take_mark_requests();
         for request in requests {

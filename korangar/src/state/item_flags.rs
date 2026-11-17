@@ -13,8 +13,19 @@
 //! `0x0EE8`, changed with `0x0EE1`, and the file is neither read for them nor
 //! written. The server refuses drop, NPC sell, vend, trade, and mail of a
 //! locked row on its own; the checks here only save a round trip. Storage
-//! rows show no marks in that mode. The new-item glow stays client-only.
+//! rows are marked while the storage is open. The new-item glow stays
+//! client-only.
+//!
+//! The server applies at most 10 `0x0EE1` a second and answers the rest
+//! "busy". Requests are therefore paced to [`MARK_SENDS_PER_SECOND`], and a
+//! busy answer is sent again with backoff, up to [`MARK_ATTEMPTS`] times.
+//!
+//! The first time a character meets a server with marks, its file lock and
+//! junk are copied up (set only, rows still present). `server_migrated` is
+//! written only once every copy came back OK; keys already copied are kept in
+//! `server_migrated_items`, so an interrupted copy resumes at the next login.
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -38,6 +49,19 @@ const FILE_NAME: &str = "client/item_flags.ron";
 /// A junk or lock edit is written this long after it is made, and right away
 /// on logout, exit, and character change.
 pub const SAVE_DEBOUNCE_MS: u32 = 2000;
+/// `0x0EE1` sent in any one second. The server allows 10; the margin covers
+/// packets that bunch up on the way.
+pub const MARK_SENDS_PER_SECOND: usize = 8;
+/// Sends of one request, the first included, before a "busy" answer stands.
+pub const MARK_ATTEMPTS: u8 = 6;
+const MARK_RESULT_NO_ROW: u8 = 1;
+const MARK_RESULT_BUSY: u8 = 2;
+const MARK_BITS: u8 = ragnarok_packets::ITEM_MARK_LOCK | ragnarok_packets::ITEM_MARK_JUNK;
+
+/// Wait before sending a busy request again: 1 s, 2 s, 4 s, then 8 s.
+fn mark_backoff_ms(attempts: u8) -> u32 {
+    1000u32 << attempts.saturating_sub(1).min(3)
+}
 
 /// One inventory or cart row as the server keys its marks. `index` is the
 /// client index.
@@ -89,13 +113,82 @@ pub struct MarkRequest {
     pub value: u8,
 }
 
+/// What an `0x0EE9` answer did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MarkOutcome {
+    Applied,
+    /// The server was busy; the request goes out again later.
+    Retrying,
+    /// The server was busy every time; its marks stand.
+    Refused,
+}
+
+/// A request queued, waiting for a retry, or sent and not answered yet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Pending {
+    request: MarkRequest,
+    /// The file key this request copies up, for a migration request.
+    migration: Option<ItemKey>,
+    /// Times it was sent.
+    attempts: u8,
+}
+
+/// The file copy in progress: rows not answered and keys that did not make it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Migration {
+    open: Vec<(ItemKey, usize)>,
+    failed: Vec<ItemKey>,
+}
+
+impl Migration {
+    fn touch(&mut self, key: ItemKey) {
+        if !self.open.iter().any(|(open, _)| *open == key) {
+            self.open.push((key, 0));
+        }
+    }
+
+    fn add(&mut self, key: ItemKey) {
+        self.touch(key);
+        if let Some((_, count)) = self.open.iter_mut().find(|(open, _)| *open == key) {
+            *count += 1;
+        }
+    }
+
+    fn resolve(&mut self, key: ItemKey, ok: bool) {
+        if let Some((_, count)) = self.open.iter_mut().find(|(open, _)| *open == key) {
+            *count = count.saturating_sub(1);
+        }
+        if !ok && !self.failed.contains(&key) {
+            self.failed.push(key);
+        }
+    }
+
+    fn finished(&self) -> bool {
+        self.open.iter().all(|(_, count)| *count == 0)
+    }
+
+    /// Keys with every row answered OK.
+    fn done_keys(&self) -> impl Iterator<Item = ItemKey> + '_ {
+        self.open
+            .iter()
+            .filter(|(key, count)| *count == 0 && !self.failed.contains(key))
+            .map(|(key, _)| *key)
+    }
+}
+
 /// Marks kept on the server, by row.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ServerMarks {
     rows: Vec<(MarkPlace, u8)>,
-    outbox: Vec<MarkRequest>,
+    outbox: VecDeque<Pending>,
+    /// Busy requests and the client clock they go out again at.
+    retry: Vec<(u32, Pending)>,
+    in_flight: Vec<Pending>,
+    /// Client clock of the sends in the last second.
+    sent_at: VecDeque<u32>,
     /// File marks still have to be copied up after the first list.
     migrate: bool,
+    migration: Option<Migration>,
 }
 
 impl ServerMarks {
@@ -108,6 +201,109 @@ impl ServerMarks {
         if marks != 0 {
             self.rows.push((place, marks));
         }
+    }
+
+    /// `marks` with every unanswered request for `place` applied on top, so
+    /// a list or an answer does not undo a change still on its way.
+    fn overlay(&self, place: MarkPlace, marks: u8) -> u8 {
+        let mut retry = self.retry.iter().collect::<Vec<_>>();
+        retry.sort_by_key(|(due, _)| *due);
+        self.in_flight
+            .iter()
+            .chain(retry.into_iter().map(|(_, pending)| pending))
+            .chain(self.outbox.iter())
+            .filter(|pending| pending.request.place == place)
+            .fold(marks, |marks, pending| {
+                (marks & !pending.request.mask) | (pending.request.value & pending.request.mask)
+            })
+    }
+
+    /// A new change to `bits` on `place` replaces the unsent ones. A migration
+    /// request it empties counts as done: the player chose.
+    fn supersede(&mut self, place: MarkPlace, bits: u8) {
+        let mut done = Vec::new();
+        let mut trim = |pending: &mut Pending| -> bool {
+            if pending.request.place != place {
+                return true;
+            }
+            pending.request.mask &= !bits;
+            pending.request.value &= pending.request.mask;
+            if pending.request.mask != 0 {
+                return true;
+            }
+            if let Some(key) = pending.migration {
+                done.push(key);
+            }
+            false
+        };
+        self.outbox.retain_mut(&mut trim);
+        self.retry.retain_mut(|(_, pending)| trim(pending));
+        if let Some(migration) = self.migration.as_mut() {
+            for key in done {
+                migration.resolve(key, true);
+            }
+        }
+    }
+
+    /// The row left; its unsent requests are dropped. A migration request
+    /// that never went out is tried again at the next login.
+    fn drop_unsent(&mut self, place: MarkPlace) {
+        let mut lost = Vec::new();
+        let mut keep = |pending: &Pending| -> bool {
+            if pending.request.place != place {
+                return true;
+            }
+            if let Some(key) = pending.migration {
+                lost.push(key);
+            }
+            false
+        };
+        self.outbox.retain(&mut keep);
+        self.retry.retain(|(_, pending)| keep(pending));
+        if let Some(migration) = self.migration.as_mut() {
+            for key in lost {
+                migration.resolve(key, false);
+            }
+        }
+    }
+
+    fn queue(&mut self, request: MarkRequest, migration: Option<ItemKey>) {
+        self.outbox.push_back(Pending {
+            request,
+            migration,
+            attempts: 0,
+        });
+    }
+
+    /// Requests that may go out at `now`, oldest first, at most
+    /// [`MARK_SENDS_PER_SECOND`] in any second.
+    fn take_due(&mut self, now: u32) -> Vec<MarkRequest> {
+        let mut due = Vec::new();
+        self.retry.retain(|(at, pending)| {
+            let ready = now.wrapping_sub(*at) < u32::MAX / 2;
+            if ready {
+                due.push((*at, *pending));
+            }
+            !ready
+        });
+        due.sort_by_key(|(at, _)| *at);
+        for (_, pending) in due.into_iter().rev() {
+            self.outbox.push_front(pending);
+        }
+        while self.sent_at.front().is_some_and(|at| now.wrapping_sub(*at) >= 1000) {
+            self.sent_at.pop_front();
+        }
+        let mut sent = Vec::new();
+        while self.sent_at.len() < MARK_SENDS_PER_SECOND {
+            let Some(mut pending) = self.outbox.pop_front() else {
+                break;
+            };
+            pending.attempts += 1;
+            self.sent_at.push_back(now);
+            sent.push(pending.request);
+            self.in_flight.push(pending);
+        }
+        sent
     }
 }
 
@@ -380,6 +576,9 @@ pub struct ItemFlags {
     /// This character's file marks were already copied to the server.
     #[hidden_element]
     migrated: bool,
+    /// Keys copied up so far by a migration that has not finished.
+    #[hidden_element]
+    migrated_keys: Vec<ItemKey>,
 }
 
 /// What [`ItemFlags::save_to`] did.
@@ -430,6 +629,14 @@ impl ItemFlags {
             .into_iter()
             .find(|character| character.character_id == character_id);
         self.migrated = record.as_ref().is_some_and(|character| character.server_migrated);
+        self.migrated_keys = match &record {
+            Some(character) if !character.server_migrated => character
+                .server_migrated_items
+                .iter()
+                .map(|stored| ItemKey::new(stored.item_id, stored.refine, stored.cards))
+                .collect(),
+            _ => Vec::new(),
+        };
         self.entries = record
             .map(|character| character.items.into_iter().filter_map(StoredFlag::into_entry).collect())
             .unwrap_or_default();
@@ -447,11 +654,20 @@ impl ItemFlags {
             .filter(|entry| entry.stored())
             .map(StoredFlag::from_entry)
             .collect::<Vec<_>>();
-        if !items.is_empty() || self.migrated {
+        if !items.is_empty() || self.migrated || !self.migrated_keys.is_empty() {
             file.characters.push(CharacterRecord {
                 character_id: self.character_id,
                 items,
                 server_migrated: self.migrated,
+                server_migrated_items: self
+                    .migrated_keys
+                    .iter()
+                    .map(|key| StoredKey {
+                        item_id: key.item_id,
+                        refine: key.refine,
+                        cards: key.cards,
+                    })
+                    .collect(),
             });
         }
         file.characters.sort_by_key(|character| character.character_id);
@@ -496,15 +712,19 @@ impl ItemFlags {
         self.server.as_ref().is_some_and(|server| server.migrate)
     }
 
-    /// Once per character, after the first server list: copy file lock and
+    /// Once per session, after the first server list: copy file lock and
     /// junk onto the rows still present. Bits are only ever set, never
-    /// cleared. The file records that it was done and is not used for marks
-    /// again.
+    /// cleared. Keys copied in an earlier, unfinished session are skipped.
+    /// Returns the requests queued; they go out paced, and the migration is
+    /// recorded as done only when every one came back OK.
     pub fn migrate_file_marks(&mut self, rows: &[(MarkPlace, ItemKey)]) -> usize {
         let mut sent = 0;
         let wanted = rows
             .iter()
             .filter_map(|(place, key)| {
+                if self.migrated_keys.contains(key) {
+                    return None;
+                }
                 let entry = self.entry(*key)?;
                 let mut bits = 0;
                 if entry.locked {
@@ -513,7 +733,7 @@ impl ItemFlags {
                 if entry.junk {
                     bits |= ragnarok_packets::ITEM_MARK_JUNK;
                 }
-                (bits != 0).then_some((*place, bits))
+                (bits != 0).then_some((*place, *key, bits))
             })
             .collect::<Vec<_>>();
         let Some(server) = self.server.as_mut() else {
@@ -523,26 +743,82 @@ impl ItemFlags {
             return 0;
         }
         server.migrate = false;
-        for (place, bits) in wanted {
+        let mut migration = Migration::default();
+        for (place, key, bits) in wanted {
+            migration.touch(key);
             let current = server.get(place);
             let missing = bits & !current;
             if missing == 0 {
                 continue;
             }
             server.put(place, current | missing);
-            server.outbox.push(MarkRequest {
-                place,
-                mask: missing,
-                value: missing,
-            });
+            server.queue(
+                MarkRequest {
+                    place,
+                    mask: missing,
+                    value: missing,
+                },
+                Some(key),
+            );
+            migration.add(key);
             sent += 1;
         }
-        self.migrated = true;
-        self.record_migration();
+        server.migration = Some(migration);
+        self.settle_migration();
         sent
     }
 
-    /// Write the migrated flag; the marks in the file are kept for servers
+    /// The file copy is still running: queued, retried or unanswered.
+    #[cfg(test)]
+    pub fn migration_running(&self) -> bool {
+        self.server.as_ref().is_some_and(|server| server.migration.is_some())
+    }
+
+    /// Once every migration request is answered: all OK records the
+    /// migration as done; otherwise the keys that made it are kept and the
+    /// rest are tried again next login.
+    fn settle_migration(&mut self) {
+        let Some(server) = self.server.as_mut() else {
+            return;
+        };
+        if !server.migration.as_ref().is_some_and(Migration::finished) {
+            return;
+        }
+        let migration = server.migration.take().expect("checked above");
+        if migration.failed.is_empty() {
+            self.migrated = true;
+            self.migrated_keys.clear();
+        } else {
+            for key in migration.done_keys() {
+                if !self.migrated_keys.contains(&key) {
+                    self.migrated_keys.push(key);
+                }
+            }
+            self.notice = Some(format!(
+                "{} marked item(s) could not be copied to the server yet; they are tried again at the next login.",
+                migration.failed.len()
+            ));
+        }
+        self.record_migration();
+    }
+
+    /// Keep the keys copied so far when the session ends mid-migration.
+    fn keep_migration_progress(&mut self) {
+        let Some(migration) = self.server.as_ref().and_then(|server| server.migration.as_ref()) else {
+            return;
+        };
+        let done = migration
+            .done_keys()
+            .filter(|key| !self.migrated_keys.contains(key))
+            .collect::<Vec<_>>();
+        if done.is_empty() {
+            return;
+        }
+        self.migrated_keys.extend(done);
+        self.record_migration();
+    }
+
+    /// Write the migration state; the marks in the file are kept for servers
     /// without item marks.
     fn record_migration(&mut self) {
         if self.character_id == 0 {
@@ -556,46 +832,103 @@ impl ItemFlags {
         self.server.is_some()
     }
 
-    /// `0x0EE8`: every marked row. Rows not listed have no marks.
+    /// `0x0EE8`: every marked row. Rows not listed have no marks. Changes
+    /// still on their way stay on top.
     pub fn apply_server_list(&mut self, entries: impl IntoIterator<Item = (MarkPlace, u8)>) {
         let Some(server) = self.server.as_mut() else {
             return;
         };
+        let listed = entries.into_iter().collect::<Vec<_>>();
+        let mut pending = server
+            .in_flight
+            .iter()
+            .chain(server.retry.iter().map(|(_, pending)| pending))
+            .chain(server.outbox.iter())
+            .map(|pending| pending.request.place)
+            .collect::<Vec<_>>();
+        pending.retain(|place| !listed.iter().any(|(row, _)| row == place));
         server.rows.clear();
-        for (place, marks) in entries {
-            server.put(
-                place,
-                marks & (ragnarok_packets::ITEM_MARK_LOCK | ragnarok_packets::ITEM_MARK_JUNK),
-            );
+        for (place, marks) in listed {
+            let marks = server.overlay(place, marks & MARK_BITS);
+            server.put(place, marks);
+        }
+        for place in pending {
+            let marks = server.overlay(place, 0);
+            server.put(place, marks);
         }
     }
 
     /// `0x0EE9`: the row's marks after a change. Result 1 is a row that is
-    /// gone.
-    pub fn apply_server_result(&mut self, place: MarkPlace, marks: u8, result: u8) {
+    /// gone. A busy answer to a request of ours is sent again with backoff;
+    /// the change stays shown meanwhile.
+    pub fn apply_server_result(&mut self, place: MarkPlace, marks: u8, result: u8) -> MarkOutcome {
+        self.apply_server_result_at(place, marks, result, elapsed_ms())
+    }
+
+    pub(crate) fn apply_server_result_at(&mut self, place: MarkPlace, marks: u8, result: u8, now: u32) -> MarkOutcome {
         let Some(server) = self.server.as_mut() else {
-            return;
+            return MarkOutcome::Applied;
         };
-        let marks = if result == 1 { 0 } else { marks };
-        server.put(
-            place,
-            marks & (ragnarok_packets::ITEM_MARK_LOCK | ragnarok_packets::ITEM_MARK_JUNK),
-        );
+        let mut outcome = if result == MARK_RESULT_BUSY {
+            MarkOutcome::Refused
+        } else {
+            MarkOutcome::Applied
+        };
+        let mut resolved = None;
+        if let Some(position) = server.in_flight.iter().position(|pending| pending.request.place == place) {
+            let mut pending = server.in_flight.remove(position);
+            if result == MARK_RESULT_BUSY {
+                // Bits a later change already covers are not sent again.
+                let newer = server.in_flight[position..]
+                    .iter()
+                    .chain(server.retry.iter().map(|(_, pending)| pending))
+                    .chain(server.outbox.iter())
+                    .filter(|later| later.request.place == place)
+                    .fold(0, |bits, later| bits | later.request.mask);
+                pending.request.mask &= !newer;
+                pending.request.value &= pending.request.mask;
+            }
+            if result == MARK_RESULT_BUSY && pending.request.mask == 0 {
+                outcome = MarkOutcome::Applied;
+                if let Some(key) = pending.migration {
+                    resolved = Some((key, true));
+                }
+            } else if result == MARK_RESULT_BUSY && pending.attempts < MARK_ATTEMPTS {
+                server.retry.push((now.wrapping_add(mark_backoff_ms(pending.attempts)), pending));
+                outcome = MarkOutcome::Retrying;
+            } else if let Some(key) = pending.migration {
+                resolved = Some((key, result == 0));
+            }
+        }
+        let marks = if result == MARK_RESULT_NO_ROW { 0 } else { marks & MARK_BITS };
+        let marks = server.overlay(place, marks);
+        server.put(place, marks);
+        if let Some((key, ok)) = resolved {
+            if let Some(migration) = server.migration.as_mut() {
+                migration.resolve(key, ok);
+            }
+            self.settle_migration();
+        }
+        outcome
     }
 
     /// The row was used up or filled by something new; the server cleared it.
     pub fn clear_place(&mut self, place: MarkPlace) {
         if let Some(server) = self.server.as_mut() {
+            server.drop_unsent(place);
             server.put(place, 0);
         }
+        self.settle_migration();
     }
 
-    /// `0x0EE1` requests made since the last call.
+    /// `0x0EE1` requests that may go out now, paced to
+    /// [`MARK_SENDS_PER_SECOND`].
     pub fn take_mark_requests(&mut self) -> Vec<MarkRequest> {
-        self.server
-            .as_mut()
-            .map(|server| std::mem::take(&mut server.outbox))
-            .unwrap_or_default()
+        self.take_mark_requests_at(elapsed_ms())
+    }
+
+    pub(crate) fn take_mark_requests_at(&mut self, now: u32) -> Vec<MarkRequest> {
+        self.server.as_mut().map(|server| server.take_due(now)).unwrap_or_default()
     }
 
     fn server_bit(&self, place: Option<MarkPlace>, bit: u8) -> Option<bool> {
@@ -613,11 +946,16 @@ impl ItemFlags {
             return;
         }
         server.put(place, next);
-        server.outbox.push(MarkRequest {
-            place,
-            mask: bit,
-            value: if on { bit } else { 0 },
-        });
+        server.supersede(place, bit);
+        server.queue(
+            MarkRequest {
+                place,
+                mask: bit,
+                value: if on { bit } else { 0 },
+            },
+            None,
+        );
+        self.settle_migration();
     }
 
     /// Junk on this row: the server row when the server keeps marks,
@@ -841,6 +1179,7 @@ impl ItemFlags {
     /// Write pending junk and lock edits now. Logout, exit, and character
     /// change call this; frames call it once the debounce has passed.
     pub fn flush(&mut self) {
+        self.keep_migration_progress();
         if !self.persist || self.dirty_at.is_none() {
             return;
         }
@@ -1057,6 +1396,16 @@ struct CharacterRecord {
     /// source from then on. Older files have no field.
     #[serde(default)]
     server_migrated: bool,
+    /// Keys a migration that did not finish already copied up.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    server_migrated_items: Vec<StoredKey>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct StoredKey {
+    item_id: u32,
+    refine: u8,
+    cards: [u32; 4],
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1185,6 +1534,151 @@ mod tests {
         assert!(flags.is_junk(potion));
     }
 
+    use ragnarok_packets::{ITEM_MARK_JUNK, ITEM_MARK_LOCK};
+
+    fn locked_rows(flags: &mut ItemFlags, count: u16) -> Vec<(MarkPlace, ItemKey)> {
+        (0..count)
+            .map(|n| {
+                let key = ItemKey::new(2000 + u32::from(n), 0, [0; 4]);
+                flags.set_locked(key, true);
+                (MarkPlace::inventory(n), key)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn migration_of_twelve_rows_is_paced_and_retries_busy_answers() {
+        let mut flags = ItemFlags::default();
+        let rows = locked_rows(&mut flags, 12);
+        flags.enable_server_marks();
+        flags.apply_server_list([]);
+        assert_eq!(flags.migrate_file_marks(&rows), 12);
+
+        // At most MARK_SENDS_PER_SECOND go out in a second.
+        let first = flags.take_mark_requests_at(10_000);
+        assert_eq!(first.len(), MARK_SENDS_PER_SECOND);
+        assert!(flags.take_mark_requests_at(10_500).is_empty());
+        for request in &first {
+            assert_eq!(
+                flags.apply_server_result_at(request.place, ITEM_MARK_LOCK, 0, 10_600),
+                MarkOutcome::Applied
+            );
+        }
+        assert!(flags.migration_running());
+
+        // The next second: the rest. The server is busy for two of them.
+        let second = flags.take_mark_requests_at(11_000);
+        assert_eq!(second.len(), 4);
+        for (n, request) in second.iter().enumerate() {
+            let (marks, result) = if n < 2 { (0, MARK_RESULT_BUSY) } else { (ITEM_MARK_LOCK, 0) };
+            let expected = if n < 2 { MarkOutcome::Retrying } else { MarkOutcome::Applied };
+            assert_eq!(flags.apply_server_result_at(request.place, marks, result, 11_100), expected);
+        }
+        // The busy rows still show the lock and nothing is recorded yet.
+        for request in &second[..2] {
+            assert!(flags.locked_at(ItemKey::new(0, 0, [0; 4]), Some(request.place)));
+        }
+        assert!(flags.migration_running());
+        assert!(!flags.save_ron("").expect("saves").contains("server_migrated: true"));
+
+        // Sent again after the backoff, then OK.
+        assert!(flags.take_mark_requests_at(11_500).is_empty());
+        let again = flags.take_mark_requests_at(12_100);
+        assert_eq!(again, second[..2].to_vec());
+        for request in &again {
+            flags.apply_server_result_at(request.place, ITEM_MARK_LOCK, 0, 12_200);
+        }
+        assert!(!flags.migration_running());
+        for (place, key) in &rows {
+            assert!(flags.locked_at(*key, Some(*place)));
+        }
+        let text = flags.save_ron("").expect("saves");
+        assert!(text.contains("server_migrated: true"));
+        assert!(!text.contains("server_migrated_items"));
+    }
+
+    #[test]
+    fn migration_that_stays_busy_is_not_recorded_and_resumes_next_login() {
+        let mut flags = ItemFlags::default();
+        let rows = locked_rows(&mut flags, 11);
+        flags.enable_server_marks();
+        flags.apply_server_list([]);
+        assert_eq!(flags.migrate_file_marks(&rows), 11);
+
+        // Ten rows OK; the eleventh is busy every time.
+        let mut now = 0u32;
+        let stuck = rows[10].0;
+        let mut sends_of_stuck = 0;
+        while flags.migration_running() {
+            for request in flags.take_mark_requests_at(now) {
+                if request.place == stuck {
+                    sends_of_stuck += 1;
+                    flags.apply_server_result_at(request.place, 0, MARK_RESULT_BUSY, now);
+                } else {
+                    flags.apply_server_result_at(request.place, ITEM_MARK_LOCK, 0, now);
+                }
+            }
+            now += 250;
+            assert!(now < 60_000, "migration never settled");
+        }
+        assert_eq!(sends_of_stuck, usize::from(MARK_ATTEMPTS));
+        assert!(!flags.locked_at(rows[10].1, Some(stuck)));
+        assert!(flags.take_notice().is_some());
+
+        // Not done; the ten keys that made it are kept.
+        let text = flags.save_ron("").expect("saves");
+        assert!(!text.contains("server_migrated: true"));
+        assert!(text.contains("server_migrated_items"));
+
+        // Next login: only the eleventh is copied again.
+        let mut next = ItemFlags::default();
+        next.load_ron(0, &text);
+        next.enable_server_marks();
+        assert!(next.migration_pending());
+        next.apply_server_list(rows[..10].iter().map(|(place, _)| (*place, ITEM_MARK_LOCK)));
+        assert_eq!(next.migrate_file_marks(&rows), 1);
+        let requests = next.take_mark_requests_at(0);
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].place, stuck);
+        next.apply_server_result_at(stuck, ITEM_MARK_LOCK, 0, 10);
+        let text = next.save_ron("").expect("saves");
+        assert!(text.contains("server_migrated: true"));
+        assert!(!text.contains("server_migrated_items"));
+    }
+
+    #[test]
+    fn busy_toggle_is_sent_again_and_a_new_toggle_replaces_it() {
+        let potion = ItemKey::new(501, 0, [0; 4]);
+        let place = Some(MarkPlace::inventory(3));
+        let mut flags = ItemFlags::default();
+        flags.enable_server_marks();
+        flags.apply_server_list([]);
+        flags.set_locked_at(potion, place, true);
+        let sent = flags.take_mark_requests_at(0);
+        assert_eq!(sent.len(), 1);
+        assert_eq!(
+            flags.apply_server_result_at(sent[0].place, 0, MARK_RESULT_BUSY, 0),
+            MarkOutcome::Retrying
+        );
+        assert!(flags.locked_at(potion, place));
+        // A list in between does not undo it.
+        flags.apply_server_list([]);
+        assert!(flags.locked_at(potion, place));
+        assert_eq!(flags.take_mark_requests_at(1000), sent);
+        // The player unlocks before the answer; the unlock goes out, the
+        // lock is not resent.
+        flags.set_locked_at(potion, place, false);
+        assert_eq!(
+            flags.apply_server_result_at(sent[0].place, 0, MARK_RESULT_BUSY, 1100),
+            MarkOutcome::Applied
+        );
+        let next = flags.take_mark_requests_at(2000);
+        assert_eq!(next.len(), 1);
+        assert_eq!(next[0].value, 0);
+        assert!(flags.take_mark_requests_at(5000).is_empty());
+        assert!(!flags.locked_at(potion, place));
+    }
+
     #[test]
     fn file_marks_migrate_once_and_only_set_bits() {
         let knife = ItemKey::new(1201, 0, [0; 4]);
@@ -1216,6 +1710,12 @@ mod tests {
         assert!(!flags.migration_pending());
         // Once only.
         assert_eq!(flags.migrate_file_marks(&rows), 0);
+        // Not recorded until the server said OK to both.
+        assert!(!flags.save_ron("").expect("saves").contains("server_migrated: true"));
+        flags.apply_server_result(MarkPlace::inventory(4), ITEM_MARK_LOCK | ITEM_MARK_JUNK, 0);
+        assert!(flags.migration_running());
+        flags.apply_server_result(MarkPlace::cart(1), ITEM_MARK_JUNK, 0);
+        assert!(!flags.migration_running());
 
         // The file says so, keeps its marks, and a reload does not migrate.
         let text = flags.save_ron("").expect("saves");
