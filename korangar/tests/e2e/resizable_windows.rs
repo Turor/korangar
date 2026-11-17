@@ -58,8 +58,15 @@ fn inventory_corner_drag_reflows_the_grid_and_persists_offline() {
     // Size, position and therefore the grid survive a reload.
     assert_eq!(report.reloaded, report.shrunk);
 
-    // The top-left corner stops at the screen edge and the far corner stays.
-    assert_eq!((report.grown_top_left.left, report.grown_top_left.top), (0.0, 0.0));
+    // The scenario moves the window to (500, 300) first. The top-left corner
+    // stops at the screen edge (or where the maximum height stops it) and the
+    // far corner stays.
+    let bottom = 300.0 + report.shrunk.height;
+    assert_eq!(report.grown_top_left.left, 0.0);
+    assert!(
+        (report.grown_top_left.top - (bottom - report.grown_top_left.height).max(0.0)).abs() < 0.5,
+        "the bottom edge moved: {report:?}"
+    );
     assert!(
         (report.grown_top_left.width - (500.0 + report.shrunk.width)).abs() < 0.5,
         "the right edge moved: {report:?}"
