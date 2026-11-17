@@ -3666,12 +3666,35 @@ pub struct DisplaySpecialEffectPacket {
     pub effect_id: EffectId,
 }
 
+/// `ZC_SKILL_POSTDELAY`. Hercules `clif_skill_cooldown` writes the cooldown
+/// duration in milliseconds (`DelayTM`), counted from when the packet
+/// arrives; it is not a tick.
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x043D)]
 pub struct DisplaySkillCooldownPacket {
     pub skill_id: SkillId,
-    pub until: ClientTick,
+    pub delay_ms: u32,
+}
+
+/// One running cooldown in [`SkillCooldownListPacket`].
+#[derive(Debug, Clone, PartialEq, Eq, ByteConvertable, FixedByteSize)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct SkillCooldownEntry {
+    pub skill_id: SkillId,
+    pub total_ms: u32,
+    pub remaining_ms: u32,
+}
+
+/// `ZC_SKILL_POSTDELAY_LIST2` (`0x0985`, PACKETVER >= 20120604): every
+/// running cooldown, sent on login by `clif_skill_cooldown_list`.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0985)]
+#[variable_length]
+pub struct SkillCooldownListPacket {
+    #[repeating_remaining]
+    pub entries: Vec<SkillCooldownEntry>,
 }
 
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]

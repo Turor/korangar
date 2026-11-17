@@ -577,8 +577,9 @@ where
     })?;
     packet_handler.register(|packet: DisplaySkillCooldownPacket| NetworkEvent::SkillCooldown {
         skill_id: packet.skill_id,
-        until: packet.until,
+        delay_ms: packet.delay_ms,
     })?;
+    packet_handler.register(|packet: SkillCooldownListPacket| NetworkEvent::SkillCooldownList { entries: packet.entries })?;
     packet_handler.register(|packet: DisplaySkillEffectAndDamagePacket| NetworkEvent::SkillEffectAndDamage {
         skill_id: packet.skill_id,
         source_entity_id: packet.source_entity_id,

@@ -39,6 +39,14 @@ pub struct StatusBarTheme {
     pub activity_point_height: f32,
     pub border_size: ScreenSize,
     pub gap: f32,
+    /// Cast bar fill while the local player waits out the after-cast delay
+    /// (casting itself uses `spell_point_color`). Missing from older files.
+    #[serde(default = "default_after_cast_color")]
+    pub after_cast_color: Color,
+}
+
+fn default_after_cast_color() -> Color {
+    Color::rgb_hex("8FA39A")
 }
 
 impl Default for StatusBarTheme {
@@ -57,6 +65,7 @@ impl Default for StatusBarTheme {
             activity_point_height: 4.0,
             border_size: ScreenSize { width: 2.0, height: 1.0 },
             gap: 1.0,
+            after_cast_color: default_after_cast_color(),
         }
     }
 }
@@ -121,6 +130,7 @@ impl WorldTheme {
                 activity_point_height: 5.0,
                 border_size: ScreenSize { width: 3.0, height: 2.0 },
                 gap: 2.0,
+                after_cast_color: default_after_cast_color(),
             },
             indicator: IndicatorTheme {
                 walking: Color::rgba_u8(80, 220, 190, 180),
@@ -155,6 +165,7 @@ impl WorldTheme {
                 activity_point_height: 5.0,
                 border_size: ScreenSize { width: 3.0, height: 2.0 },
                 gap: 2.0,
+                after_cast_color: default_after_cast_color(),
             },
             indicator: IndicatorTheme {
                 walking: Color::rgb_hex("4CC3A0").with_alpha_u8(180),

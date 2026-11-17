@@ -13,6 +13,12 @@
 
 use super::equipment::{GEAR_WINDOW_HEIGHT, GEAR_WINDOW_WIDTH};
 use super::status_panel::STATUS_PANEL_WINDOW_HEIGHT;
+pub use crate::interface::components::hotbar_layout::HOTBAR_DEFAULT_HEIGHT;
+/// First-open hotbar height on screens shorter than
+/// [`HOTBAR_COMPACT_SCREEN_HEIGHT`] (the old bar height).
+pub const HOTBAR_COMPACT_HEIGHT: f32 = 96.0;
+/// Screens shorter than this open the compact hotbar.
+pub const HOTBAR_COMPACT_SCREEN_HEIGHT: f32 = 900.0;
 
 /// One window rectangle in screen pixels. Origin is the top-left of the client.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -170,11 +176,19 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
         width: (340.0 * scale).min(gear.width),
         height: chat_bottom - chat_top,
     };
+    // Tall enough for the buttons, one row of 40px slots and their name
+    // labels (Matthew t274u). Screens up to 720p keep the old 96px so the
+    // social stack above still fits; the slots shrink to the height they get
+    // and the player can drag the bar taller.
+    let hotbar_height = match screen_height < HOTBAR_COMPACT_SCREEN_HEIGHT {
+        true => HOTBAR_COMPACT_HEIGHT,
+        false => HOTBAR_DEFAULT_HEIGHT,
+    } * scale;
     let mut hotbar = HudFrame {
         left: 0.0,
-        top: screen_height - 96.0 * scale - margin,
+        top: screen_height - hotbar_height - margin,
         width: 420.0 * scale,
-        height: 96.0 * scale,
+        height: hotbar_height,
     };
     hotbar.left = (screen_width - hotbar.width) / 2.0;
 
@@ -266,7 +280,7 @@ pub fn first_open_hud(screen_width: f32, screen_height: f32) -> FirstOpenHud {
     }
     // Gear keeps its 500px reference height. On a 1024x576 screen that reaches
     // the bottom-center hotbar, so the bar sits under Gear instead of covering it.
-    // Taller screens still open the bar at 96px.
+    // Taller screens still open the bar at its default height.
     if frames_overlap_x(hotbar, gear) && hotbar.top < gear.bottom() {
         hotbar.top = gear.bottom();
         hotbar.height = (screen_height - margin - hotbar.top).max(32.0);
@@ -331,7 +345,7 @@ mod tests {
         assert!(frame.top >= -0.5, "top {}", frame.top);
         assert!(frame.right() <= width + 0.5, "right {}", frame.right());
         assert!(frame.bottom() <= height + 0.5, "bottom {}", frame.bottom());
-        assert!(frame.width > 40.0 && frame.height > 24.0);
+        assert!(frame.width > 40.0 && frame.height > 24.0, "{frame:?} at {width}x{height}");
     }
 
     fn assert_layout(width: f32, height: f32) {

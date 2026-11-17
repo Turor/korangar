@@ -3,12 +3,15 @@ use rust_state::Path;
 
 use crate::input::InputEvent;
 use crate::interface::components::hotbar_grid::HotbarGrid;
+use crate::interface::components::hotbar_layout::{
+    HOTBAR_WINDOW_MAXIMUM_HEIGHT, HOTBAR_WINDOW_MAXIMUM_WIDTH, HOTBAR_WINDOW_MINIMUM_HEIGHT, HOTBAR_WINDOW_MINIMUM_WIDTH,
+};
 use crate::interface::windows::WindowClass;
 use crate::state::hotbar::Hotbar;
 use crate::state::inventory::Inventory;
 use crate::state::localization::LocalizationPathExt;
-use crate::state::theme::InterfaceThemeType;
-use crate::state::{ClientState, ClientStatePathExt, client_state};
+use crate::state::theme::{HotbarThemePathExt, InterfaceThemePathExt, InterfaceThemeType};
+use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 
 pub struct HotbarWindow<H, I> {
     hotbar_path: H,
@@ -41,10 +44,14 @@ where
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
             closable: false,
-            minimum_width: 420.0,
-            maximum_width: 640.0,
-            minimum_height: 72.0,
-            maximum_height: 280.0,
+            // Matthew t274u: resize from every edge and corner; the grid
+            // reflows and the slots shrink or grow with the window.
+            resizable: true,
+            background_color: client_theme().hotbar().background_color(),
+            minimum_width: HOTBAR_WINDOW_MINIMUM_WIDTH,
+            maximum_width: HOTBAR_WINDOW_MAXIMUM_WIDTH,
+            minimum_height: HOTBAR_WINDOW_MINIMUM_HEIGHT,
+            maximum_height: HOTBAR_WINDOW_MAXIMUM_HEIGHT,
             elements: (
                 split! {
                     gaps: theme().window().gaps(),
@@ -67,9 +74,7 @@ where
                         },
                     ),
                 },
-                scroll_view! {
-                    children: HotbarGrid::new(self.hotbar_path, self.inventory_path),
-                },
+                HotbarGrid::new(self.hotbar_path, self.inventory_path),
             ),
         }
     }

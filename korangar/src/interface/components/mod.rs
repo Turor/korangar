@@ -1,5 +1,7 @@
 pub mod chat_item_link;
+pub mod cooldown_overlay;
 pub mod hotbar_grid;
+pub mod hotbar_layout;
 pub mod inventory_controls;
 pub mod item_box;
 pub mod item_flag_overlay;

@@ -11,6 +11,7 @@ mod credentials;
 mod dressing_room;
 mod grid_navigation;
 mod headgear;
+mod hotbar;
 mod inject;
 mod inventory_grid;
 mod inventory_view;
@@ -43,6 +44,10 @@ pub use self::credentials::{Credentials, LiveConnect, TEST_HOST, TEST_PORT};
 pub use self::dressing_room::{LiveDressingReport, OfflineDressingReport, no_preview_message, offline_dressing_room};
 pub use self::grid_navigation::{GridKey, KEY_RUN, OfflineGridNavReport, offline_grid_navigation};
 pub use self::headgear::{HeadgearScene, LookedPlayer};
+pub use self::hotbar::{
+    HOTBAR_NARROW_DRAG, HotbarSnapshot, OfflineHotbarReport, TimelinePoint, cooldown_timeline, hotbar_limits, hotbar_window_grid,
+    offline_hotbar_scenario,
+};
 pub use self::inject::input_path_parity;
 pub use self::inventory_grid::{GridView, OfflineInventoryGridReport, TURORAN_CAP_BYTES, grid_view, offline_inventory_grid};
 pub use self::inventory_view::{
@@ -83,3 +88,5 @@ pub use self::storage_tools::{DEPOSIT_INTERVAL, MAX_SAVED_SEARCHES, OfflineStora
 pub use self::weather::{MapWorld, WeatherKind};
 pub use crate::interface::components::item_grid::GRID_FULL_CAP_LIMIT;
 pub use crate::state::item_move::{ItemMovePrompt, ItemMoveStep, ItemMoveTarget};
+pub use crate::state::skill_cooldowns::SlotDelay as SlotDelayView;
+pub use crate::world::effects::CastPhase as CastPhaseView;

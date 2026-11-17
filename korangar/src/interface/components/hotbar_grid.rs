@@ -1,6 +1,11 @@
 //! Hotbar slots. Skills and items share one grid. F-key rows are visual;
 //! [`stored_slot`](crate::state::hotbar::stored_slot) maps them through the row
 //! shift.
+//!
+//! The grid fills the region the (resizable) hotbar window gives it and
+//! reflows its rows and columns with [`hotbar_metrics`] (Matthew t274u).
+//! Each slot shows its hotkey hint top-left, level or stack bottom-right, the
+//! cooldown overlay, and its name under it.
 
 use korangar_interface::MouseMode;
 use korangar_interface::element::Element;
@@ -14,17 +19,21 @@ use rust_state::{Path, State};
 
 use crate::graphics::Color;
 use crate::input::{InputEvent, MouseInputMode};
+use crate::interface::components::cooldown_overlay::add_skill_cooldown;
+use crate::interface::components::hotbar_layout::{
+    HOTBAR_HINT_FONT_PX, HOTBAR_LABEL_FONT_PX, HOTBAR_SLOT_GAP, HotbarMetrics, drawn_visual_slots, ellipsize, hotbar_metrics,
+};
+use crate::interface::font_scale::{self, from_theme_body};
 use crate::interface::resource::{ItemSource, SkillSource};
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::renderer::LayoutExt;
 use crate::state::hotbar::{
-    CELL_ITEM, CELL_SKILL, HOTBAR_COLUMNS, HOTBAR_ROWS, HOTBAR_SLOTS, Hotbar, cell_item_id, cell_skill_level, hotbar_stack_label,
+    CELL_ITEM, CELL_SKILL, HOTBAR_COLUMNS, HOTBAR_ROWS, HOTBAR_SLOTS, Hotbar, HotbarCell, cell_item_id, cell_skill_level,
+    hotbar_stack_label,
 };
 use crate::state::inventory::Inventory;
-use crate::state::theme::{GlobalThemePathExt, InterfaceThemePathExt, SkillTreeThemePathExt};
-use crate::state::{ClientState, client_theme};
-
-const CELL: f32 = 40.0;
+use crate::state::theme::{GlobalThemePathExt, HotbarThemePathExt, InterfaceThemePathExt, SkillTreeThemePathExt, ThemeTokensPathExt};
+use crate::state::{ClientState, ClientStatePathExt, client_state, client_theme};
 
 struct SlotLocate<H> {
     visual: u16,
@@ -147,6 +156,16 @@ where
     }
 }
 
+/// One slot's name label, cached so the text is only re-measured when the
+/// name, the slot width or the font change.
+#[derive(Default)]
+struct NameLabel {
+    source: String,
+    width: f32,
+    font: f32,
+    shown: String,
+}
+
 pub struct HotbarGrid<H, I> {
     hotbar_path: H,
     inventory_path: I,
@@ -154,7 +173,12 @@ pub struct HotbarGrid<H, I> {
     clears: [ClearHandler<H>; HOTBAR_SLOTS],
     drags: [DragHandler<H, I>; HOTBAR_SLOTS],
     drops: [SlotDrop<H>; HOTBAR_SLOTS],
+    /// Skill level or stack amount, bottom-right inside the slot.
     labels: [String; HOTBAR_SLOTS],
+    /// Skill or item name under the slot, ellipsized to the slot width.
+    names: [NameLabel; HOTBAR_SLOTS],
+    /// Hotkey hint, top-left inside the slot.
+    hints: [String; HOTBAR_SLOTS],
 }
 
 impl<H, I> HotbarGrid<H, I>
@@ -192,14 +216,28 @@ where
                 },
             }),
             labels: std::array::from_fn(|_| String::new()),
+            names: std::array::from_fn(|_| NameLabel::default()),
+            hints: std::array::from_fn(|_| String::new()),
         }
     }
 }
 
 pub struct HotbarGridLayout {
     area: Area,
-    rows: u8,
-    show_quick: bool,
+    metrics: HotbarMetrics,
+    /// Visual slots in drawing order.
+    drawn: Vec<u16>,
+    /// Left edge of the (horizontally centred) grid.
+    grid_left: f32,
+}
+
+/// Name shown under a slot, before truncation.
+fn cell_name(cell: &HotbarCell) -> &str {
+    match cell.kind {
+        CELL_SKILL => cell.skill.as_ref().map(|skill| skill.skill_name.as_str()).unwrap_or(""),
+        CELL_ITEM => cell.item_name.as_str(),
+        _ => "",
+    }
 }
 
 impl<H, I> Element<ClientState> for HotbarGrid<H, I>
@@ -215,16 +253,31 @@ where
         _: ElementStoreMut,
         resolvers: &mut dyn Resolvers<ClientState>,
     ) -> Self::LayoutInfo {
+        use korangar_interface::prelude::HorizontalAlignment;
+
         with_single_resolver(resolvers, |resolver| {
             let hotbar = state.get(&self.hotbar_path);
             let inventory = state.get(&self.inventory_path);
-            let rows = hotbar.visible_rows();
-            let show_quick = rows == HOTBAR_ROWS as u8;
-            let drawn_rows = u32::from(rows) + u32::from(show_quick);
+            let keybinds_path = client_state().keybinds();
+            let keybinds = state.get(&keybinds_path);
+            let drawn = drawn_visual_slots(hotbar.visible_rows(), HOTBAR_COLUMNS, HOTBAR_ROWS, &[36, 37]);
+
+            let body_font = *state.get(&client_theme().tokens().font_size());
+            let name_font = from_theme_body(body_font, HOTBAR_LABEL_FONT_PX);
+            // Measurement and drawing apply the global UI font scale, so the
+            // label line grows with it.
+            let label_height = (name_font * font_scale::active_factor()).ceil() + 2.0;
+
+            let available = resolver.push_available_area();
+            let metrics = hotbar_metrics(drawn.len(), available.width, available.height, label_height);
+
+            let text_color = *state.get(&client_theme().hotbar().label_color());
             for visual in 0..HOTBAR_SLOTS {
                 let (tab, slot) = hotbar.visual_to_stored(visual as u16);
+                self.hints[visual] = keybinds.map().slot_hint(visual as u16).unwrap_or_default();
                 let Some(cell) = hotbar.cell(tab, slot) else {
                     self.labels[visual].clear();
+                    self.names[visual] = NameLabel::default();
                     continue;
                 };
                 match cell.kind {
@@ -238,11 +291,39 @@ where
                     }
                     _ => self.labels[visual].clear(),
                 }
+
+                let name = cell_name(cell);
+                let label = &mut self.names[visual];
+                if label.source != name || label.width != metrics.slot || label.font != name_font {
+                    label.source.clear();
+                    label.source.push_str(name);
+                    label.width = metrics.slot;
+                    label.font = name_font;
+                    label.shown = ellipsize(name, metrics.slot, |text| {
+                        resolver
+                            .get_text_dimensions(
+                                text,
+                                text_color,
+                                text_color,
+                                FontSize(name_font),
+                                HorizontalAlignment::Left { offset: 0.0, border: 0.0 },
+                                OverflowBehavior::Shrink,
+                            )
+                            .0
+                            .width
+                    });
+                }
             }
+
+            let grid_height = metrics.grid_height();
+            let height = available.height.map_or(grid_height, |height| height.max(grid_height));
+            let area = resolver.with_height(height);
+            let grid_left = area.left + ((area.width - metrics.grid_width()) / 2.0).max(0.0);
             HotbarGridLayout {
-                area: resolver.with_height(CELL * drawn_rows as f32),
-                rows,
-                show_quick,
+                area,
+                metrics,
+                drawn,
+                grid_left,
             }
         })
     }
@@ -257,13 +338,27 @@ where
         use korangar_interface::prelude::*;
 
         let hotbar = state.get(&self.hotbar_path);
-        let column_width = layout_info.area.width / HOTBAR_COLUMNS as f32;
-        let mut draw = |visual: u16, column: usize, row: usize| {
+        let metrics = layout_info.metrics;
+        let body_font = *state.get(&client_theme().tokens().font_size());
+        let name_font = FontSize(from_theme_body(body_font, HOTBAR_LABEL_FONT_PX));
+        let hint_font = FontSize(from_theme_body(body_font, HOTBAR_HINT_FONT_PX));
+        let amount_font = FontSize(from_theme_body(body_font, 12.0));
+        let label_color = *state.get(&client_theme().hotbar().label_color());
+        let hint_color = *state.get(&client_theme().hotbar().hint_color());
+
+        for (index, &visual) in layout_info.drawn.iter().enumerate() {
+            let (column, row) = metrics.cell_position(index);
             let area = Area {
-                left: layout_info.area.left + column_width * column as f32,
-                top: layout_info.area.top + CELL * row as f32,
-                width: column_width,
-                height: CELL,
+                left: layout_info.grid_left + (metrics.slot + HOTBAR_SLOT_GAP) * column as f32,
+                top: layout_info.area.top + (metrics.cell_height() + HOTBAR_SLOT_GAP) * row as f32,
+                width: metrics.slot,
+                height: metrics.slot,
+            };
+            let label_area = Area {
+                left: area.left - HOTBAR_SLOT_GAP / 2.0,
+                top: area.top + metrics.slot,
+                width: metrics.slot + HOTBAR_SLOT_GAP,
+                height: metrics.label_height,
             };
             let (tab, slot) = hotbar.visual_to_stored(visual);
             let cell = hotbar.cell(tab, slot);
@@ -310,8 +405,20 @@ where
                     layout.register_click_handler(MouseButton::Right, &self.clears[visual as usize]);
                 }
             }
+            if !self.hints[visual as usize].is_empty() {
+                layout.add_text(
+                    area,
+                    self.hints[visual as usize].as_str(),
+                    hint_font,
+                    hint_color,
+                    hint_color,
+                    HorizontalAlignment::Left { offset: 2.0, border: 2.0 },
+                    VerticalAlignment::Top { offset: 1.0 },
+                    OverflowBehavior::Shrink,
+                );
+            }
             let Some(cell) = cell else {
-                return;
+                continue;
             };
             if cell.kind == CELL_SKILL
                 && let Some(skill) = cell.skill.as_ref()
@@ -319,6 +426,7 @@ where
                 if let (Some(actions), Some(sprite)) = (skill.actions.as_ref(), skill.sprite.as_ref()) {
                     layout.add_sprite(area, actions, sprite, &skill.animation_state, Color::WHITE, 1.0);
                 }
+                add_skill_cooldown(layout, state, area, skill.skill_id);
                 if is_hovered {
                     struct HotbarTooltip;
                     layout.add_tooltip(skill.skill_name.as_str(), HotbarTooltip.tooltip_id());
@@ -343,7 +451,7 @@ where
                 layout.add_text(
                     area,
                     self.labels[visual as usize].as_str(),
-                    FontSize(12.0),
+                    amount_font,
                     *state.get(&client_theme().text().color()),
                     *state.get(&client_theme().text().highlight_color()),
                     HorizontalAlignment::Right { offset: 2.0, border: 2.0 },
@@ -351,17 +459,19 @@ where
                     OverflowBehavior::Shrink,
                 );
             }
-        };
-
-        for row in 0..layout_info.rows as usize {
-            for column in 0..HOTBAR_COLUMNS {
-                draw((row * HOTBAR_COLUMNS + column) as u16, column, row);
+            let name = self.names[visual as usize].shown.as_str();
+            if occupied && !name.is_empty() {
+                layout.add_text(
+                    label_area,
+                    name,
+                    name_font,
+                    label_color,
+                    label_color,
+                    HorizontalAlignment::Center { offset: 0.0, border: 0.0 },
+                    VerticalAlignment::Top { offset: 1.0 },
+                    OverflowBehavior::Shrink,
+                );
             }
-        }
-        if layout_info.show_quick {
-            let row = layout_info.rows as usize;
-            draw(36, 0, row);
-            draw(37, 1, row);
         }
     }
 }

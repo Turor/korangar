@@ -50,7 +50,7 @@ Each line is logged as `AUTOPILOT_CMD ok|err <line>`. Blank lines and `#` commen
 | `pincode digit <0-9>` | Press the shuffled pad key that shows that digit. |
 | `pincode press <0-9>` | Press one pad location (the label there varies). |
 | `pincode submit` / `change` / `reset` / `cancel` / `request` | The pad buttons: submit the entry, start a PIN change, clear the entry, leave to login, or ask for the pad again. |
-| `dump <path>` | Print `AUTOPILOT_DUMP <path> …`. Paths: `inventory`, `hotbar`, `chat_messages`, `windows`, `player`. |
+| `dump <path>` | Print `AUTOPILOT_DUMP <path> …`. Paths: `inventory`, `hotbar`, `chat_messages`, `windows`, `player`, `cooldowns` (skill cooldowns, after-cast delay, visible cast bars). |
 | `quit` | Ask the client to exit. |
 
 `chat @where <name>` reports a tile (`Server: <name> <map> <x> <y>`). A bare `@where` fails with `Please enter a player name`.
